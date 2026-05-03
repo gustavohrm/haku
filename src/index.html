@@ -4,33 +4,47 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Tauri App</title>
+    <title>Haku</title>
     <link rel="stylesheet" href="./ui/styles/index.css" />
     <script type="module" src="./ui/scripts/index.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <section class="flex gap-1 p-2 pb-0" aria-label="Tabs">
+      <div class="flex gap-1" id="tab-strip"></div>
+      <button class="btn icon sm mb-1" id="new-tab-button" type="button" aria-label="New tab">
+        <i class="ic-plus"></i>
+      </button>
+    </section>
 
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="./assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="./assets/tauri.svg" class="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img src="./assets/typescript.svg" class="logo typescript" alt="typescript logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
+    <nav class="bg-foreground flex w-full items-center gap-1 p-1.5" aria-label="Browser controls">
+      <button class="btn icon" id="back-button" type="button" aria-label="Back">
+        <i class="ic-arrow-left"></i>
+      </button>
+      <button class="btn icon" id="forward-button" type="button" aria-label="Forward">
+        <i class="ic-arrow-right"></i>
+      </button>
+      <button class="btn icon" id="refresh-button" type="button" aria-label="Refresh">
+        <i class="ic-reload"></i>
+      </button>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
+      <form class="w-full" id="url-form">
+        <input
+          id="url-input"
+          class="ipt"
+          name="url"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Search or enter address"
+          placeholder="Search Google or type a URL"
+        />
       </form>
-      <p id="greet-msg"></p>
-    </main>
+
+      <button class="btn icon" id="devtools-button" type="button"><i class="ic-devtools"></i></button>
+    </nav>
+
+    <section class="flex size-full flex-1" id="browser-surface" aria-label="Page content">
+      <div class="surface-placeholder">Loading webview...</div>
+    </section>
   </body>
 </html>

@@ -1,0 +1,63 @@
+@layer components {
+  .ipt {
+    @apply focus:ring-primary bg-background hover:bg-surface text-text-secondary flex w-full rounded-full px-3 py-1.5 text-sm transition duration-400 focus:ring-2 focus:outline-none;
+  }
+
+  .btn {
+    @apply hover:bg-surface flex items-center justify-center rounded-full p-2 transition duration-200;
+
+    &.icon {
+      @apply size-8 [&.sm]:size-7 [&.sm]:p-1.5 [&.xs]:size-6 [&.xs]:p-1;
+    }
+  }
+
+  .tab {
+    @apply hover:bg-surface/80 flex max-w-48 min-w-32 items-center rounded-t-lg px-3 text-xs transition duration-400;
+
+    &.active {
+      @apply bg-foreground;
+    }
+
+    & img {
+      @apply size-6 object-contain;
+    }
+
+    & span {
+      @apply w-full truncate overflow-hidden text-ellipsis whitespace-nowrap;
+    }
+
+    & button {
+      @apply hover:bg-surface flex size-5.5 items-center justify-center rounded-full p-1 transition duration-200;
+    }
+  }
+
+  .tooltip {
+    @apply relative;
+
+    &.icon {
+      @apply bg-surface text-text size-5 cursor-default items-center justify-center rounded-full text-sm font-semibold;
+    }
+
+    &[data-tooltip-position="top"]::after {
+      @apply -top-2 left-1/2 origin-bottom -translate-x-1/2 -translate-y-full;
+    }
+    &[data-tooltip-position="bottom"]::after {
+      @apply -bottom-2 left-1/2 origin-top -translate-x-1/2 translate-y-full;
+    }
+    &[data-tooltip-position="left"]::after {
+      @apply top-1/2 -left-2 origin-right -translate-x-full -translate-y-1/2;
+    }
+    &[data-tooltip-position="right"]::after {
+      @apply top-1/2 -right-2 origin-left translate-x-full -translate-y-1/2;
+    }
+
+    &::after {
+      content: attr(data-tooltip);
+      @apply bg-surface text-text pointer-events-none absolute z-50 w-max max-w-3xs scale-0 rounded-md p-2 text-sm font-normal shadow-sm transition-transform duration-200;
+    }
+
+    &:hover::after {
+      @apply scale-100;
+    }
+  }
+}
