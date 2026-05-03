@@ -1,4 +1,4 @@
-use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
+use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 const BROWSER_WEBVIEW_LABEL: &str = "browser-webview";
 
@@ -8,6 +8,42 @@ struct BrowserBounds {
     y: f64,
     width: f64,
     height: f64,
+}
+
+const PAGE_INFO_SCRIPT: &str = r#"
+(function () {
+    function notify() {
+        var favicon = '';
+        var link = document.querySelector('link[rel~="icon"]') || document.querySelector('link[rel="shortcut icon"]');
+        if (link) favicon = link.href;
+        if (window.__TAURI__ && window.__TAURI__.core) {
+            window.__TAURI__.core.invoke('update_tab_info', {
+                title: document.title,
+                favicon: favicon,
+                url: location.href
+            }).catch(function () {});
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', notify);
+    } else {
+        notify();
+    }
+    window.addEventListener('load', notify);
+})();
+"#;
+
+#[derive(Clone, serde::Serialize)]
+struct TabInfo {
+    title: String,
+    favicon: String,
+    url: String,
+}
+
+#[tauri::command]
+fn update_tab_info(app: tauri::AppHandle, title: String, favicon: String, url: String) -> Result<(), String> {
+    app.emit("tab-info", TabInfo { title, favicon, url })
+        .map_err(|e| e.to_string())
 }
 
 fn parse_url(url: &str) -> Result<tauri::Url, String> {
@@ -47,7 +83,8 @@ async fn ensure_browser_webview(
         BROWSER_WEBVIEW_LABEL,
         WebviewUrl::External(parsed_url),
     )
-    .devtools(true);
+    .devtools(true)
+    .initialization_script(PAGE_INFO_SCRIPT);
 
     window
         .add_child(
@@ -123,7 +160,8 @@ pub fn run() {
             reload_browser,
             browser_go_back,
             browser_go_forward,
-            open_browser_devtools
+            open_browser_devtools,
+            update_tab_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

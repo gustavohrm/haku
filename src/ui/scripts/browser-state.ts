@@ -2,6 +2,7 @@ export interface BrowserTab {
   id: string;
   title: string;
   url: string;
+  favicon?: string;
 }
 
 export interface BrowserState {
@@ -11,6 +12,7 @@ export interface BrowserState {
   closeTab(tabId: string): void;
   selectTab(tabId: string): void;
   updateSelectedTabUrl(url: string): void;
+  updateTabInfo(tabId: string, title: string, favicon: string, url?: string): void;
 }
 
 const SEARCH_URL = "https://www.google.com/search?q=";
@@ -101,6 +103,15 @@ export function createBrowserState(initialUrl = DEFAULT_URL): BrowserState {
     updateSelectedTabUrl(url: string) {
       this.selectedTab.url = url;
       this.selectedTab.title = new URL(url).hostname || url;
+      this.selectedTab.favicon = undefined;
+    },
+    updateTabInfo(tabId: string, title: string, favicon: string, url?: string) {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (tab) {
+        if (url) tab.url = url;
+        tab.title = title || tab.title;
+        tab.favicon = favicon || undefined;
+      }
     },
   };
 }

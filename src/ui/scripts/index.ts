@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 import { createBrowserState, resolveNavigationTarget } from "./browser-state";
+import tabManager from "./tabs";
 
 interface BrowserBounds {
   x: number;
@@ -47,10 +49,27 @@ window.addEventListener("DOMContentLoaded", () => {
   const devtoolsButton = getElement<HTMLButtonElement>("#devtools-button");
   const newTabButton = getElement<HTMLButtonElement>("#new-tab-button");
 
+  tabManager.init(tabStrip);
+
   async function syncWebviewBounds() {
     await callBrowserCommand("set_browser_bounds", {
       bounds: getBrowserBounds(surface),
     });
+  }
+
+  function renderTabs() {
+    tabManager.render(
+      state.tabs,
+      state.selectedTab.id,
+      async (id) => {
+        state.selectTab(id);
+        await loadSelectedTab();
+      },
+      async (id) => {
+        state.closeTab(id);
+        await loadSelectedTab();
+      },
+    );
   }
 
   async function loadSelectedTab() {
@@ -59,34 +78,12 @@ window.addEventListener("DOMContentLoaded", () => {
     renderTabs();
   }
 
-  function renderTabs() {
-    tabStrip.replaceChildren();
-
-    for (const tab of state.tabs) {
-      const tabButton = document.createElement("button");
-      const closeButton = document.createElement("button");
-      const isSelected = tab.id === state.selectedTab.id;
-
-      tabButton.className = `tab${isSelected ? " active" : ""}`;
-      tabButton.type = "button";
-      tabButton.textContent = tab.title;
-      tabButton.title = tab.url;
-      tabButton.addEventListener("click", async () => {
-        state.selectTab(tab.id);
-        await loadSelectedTab();
-      });
-
-      closeButton.innerHTML = `<i class="ic-close"></i>`;
-      closeButton.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        state.closeTab(tab.id);
-        await loadSelectedTab();
-      });
-
-      tabButton.append(closeButton);
-      tabStrip.append(tabButton);
-    }
-  }
+  listen<{ title: string; favicon: string; url: string }>("tab-info", (event) => {
+    const { title, favicon, url } = event.payload;
+    state.updateTabInfo(state.selectedTab.id, title, favicon, url);
+    urlInput.value = url;
+    renderTabs();
+  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
