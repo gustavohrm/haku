@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { createBrowserState, resolveNavigationTarget } from "./browser-state";
 import tabManager from "./tabs";
@@ -48,6 +49,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const refreshButton = getElement<HTMLButtonElement>("#refresh-button");
   const devtoolsButton = getElement<HTMLButtonElement>("#devtools-button");
   const newTabButton = getElement<HTMLButtonElement>("#new-tab-button");
+  const minimizeButton = getElement<HTMLButtonElement>("#minimize-button");
+  const maximizeButton = getElement<HTMLButtonElement>("#maximize-button");
+  const closeButton = getElement<HTMLButtonElement>("#close-button");
+  const appWindow = getCurrentWindow();
 
   tabManager.init(tabStrip);
 
@@ -97,6 +102,9 @@ window.addEventListener("DOMContentLoaded", () => {
   forwardButton.addEventListener("click", () => callBrowserCommand("browser_go_forward"));
   refreshButton.addEventListener("click", () => callBrowserCommand("reload_browser"));
   devtoolsButton.addEventListener("click", () => callBrowserCommand("open_browser_devtools"));
+  minimizeButton.addEventListener("click", () => appWindow.minimize());
+  maximizeButton.addEventListener("click", () => appWindow.toggleMaximize());
+  closeButton.addEventListener("click", () => appWindow.close());
   newTabButton.addEventListener("click", async () => {
     state.createTab();
     await loadSelectedTab();

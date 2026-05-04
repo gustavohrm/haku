@@ -31,6 +31,22 @@
     }
   }
 
+  .window-controls {
+    @apply flex items-stretch self-stretch;
+  }
+
+  .wc-btn {
+    @apply flex items-center justify-center w-10 text-text-secondary hover:bg-surface hover:text-text transition duration-150 cursor-default;
+
+    & svg {
+      @apply w-2.5 h-2.5;
+    }
+
+    &.wc-close:hover {
+      @apply bg-rose-600 text-white;
+    }
+  }
+
   .tooltip {
     @apply relative;
 
