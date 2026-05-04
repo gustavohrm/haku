@@ -12,10 +12,26 @@
   }
 
   .tab {
-    @apply hover:bg-surface/80 flex w-48 items-center rounded-t-lg pr-1.5 pl-3 transition duration-400;
+    @apply hover:bg-surface/80 relative flex w-48 items-center rounded-t-lg pr-1.5 pl-2 transition duration-400;
 
     &.active {
       @apply bg-foreground;
+
+      &::before,
+      &::after {
+        @apply bg-foreground pointer-events-none absolute aspect-square size-2.5;
+        content: "";
+      }
+
+      &::before {
+        @apply bottom-0 left-0 -translate-x-full rotate-y-180;
+        clip-path: path("M 0 10 L 10 10 C 5 10 0 5 0 0 L 0 10");
+      }
+
+      &::after {
+        @apply right-0 bottom-0 translate-x-full;
+        clip-path: path("M 0 10 L 10 10 C 5 10 0 5 0 0 L 0 10");
+      }
     }
 
     & img {
