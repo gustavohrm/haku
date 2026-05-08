@@ -125,22 +125,6 @@ fn reload_browser(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn browser_go_back(app: tauri::AppHandle) -> Result<(), String> {
-    app.get_webview(BROWSER_WEBVIEW_LABEL)
-        .ok_or_else(|| "Browser webview not found.".to_string())?
-        .eval("history.back()")
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn browser_go_forward(app: tauri::AppHandle) -> Result<(), String> {
-    app.get_webview(BROWSER_WEBVIEW_LABEL)
-        .ok_or_else(|| "Browser webview not found.".to_string())?
-        .eval("history.forward()")
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
 fn open_browser_devtools(app: tauri::AppHandle) -> Result<(), String> {
     app.get_webview(BROWSER_WEBVIEW_LABEL)
         .ok_or_else(|| "Browser webview not found.".to_string())?
@@ -158,8 +142,6 @@ pub fn run() {
             set_browser_bounds,
             navigate_browser,
             reload_browser,
-            browser_go_back,
-            browser_go_forward,
             open_browser_devtools,
             update_tab_info
         ])
