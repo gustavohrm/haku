@@ -66,6 +66,7 @@ index.html → ui → core → shared
 ```
 
 **Hard rules:**
+
 - Types and constants depend on nothing — they are leaves.
 - No circular dependencies, ever.
 - `core/` = pure logic, no UI. `ui/` = UI only, delegates logic to core. `shared/` = reusable utilities with no behavior.
@@ -75,13 +76,13 @@ index.html → ui → core → shared
 
 Defined in `tauri/src/lib.rs`, invoked from `src/core/tabs/webview.ts`:
 
-| Command | Purpose |
-|---|---|
-| `ensure_browser_webview(url, bounds)` | Create or reposition the browser webview |
-| `set_browser_bounds(bounds)` | Reposition webview |
-| `navigate_browser(url)` | Navigate webview to URL |
-| `reload_browser()` | Reload current page |
-| `open_browser_devtools()` | Open devtools |
+| Command                                | Purpose                                     |
+| -------------------------------------- | ------------------------------------------- |
+| `ensure_browser_webview(url, bounds)`  | Create or reposition the browser webview    |
+| `set_browser_bounds(bounds)`           | Reposition webview                          |
+| `navigate_browser(url)`                | Navigate webview to URL                     |
+| `reload_browser()`                     | Reload current page                         |
+| `open_browser_devtools()`              | Open devtools                               |
 | `update_tab_info(title, favicon, url)` | Update tab metadata, emits `tab-info` event |
 
 ## Key types (`@shared/types`)
@@ -109,15 +110,15 @@ Tauri backend
 
 ## Naming conventions
 
-| Thing | Convention | Example |
-|---|---|---|
-| Files & folders | kebab-case | `tab-state.ts` |
-| Variables & functions | camelCase | `createTabState` |
-| Classes & types | PascalCase | `ManagedTab` |
-| Constants & enums | UPPER_SNAKE_CASE | `DEFAULT_TAB_URL` |
-| Booleans | is/has/can/should prefix | `canGoBack` |
-| Arrays | plural nouns | `tabs` |
-| Functions | verb phrases | `resolveNavigationTarget` |
+| Thing                 | Convention               | Example                   |
+| --------------------- | ------------------------ | ------------------------- |
+| Files & folders       | kebab-case               | `tab-state.ts`            |
+| Variables & functions | camelCase                | `createTabState`          |
+| Classes & types       | PascalCase               | `ManagedTab`              |
+| Constants & enums     | UPPER_SNAKE_CASE         | `DEFAULT_TAB_URL`         |
+| Booleans              | is/has/can/should prefix | `canGoBack`               |
+| Arrays                | plural nouns             | `tabs`                    |
+| Functions             | verb phrases             | `resolveNavigationTarget` |
 
 ## Coding conventions
 
