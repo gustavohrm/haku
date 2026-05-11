@@ -30,6 +30,12 @@ const PAGE_INFO_SCRIPT: &str = r#"
         notify();
     }
     window.addEventListener('load', notify);
+    window.addEventListener('popstate', notify);
+    window.addEventListener('hashchange', notify);
+    var _push = history.pushState.bind(history);
+    var _replace = history.replaceState.bind(history);
+    history.pushState = function() { _push.apply(this, arguments); notify(); };
+    history.replaceState = function() { _replace.apply(this, arguments); notify(); };
 })();
 "#;
 
@@ -84,6 +90,7 @@ async fn ensure_browser_webview(
         WebviewUrl::External(parsed_url),
     )
     .devtools(true)
+    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
     .initialization_script(PAGE_INFO_SCRIPT);
 
     window
