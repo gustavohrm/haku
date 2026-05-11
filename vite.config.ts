@@ -10,6 +10,9 @@ export default defineConfig(async () => ({
   build: {
     outDir: "../dist",
   },
+  resolve: {
+    tsconfigPaths: true,
+  },
   plugins: [tailwindcss(), iconsPlugin()],
   // Prevent Vite from obscuring rust errors
   clearScreen: false,
