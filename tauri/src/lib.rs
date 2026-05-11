@@ -13,6 +13,7 @@ struct BrowserBounds {
 const PAGE_INFO_SCRIPT: &str = r#"
 (function () {
     function notify() {
+        if (!/^https?:\/\//i.test(location.href)) return;
         var favicon = '';
         var link = document.querySelector('link[rel~="icon"]') || document.querySelector('link[rel="shortcut icon"]');
         if (link) favicon = link.href;
