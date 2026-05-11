@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:check": "prettier --check .",
+    "lint:fix": "prettier --write ."
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
