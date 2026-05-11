@@ -129,6 +129,11 @@ export function createTabState(initialUrl = DEFAULT_TAB_URL): TabState {
         current.url = url;
       }
     },
+    updateSelectedTabScroll(x: number, y: number) {
+      const current = getCurrentWebsite(getSelectedTab());
+      current.scrollX = x;
+      current.scrollY = y;
+    },
     canGoBack() {
       return getSelectedTab().historyIndex > 0;
     },

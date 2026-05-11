@@ -10,6 +10,8 @@ export interface Website {
   url: string;
   favicon?: string;
   order: number;
+  scrollX?: number;
+  scrollY?: number;
 }
 
 export interface Tab {
@@ -22,6 +24,11 @@ export interface TabInfoEvent {
   title: string;
   favicon: string;
   url: string;
+}
+
+export interface ScrollPositionEvent {
+  x: number;
+  y: number;
 }
 
 export interface ManagedTab {
@@ -46,6 +53,7 @@ export interface TabState {
   selectTab(tabId: string): void;
   navigateSelectedTab(url: string): Website;
   updateSelectedTabInfo(info: TabInfoUpdate): void;
+  updateSelectedTabScroll(x: number, y: number): void;
   canGoBack(): boolean;
   canGoForward(): boolean;
   goBack(): Website | null;

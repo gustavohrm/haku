@@ -5,10 +5,11 @@ import {
   openBrowserDevtools,
   reloadBrowser,
   resolveNavigationTarget,
+  scrollBrowserTo,
   setBrowserBounds,
 } from "@core/tabs";
 import { listen } from "@shared/tauri";
-import type { TabInfoEvent, BrowserBounds } from "@shared/types";
+import type { TabInfoEvent, ScrollPositionEvent, BrowserBounds } from "@shared/types";
 import { getElement } from "@ui/scripts/utils";
 import { renderTabs } from "./render";
 
@@ -44,6 +45,7 @@ export function initTabs(): void {
 
   const state = createTabState();
   let pendingNavigationUrl: string | null = null;
+  let pendingScrollRestore: { x: number; y: number } | null = null;
 
   function syncControls(): void {
     backButton.disabled = !state.canGoBack();
@@ -68,8 +70,10 @@ export function initTabs(): void {
   async function showSelectedTab(): Promise<void> {
     syncAddressBar();
     syncTabs();
-    pendingNavigationUrl = state.selectedTab.current.url;
-    await navigateBrowser(state.selectedTab.current.url);
+    const current = state.selectedTab.current;
+    pendingNavigationUrl = current.url;
+    pendingScrollRestore = { x: current.scrollX ?? 0, y: current.scrollY ?? 0 };
+    await navigateBrowser(current.url);
   }
 
   async function selectTab(tabId: string): Promise<void> {
@@ -113,13 +117,23 @@ export function initTabs(): void {
       );
       if (isFromInactiveTab) return;
       pendingNavigationUrl = null;
-    } else if (!urlsMatch(payload.url, state.selectedTab.current.url)) {
-      state.navigateSelectedTab(payload.url);
+    } else {
+      if (!urlsMatch(payload.url, state.selectedTab.current.url)) {
+        state.navigateSelectedTab(payload.url);
+      }
+      if (pendingScrollRestore) {
+        void scrollBrowserTo(pendingScrollRestore.x, pendingScrollRestore.y);
+        pendingScrollRestore = null;
+      }
     }
 
     state.updateSelectedTabInfo(payload);
     syncAddressBar();
     syncTabs();
+  });
+
+  void listen<ScrollPositionEvent>("scroll-position", ({ payload }) => {
+    state.updateSelectedTabScroll(payload.x, payload.y);
   });
 
   syncAddressBar();

@@ -36,6 +36,18 @@ const PAGE_INFO_SCRIPT: &str = r#"
     var _replace = history.replaceState.bind(history);
     history.pushState = function() { _push.apply(this, arguments); notify(); };
     history.replaceState = function() { _replace.apply(this, arguments); notify(); };
+    var _scrollTimer = null;
+    window.addEventListener('scroll', function() {
+        if (_scrollTimer) clearTimeout(_scrollTimer);
+        _scrollTimer = setTimeout(function() {
+            if (window.__TAURI__ && window.__TAURI__.core) {
+                window.__TAURI__.core.invoke('update_scroll_position', {
+                    x: window.scrollX,
+                    y: window.scrollY
+                }).catch(function() {});
+            }
+        }, 150);
+    }, { passive: true });
 })();
 "#;
 
@@ -46,10 +58,30 @@ struct TabInfo {
     url: String,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct ScrollPosition {
+    x: f64,
+    y: f64,
+}
+
 #[tauri::command]
 fn update_tab_info(app: tauri::AppHandle, title: String, favicon: String, url: String) -> Result<(), String> {
     app.emit("tab-info", TabInfo { title, favicon, url })
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_scroll_position(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), String> {
+    app.emit("scroll-position", ScrollPosition { x, y })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn scroll_browser_to(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), String> {
+    app.get_webview(BROWSER_WEBVIEW_LABEL)
+        .ok_or_else(|| "Browser webview not found.".to_string())?
+        .eval(&format!("window.scrollTo({x}, {y})"))
+        .map_err(|error| error.to_string())
 }
 
 fn parse_url(url: &str) -> Result<tauri::Url, String> {
@@ -150,7 +182,9 @@ pub fn run() {
             navigate_browser,
             reload_browser,
             open_browser_devtools,
-            update_tab_info
+            update_tab_info,
+            update_scroll_position,
+            scroll_browser_to
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

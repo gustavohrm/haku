@@ -20,3 +20,7 @@ export async function reloadBrowser(): Promise<void> {
 export async function openBrowserDevtools(): Promise<void> {
   await invoke("open_browser_devtools");
 }
+
+export async function scrollBrowserTo(x: number, y: number): Promise<void> {
+  await invoke("scroll_browser_to", { x, y });
+}
