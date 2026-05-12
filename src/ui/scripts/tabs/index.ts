@@ -8,7 +8,7 @@ import {
   scrollBrowserTo,
   setBrowserBounds,
 } from "@core/tabs";
-import { listen } from "@shared/tauri";
+import { listen, EVENTS } from "@shared/tauri";
 import type { TabInfoEvent, ScrollPositionEvent, BrowserBounds } from "@shared/types";
 import { getElement } from "@ui/scripts/utils";
 import { renderTabs } from "./render";
@@ -110,7 +110,7 @@ export function initTabs(): void {
 
   window.addEventListener("resize", () => void setBrowserBounds(getBrowserBounds(surface)));
 
-  void listen<TabInfoEvent>("tab-info", ({ payload }) => {
+  void listen<TabInfoEvent>(EVENTS.TAB_INFO, ({ payload }) => {
     if (pendingNavigationUrl) {
       const isFromInactiveTab = state.tabs.some(
         (tab) => tab.id !== state.selectedTab.id && urlsMatch(payload.url, tab.current.url),
@@ -132,7 +132,7 @@ export function initTabs(): void {
     syncTabs();
   });
 
-  void listen<ScrollPositionEvent>("scroll-position", ({ payload }) => {
+  void listen<ScrollPositionEvent>(EVENTS.SCROLL_POSITION, ({ payload }) => {
     state.updateSelectedTabScroll(payload.x, payload.y);
   });
 
