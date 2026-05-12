@@ -88,7 +88,7 @@ describe("iconsPlugin", () => {
   });
 
   it("should consume explicit closing icon marker tags", async () => {
-    const transformed = await runTransformIndexHtml(`<button><i class="ic-sun block"></i></button>`);
+    const transformed = await runTransformIndexHtml(`<button><i class="ic-close block"></i></button>`);
 
     expect(transformed).toContain(`<svg class="block"`);
     expect(transformed).not.toContain("</i>");

@@ -41,7 +41,7 @@ export interface ManagedTab {
 
 export interface TabInfoUpdate {
   title: string;
-  favicon: string;
+  favicon?: string;
   url?: string;
 }
 

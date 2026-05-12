@@ -1,4 +1,4 @@
-import { invoke } from "../../shared/tauri";
+import { invoke } from "@shared/tauri";
 import { BrowserBounds } from "@shared/types";
 
 export async function ensureBrowserWebview(url: string, bounds: BrowserBounds): Promise<void> {
