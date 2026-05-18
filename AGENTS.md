@@ -11,7 +11,9 @@ Haku is a lightweight desktop browser built with Tauri v2 (Rust backend) and a T
 ```bash
 pnpm dev          # Vite dev server on :1420
 pnpm build        # tsc + vite build → dist/
+pnpm typecheck    # TypeScript type checking
 pnpm test         # Vitest single run
+pnpm test <file>  # Test a single file
 pnpm test:watch   # Vitest watch mode
 pnpm lint:check   # Prettier --check
 pnpm lint:fix     # Prettier --write
