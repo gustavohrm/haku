@@ -1,6 +1,7 @@
 # App Architecture
 
-**Last updated:** 2026-05-07
+**Status:** DRAFT
+**Last updated:** 2026-05-26
 
 This document explains what goes where in this app and the reason why if not obvious.
 

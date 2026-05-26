@@ -1,6 +1,7 @@
 # Codebase guidelines
 
-**Last updated:** 2026-05-07
+**Status:** APPROVED
+**Last updated:** 2026-05-26
 
 This document outlines patterns, conventions and guidelines to follow when working on this codebase.
 
