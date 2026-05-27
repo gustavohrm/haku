@@ -15,6 +15,8 @@
       {
         "title": "haku",
         "maximized": true,
+        "minHeight": 480,
+        "minWidth": 640,
         "decorations": false
       }
     ],
