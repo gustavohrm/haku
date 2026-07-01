@@ -1,5 +1,6 @@
 import { invoke as invokeTauri } from "@tauri-apps/api/core";
-import { listen as listenTauri, Event } from "@tauri-apps/api/event";
+import type { Event } from "@tauri-apps/api/event";
+import { listen as listenTauri } from "@tauri-apps/api/event";
 
 import { COMMANDS, EVENTS } from "./constants";
 

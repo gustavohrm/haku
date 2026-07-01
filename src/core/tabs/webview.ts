@@ -1,5 +1,5 @@
 import { invoke, COMMANDS } from "@shared/tauri";
-import { BrowserBounds } from "@shared/types";
+import type { BrowserBounds } from "@shared/types";
 
 export async function ensureBrowserWebview(url: string, bounds: BrowserBounds): Promise<void> {
   await invoke(COMMANDS.ENSURE_BROWSER_WEBVIEW, { url, bounds });

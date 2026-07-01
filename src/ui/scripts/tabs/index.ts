@@ -94,11 +94,11 @@ export function initTabs(): void {
   });
 
   backButton.addEventListener("click", () => {
-    if (state.goBack()) void showSelectedTab();
+    if (state.goBack()) {void showSelectedTab();}
   });
 
   forwardButton.addEventListener("click", () => {
-    if (state.goForward()) void showSelectedTab();
+    if (state.goForward()) {void showSelectedTab();}
   });
 
   refreshButton.addEventListener("click", () => void reloadBrowser());
@@ -116,7 +116,7 @@ export function initTabs(): void {
       const isFromInactiveTab = state.tabs.some(
         (tab) => tab.id !== state.selectedTab.id && urlsMatch(payload.url, tab.current.url),
       );
-      if (isFromInactiveTab) return;
+      if (isFromInactiveTab) {return;}
       pendingNavigationUrl = null;
     } else {
       if (!urlsMatch(payload.url, state.selectedTab.current.url)) {
