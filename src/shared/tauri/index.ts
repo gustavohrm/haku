@@ -7,8 +7,8 @@ import { COMMANDS, EVENTS } from "./constants";
 type TauriCommand = (typeof COMMANDS)[keyof typeof COMMANDS];
 type TauriEvent = (typeof EVENTS)[keyof typeof EVENTS];
 
-async function invoke<T>(cmd: TauriCommand, args?: any): Promise<T> {
-  return invokeTauri<T>(cmd, args);
+async function invoke<T>(cmd: TauriCommand, args?: unknown): Promise<T> {
+  return invokeTauri<T>(cmd, args as Record<string, unknown>);
 }
 
 async function listen<T>(event: TauriEvent, callback: (event: Event<T>) => void): Promise<() => void> {
