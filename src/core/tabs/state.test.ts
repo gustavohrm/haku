@@ -1,6 +1,6 @@
+import { DEFAULT_TAB_URL } from "@shared/constants";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_TAB_URL } from "@shared/constants";
 import { createTabState, resolveNavigationTarget } from "./state";
 
 describe("resolveNavigationTarget", () => {

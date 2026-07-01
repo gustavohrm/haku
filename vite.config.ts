@@ -1,6 +1,6 @@
-import { defineConfig } from "vite";
-import tailwindcss from "@tailwindcss/vite";
 import { iconsPlugin } from "@codenhub/vite-plugin-icons";
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "vite";
 
 import { icons } from "./assets/data/icons";
 
@@ -15,7 +15,7 @@ export default defineConfig(async () => ({
   resolve: {
     tsconfigPaths: true,
   },
-  plugins: [tailwindcss(), iconsPlugin({icons})],
+  plugins: [tailwindcss(), iconsPlugin({ icons })],
   // Prevent Vite from obscuring rust errors
   clearScreen: false,
   // Tauri expects a fixed port, fail if that port is not available

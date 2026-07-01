@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import AppError, { DEFAULT_APP_ERROR_MESSAGE } from "./index";
 import * as appErrorModule from "./index";
 

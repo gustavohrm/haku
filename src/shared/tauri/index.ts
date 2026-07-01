@@ -1,6 +1,7 @@
-import { COMMANDS, EVENTS } from "./constants";
 import { invoke as invokeTauri } from "@tauri-apps/api/core";
 import { listen as listenTauri, Event } from "@tauri-apps/api/event";
+
+import { COMMANDS, EVENTS } from "./constants";
 
 type TauriCommand = (typeof COMMANDS)[keyof typeof COMMANDS];
 type TauriEvent = (typeof EVENTS)[keyof typeof EVENTS];

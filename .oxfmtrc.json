@@ -2,13 +2,7 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "bracketSpacing": true,
   "htmlWhitespaceSensitivity": "ignore",
-  "ignorePatterns": [
-    "dist/**",
-    "coverage/**",
-    "**/coverage/**",
-    "test-results/**",
-    "**/test-results/**"
-  ],
+  "ignorePatterns": ["dist/**", "coverage/**", "**/coverage/**", "test-results/**", "**/test-results/**"],
   "printWidth": 120,
   "semi": true,
   "singleQuote": false,

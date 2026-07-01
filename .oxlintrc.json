@@ -1,12 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": [
-    "dist/**",
-    "coverage/**",
-    "**/coverage/**",
-    "test-results/**",
-    "**/test-results/**"
-  ],
+  "ignorePatterns": ["dist/**", "coverage/**", "**/coverage/**", "test-results/**", "**/test-results/**"],
   "env": {
     "browser": true,
     "node": true
@@ -33,10 +27,7 @@
     "no-var": "error",
     "prefer-const": "error",
     "promise/prefer-await-to-then": "error",
-    "typescript/consistent-type-imports": [
-      "error",
-      { "prefer": "type-imports" }
-    ],
+    "typescript/consistent-type-imports": ["error", { "prefer": "type-imports" }],
     "typescript/no-explicit-any": "error",
     "typescript/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
     "unicorn/filename-case": ["error", { "case": "kebabCase" }],

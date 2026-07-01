@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import AppError from "../error";
 import type { Result } from "../result";
 import { coerce, custom, val } from "./index";

@@ -19,8 +19,8 @@
       "@core/*": ["./src/core/*"],
       "@shared/*": ["./src/shared/*"],
       "@helpers/*": ["./src/shared/helpers/*"],
-      "@ui/*": ["./src/ui/*"],
-    },
+      "@ui/*": ["./src/ui/*"]
+    }
   },
-  "include": ["src", "vite.config.ts"],
+  "include": ["src", "vite.config.ts"]
 }

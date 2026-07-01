@@ -11,6 +11,7 @@ import {
 import { listen, EVENTS } from "@shared/tauri";
 import type { TabInfoEvent, ScrollPositionEvent, BrowserBounds } from "@shared/types";
 import { getElement } from "@ui/scripts/utils";
+
 import { renderTabs } from "./render";
 
 function getBrowserBounds(surface: HTMLElement): BrowserBounds {
