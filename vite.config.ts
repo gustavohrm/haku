@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-import { iconsPlugin } from "./plugins/vite";
+import { iconsPlugin } from "@codenhub/vite-plugin-icons";
+
+import { icons } from "./assets/data/icons";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -13,7 +15,7 @@ export default defineConfig(async () => ({
   resolve: {
     tsconfigPaths: true,
   },
-  plugins: [tailwindcss(), iconsPlugin()],
+  plugins: [tailwindcss(), iconsPlugin({icons})],
   // Prevent Vite from obscuring rust errors
   clearScreen: false,
   // Tauri expects a fixed port, fail if that port is not available

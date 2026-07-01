@@ -1,9 +1,0 @@
-{
-  "bracketSpacing": true,
-  "htmlWhitespaceSensitivity": "ignore",
-  "plugins": ["prettier-plugin-tailwindcss"],
-  "printWidth": 120,
-  "semi": true,
-  "singleQuote": false,
-  "trailingComma": "all"
-}

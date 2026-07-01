@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "dist/**",
+    "coverage/**",
+    "**/coverage/**",
+    "test-results/**",
+    "**/test-results/**"
+  ],
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "plugins": ["typescript", "oxc", "jsdoc", "unicorn", "promise", "vitest"],
+  "rules": {
+    "curly": ["error", "all"],
+    "eqeqeq": ["error", "always"],
+    "jsdoc/check-access": "error",
+    "jsdoc/check-property-names": "error",
+    "jsdoc/check-tag-names": "off",
+    "jsdoc/empty-tags": "error",
+    "jsdoc/implements-on-classes": "error",
+    "jsdoc/no-defaults": "error",
+    "jsdoc/require-param-description": "error",
+    "jsdoc/require-param-name": "error",
+    "jsdoc/require-property-description": "error",
+    "jsdoc/require-property-name": "error",
+    "jsdoc/require-returns-description": "error",
+    "jsdoc/require-throws-description": "error",
+    "no-await-in-loop": "error",
+    "no-empty": "error",
+    "no-empty-function": "off",
+    "no-var": "error",
+    "prefer-const": "error",
+    "promise/prefer-await-to-then": "error",
+    "typescript/consistent-type-imports": [
+      "error",
+      { "prefer": "type-imports" }
+    ],
+    "typescript/no-explicit-any": "error",
+    "typescript/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "unicorn/filename-case": ["error", { "case": "kebabCase" }],
+    "vitest/no-identical-title": "error",
+    "vitest/require-mock-type-parameters": "off"
+  }
+}
