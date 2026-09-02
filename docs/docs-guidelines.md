@@ -1,7 +1,7 @@
 # Documentation
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-05-26
+**Last updated:** 2026-09-01
 
 This document covers how the documentation in this project is structured, maintained, and how it should be interpreted, including this document itself.
 
@@ -35,7 +35,7 @@ Prefer updating existing documents over creating new overlapping ones. Prefer up
 
 ## What belongs here
 
-Use `.docs/` for durable project knowledge:
+Use `docs/` for durable project knowledge:
 
 - Architecture decisions.
 - Implementation guidelines.
@@ -43,6 +43,6 @@ Use `.docs/` for durable project knowledge:
 - Feature specs.
 - Source-of-truth decisions.
 
-Do not use `.docs/` for temporary notes, TODO lists, or information better expressed in code comments.
+Do not use `docs/` for temporary notes, TODO lists, or information better expressed in code comments.
 
-Plans and similar temporary documents MAY live in `.docs/plans/`. This directory is git-ignored and should stay that way because these documents are short-lived planning aids, not long-term project documentation.
+Plans and similar temporary documents MAY live in `docs/plans/`. This directory is git-ignored and should stay that way because these documents are short-lived planning aids, not long-term project documentation.

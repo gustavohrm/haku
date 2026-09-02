@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "haku",
+  "productName": "Haku",
   "version": "0.1.0",
   "identifier": "com.hakubrowser.app",
   "build": {
@@ -10,10 +10,11 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
-        "title": "haku",
+        "label": "main",
+        "title": "Haku",
         "maximized": true,
         "minHeight": 480,
         "minWidth": 640,

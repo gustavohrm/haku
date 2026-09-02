@@ -8,23 +8,35 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "bindings": "cargo test --manifest-path tauri/Cargo.toml export_bindings",
     "typecheck": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:rust": "cargo test --manifest-path tauri/Cargo.toml",
     "format:check": "oxfmt --check",
     "format:fix": "oxfmt --write",
     "lint:check": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "verify": "pnpm format:check && pnpm lint:check && pnpm typecheck && pnpm test && pnpm test:rust"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2"
+    "@codenhub/icons": "^0.1.0",
+    "@codenhub/styles": "^0.1.0",
+    "@codenhub/theme": "^0.1.1",
+    "@tauri-apps/api": "^2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@codenhub/vite-plugin-icons": "^0.0.1",
     "@tailwindcss/vite": "^4.2.4",
     "@tauri-apps/cli": "^2",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.9",
+    "jsdom": "^29.1.1",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
     "tailwindcss": "^4.2.4",

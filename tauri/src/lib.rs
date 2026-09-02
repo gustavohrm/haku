@@ -1,192 +1,77 @@
-use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
+//! Haku: a lightweight desktop browser.
+//!
+//! ## Shape
+//!
+//! Rust owns the browser. [`browser::Browser`] holds every tab, its history and
+//! the webview pool, and it is the only thing allowed to change them. It is
+//! also entirely free of Tauri: it decides what should be true and returns
+//! [`browser::Effect`]s describing the difference, which the [`webview`] module
+//! applies to real webviews. That split is what makes tab and pool behaviour
+//! testable without a window.
+//!
+//! The interface is a React application in the `main` webview. It holds no tab
+//! state of its own; it sends intents and renders the state events it receives.
+//! That is what will let a second window join later without a rewrite.
+//!
+//! ## Layering
+//!
+//! The chrome webview covers the whole window and is held above every content
+//! webview, so the viewport can have rounded corners and menus can overlap the
+//! page. The interface reports what it occupies and [`chrome`] turns that into
+//! a native input mask, letting clicks through to the page everywhere the
+//! interface is not. See [`platform`] for why this needs native code.
 
-const BROWSER_WEBVIEW_LABEL: &str = "browser-webview";
+pub mod browser;
+pub mod chrome;
+pub mod error;
+pub mod ipc;
+pub mod model;
+pub mod platform;
+pub mod state;
+pub mod storage;
+pub mod webview;
 
-#[derive(Clone, Copy, Debug, serde::Deserialize)]
-struct BrowserBounds {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
+use tauri::Manager;
 
-const PAGE_INFO_SCRIPT: &str = r#"
-(function () {
-    function notify() {
-        if (!/^https?:\/\//i.test(location.href)) return;
-        var favicon = '';
-        var link = document.querySelector('link[rel~="icon"]') || document.querySelector('link[rel="shortcut icon"]');
-        if (link) favicon = link.href;
-        if (window.__TAURI__ && window.__TAURI__.core) {
-            window.__TAURI__.core.invoke('update_tab_info', {
-                title: document.title,
-                favicon: favicon,
-                url: location.href
-            }).catch(function () {});
-        }
-    }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', notify);
-    } else {
-        notify();
-    }
-    window.addEventListener('load', notify);
-    window.addEventListener('popstate', notify);
-    window.addEventListener('hashchange', notify);
-    var _push = history.pushState.bind(history);
-    var _replace = history.replaceState.bind(history);
-    history.pushState = function() { _push.apply(this, arguments); notify(); };
-    history.replaceState = function() { _replace.apply(this, arguments); notify(); };
-    var _scrollTimer = null;
-    window.addEventListener('scroll', function() {
-        if (_scrollTimer) clearTimeout(_scrollTimer);
-        _scrollTimer = setTimeout(function() {
-            if (window.__TAURI__ && window.__TAURI__.core) {
-                window.__TAURI__.core.invoke('update_scroll_position', {
-                    x: window.scrollX,
-                    y: window.scrollY
-                }).catch(function() {});
-            }
-        }, 150);
-    }, { passive: true });
-})();
-"#;
+use crate::state::AppState;
+use crate::storage::{HistoryDb, Paths, Session, Settings};
 
-#[derive(Clone, serde::Serialize)]
-struct TabInfo {
-    title: String,
-    favicon: String,
-    url: String,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct ScrollPosition {
-    x: f64,
-    y: f64,
-}
-
-#[tauri::command]
-fn update_tab_info(app: tauri::AppHandle, title: String, favicon: String, url: String) -> Result<(), String> {
-    app.emit("tab-info", TabInfo { title, favicon, url })
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn update_scroll_position(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), String> {
-    app.emit("scroll-position", ScrollPosition { x, y })
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn scroll_browser_to(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), String> {
-    app.get_webview(BROWSER_WEBVIEW_LABEL)
-        .ok_or_else(|| "Browser webview not found.".to_string())?
-        .eval(&format!("window.scrollTo({x}, {y})"))
-        .map_err(|error| error.to_string())
-}
-
-fn parse_url(url: &str) -> Result<tauri::Url, String> {
-    tauri::Url::parse(url).map_err(|error| format!("Invalid URL: {error}"))
-}
-
-fn browser_rect(bounds: BrowserBounds) -> tauri::Rect {
-    tauri::Rect {
-        position: tauri::Position::Logical(LogicalPosition::new(bounds.x, bounds.y)),
-        size: tauri::Size::Logical(LogicalSize::new(bounds.width, bounds.height)),
-    }
-}
-
-#[tauri::command]
-async fn ensure_browser_webview(
-    app: tauri::AppHandle,
-    url: String,
-    bounds: BrowserBounds,
-) -> Result<(), String> {
-    let parsed_url = parse_url(&url)?;
-    let rect = browser_rect(bounds);
-
-    if let Some(webview) = app.get_webview(BROWSER_WEBVIEW_LABEL) {
-        webview
-            .set_bounds(rect)
-            .map_err(|error| error.to_string())?;
-        webview
-            .navigate(parsed_url)
-            .map_err(|error| error.to_string())?;
-        return Ok(());
-    }
-
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "Main window not found.".to_string())?;
-    let builder = tauri::webview::WebviewBuilder::new(
-        BROWSER_WEBVIEW_LABEL,
-        WebviewUrl::External(parsed_url),
-    )
-    .devtools(true)
-    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
-    .initialization_script(PAGE_INFO_SCRIPT);
-
-    window
-        .add_child(
-            builder,
-            LogicalPosition::new(bounds.x, bounds.y),
-            LogicalSize::new(bounds.width, bounds.height),
-        )
-        .map_err(|error| error.to_string())?;
-
-    Ok(())
-}
-
-#[tauri::command]
-fn set_browser_bounds(app: tauri::AppHandle, bounds: BrowserBounds) -> Result<(), String> {
-    if let Some(webview) = app.get_webview(BROWSER_WEBVIEW_LABEL) {
-        webview
-            .set_bounds(browser_rect(bounds))
-            .map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-fn navigate_browser(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    app.get_webview(BROWSER_WEBVIEW_LABEL)
-        .ok_or_else(|| "Browser webview not found.".to_string())?
-        .navigate(parse_url(&url)?)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn reload_browser(app: tauri::AppHandle) -> Result<(), String> {
-    app.get_webview(BROWSER_WEBVIEW_LABEL)
-        .ok_or_else(|| "Browser webview not found.".to_string())?
-        .reload()
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn open_browser_devtools(app: tauri::AppHandle) -> Result<(), String> {
-    app.get_webview(BROWSER_WEBVIEW_LABEL)
-        .ok_or_else(|| "Browser webview not found.".to_string())?
-        .open_devtools();
-
-    Ok(())
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Builds and runs the application.
+///
+/// # Panics
+/// Panics if the application data directory cannot be resolved or the window
+/// cannot be created; neither is recoverable, and continuing would leave a
+/// browser that cannot store anything or show anything.
 pub fn run() {
+    let ipc = ipc::builder();
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![
-            ensure_browser_webview,
-            set_browser_bounds,
-            navigate_browser,
-            reload_browser,
-            open_browser_devtools,
-            update_tab_info,
-            update_scroll_position,
-            scroll_browser_to
-        ])
+        .invoke_handler(ipc.invoke_handler())
+        .setup(move |app| {
+            ipc.mount_events(app);
+
+            let root = app.path().app_data_dir().expect("no application data directory");
+            let paths = Paths::under(&root);
+
+            let settings: Settings = storage::read_json::<Settings>(&paths.settings).sanitized();
+            let session: Session = storage::read_json(&paths.session);
+            let history = HistoryDb::open(&paths.history).expect("could not open the history database");
+
+            let browser = session.restore(settings.webview_capacity, &settings.home_url);
+            app.manage(AppState::new(browser, settings, history, paths));
+
+            // The chrome starts underneath any content webview created later, so
+            // it is lifted once here and again after every slot is created.
+            // Setup runs on the main thread and raising dispatches back to it,
+            // so this has to happen off that thread or it would wait forever.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Ok(chrome) = webview::chrome(&handle) {
+                    let _ = platform::raise_chrome(&chrome);
+                }
+            });
+            Ok(())
+        })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running Haku");
 }
