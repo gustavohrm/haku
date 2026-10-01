@@ -6,8 +6,9 @@
  * step with the webviews it is describing.
  */
 
-import { commands, events, type BrowserState, type Settings } from "@bindings";
+import { events, type BrowserState, type Settings } from "@bindings";
 
+import { commands } from "./commands";
 import { unwrap } from "./result";
 
 type Listener = () => void;

@@ -12,6 +12,7 @@ pub mod settings;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -43,10 +44,18 @@ pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
     serde_json::from_value(merge::merge(base, stored)).unwrap_or(defaults)
 }
 
+/// Serialises every document write.
+///
+/// The session is saved from commands and from page reports, which run on
+/// different threads. Two writers sharing one temporary file could interleave
+/// and leave a corrupt document, which loses every open tab on the next launch.
+static WRITES: Mutex<()> = Mutex::new(());
+
 /// Writes a JSON document atomically.
 ///
 /// The write goes to a temporary file that then replaces the target, so a crash
 /// mid-write leaves the previous contents intact instead of a truncated file.
+/// Writes are serialised, so concurrent saves land one after another.
 ///
 /// # Errors
 /// Returns [`HakuError::Storage`] when the directory cannot be created or either
@@ -57,6 +66,8 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     }
     let body = serde_json::to_string_pretty(value).map_err(|error| HakuError::Storage(error.to_string()))?;
 
+    // A writer that panicked left nothing half-done that the guard protects.
+    let _guard = WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let temporary = path.with_extension("tmp");
     fs::write(&temporary, body)?;
     fs::rename(&temporary, path)?;

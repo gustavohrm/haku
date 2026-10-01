@@ -50,6 +50,8 @@ export const commands = {
 	 */
 	releaseIdleTabs: () => typedError<BrowserState, HakuError>(__TAURI_INVOKE("release_idle_tabs")),
 	openTabDevtools: (id: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("open_tab_devtools", { id })),
+	/**  Answers the dialog a page is paused on. */
+	answerDialog: (tab: TabId, dialog: DialogId, answer: DialogAnswer) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_dialog", { tab, dialog, answer })),
 };
 
 /** Events */
@@ -71,6 +73,19 @@ export type BrowserState = {
 	capacity: number,
 	liveCount: number,
 };
+
+export type DialogAnswer = 
+/**  OK, or Leave. `text` is what a prompt's field held. */
+{ action: "accept"; text: string | null } | 
+/**  Cancel, Stay, or closing the dialog. */
+{ action: "dismiss" };
+
+/**  Identifies one dialog a page opened, so a late answer cannot reach a newer one. */
+export type DialogId = number;
+
+export type DialogKind = "alert" | "confirm" | "prompt" | 
+/**  "Leave site?", raised by a page's `beforeunload` handler. */
+"beforeUnload";
 
 /**
  *  Every failure Haku exposes across the IPC boundary.
@@ -132,6 +147,23 @@ export type Layout = {
 };
 
 /**
+ *  A dialog a page opened with `alert`, `confirm`, `prompt` or `beforeunload`.
+ * 
+ *  The page is paused until it is answered. Haku draws it itself instead of
+ *  letting the webview show its native one, so it matches the interface and
+ *  always names the site that asked.
+ */
+export type PageDialog = {
+	id: DialogId,
+	kind: DialogKind,
+	message: string,
+	/**  Initial text of a prompt's field. */
+	defaultText: string,
+	/**  The page that asked, so the interface can say who is asking. */
+	url: string,
+};
+
+/**
  *  Where a page was scrolled to.
  * 
  *  Kept current for live tabs by the injected reporter so that suspending a tab
@@ -186,6 +218,11 @@ export type Tab = {
 	 *  quiet may give up its slot under pressure.
 	 */
 	activeAt: number,
+	/**
+	 *  A dialog the page opened and is waiting on. Shown while the tab is
+	 *  active; a background tab's dialog waits until the tab is selected.
+	 */
+	dialog: PageDialog | null,
 };
 
 export type TabId = number;

@@ -120,6 +120,22 @@ impl HistoryDb {
         Ok(())
     }
 
+    /// Updates the title of the most recent visit to `url`.
+    ///
+    /// Pages set or change their title after they arrive, and keep changing it
+    /// while open. The visit should carry the latest title without each change
+    /// counting as another visit. A URL never visited is left alone.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the write fails.
+    pub fn retitle(&self, url: &str, title: &str) -> Result<()> {
+        self.connection.execute(
+            "UPDATE visits SET title = ?1 WHERE id = (SELECT MAX(id) FROM visits WHERE url = ?2)",
+            params![title, url],
+        )?;
+        Ok(())
+    }
+
     /// Most recent visits first.
     ///
     /// # Errors
@@ -230,6 +246,32 @@ mod tests {
         }
 
         assert_eq!(database.recent(2).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn retitling_updates_the_latest_visit_to_that_url_without_adding_one() {
+        let database = database();
+        database.record("https://a.test", "Old", 1).unwrap();
+        database.record("https://b.test", "B", 2).unwrap();
+        database.record("https://a.test", "Old", 3).unwrap();
+        database.record("https://b.test", "B", 4).unwrap();
+
+        database.retitle("https://a.test", "New").unwrap();
+
+        let entries = database.recent(10).unwrap();
+        assert_eq!(entries.len(), 4);
+        let titles: Vec<&str> =
+            entries.iter().filter(|entry| entry.url == "https://a.test").map(|entry| entry.title.as_str()).collect();
+        assert_eq!(titles, vec!["New", "Old"]);
+    }
+
+    #[test]
+    fn retitling_a_url_never_visited_records_nothing() {
+        let database = database();
+
+        database.retitle("https://a.test", "A").unwrap();
+
+        assert!(database.recent(10).unwrap().is_empty());
     }
 
     #[test]

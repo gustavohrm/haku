@@ -1,7 +1,7 @@
 # Codebase guidelines
 
 **Status:** APPROVED
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-24
 
 This document outlines patterns, conventions and guidelines to follow when working on this codebase.
 
@@ -49,14 +49,26 @@ Function parameters:
 
 ## React
 
-- Components hold no browser state. Read it from the store through `@ipc/hooks` and send intents through the
-  generated commands.
+- Components hold no browser state. Read it from the store through `@ipc/hooks` and send intents through
+  `commands` from `@ipc/commands`, never directly from `@bindings`, so failures are reported.
 - Anything drawn over page content must call `useOverlay`, or it will render correctly and be unclickable. See
   [Chrome layering](specs/chrome-layering.md#registering-an-overlay).
 - A gesture that must stay smooth — dragging a tab — writes to the DOM through a ref during the gesture and
   commits to state on release, rather than re-rendering per frame.
+- Notify through `feedback()` from `features/feedback`. Never use `alert`, `confirm` or `prompt`.
 - Every user-facing string goes through `t()` from `@shared/i18n`. Haku ships English only today; routing
   strings through it from the start is what keeps adding locales from becoming a rewrite.
+
+## Styling
+
+- Use a `@codenhub/styles` component when one fits. Use Tailwind utilities for what it does not cover, over
+  the palette's tokens; do not introduce colours of Haku's own.
+- `.btn` and the other component classes are Tailwind utilities themselves. Two utilities setting the same
+  property on one element resolve by Tailwind's sort order, not by intent, so show or hide a component from a
+  wrapper instead of adding `hidden` to it.
+- Size icons with the icon package's own classes (`ic-xs` … `ic-xl`). Its rules are unlayered, so Tailwind
+  size utilities lose to them.
+- Join conditional classes with `cx` from `@shared/class-names`.
 
 ## Testing
 

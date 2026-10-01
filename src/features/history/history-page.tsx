@@ -1,4 +1,6 @@
-import { commands, type HistoryEntry } from "@bindings";
+import { InternalPage } from "@app/internal-page";
+import { type HistoryEntry } from "@bindings";
+import { commands } from "@ipc/commands";
 import { unwrap } from "@ipc/result";
 import { t } from "@shared/i18n";
 import { useCallback, useEffect, useState } from "react";
@@ -24,12 +26,13 @@ export function HistoryPage() {
   }, [load]);
 
   return (
-    <div className="haku-page">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="haku-page-title">{t("history.title")}</h1>
+    <InternalPage
+      title={t("history.title")}
+      actions={
         <button
           type="button"
-          className="haku-button"
+          className="btn destructive ghost edged"
+          disabled={entries.length === 0}
           onClick={async () => {
             await unwrap(commands.clearHistory());
             await load();
@@ -37,18 +40,22 @@ export function HistoryPage() {
         >
           {t("history.clear")}
         </button>
-      </div>
-
+      }
+    >
       {entries.length === 0 ? (
-        <p className="haku-help">{t("history.empty")}</p>
+        <p className="text-text-secondary">{t("history.empty")}</p>
       ) : (
-        <ul className="haku-history">
+        <ul className="flex flex-col">
           {entries.map((entry) => (
             <li key={entry.id}>
-              <button type="button" className="haku-history-row" onClick={() => void commands.openTab(entry.url, true)}>
+              <button
+                type="button"
+                className="hover:bg-text/6 grid w-full grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-baseline gap-4 rounded-(--radius-control) px-3 py-2 text-left"
+                onClick={() => void commands.openTab(entry.url, true)}
+              >
                 <span className="truncate font-medium">{entry.title || entry.url}</span>
-                <span className="haku-history-url truncate">{entry.url}</span>
-                <time dateTime={new Date(entry.visitedAt).toISOString()}>
+                <span className="text-text-secondary truncate">{entry.url}</span>
+                <time className="text-text-secondary" dateTime={new Date(entry.visitedAt).toISOString()}>
                   {new Date(entry.visitedAt).toLocaleString()}
                 </time>
               </button>
@@ -56,6 +63,6 @@ export function HistoryPage() {
           ))}
         </ul>
       )}
-    </div>
+    </InternalPage>
   );
 }

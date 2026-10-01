@@ -1,7 +1,7 @@
 # Chrome layering
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-24
 **Scope:** How Haku's interface renders above page content, and how clicks still reach the page.
 
 ## The requirement
@@ -75,6 +75,11 @@ completely unclickable. This is the single easiest mistake to make in this codeb
 const ref = useRef<HTMLDivElement>(null);
 useOverlay(ref, isOpen);
 ```
+
+Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a
+component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its
+own and registers each toast stack and open dialog in it as they appear, resize and animate. Show
+notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
 
 ## Platforms
 

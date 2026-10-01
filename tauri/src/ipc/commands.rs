@@ -23,14 +23,15 @@ use std::sync::Arc;
 use tauri::{Manager, State};
 use tauri_specta::Event;
 
-use crate::browser::{resolve_target, BrowserState, Effect};
+use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
-use crate::model::{SlotId, TabId};
+use crate::model::{DialogAnswer, DialogId, SlotId, TabId};
 use crate::state::{now_ms, AppState};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
-use crate::webview::{self, PageObserver, PageUpdate, CHROME_LABEL};
+use crate::platform::PageSignal;
+use crate::webview::{self, PageObserver, CHROME_LABEL};
 
 use super::events::{SettingsChanged, StateChanged};
 
@@ -48,37 +49,65 @@ fn ensure_chrome(webview: &tauri::Webview) -> Result<()> {
 /// Observes what content webviews load, without the pages taking part.
 ///
 /// Tauri withholds its IPC bridge from remote origins unless a capability opts
-/// them in, and Haku deliberately does not. Page metadata therefore arrives
-/// through Rust-side webview hooks, which is both safer and one less moving
-/// part than a script reporting on a page's behalf.
+/// them in, and Haku deliberately does not. What a page shows is read from Rust
+/// instead; see [`crate::webview::inject`] for how.
+///
+/// Runs on the UI thread. Anything that drives a webview is moved off it, for
+/// the same reason commands that do are `async`: webview operations dispatch to
+/// the UI thread and wait, and waiting on it from it never returns.
 fn page_observer() -> PageObserver<tauri::Wry> {
-    Arc::new(|app: &tauri::AppHandle, slot: SlotId, update: PageUpdate| {
-        let Some(handle) = app.try_state::<AppState>() else {
-            return;
-        };
-        // `inner` re-borrows from the app rather than the local handle, so the
-        // lock guards below can outlive it.
-        let state: &AppState = handle.inner();
-
-        let recorded = {
-            let Ok(mut browser) = state.browser.write() else {
-                return;
-            };
-            browser.report_page(slot, update.url, update.title)
-        };
-
-        let Some((url, title)) = recorded else {
-            return;
-        };
-        record_visit(state, &url, &title);
-        // The page just told us its real title; the stored session should carry
-        // it rather than the URL it was opened with.
-        let _ = state.save_session();
-
-        if let Ok(browser) = state.browser.read() {
-            let _ = StateChanged(browser.state()).emit(app);
+    Arc::new(|app: &tauri::AppHandle, slot: SlotId, signal: PageSignal| match signal {
+        PageSignal::Changed { commits, title } => record_page(app, slot, &commits, title),
+        PageSignal::TraverseRequested { url } => {
+            let app = app.clone();
+            std::thread::spawn(move || traverse(&app, slot, &url));
+        }
+        PageSignal::DialogRequested(dialog) => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let state = app.state::<AppState>();
+                let _ = mutate(&app, &state, |browser| Ok(browser.open_dialog(slot, dialog)));
+            });
         }
     })
+}
+
+fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Commit], title: Option<String>) {
+    let Some(handle) = app.try_state::<AppState>() else {
+        return;
+    };
+    // `inner` re-borrows from the app rather than the local handle, so the lock
+    // guards below can outlive it.
+    let state: &AppState = handle.inner();
+
+    let recorded = {
+        let Ok(mut browser) = state.browser.write() else {
+            return;
+        };
+        browser.report_page(slot, commits, title)
+    };
+
+    let Some(report) = recorded else {
+        return;
+    };
+    record_visit(state, &report);
+    // The session should reopen where the page actually is, not where it was
+    // opened.
+    let _ = state.save_session();
+
+    if let Ok(browser) = state.browser.read() {
+        let _ = StateChanged(browser.state()).emit(app);
+    }
+}
+
+/// Carries out a webview's own back or forward through the tab's history.
+fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
+    let state = app.state::<AppState>();
+    let _ = mutate(app, &state, |browser| match browser.traversal(slot, url) {
+        Some((id, Direction::Back)) => browser.go_back(id),
+        Some((id, Direction::Forward)) => browser.go_forward(id),
+        None => Ok(Vec::new()),
+    });
 }
 
 /// Applies effects to real webviews and tells the interface what changed.
@@ -191,7 +220,11 @@ pub async fn close_tab(
     id: TabId,
 ) -> Result<BrowserState> {
     ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| browser.close_tab(id))
+    let home = {
+        let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        settings.home_url.clone()
+    };
+    mutate(&app, &state, |browser| browser.close_tab(id, &home))
 }
 
 #[tauri::command]
@@ -333,10 +366,15 @@ pub async fn set_layout(
     mutate(&app, &state, |browser| Ok(browser.reconcile()))
 }
 
-/// Records a visit, tolerating a failure rather than breaking navigation.
-fn record_visit(state: &AppState, url: &str, title: &str) {
+/// Records a visit, or retitles the last one, tolerating a failure rather than
+/// breaking navigation.
+fn record_visit(state: &AppState, report: &PageReport) {
     let Ok(history) = state.history.lock() else { return };
-    let _ = history.record(url, title, now_ms() as i64);
+    let _ = if report.visited {
+        history.record(&report.url, &report.title, now_ms() as i64)
+    } else {
+        history.retitle(&report.url, &report.title)
+    };
 }
 
 #[tauri::command]
@@ -376,6 +414,21 @@ pub async fn release_idle_tabs(
         settings.idle_release_ms
     };
     mutate(&app, &state, |browser| Ok(browser.release_idle_fixed(now_ms(), idle_after)))
+}
+
+/// Answers the dialog a page is paused on.
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_dialog(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+    dialog: DialogId,
+    answer: DialogAnswer,
+) -> Result<BrowserState> {
+    ensure_chrome(&webview)?;
+    mutate(&app, &state, |browser| browser.answer_dialog(tab, dialog, answer))
 }
 
 #[tauri::command]

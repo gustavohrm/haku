@@ -1,7 +1,7 @@
 # Errors
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-24
 
 This document covers how failures are represented and handled in Haku.
 
@@ -54,7 +54,10 @@ on it.
 const entries = await unwrap(commands.recentHistory(200));
 ```
 
-Use `void commands.foo()` only where a failure genuinely does not matter and cannot be acted on.
+Import `commands` from `@ipc/commands`, not from `@bindings`. The wrapper reports every failed command to one
+handler before handing the result back unchanged, and the interface points that handler at an error toast
+(`notifyFailure` in `features/feedback`). `void commands.foo()` is therefore safe: a failure is shown, not
+lost. The same failure repeated within a few seconds is shown once, because some commands run on a timer.
 
 ## Failures that must not propagate
 

@@ -14,13 +14,19 @@ export class HakuFailure extends Error {
   readonly cause: HakuError;
 
   constructor(cause: HakuError) {
-    super(describe(cause));
+    super(describeError(cause));
     this.name = "HakuFailure";
     this.cause = cause;
   }
 }
 
-function describe(error: HakuError): string {
+/**
+ * A human-readable account of a failure.
+ *
+ * @param error - The failure Rust reported.
+ * @returns A sentence describing it.
+ */
+export function describeError(error: HakuError): string {
   switch (error.kind) {
     case "NoSlotAvailable":
       return "No webview slot is available.";

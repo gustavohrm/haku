@@ -21,15 +21,16 @@
     "verify": "pnpm format:check && pnpm lint:check && pnpm typecheck && pnpm test && pnpm test:rust"
   },
   "dependencies": {
-    "@codenhub/icons": "^0.1.0",
-    "@codenhub/styles": "^0.1.0",
-    "@codenhub/theme": "^0.1.1",
+    "@codenhub/icons": "^0.2.1",
+    "@codenhub/styles": "^0.4.0",
+    "@codenhub/theme": "^0.1.2",
+    "@codenhub/toaster": "^0.2.0",
     "@tauri-apps/api": "^2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.4",
+    "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
@@ -39,7 +40,7 @@
     "jsdom": "^29.1.1",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
-    "tailwindcss": "^4.2.4",
+    "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vite": "^8.1.0",
     "vitest": "^4.1.9"

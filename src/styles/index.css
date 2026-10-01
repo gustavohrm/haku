@@ -1,25 +1,41 @@
-@import "tailwindcss";
-/* Design tokens only. The component and reset layers carry a visual language
-   Haku's chrome does not use, so it takes the palette and leaves the rest. */
-@import "@codenhub/styles/theme";
+/* The full source surface: Tailwind itself, the monochrome palette, reset and
+   component classes. Components come from here wherever one fits; Haku's own
+   pieces, such as tabs and the address field, are Tailwind utilities over the
+   same tokens. */
+@import "@codenhub/styles/tw";
+@import "@codenhub/toaster/styles";
+
+/* Haku's surfaces, named for their role and drawn from the palette so both
+   themes follow `@codenhub/theme` without a second set of colours. The chrome
+   is one quiet plane; the active tab and the address field are raised from it. */
+@theme {
+  --color-chrome: var(--color-foreground);
+  --color-chrome-raised: var(--color-surface);
+}
 
 /*
-  The chrome covers the whole window and sits above every content webview.
-  Wherever it is not painting something, the page shows through a hole cut in
-  its native input mask, so those areas must stay transparent here too.
+  Density. Compact is the default, and it applies to the bars only: internal
+  pages keep the package's own sizing, where form fields have room for their
+  text. Controls from `@codenhub/styles` size themselves from
+  `--control-height`, so setting it on a bar is what makes its buttons line up
+  with the tabs and the address field.
 */
+[data-density="compact"] {
+  --haku-viewport-radius: var(--radius-control);
+}
 
-/* Haku's surfaces, named for their role and resolved from the shared palette so
-   light and dark follow `@codenhub/theme` without a second set of colours. */
-:root {
-  --haku-chrome: light-dark(var(--color-neutral-200), var(--color-neutral-900));
-  --haku-chrome-raised: light-dark(var(--color-white), var(--color-neutral-800));
-  --haku-ink: var(--color-text);
-  --haku-ink-muted: color-mix(in oklab, var(--color-text) 62%, transparent);
-  --haku-line: var(--color-border);
-  --haku-accent: var(--color-info);
-  --haku-danger: var(--color-destructive);
-  --haku-viewport-radius: var(--radius-surface);
+[data-density="compact"] .haku-bar {
+  --control-height: 1.75rem;
+}
+
+/* Icon buttons in the bars are squares of the control height, so they line up
+   with the tabs and the address field. The package sizes an icon button from
+   its padding instead, which comes out a few pixels taller. Unlayered, so it
+   outranks the package's utilities without fighting their specificity. */
+.haku-bar .btn.icon:not(.dense) {
+  padding: 0;
+  inline-size: var(--control-height);
+  block-size: var(--control-height);
 }
 
 html,
@@ -31,240 +47,31 @@ body,
 body {
   margin: 0;
   overflow: hidden;
-  background: var(--haku-chrome);
-  color: var(--haku-ink);
-  font:
-    13px/1.45 system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
+  background: var(--color-chrome);
+  color: var(--color-text);
+  font-size: 0.8125rem;
   /* The interface is application chrome: dragging text out of it is never wanted. */
   user-select: none;
 }
 
-.haku-shell {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-}
-
-.haku-titlebar {
-  display: flex;
-  align-items: stretch;
-  gap: 0.5rem;
-  padding: 0.35rem 0 0 0.4rem;
-}
-
-.haku-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.35rem 0.5rem;
-}
-
 /*
-  Deliberately empty of background: this is the hole the page shows through.
-  The ring is painted by the chrome above the page, which is what makes the
-  page's corners look rounded without clipping the webview itself.
+  The chrome covers the whole window and sits above every content webview.
+  This element is the hole the page shows through, so it must never paint a
+  background. The ring is drawn by the chrome above the page, which is what
+  makes the page's corners look rounded without clipping the webview itself.
 */
+/*
+  A dialog's backdrop cannot reach page content: the page is a native view
+  beneath a hole in the chrome, so a dimmed backdrop would dim the bars and leave
+  the page untouched. No backdrop at all reads as one consistent surface; the
+  dialog stays modal either way.
+*/
+dialog[data-toast-instance]::backdrop {
+  background: transparent;
+  backdrop-filter: none;
+}
+
 .haku-viewport {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  margin: 0 0.5rem 0.5rem;
   border-radius: var(--haku-viewport-radius);
-  box-shadow: 0 0 0 1px var(--haku-line);
-  overflow: hidden;
-}
-
-.haku-tab {
-  display: flex;
-  min-width: 6rem;
-  max-width: 15rem;
-  align-items: center;
-  gap: 0.25rem;
-  border-radius: 8px 8px 0 0;
-  padding: 0.3rem 0.4rem 0.3rem 0.55rem;
-  color: var(--haku-ink-muted);
-}
-
-.haku-tab:hover {
-  background: color-mix(in oklab, var(--haku-chrome-raised) 60%, transparent);
-}
-
-.haku-tab-active {
-  background: var(--haku-chrome-raised);
-  color: var(--haku-ink);
-}
-
-/* A suspended tab holds no webview and will reload when opened. */
-.haku-tab-suspended:not(.haku-tab-active) {
-  opacity: 0.65;
-}
-
-.haku-tab-action {
-  display: grid;
-  height: 1.25rem;
-  width: 1.25rem;
-  flex-shrink: 0;
-  place-items: center;
-  border-radius: 4px;
-  opacity: 0;
-}
-
-.haku-tab:hover .haku-tab-action,
-.haku-tab-action[aria-pressed="true"],
-.haku-tab-action:focus-visible {
-  opacity: 1;
-}
-
-.haku-tab-action:hover {
-  background: color-mix(in oklab, var(--haku-ink) 12%, transparent);
-}
-
-.haku-favicon {
-  height: 0.95rem;
-  width: 0.95rem;
-  flex-shrink: 0;
-}
-
-.haku-icon-button {
-  display: grid;
-  height: 1.75rem;
-  width: 1.75rem;
-  flex-shrink: 0;
-  place-items: center;
-  border-radius: 6px;
-  color: var(--haku-ink-muted);
-}
-
-.haku-icon-button:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--haku-ink) 10%, transparent);
-  color: var(--haku-ink);
-}
-
-.haku-icon-button:disabled {
-  opacity: 0.35;
-}
-
-.haku-window-button {
-  display: grid;
-  width: 2.75rem;
-  place-items: center;
-  color: var(--haku-ink-muted);
-}
-
-.haku-window-button:hover {
-  background: color-mix(in oklab, var(--haku-ink) 10%, transparent);
-  color: var(--haku-ink);
-}
-
-.haku-window-close:hover {
-  background: var(--haku-danger);
-  color: white;
-}
-
-.haku-address {
-  width: 100%;
-  border: 1px solid var(--haku-line);
-  border-radius: 7px;
-  background: var(--haku-chrome-raised);
-  padding: 0.3rem 0.65rem;
-  color: var(--haku-ink);
-  user-select: text;
-}
-
-.haku-address:focus {
-  border-color: var(--haku-accent);
-  outline: none;
-}
-
-/* Internal pages render inside the viewport, so they supply their own surface. */
-.haku-page {
-  height: 100%;
-  overflow: auto;
-  background: var(--haku-chrome-raised);
-  padding: 2rem;
-  user-select: text;
-}
-
-.haku-page-centered {
-  display: grid;
-  place-content: center;
-  text-align: center;
-}
-
-.haku-page-title {
-  margin-bottom: 1.25rem;
-  font-size: 1.35rem;
-  font-weight: 600;
-}
-
-.haku-section {
-  max-width: 34rem;
-  border-top: 1px solid var(--haku-line);
-  padding: 1.25rem 0;
-}
-
-.haku-section-title {
-  margin-bottom: 0.75rem;
-  font-weight: 600;
-}
-
-.haku-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.35rem 0;
-}
-
-.haku-field input,
-.haku-field select {
-  min-width: 12rem;
-  border: 1px solid var(--haku-line);
-  border-radius: 6px;
-  background: var(--haku-chrome);
-  padding: 0.3rem 0.5rem;
-  color: var(--haku-ink);
-}
-
-.haku-help {
-  max-width: 34rem;
-  color: var(--haku-ink-muted);
-}
-
-.haku-button {
-  border: 1px solid var(--haku-line);
-  border-radius: 6px;
-  padding: 0.3rem 0.75rem;
-}
-
-.haku-button:hover {
-  background: color-mix(in oklab, var(--haku-ink) 8%, transparent);
-}
-
-.haku-history {
-  display: flex;
-  max-width: 60rem;
-  flex-direction: column;
-}
-
-.haku-history-row {
-  display: grid;
-  width: 100%;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
-  align-items: baseline;
-  gap: 1rem;
-  border-bottom: 1px solid var(--haku-line);
-  padding: 0.5rem 0.25rem;
-  text-align: left;
-}
-
-.haku-history-row:hover {
-  background: color-mix(in oklab, var(--haku-ink) 6%, transparent);
-}
-
-.haku-history-url {
-  color: var(--haku-ink-muted);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-border) 45%, transparent);
 }

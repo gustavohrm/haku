@@ -30,6 +30,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::clear_history,
             commands::release_idle_tabs,
             commands::open_tab_devtools,
+            commands::answer_dialog,
         ])
         .events(collect_events![StateChanged, SettingsChanged])
 }

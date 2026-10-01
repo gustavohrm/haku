@@ -61,13 +61,16 @@ pub fn run() {
             app.manage(AppState::new(browser, settings, history, paths));
 
             // The chrome starts underneath any content webview created later, so
-            // it is lifted once here and again after every slot is created.
+            // it is lifted once here and again after every slot is created. It
+            // also watches for service workers left running by pages that have
+            // gone, which would otherwise hold their memory indefinitely.
             // Setup runs on the main thread and raising dispatches back to it,
             // so this has to happen off that thread or it would wait forever.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 if let Ok(chrome) = webview::chrome(&handle) {
                     let _ = platform::raise_chrome(&chrome);
+                    let _ = platform::stop_idle_workers(&chrome);
                 }
             });
             Ok(())

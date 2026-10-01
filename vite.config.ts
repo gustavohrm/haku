@@ -1,5 +1,3 @@
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import lucide from "@codenhub/icons/data/lucide";
@@ -13,30 +11,13 @@ const resolvePath = (path: string) => fileURLToPath(new URL(path, import.meta.ur
 const DEV_SERVER_PORT = 1420;
 const HMR_PORT = 1421;
 
-const ICON_SOURCE_EXTENSIONS = [".ts", ".tsx", ".html"];
-
 /**
- * Lists the files the icon plugin should scan for `ic-*` class names.
+ * Sources the icon plugin reads up front, so the first paint in dev already has
+ * every icon rather than gaining them as modules are transformed.
  *
- * Its `content` option takes literal file paths, not globs: it stats each entry
- * and skips anything that is not a file. Passing a glob silently scans nothing,
- * which shows up as every icon rendering as a solid block.
- *
- * Resolved once at config load, so a newly added file needs a dev-server
- * restart before its icons appear.
- *
- * @param directory - Directory to walk.
- * @returns Every source file under it that can contain icon classes.
+ * Forward slashes because the pattern is a glob, where a backslash escapes.
  */
-function iconSources(directory: string): string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      return iconSources(path);
-    }
-    return ICON_SOURCE_EXTENSIONS.some((extension) => entry.name.endsWith(extension)) ? [path] : [];
-  });
-}
+const ICON_SOURCES = `${resolvePath("./src").replaceAll("\\", "/")}/**/*.{html,ts,tsx}`;
 
 export default defineConfig({
   root: "./src",
@@ -54,7 +35,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     viteIcons({
-      content: iconSources(resolvePath("./src")),
+      content: [ICON_SOURCES],
       families: [lucide],
       defaultPrefix: "lucide",
     }),

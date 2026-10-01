@@ -1,7 +1,7 @@
 # Webview pool
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-09-01
+**Last updated:** 2026-10-01
 **Scope:** How tabs share a limited number of webviews.
 
 ## The idea
@@ -57,6 +57,33 @@ Protected tabs are the active tab and every fixed tab.
 Eviction navigates the slot to `about:blank` rather than destroying the webview. That frees the page while
 keeping the slot warm, which is far cheaper than recreating a webview on every tab switch. Webviews are only
 destroyed when capacity shrinks.
+
+## Closing the last tab
+
+The browser always has a tab. Closing the last one opens the home page in its place, as the new-tab button
+would.
+
+## Service workers
+
+A service worker outlives the page that started it, and it holds a renderer process while it runs. Chromium is
+meant to stop an idle worker after about 30 seconds, but a busy site's worker can keep itself alive far longer.
+Measured on a release build: after YouTube's tab was closed, its worker kept a 160 MB process running for more
+than two minutes, with no debugger attached. The same worker stayed alive after YouTube was evicted from the
+slot by another tab.
+
+Haku therefore stops any worker that has been running with no page using it for 15 seconds
+(`platform::workers`). The chrome webview watches the DevTools protocol's `ServiceWorker` events, since it
+shares the profile with every content webview. The grace period covers a worker legitimately running without a
+page: while it installs, and while it serves a navigation before the page exists. A stopped worker starts again
+when a page needs it.
+
+| Release build, YouTube then TabNews opened and both closed | Before | After  |
+| ---------------------------------------------------------- | ------ | ------ |
+| Settings only, idle                                        | 117 MB | 118 MB |
+| Both pages open, Settings active                           | 429 MB | 249 MB |
+| Both closed, 60 s later                                    | 375 MB | 193 MB |
+
+What remains above the idle figure after closing is the GPU process's caches and the parked slot itself.
 
 ## Fixed tabs
 

@@ -6,13 +6,15 @@
  * that silently falls back at runtime.
  */
 export const en = {
+  "tabs.list": "Open tabs",
   "tabs.new": "New tab",
   "tabs.close": "Close tab",
-  "tabs.pin": "Keep this tab loaded",
-  "tabs.unpin": "Stop keeping this tab loaded",
+  "tabs.pin": "Pin — keep this tab loaded in the background",
+  "tabs.unpin": "Unpin — let this tab be suspended",
   "tabs.untitled": "Untitled",
   "tabs.suspended": "Suspended — reloads when you open it",
 
+  "toolbar.navigation": "Navigation",
   "toolbar.back": "Back",
   "toolbar.forward": "Forward",
   "toolbar.reload": "Reload",
@@ -34,6 +36,7 @@ export const en = {
   "settings.capacity": "Loaded tabs",
   "settings.capacity.help":
     "How many tabs stay loaded at once. Others are suspended and reload when you return to them.",
+  "settings.browsing": "Browsing",
   "settings.search": "Search engine URL",
   "settings.home": "Home page",
 
@@ -45,6 +48,17 @@ export const en = {
   "history.clear": "Clear history",
 
   "error.title": "Something went wrong",
+
+  "feedback.dismiss": "Dismiss notification",
+
+  "dialog.from": "{host} says",
+  "dialog.fromPage": "This page says",
+  "dialog.ok": "OK",
+  "dialog.cancel": "Cancel",
+  "dialog.leave.title": "Leave site?",
+  "dialog.leave.message": "Changes you made may not be saved.",
+  "dialog.leave.confirm": "Leave",
+  "dialog.leave.cancel": "Stay",
 } as const;
 
 export type TranslationKey = keyof typeof en;

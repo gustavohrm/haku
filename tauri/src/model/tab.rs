@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use super::dialog::PageDialog;
 use super::history::{History, Visit};
 use super::pool::SlotId;
 
@@ -54,6 +55,9 @@ pub struct Tab {
     /// quiet may give up its slot under pressure.
     #[specta(type = specta_typescript::Number)]
     pub active_at: u64,
+    /// A dialog the page opened and is waiting on. Shown while the tab is
+    /// active; a background tab's dialog waits until the tab is selected.
+    pub dialog: Option<PageDialog>,
 }
 
 impl Tab {
@@ -68,6 +72,7 @@ impl Tab {
             scroll: Scroll::default(),
             fixed: false,
             active_at: 0,
+            dialog: None,
         }
     }
 

@@ -1,6 +1,10 @@
 import { App } from "@app/app";
 import { initTheme } from "@app/theme";
+import { feedback, notifyFailure } from "@features/feedback/feedback";
+import { onCommandFailure } from "@ipc/commands";
+import { HakuFailure } from "@ipc/result";
 import { connect } from "@ipc/store";
+import { t } from "@shared/i18n";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -12,6 +16,7 @@ import "virtual:icons.css";
 import "./styles/index.css";
 
 initTheme();
+onCommandFailure(notifyFailure);
 
 const container = document.querySelector("#root");
 if (!container) {
@@ -24,7 +29,10 @@ if (!container) {
 try {
   await connect();
 } catch (error) {
-  console.error("could not connect to the browser backend", error);
+  // A failed command has already been reported; anything else has not.
+  if (!(error instanceof HakuFailure)) {
+    feedback().error({ title: t("error.title"), description: String(error) });
+  }
 }
 
 createRoot(container).render(

@@ -1,6 +1,7 @@
-import { commands, type Viewport } from "@bindings";
+import { type Viewport } from "@bindings";
 import { overlayStore } from "@features/overlays/registry";
 import { rectOf } from "@features/overlays/registry";
+import { commands } from "@ipc/commands";
 import { useEffect, type RefObject } from "react";
 
 /**

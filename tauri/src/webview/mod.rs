@@ -2,13 +2,12 @@ pub mod inject;
 
 use std::sync::Arc;
 
-use tauri::webview::{PageLoadEvent, PageLoadPayload};
 use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 use crate::browser::{Effect, BLANK_URL};
 use crate::error::{HakuError, Result};
 use crate::model::SlotId;
-use crate::platform;
+use crate::platform::{self, PageSignal};
 
 /// Label of the webview that renders Haku's own interface.
 ///
@@ -37,21 +36,12 @@ pub struct Viewport {
     pub height: f64,
 }
 
-/// What a content webview turned out to be showing.
-///
-/// The two fields arrive separately: the URL is known when the page finishes
-/// loading, the title only once the document sets one.
-#[derive(Clone, Debug, Default)]
-pub struct PageUpdate {
-    pub url: Option<String>,
-    pub title: Option<String>,
-}
-
-/// Receives page updates observed from Rust, with no page involvement.
+/// Receives what content webviews report, tagged with the slot they occupy.
 ///
 /// Supplied by the caller so this module stays free of application state: it
-/// knows how to drive webviews, not what to do with what they report.
-pub type PageObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, SlotId, PageUpdate) + Send + Sync>;
+/// knows how to drive webviews, not what to do with what they report. Called on
+/// the UI thread.
+pub type PageObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, SlotId, PageSignal) + Send + Sync>;
 
 fn rect_of(viewport: Viewport) -> tauri::Rect {
     tauri::Rect {
@@ -87,6 +77,7 @@ pub fn apply<R: tauri::Runtime>(
             // The page restores its own scroll offset, so a reload needs no
             // help from here.
             Effect::RestoreScroll { .. } => {}
+            Effect::AnswerDialog { id, answer } => platform::answer_dialog(app, *id, answer.clone())?,
         }
     }
     Ok(())
@@ -104,39 +95,20 @@ fn ensure_slot<R: tauri::Runtime>(
         return navigate(app, slot, url);
     }
 
-    let parsed = parse_url(url)?;
     let window = app
         .get_window(MAIN_WINDOW_LABEL)
         .ok_or_else(|| HakuError::WindowMissing(MAIN_WINDOW_LABEL.into()))?;
 
-    // Page metadata is observed from Rust rather than reported by the page, so
-    // a remote origin never needs a channel into the application.
-    let on_load = {
-        let observer = observer.clone();
-        let app = app.clone();
-        move |_: tauri::Webview<R>, payload: PageLoadPayload<'_>| {
-            if payload.event() == PageLoadEvent::Finished {
-                observer(&app, slot, PageUpdate { url: Some(payload.url().to_string()), title: None });
-            }
-        }
-    };
-
-    let on_title = {
-        let observer = observer.clone();
-        let app = app.clone();
-        move |_: tauri::Webview<R>, title: String| {
-            observer(&app, slot, PageUpdate { url: None, title: Some(title) });
-        }
-    };
-
-    let builder = tauri::webview::WebviewBuilder::new(slot.label(), WebviewUrl::External(parsed))
+    // Created on a blank page and navigated only once it is being observed, so
+    // the first commit of the real page cannot slip past before the observer is
+    // attached.
+    let builder = tauri::webview::WebviewBuilder::new(slot.label(), WebviewUrl::External(parse_url(BLANK_URL)?))
         .user_agent(USER_AGENT)
         .devtools(true)
-        .initialization_script(inject::scroll_memory_script())
-        .on_page_load(on_load)
-        .on_document_title_changed(on_title);
+        .initialization_script(inject::navigation_log_script())
+        .initialization_script(inject::scroll_memory_script());
 
-    window.add_child(
+    let webview = window.add_child(
         builder,
         LogicalPosition::new(viewport.x, viewport.y),
         LogicalSize::new(viewport.width, viewport.height),
@@ -146,7 +118,17 @@ fn ensure_slot<R: tauri::Runtime>(
     // the chrome has to be lifted back over it. Without this the interface
     // disappears behind the page the moment a slot is created.
     platform::raise_chrome(&chrome(app)?)?;
-    Ok(())
+
+    // What the page shows is observed from Rust rather than reported by the
+    // page, so a remote origin never needs a channel into the application.
+    let sink = {
+        let observer = observer.clone();
+        let app = app.clone();
+        Arc::new(move |signal| observer(&app, slot, signal))
+    };
+    platform::observe_page(&webview, sink)?;
+
+    navigate(app, slot, url)
 }
 
 fn navigate<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, url: &str) -> Result<()> {

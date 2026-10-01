@@ -16,6 +16,41 @@ impl Visit {
     }
 }
 
+/// How a page moved to a new URL, as the page itself classifies it.
+///
+/// The distinction decides whether a tab's history grows: a link or a pushed
+/// route adds an entry, a redirect or a replaced route does not, and a page's
+/// own back or forward moves through entries that already exist.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavigationKind {
+    Push,
+    Replace,
+    Traverse,
+    Reload,
+}
+
+impl NavigationKind {
+    /// Reads a Navigation API `navigationType`.
+    ///
+    /// Anything unrecognised is treated as a replacement: it keeps the URL
+    /// accurate without inventing a history entry.
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "push" => Self::Push,
+            "traverse" => Self::Traverse,
+            "reload" => Self::Reload,
+            _ => Self::Replace,
+        }
+    }
+}
+
+/// One URL change a webview committed, in the order it happened.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Commit {
+    pub url: String,
+    pub kind: NavigationKind,
+}
+
 /// A tab's navigation stack.
 ///
 /// The stack behaves like a browser's: navigating from anywhere other than the
@@ -87,6 +122,26 @@ impl History {
         Some(self.current())
     }
 
+    /// Moves to the neighbouring entry showing `url`, as a page's own back or
+    /// forward does.
+    ///
+    /// Only the adjacent entries are considered: a page steps one entry at a
+    /// time, and matching further away could jump to an unrelated visit that
+    /// happens to share the URL.
+    ///
+    /// @returns Whether an adjacent entry matched.
+    pub fn step_to(&mut self, url: &str) -> bool {
+        if self.can_go_back() && self.entries[self.index - 1].url == url {
+            self.index -= 1;
+            return true;
+        }
+        if self.can_go_forward() && self.entries[self.index + 1].url == url {
+            self.index += 1;
+            return true;
+        }
+        false
+    }
+
     /// Updates the metadata of the entry currently displayed.
     ///
     /// The page reports its own title and favicon after loading, and a redirect
@@ -156,6 +211,31 @@ mod tests {
         assert!(history.go_forward().is_some());
         assert!(history.go_forward().is_none());
         assert_eq!(history.index(), 1);
+    }
+
+    #[test]
+    fn stepping_to_a_neighbour_moves_in_whichever_direction_holds_it() {
+        let mut history = history_at(&["https://a.test", "https://b.test", "https://c.test"]);
+
+        assert!(history.step_to("https://b.test"));
+        assert_eq!(history.index(), 1);
+        assert!(history.step_to("https://c.test"));
+        assert_eq!(history.index(), 2);
+    }
+
+    #[test]
+    fn stepping_to_a_url_that_is_not_adjacent_moves_nowhere() {
+        let mut history = history_at(&["https://a.test", "https://b.test", "https://c.test"]);
+
+        assert!(!history.step_to("https://a.test"));
+        assert_eq!(history.index(), 2);
+    }
+
+    #[test]
+    fn unknown_navigation_types_are_treated_as_replacements() {
+        assert_eq!(NavigationKind::parse("push"), NavigationKind::Push);
+        assert_eq!(NavigationKind::parse("traverse"), NavigationKind::Traverse);
+        assert_eq!(NavigationKind::parse("something-new"), NavigationKind::Replace);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # App architecture
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-24
 
 This document explains what goes where in Haku and why, where the reason is not obvious from the code.
 
@@ -51,9 +51,10 @@ what the effective capacity is, which keeps the eviction policy independently te
 
 ### `webview/` — the Tauri side
 
-Applies `Effect`s to real webviews. It knows how to drive a webview, not what to do with one. Page metadata is
-observed here through Tauri's `on_page_load` and `on_document_title_changed` hooks and handed back to the
-caller through a `PageObserver`, so this module never touches application state.
+Applies `Effect`s to real webviews. It knows how to drive a webview, not what to do with one. It attaches
+`platform::observe_page` to every content webview and hands what it reports — URL changes, titles, native
+back and forward, dialogs — back to the caller through a `PageObserver`, so this module never touches
+application state. See [Page observation](specs/page-observation.md).
 
 ### `chrome/` and `platform/` — layering the interface over the page
 
@@ -80,13 +81,27 @@ src/
 ├─ bindings.ts        generated; do not edit
 ├─ app/               shell, routing for internal pages, theme
 ├─ ipc/               typed wrappers, the external store, React hooks
-├─ features/          one folder per feature: tabs, toolbar, viewport, overlays, settings, history
+├─ features/          one folder per feature: tabs, toolbar, viewport, overlays, feedback, settings, history
 ├─ shared/            i18n, hooks, utilities
-└─ styles/            tokens and chrome styling
+└─ styles/            imports, Haku's surface tokens, density
 ```
 
 State reaches React through `useSyncExternalStore` over the Rust event stream. There is no client-side cache to
 invalidate and nothing to keep in sync.
+
+Commands are called through `@ipc/commands`, a wrapper over the generated bindings that passes every failure
+to one handler. `features/feedback` points that handler at a toast, and owns the one `@codenhub/toaster`
+instance that every notification and page dialog goes through.
+
+### Styling
+
+Components from `@codenhub/styles` are used wherever one fits — buttons, fields, cards — in its default
+monochrome palette. Pieces with no component, such as tabs and the address field, are Tailwind utilities over
+the same tokens, plus Haku's two surface tokens (`chrome`, `chrome-raised`). Density is an attribute on the
+shell; compact is the default and applies to the bars only.
+
+The bars follow Helium's proportions: 28px controls with the package's 8px control radius — rounded, not
+pill-shaped — 3px between the tab row, the toolbar and the page, and a 4px margin around the page.
 
 ## Internal pages
 
@@ -107,15 +122,22 @@ navigated, because the event loop was blocked inside webview creation.
 
 Content webviews load arbitrary remote pages, so they are given nothing:
 
-- The Tauri capability is scoped to `webviews: ["main"]`. The chrome webview alone receives core permissions.
+- The Tauri capability is scoped to `webviews: ["main"]`. The chrome webview alone receives core permissions. It
+  must not name `windows`: a window scope also covers every child webview in the window, content webviews
+  included.
 - No capability grants remote origins IPC access, so a page has no channel into the application at all.
 - Every command guards with `ensure_chrome`, rejecting any caller that is not the interface.
-- Page metadata is observed from Rust rather than reported by the page.
+- Page metadata is observed from Rust rather than reported by the page. Rust evaluates an expression in the
+  page to read what an injected script recorded; the page has no way to call back. See
+  [Page observation](specs/page-observation.md).
+- Dialogs a page opens are drawn by the chrome, titled with the requesting site, so a page cannot present its
+  text as Haku's.
 
 ## Dependencies
 
-Only three external packages, all first-party: `@codenhub/theme` (preference storage and the pre-paint script),
-`@codenhub/styles` (design tokens only — not the component or reset layers), and `@codenhub/icons`.
+Only four external packages, all first-party: `@codenhub/theme` (preference storage and the pre-paint script),
+`@codenhub/styles` (tokens, palette, reset and components, through its Tailwind source entry),
+`@codenhub/icons` and `@codenhub/toaster` (notifications and dialogs).
 
 Everything else is built for Haku. General-purpose libraries with breaking changes pending are a poor
 foundation for a project meant to avoid repeated refactors.
