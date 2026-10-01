@@ -1,11 +1,11 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["dist/**", "coverage/**", "**/coverage/**", "test-results/**", "**/test-results/**"],
+  "ignorePatterns": ["dist/**", "coverage/**", "src/bindings.ts", "tauri/target/**"],
   "env": {
     "browser": true,
     "node": true
   },
-  "plugins": ["typescript", "oxc", "jsdoc", "unicorn", "promise", "vitest"],
+  "plugins": ["typescript", "oxc", "jsdoc", "unicorn", "promise", "vitest", "react", "jsx-a11y"],
   "rules": {
     "curly": ["error", "all"],
     "eqeqeq": ["error", "always"],
@@ -27,12 +27,35 @@
     "no-var": "error",
     "prefer-const": "error",
     "promise/prefer-await-to-then": "error",
-    "typescript/consistent-type-imports": ["error", { "prefer": "type-imports" }],
+    "typescript/consistent-type-imports": [
+      "error",
+      {
+        "prefer": "type-imports"
+      }
+    ],
     "typescript/no-explicit-any": "error",
-    "typescript/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "unicorn/filename-case": ["error", { "case": "kebabCase" }],
-    "vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "expectErr"] }],
+    "typescript/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "unicorn/filename-case": [
+      "error",
+      {
+        "case": "kebabCase"
+      }
+    ],
+    "vitest/expect-expect": [
+      "error",
+      {
+        "assertFunctionNames": ["expect", "expectErr"]
+      }
+    ],
     "vitest/no-identical-title": "error",
-    "vitest/require-mock-type-parameters": "off"
+    "vitest/require-mock-type-parameters": "off",
+    "react/rules-of-hooks": "error",
+    "react/jsx-key": "error",
+    "react/no-danger": "error"
   }
 }

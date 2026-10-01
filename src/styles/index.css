@@ -1,0 +1,77 @@
+/* The full source surface: Tailwind itself, the monochrome palette, reset and
+   component classes. Components come from here wherever one fits; Haku's own
+   pieces, such as tabs and the address field, are Tailwind utilities over the
+   same tokens. */
+@import "@codenhub/styles/tw";
+@import "@codenhub/toaster/styles";
+
+/* Haku's surfaces, named for their role and drawn from the palette so both
+   themes follow `@codenhub/theme` without a second set of colours. The chrome
+   is one quiet plane; the active tab and the address field are raised from it. */
+@theme {
+  --color-chrome: var(--color-foreground);
+  --color-chrome-raised: var(--color-surface);
+}
+
+/*
+  Density. Compact is the default, and it applies to the bars only: internal
+  pages keep the package's own sizing, where form fields have room for their
+  text. Controls from `@codenhub/styles` size themselves from
+  `--control-height`, so setting it on a bar is what makes its buttons line up
+  with the tabs and the address field.
+*/
+[data-density="compact"] {
+  --haku-viewport-radius: var(--radius-control);
+}
+
+[data-density="compact"] .haku-bar {
+  --control-height: 1.75rem;
+}
+
+/* Icon buttons in the bars are squares of the control height, so they line up
+   with the tabs and the address field. The package sizes an icon button from
+   its padding instead, which comes out a few pixels taller. Unlayered, so it
+   outranks the package's utilities without fighting their specificity. */
+.haku-bar .btn.icon:not(.dense) {
+  padding: 0;
+  inline-size: var(--control-height);
+  block-size: var(--control-height);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-chrome);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  /* The interface is application chrome: dragging text out of it is never wanted. */
+  user-select: none;
+}
+
+/*
+  The chrome covers the whole window and sits above every content webview.
+  This element is the hole the page shows through, so it must never paint a
+  background. The ring is drawn by the chrome above the page, which is what
+  makes the page's corners look rounded without clipping the webview itself.
+*/
+/*
+  A dialog's backdrop cannot reach page content: the page is a native view
+  beneath a hole in the chrome, so a dimmed backdrop would dim the bars and leave
+  the page untouched. No backdrop at all reads as one consistent surface; the
+  dialog stays modal either way.
+*/
+dialog[data-toast-instance]::backdrop {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.haku-viewport {
+  border-radius: var(--haku-viewport-radius);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-border) 45%, transparent);
+}

@@ -7,3 +7,5 @@ trustPolicyIgnoreAfter: 10080
 allowBuilds:
   "@parcel/watcher": true
   esbuild: true
+minimumReleaseAgeExclude:
+  - "@codenhub/styles@0.4.0"

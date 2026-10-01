@@ -1,14 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Core permissions for the chrome webview only. Scoped by webview label rather than window: a window scope also covers every child webview in it, which includes the content webviews that load remote pages.",
+  "webviews": ["main"],
   "permissions": [
     "core:default",
-    "opener:default",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "core:window:allow-scale-factor"
   ]
 }
