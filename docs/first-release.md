@@ -1,7 +1,7 @@
 # First release
 
 **Status:** APPROVED
-**Last updated:** 2026-10-01
+**Last updated:** 2026-10-02
 **Scope:** What the first release includes, and the structural decisions it rests on.
 
 Most of this is not built yet. It is approved so that features are built on these decisions instead of
@@ -69,6 +69,105 @@ so memory stays flat as windows are added.
 Every tab belongs to a window. A slot shown in a different window is moved there with `Webview::reparent`, and
 the destination's chrome is raised over it afterwards, as on creation. `MAIN_WINDOW_LABEL` stops being an
 assumption anywhere outside startup.
+
+### Tab optimization
+
+The pool keeps memory flat by giving up page state. Users choose how far that goes, from "one page loaded at a
+time" to "keep everything running". [Webview pool](specs/webview-pool.md) is rewritten to this when it is
+implemented.
+
+#### States and terms
+
+- **Live** — in a slot and running.
+- **Frozen** — in a slot, paused. Scripts and timers stop; the page keeps its state and most of its memory.
+  Showing it resumes it without a reload.
+- **Discarded** — no slot. Only the URL, title, favicon and history are kept; showing it reloads the page.
+  This is the state the pool spec currently calls _suspended_, renamed to the term other browsers use.
+- **Internal** — a `haku://` page drawn by the chrome. Never consumes a slot.
+
+**Evicting** keeps its meaning: taking a tab's slot for another tab, which leaves the evicted tab discarded.
+
+#### Settings
+
+An **Optimization** section in settings holds three values:
+
+| Setting                 | Values               | Meaning                                                   |
+| ----------------------- | -------------------- | --------------------------------------------------------- |
+| Slots                   | a number             | The configured capacity.                                  |
+| Freeze background tabs  | never, smart, always | Whether a background tab still in a slot is frozen.       |
+| Discard background tabs | never, smart, always | Whether Haku discards a background tab on its own accord. |
+
+**Discard: always** makes the other two meaningless — nothing stays loaded in the background to freeze or to fill
+extra slots — so it disables both, each with a tooltip saying why, and the configured capacity is treated as 1. A
+disabled control receives no pointer events, so the tooltip belongs to an element wrapping it.
+
+A **preset** fills the three values. Changing any of them afterwards shows the preset as _Custom_, so it never
+names values that are not in effect.
+
+| Preset      | Slots                      | Freeze   | Discard |
+| ----------- | -------------------------- | -------- | ------- |
+| Save memory | disabled                   | disabled | always  |
+| Balanced    | from total RAM             | smart    | smart   |
+| Performance | from total RAM, set higher | smart    | never   |
+
+The slot counts per amount of RAM are set by measurement when this is implemented. Total RAM chooses the count
+once, when a preset is applied; it is never recomputed from free memory, because a pool that resizes with other
+programs' memory use reloads pages for reasons the user cannot see.
+
+#### Policy
+
+Visible tabs and fixed tabs are exempt from all of it. For every other tab in a slot, in order:
+
+1. **Discard: always** — discard it.
+2. It **needs to keep running** and Freeze is not _always_ — leave it running.
+3. It is **likely to be shown again soon** and Freeze allows it — freeze it.
+4. **Discard: smart** and it is **worth freeing** — discard it.
+5. Otherwise, leave it as it is.
+
+**Always means always.** A tab playing music is frozen or discarded like any other; fixing it is how a user keeps
+it running.
+
+Independently of all three settings, a tab that needs a slot when every slot is taken evicts the least recently
+used unprotected tab, as today. _Discard: never_ means Haku never discards on its own initiative, not that a tab is
+never reloaded, and its description says so.
+
+#### Signals
+
+Smart decisions are only as good as what Rust can observe, and pages report nothing:
+
+- **Needs to keep running** — the page is playing audio (WebView2's `IsDocumentPlayingAudio`).
+- **Likely to be shown again soon** — it was shown recently. Recency is the first signal; better ones are a change
+  of source, not of design.
+- **Worth freeing** — Windows reports low memory (`CreateMemoryResourceNotification`), or the tab has not been
+  shown for a long time. Under pressure, tabs are discarded largest first, measured from the memory of the
+  processes WebView2 reports for each slot.
+
+Total RAM comes from `GlobalMemoryStatusEx`. All of these sit in `platform/`, behind the same interface as the
+other native operations.
+
+Freezing is WebView2's `TrySuspend` on a hidden slot, with its memory target lowered. Whether it works on a slot
+parented into Tauri's window is verified first; if it does not, Freeze does not ship and the settings keep only
+Slots and Discard.
+
+#### Cheaper reloads
+
+A discarded tab still reloads, so the reload is made to cost less:
+
+- **Form contents** are saved and restored by the injected script in `sessionStorage`, as scroll already is, with
+  the same limit: restoring into a different slot starts empty. Password fields, payment fields and fields
+  marked `autocomplete="off"` are never saved.
+- **Cached responses** are preferred over revalidation when a discarded tab reloads, as back and forward do —
+  provided WebView2 lets a navigation ask for it, which is verified when this is implemented.
+
+#### Fixed tabs
+
+Fixing a tab means it is never frozen and never discarded by policy; only closing it or unfixing it releases its
+slot. `release_idle_tabs` and the interface timer driving it are removed, because a tab the user asked to keep
+should not be dropped for being quiet.
+
+The control leaves the tab strip. The address-bar icon becomes a **site menu** — an overlay, registered with
+`useOverlay` — and fixing the tab is an option there, with a warning that it keeps the page in memory and is meant
+for pages the automatic policy does not suit. A fixed tab keeps a marker in the tab strip.
 
 ### Running in the background
 
@@ -167,6 +266,7 @@ turned off, so nothing is stored by default either.
 | Crashed pages                        | A webview whose process dies leaves its tab in a crashed state with a reload, not a blank viewport.                                                                                                                                           |
 | Private tabs, containers, workspaces | See [Webviews belong to a profile](#webviews-belong-to-a-profile).                                                                                                                                                                            |
 | Windows and tab tear-off             | See [One pool across windows](#one-pool-across-windows).                                                                                                                                                                                      |
+| Tab optimization, site menu          | See [Tab optimization](#tab-optimization).                                                                                                                                                                                                    |
 | Favicons, tab previews               | See [Observed, not reported](#observed-not-reported).                                                                                                                                                                                         |
 | Extensions                           | See [Extensions](#extensions).                                                                                                                                                                                                                |
 | Developer tools                      | See [Developer tools](#developer-tools).                                                                                                                                                                                                      |
