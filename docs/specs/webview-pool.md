@@ -195,6 +195,9 @@ The menu hangs over page content, so it registers with `useOverlay`. It is opaqu
 the input mask is cut as a plain rectangle, and it closes when the chrome loses focus: a click on the page never
 reaches the chrome.
 
+The warning is a tooltip on an icon beside the option. Its bubble can reach past the menu's rectangle, so its
+open state is tracked in code rather than left to CSS, and it registers as an overlay of its own while it shows.
+
 ## Scroll
 
 A discarded tab reloads, which would otherwise return to the top of the page. The injected script saves and

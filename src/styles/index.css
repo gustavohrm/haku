@@ -32,7 +32,7 @@
    with the tabs and the address field. The package sizes an icon button from
    its padding instead, which comes out a few pixels taller. Unlayered, so it
    outranks the package's utilities without fighting their specificity. */
-.haku-bar .btn.icon:not(.dense) {
+.haku-bar .btn.icon:not(.p-xs) {
   padding: 0;
   inline-size: var(--control-height);
   block-size: var(--control-height);

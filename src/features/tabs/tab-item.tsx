@@ -85,7 +85,7 @@ function TabAction({ icon, label, alwaysVisible, onClick }: TabActionProps) {
     <span className={cx("shrink-0", !alwaysVisible && "hidden group-focus-within:flex group-hover:flex")}>
       <button
         type="button"
-        className="btn icon ghost dense [--ui-radius:var(--radius-small)]"
+        className="btn icon ghost p-xs [--ui-radius:var(--radius-small)]"
         aria-label={label}
         title={label}
         onClick={onClick}

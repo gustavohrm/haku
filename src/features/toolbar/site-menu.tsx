@@ -30,6 +30,7 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLElement>(null);
   const menuId = useId();
+  const switchId = useId();
 
   // The menu hangs over the page, so it must be registered to be clickable.
   useOverlay(menuRef, open);
@@ -75,7 +76,7 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
       <button
         ref={buttonRef}
         type="button"
-        className="btn icon ghost dense -mx-1 shrink-0 [--ui-radius:var(--radius-small)]"
+        className="btn icon ghost p-xs -mx-1 shrink-0 [--ui-radius:var(--radius-small)]"
         aria-label={t("site.menu")}
         title={t("site.menu")}
         aria-expanded={open}
@@ -105,24 +106,71 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
               <span className="text-text-secondary text-sm">{secure ? t("site.secure") : t("site.insecure")}</span>
             </div>
 
-            <label className="flex items-center justify-between gap-3">
-              <span>{t("site.keepLoaded")}</span>
+            {/* The warning sits outside the label: a label takes its first
+                labelable descendant as its control, which would be the
+                warning's button rather than the switch. */}
+            <div className="flex items-center gap-1.5">
+              <label htmlFor={switchId}>{t("site.keepLoaded")}</label>
+              <Warning message={t("site.keepLoaded.warning")} />
               <input
+                id={switchId}
                 type="checkbox"
-                className="switch"
+                className="switch ml-auto"
                 checked={tab.fixed}
                 onChange={(event) => void commands.setTabFixed(tab.id, event.target.checked)}
               />
-            </label>
-
-            <div className="alert warning soft text-sm" role="note">
-              <i className="ic-triangle-alert alert-icon" aria-hidden="true" />
-              <span>{t("site.keepLoaded.warning")}</span>
             </div>
           </section>,
           document.body,
         )}
     </>
+  );
+}
+
+/**
+ * A warning icon that explains itself on hover or focus.
+ *
+ * The bubble can reach past the menu, and anything outside a registered
+ * overlay is drawn under the page's hole in the input mask, so it would be
+ * invisible there. Whether it is open is therefore tracked here rather than
+ * left to CSS, and the bubble is registered while it shows. Its transition is
+ * turned off because the overlay is measured once on opening, and a bubble
+ * still scaling up from nothing would be measured at its starting size.
+ */
+function Warning({ message }: { message: string }) {
+  const [open, setOpen] = useState(false);
+  const bubbleRef = useRef<HTMLSpanElement>(null);
+  const bubbleId = useId();
+
+  useOverlay(bubbleRef, open);
+
+  return (
+    <span
+      className="tooltip flex"
+      data-state={open ? "open" : "closed"}
+      onPointerEnter={() => setOpen(true)}
+      onPointerLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        className="text-warning flex outline-offset-2"
+        aria-label={t("site.warning")}
+        aria-describedby={bubbleId}
+      >
+        <i className="ic-triangle-alert ic-xs" aria-hidden="true" />
+      </button>
+      <span
+        ref={bubbleRef}
+        id={bubbleId}
+        role="tooltip"
+        className="tooltip-bubble warning soft edged"
+        style={{ transition: "none" }}
+      >
+        {message}
+      </span>
+    </span>
   );
 }
 

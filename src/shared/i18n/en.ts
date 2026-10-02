@@ -25,6 +25,7 @@ export const en = {
   "site.menu": "Site information",
   "site.secure": "Connection is secure",
   "site.insecure": "Connection is not secure",
+  "site.warning": "Warning",
   "site.keepLoaded": "Keep this tab loaded",
   "site.keepLoaded.warning":
     "Not recommended. This tab stays in memory and keeps running in the background, whatever the optimization settings say. Use it only for pages the automatic behavior does not suit.",

@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@codenhub/icons": "^0.2.1",
-    "@codenhub/styles": "^0.4.0",
+    "@codenhub/styles": "^0.6.0",
     "@codenhub/theme": "^0.1.2",
     "@codenhub/toaster": "^0.2.0",
     "@tauri-apps/api": "^2",
