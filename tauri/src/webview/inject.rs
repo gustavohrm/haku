@@ -23,7 +23,7 @@ const SCROLL_DEBOUNCE_MS: u32 = 150;
 
 /// Remembers and restores the scroll position, entirely within the page.
 ///
-/// A suspended tab is reloaded when it comes back, which would otherwise return
+/// A discarded tab is reloaded when it comes back, which would otherwise return
 /// to the top of the page. The offset is kept in `sessionStorage` so it never
 /// leaves the origin it belongs to and is discarded with the browsing session,
 /// unlike `localStorage`, which would leave Haku's data on the site permanently.

@@ -20,7 +20,7 @@ interface TabItemProps {
 export function TabItem({ tab, active }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
-  const suspended = tab.presence.status === "suspended";
+  const discarded = tab.presence.status === "discarded";
   const pinLabel = tab.fixed ? t("tabs.unpin") : t("tabs.pin");
 
   return (
@@ -29,9 +29,9 @@ export function TabItem({ tab, active }: TabItemProps) {
         className={cx(
           "group flex h-(--control-height) w-full min-w-0 items-center gap-1 rounded-(--radius-control) pr-1 pl-2 transition-colors",
           active ? "bg-chrome-raised text-text" : "text-text-secondary hover:bg-text/6 hover:text-text",
-          suspended && !active && "opacity-70",
+          discarded && !active && "opacity-70",
         )}
-        title={suspended ? `${title} — ${t("tabs.suspended")}` : title}
+        title={discarded ? `${title} — ${t("tabs.discarded")}` : title}
       >
         <button
           type="button"

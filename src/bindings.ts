@@ -166,7 +166,7 @@ export type PageDialog = {
 /**
  *  Where a page was scrolled to.
  * 
- *  Kept current for live tabs by the injected reporter so that suspending a tab
+ *  Kept current for live tabs by the injected reporter so that discarding a tab
  *  never has to ask a webview that may already be gone.
  */
 export type Scroll = {
@@ -230,14 +230,14 @@ export type TabId = number;
 /**
  *  Whether a tab currently holds a webview.
  * 
- *  A suspended tab is not a paused page: its webview is gone and reactivating
+ *  A discarded tab is not a paused page: its webview is gone and reactivating
  *  reloads the URL, then restores [`Tab::scroll`].
  */
 export type TabPresence = 
 /**  Bound to a pool slot and backed by a live webview. */
 { status: "live"; slot: SlotId } | 
 /**  No webview. Reactivating reloads the page. */
-{ status: "suspended" } | 
+{ status: "discarded" } | 
 /**  Rendered by the chrome itself; never consumes a slot. */
 { status: "internal" };
 

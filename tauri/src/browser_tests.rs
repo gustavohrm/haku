@@ -42,7 +42,7 @@ fn a_single_slot_pool_moves_the_webview_between_tabs() {
 }
 
 #[test]
-fn selecting_a_suspended_tab_reloads_its_url_into_the_slot() {
+fn selecting_a_discarded_tab_reloads_its_url_into_the_slot() {
     let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
 
     let effects = browser.select_tab(ids[0], 0).unwrap();
@@ -565,12 +565,12 @@ fn a_page_haku_opened_is_a_visit_when_it_arrives() {
 }
 
 #[test]
-fn a_suspended_tab_reloading_its_page_is_not_a_visit() {
+fn a_discarded_tab_reloading_its_page_is_not_a_visit() {
     let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
     let slot = SlotId(0);
     browser.report_page(slot, &[commit("https://b.test", NavigationKind::Push)], None);
     browser.select_tab(ids[0], 0).unwrap();
-    // The first tab's page never arrived before it was suspended, so this is
+    // The first tab's page never arrived before it was discarded, so this is
     // its first load and still a visit.
     assert!(visited(browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None)));
 

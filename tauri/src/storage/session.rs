@@ -5,9 +5,9 @@ use crate::browser::Browser;
 
 /// One tab as it is remembered across restarts.
 ///
-/// Only what survives a reload is stored. A suspended tab and a live tab are
+/// Only what survives a reload is stored. A discarded tab and a live tab are
 /// indistinguishable here, because on the next launch every tab starts
-/// suspended anyway.
+/// discarded anyway.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTab {

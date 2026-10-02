@@ -82,7 +82,7 @@ implemented.
 - **Frozen** — in a slot, paused. Scripts and timers stop; the page keeps its state and most of its memory.
   Showing it resumes it without a reload.
 - **Discarded** — no slot. Only the URL, title, favicon and history are kept; showing it reloads the page.
-  This is the state the pool spec currently calls _suspended_, renamed to the term other browsers use.
+  This is the state formerly called _suspended_, renamed to the term other browsers use.
 - **Internal** — a `haku://` page drawn by the chrome. Never consumes a slot.
 
 **Evicting** keeps its meaning: taking a tab's slot for another tab, which leaves the evicted tab discarded.

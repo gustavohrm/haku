@@ -16,7 +16,7 @@ pub struct TabId(#[specta(type = specta_typescript::Number)] pub u64);
 
 /// Where a page was scrolled to.
 ///
-/// Kept current for live tabs by the injected reporter so that suspending a tab
+/// Kept current for live tabs by the injected reporter so that discarding a tab
 /// never has to ask a webview that may already be gone.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, Type)]
 pub struct Scroll {
@@ -28,7 +28,7 @@ pub struct Scroll {
 
 /// Whether a tab currently holds a webview.
 ///
-/// A suspended tab is not a paused page: its webview is gone and reactivating
+/// A discarded tab is not a paused page: its webview is gone and reactivating
 /// reloads the URL, then restores [`Tab::scroll`].
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -36,7 +36,7 @@ pub enum TabPresence {
     /// Bound to a pool slot and backed by a live webview.
     Live { slot: SlotId },
     /// No webview. Reactivating reloads the page.
-    Suspended,
+    Discarded,
     /// Rendered by the chrome itself; never consumes a slot.
     Internal,
 }
@@ -63,7 +63,7 @@ pub struct Tab {
 impl Tab {
     pub fn new(id: TabId, url: impl Into<String>) -> Self {
         let visit = Visit::new(url);
-        let presence = if is_internal(&visit.url) { TabPresence::Internal } else { TabPresence::Suspended };
+        let presence = if is_internal(&visit.url) { TabPresence::Internal } else { TabPresence::Discarded };
 
         Self {
             id,
@@ -100,7 +100,7 @@ impl Tab {
         let internal = is_internal(self.url());
         match (self.presence, internal) {
             (TabPresence::Internal, false) => {
-                self.presence = TabPresence::Suspended;
+                self.presence = TabPresence::Discarded;
                 self.scroll = Scroll::default();
             }
             (_, true) => self.presence = TabPresence::Internal,
@@ -118,9 +118,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_web_tab_starts_suspended_because_it_holds_no_webview_yet() {
+    fn a_web_tab_starts_discarded_because_it_holds_no_webview_yet() {
         let tab = Tab::new(TabId(1), "https://a.test");
-        assert_eq!(tab.presence, TabPresence::Suspended);
+        assert_eq!(tab.presence, TabPresence::Discarded);
         assert!(tab.slot().is_none());
     }
 
@@ -137,7 +137,7 @@ mod tests {
         tab.history.push(Visit::new("https://a.test"));
         tab.reclassify();
 
-        assert_eq!(tab.presence, TabPresence::Suspended);
+        assert_eq!(tab.presence, TabPresence::Discarded);
     }
 
     #[test]

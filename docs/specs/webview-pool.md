@@ -1,7 +1,7 @@
 # Webview pool
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-10-01
+**Last updated:** 2026-10-02
 **Scope:** How tabs share a limited number of webviews.
 
 ## The idea
@@ -9,15 +9,15 @@
 Haku uses a small, configurable number of real webviews — one by default — shared between any number of tabs.
 Memory therefore stays close to flat as tabs accumulate, instead of growing with every tab opened.
 
-## What suspension actually is
+## What discarding actually is
 
-**Reactivating a suspended tab reloads the page. It does not resume it.**
+**Reactivating a discarded tab reloads the page. It does not resume it.**
 
 This is worth stating plainly because the feature is easy to imagine as pausing a tab and waking it later. No
 engine offers that: destroying a webview loses the JavaScript heap, the DOM, open sockets and media playback,
 and nothing can serialise a live page and rehydrate it.
 
-What a suspended tab keeps is its URL, title, favicon and place in history. What it loses is everything the
+What a discarded tab keeps is its URL, title, favicon and place in history. What it loses is everything the
 page was doing. This is the same trade Chrome's tab discarding and Edge's sleeping tabs make.
 
 Scroll position survives through a script the page runs on its own — see [Scroll](#scroll) below.
@@ -27,7 +27,7 @@ Scroll position survives through a script the page runs on its own — see [Scro
 A tab is in exactly one of three states:
 
 - **Live** — bound to a pool slot, backed by a real webview.
-- **Suspended** — no webview. Reactivating reloads the URL.
+- **Discarded** — no webview. Reactivating reloads the URL.
 - **Internal** — a `haku://` page drawn by the chrome. Never consumes a slot.
 
 ## Capacity
@@ -49,8 +49,8 @@ When a tab needs a slot and none is free:
 
 1. If the pool may still grow, it grows.
 2. Otherwise the **least recently used** slot whose occupant is not protected is taken, and its occupant is
-   suspended.
-3. If every resident is protected, the request fails with `NoSlotAvailable` and the tab stays suspended.
+   discarded.
+3. If every resident is protected, the request fails with `NoSlotAvailable` and the tab stays discarded.
 
 Protected tabs are the active tab and every fixed tab.
 
@@ -103,7 +103,7 @@ signal is a change of source, not a change of design.
 
 ## Scroll
 
-A suspended tab reloads, which would otherwise return to the top of the page. The injected script saves and
+A discarded tab reloads, which would otherwise return to the top of the page. The injected script saves and
 restores the offset in `sessionStorage`, entirely within the page: no IPC, and nothing left on the site after
 the browsing session, unlike `localStorage`.
 
@@ -112,7 +112,7 @@ slot starts at the top.
 
 ## Restoring a session
 
-`Session::restore` builds a browser with every tab **suspended** and no slot state at all. It deliberately does
+`Session::restore` builds a browser with every tab **discarded** and no slot state at all. It deliberately does
 not go through the ordinary open-and-select path: that path assumes its effects will be applied to real
 webviews, and at startup there are none and nowhere to put them.
 

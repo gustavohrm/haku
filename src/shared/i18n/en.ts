@@ -10,9 +10,9 @@ export const en = {
   "tabs.new": "New tab",
   "tabs.close": "Close tab",
   "tabs.pin": "Pin — keep this tab loaded in the background",
-  "tabs.unpin": "Unpin — let this tab be suspended",
+  "tabs.unpin": "Unpin — let this tab be discarded",
   "tabs.untitled": "Untitled",
-  "tabs.suspended": "Suspended — reloads when you open it",
+  "tabs.discarded": "Discarded — reloads when you open it",
 
   "toolbar.navigation": "Navigation",
   "toolbar.back": "Back",
@@ -35,7 +35,7 @@ export const en = {
   "settings.performance": "Performance",
   "settings.capacity": "Loaded tabs",
   "settings.capacity.help":
-    "How many tabs stay loaded at once. Others are suspended and reload when you return to them.",
+    "How many tabs stay loaded at once. Others are discarded and reload when you return to them.",
   "settings.browsing": "Browsing",
   "settings.search": "Search engine URL",
   "settings.home": "Home page",

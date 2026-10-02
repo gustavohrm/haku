@@ -9,7 +9,7 @@ use crate::model::{
     Tab, TabId, TabPresence, Visit, WebviewPool,
 };
 
-/// URL a slot is parked on after its tab is suspended.
+/// URL a slot is parked on after its tab is discarded.
 ///
 /// Navigating away frees the page while keeping the webview itself alive, which
 /// is far cheaper than destroying and recreating one on every tab switch.
@@ -49,7 +49,7 @@ pub struct PageReport {
     pub url: String,
     pub title: String,
     /// Whether the page arrived somewhere: a followed link, a pushed route, or
-    /// a navigation Haku made. A suspended tab reloading what it already
+    /// a navigation Haku made. A discarded tab reloading what it already
     /// showed is not a visit, and neither is a redirect, a replaced route or a
     /// retitle; those only refine the visit already recorded.
     pub visited: bool,
@@ -82,7 +82,7 @@ pub struct Browser {
     /// is already current rather than a new one.
     awaiting: HashSet<SlotId>,
     /// Tabs sent somewhere new whose page has not arrived yet. Their next
-    /// awaited commit is a visit; any other awaited commit is a suspended tab
+    /// awaited commit is a visit; any other awaited commit is a discarded tab
     /// coming back, which is not.
     navigated: HashSet<TabId>,
     next_id: u64,
@@ -106,7 +106,7 @@ impl Browser {
     /// Restoring must not go through the ordinary open and select path: that
     /// path assumes its effects will be applied to real webviews, and at startup
     /// there are none and nowhere to put them. A browser built here has every
-    /// tab suspended, which is exactly what reconciling against the first
+    /// tab discarded, which is exactly what reconciling against the first
     /// reported layout then acts on.
     pub fn restored(capacity: usize, tabs: impl IntoIterator<Item = (String, bool)>, active: Option<usize>) -> Self {
         let mut browser = Self::new(capacity);
@@ -323,7 +323,7 @@ impl Browser {
         Ok(effects)
     }
 
-    /// Pins or unpins a tab so it keeps a webview while other tabs are suspended.
+    /// Pins or unpins a tab so it keeps a webview while other tabs are discarded.
     ///
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
@@ -350,7 +350,7 @@ impl Browser {
             if let Some(occupant) = occupant {
                 effects.extend(self.dismiss_dialog(occupant));
                 if let Ok(tab) = self.tab_mut(occupant) {
-                    tab.presence = TabPresence::Suspended;
+                    tab.presence = TabPresence::Discarded;
                 }
             }
             self.forget_slot(slot);
@@ -396,7 +396,7 @@ impl Browser {
                 effects.push(Effect::Blank { slot });
             }
             if let Ok(tab) = self.tab_mut(id) {
-                tab.presence = TabPresence::Suspended;
+                tab.presence = TabPresence::Discarded;
             }
         }
         effects
@@ -577,7 +577,7 @@ impl Browser {
         let protected = self.protected();
 
         let Ok(acquired) = self.pool.acquire(id, effective, &protected) else {
-            // Every slot is spoken for; the tab stays suspended until one frees.
+            // Every slot is spoken for; the tab stays discarded until one frees.
             return Vec::new();
         };
 
@@ -587,7 +587,7 @@ impl Browser {
             // before its slot is navigated to this tab.
             effects.extend(self.dismiss_dialog(evicted));
             if let Ok(tab) = self.tab_mut(evicted) {
-                tab.presence = TabPresence::Suspended;
+                tab.presence = TabPresence::Discarded;
             }
         }
 

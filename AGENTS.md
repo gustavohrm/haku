@@ -19,7 +19,7 @@ This repository is docs-first. Before non-trivial work, read the relevant source
 | `docs/architecture.md`           | What goes where and why. Start here.                         |
 | `docs/first-release.md`          | Release scope and the structural decisions features rest on. |
 | `docs/code-guidelines.md`        | Naming, structure, Rust and React conventions, testing.      |
-| `docs/specs/webview-pool.md`     | How tabs share webviews; suspension, pinning, eviction.      |
+| `docs/specs/webview-pool.md`     | How tabs share webviews; discarding, pinning, eviction.      |
 | `docs/specs/chrome-layering.md`  | How the interface renders above page content.                |
 | `docs/specs/page-observation.md` | How page URLs become tab history; page dialogs.              |
 | `docs/specs/errors.md`           | How failures are represented.                                |
