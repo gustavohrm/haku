@@ -9,8 +9,7 @@ use crate::webview::Viewport;
 
 /// Milliseconds since the Unix epoch.
 ///
-/// Used for history timestamps and for the activity clock that decides when a
-/// pinned tab has gone idle.
+/// Used for history timestamps and for when a tab was last shown.
 pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_millis() as u64).unwrap_or(0)
 }

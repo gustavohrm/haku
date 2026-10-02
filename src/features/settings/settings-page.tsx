@@ -4,9 +4,9 @@ import { type Settings } from "@bindings";
 import { commands } from "@ipc/commands";
 import { useSettings } from "@ipc/hooks";
 import { t } from "@shared/i18n";
-import { useEffect, useState } from "react";
 
-const MAX_CAPACITY = 12;
+import { DraftInput } from "./draft-input";
+import { OptimizationSection } from "./optimization-section";
 
 /**
  * Settings, rendered inside the chrome rather than in a webview.
@@ -53,27 +53,7 @@ export function SettingsPage() {
         </label>
       </section>
 
-      <section className="card stack">
-        <h2 className="text-title-sm">{t("settings.performance")}</h2>
-        <label className="field">
-          <span className="label">{t("settings.capacity")}</span>
-          <DraftInput
-            type="number"
-            min={1}
-            max={MAX_CAPACITY}
-            value={String(settings.webviewCapacity)}
-            onCommit={async (next) => {
-              const value = Number.parseInt(next, 10);
-              if (!Number.isFinite(value)) {
-                return null;
-              }
-              const stored = await update({ webviewCapacity: Math.min(Math.max(value, 1), MAX_CAPACITY) });
-              return stored && String(stored.webviewCapacity);
-            }}
-          />
-          <span className="hint">{t("settings.capacity.help")}</span>
-        </label>
-      </section>
+      <OptimizationSection settings={settings} update={update} />
 
       <section className="card stack">
         <h2 className="text-title-sm">{t("settings.browsing")}</h2>
@@ -95,54 +75,5 @@ export function SettingsPage() {
         </label>
       </section>
     </InternalPage>
-  );
-}
-
-interface DraftInputProps {
-  type: "text" | "number";
-  value: string;
-  min?: number;
-  max?: number;
-  /** Saves the value, resolving to what was stored, or `null` if nothing was. */
-  onCommit: (value: string) => Promise<string | null>;
-}
-
-/**
- * A field edited locally and saved when it is left or Enter is pressed.
- *
- * What was actually stored replaces the draft, so a value Rust corrected, such
- * as a blank home page restored to the default, shows as it really is. Escape
- * abandons the edit.
- */
-function DraftInput({ type, value, min, max, onCommit }: DraftInputProps) {
-  const [draft, setDraft] = useState(value);
-
-  useEffect(() => setDraft(value), [value]);
-
-  const commit = async () => {
-    if (draft === value) {
-      return;
-    }
-    setDraft((await onCommit(draft)) ?? value);
-  };
-
-  return (
-    <input
-      className="ipt"
-      type={type}
-      min={min}
-      max={max}
-      value={draft}
-      spellCheck={false}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => void commit()}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          void commit();
-        } else if (event.key === "Escape") {
-          setDraft(value);
-        }
-      }}
-    />
   );
 }

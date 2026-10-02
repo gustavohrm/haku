@@ -16,6 +16,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::get_state,
             commands::get_settings,
             commands::set_settings,
+            commands::apply_preset,
+            commands::current_preset,
             commands::open_tab,
             commands::close_tab,
             commands::select_tab,
@@ -28,7 +30,6 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::set_layout,
             commands::recent_history,
             commands::clear_history,
-            commands::release_idle_tabs,
             commands::open_tab_devtools,
             commands::answer_dialog,
         ])

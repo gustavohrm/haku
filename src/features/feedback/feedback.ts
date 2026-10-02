@@ -13,7 +13,7 @@
 
 import type { HakuError } from "@bindings";
 import { createToaster, type Toaster } from "@codenhub/toaster";
-import { rectOf, registerOverlay, unregisterOverlay } from "@features/overlays/registry";
+import { overlayOf, registerOverlay, unregisterOverlay } from "@features/overlays/registry";
 import { describeError } from "@ipc/result";
 import { t } from "@shared/i18n";
 
@@ -55,8 +55,8 @@ export function feedback(): Toaster {
 /**
  * Tells the user a command failed.
  *
- * Some commands run on a timer, so a persistent failure would otherwise repeat
- * the same toast indefinitely.
+ * A persistent failure tends to repeat as the user retries, and would otherwise
+ * stack the same toast again and again.
  *
  * @param error - The failure Rust reported.
  */
@@ -97,7 +97,7 @@ function trackAsOverlays(container: HTMLElement): void {
       }
       const visible = element instanceof HTMLDialogElement ? element.open : element.childElementCount > 0;
       if (visible) {
-        registerOverlay(id, rectOf(element));
+        registerOverlay(id, overlayOf(element));
         shown.add(id);
       }
     }

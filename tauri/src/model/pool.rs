@@ -44,7 +44,7 @@ pub enum Acquired {
     Held(SlotId),
     /// A slot was free, or the pool grew to make one.
     Free(SlotId),
-    /// A resident tab was displaced and must be suspended before reuse.
+    /// A resident tab was displaced and must be discarded before reuse.
     Evicted { slot: SlotId, evicted: TabId },
 }
 

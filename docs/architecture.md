@@ -37,7 +37,7 @@ React interface  →  generated bindings  →  Tauri commands  →  Browser  →
 describing the difference: create this webview, park that one on `about:blank`, show this, hide that.
 
 That separation is what makes tab and pool behaviour testable without a window, a webview, or an event loop.
-Every rule about eviction, pinning, suspension and history is exercised by ordinary unit tests.
+Every rule about eviction, pinning, discarding and history is exercised by ordinary unit tests.
 
 Every mutation ends by calling `realize()`, which reconciles the whole state, rather than emitting effects
 itself. There is therefore exactly one description of what "correct" looks like, and no operation can forget a

@@ -1,7 +1,7 @@
 # First release
 
 **Status:** APPROVED
-**Last updated:** 2026-10-01
+**Last updated:** 2026-10-02
 **Scope:** What the first release includes, and the structural decisions it rests on.
 
 Most of this is not built yet. It is approved so that features are built on these decisions instead of
@@ -70,6 +70,24 @@ Every tab belongs to a window. A slot shown in a different window is moved there
 the destination's chrome is raised over it afterwards, as on creation. `MAIN_WINDOW_LABEL` stops being an
 assumption anywhere outside startup.
 
+### Tab optimization
+
+**Implemented.** The pool keeps memory flat by giving up page state, and users choose how far that goes, from
+"one page loaded at a time" to "keep everything running". The states, the Optimization settings and their
+presets, the freeze and discard policy, the signals it reads, fixed tabs and the site menu, and how a discarded
+tab keeps its form contents are specified in [Webview pool](specs/webview-pool.md).
+
+Three decisions changed in implementation:
+
+- **Under memory pressure, every eligible tab is discarded**, rather than one at a time, largest first. Measuring
+  each slot's memory would need process accounting the policy did not otherwise need, and low memory is rare
+  enough that freeing everything not shown recently is the safer answer.
+- **Freezing a tab does not wait for it to have been shown recently.** With _Freeze: smart_, a background tab is
+  frozen as soon as it is left, unless it is playing audio; recency decides only what smart discarding spares.
+- **Reloads do not prefer stale cached responses.** WebView2 gives a navigation no way to ask for it; see
+  [Webview pool § Reloads and the HTTP cache](specs/webview-pool.md#reloads-and-the-http-cache). Form contents
+  are kept as planned.
+
 ### Running in the background
 
 Closing the last window may leave Haku running in the tray (a setting). While no browser window exists, every
@@ -107,7 +125,8 @@ The [Chrome layering](specs/chrome-layering.md) mechanism sets limits every appe
 
 - Anything over the page is **opaque**, with **hard edges**. No translucency, blur or shadow falls onto page
   content.
-- A rounded overlay needs a rounded region, cut the same way as the viewport's corners.
+- A rounded overlay needs a rounded region, cut the same way as the viewport's corners. **Implemented**: an
+  overlay's radius is read from its own style; see [Chrome layering](specs/chrome-layering.md#rounded-page-corners).
 - A bar that floats over the page and reveals on hover keeps a thin strip at the window edge inside the
   chrome's region. Otherwise the page owns those pixels and the chrome never sees the pointer arrive.
 
@@ -167,6 +186,7 @@ turned off, so nothing is stored by default either.
 | Crashed pages                        | A webview whose process dies leaves its tab in a crashed state with a reload, not a blank viewport.                                                                                                                                           |
 | Private tabs, containers, workspaces | See [Webviews belong to a profile](#webviews-belong-to-a-profile).                                                                                                                                                                            |
 | Windows and tab tear-off             | See [One pool across windows](#one-pool-across-windows).                                                                                                                                                                                      |
+| Tab optimization, site menu          | See [Tab optimization](#tab-optimization).                                                                                                                                                                                                    |
 | Favicons, tab previews               | See [Observed, not reported](#observed-not-reported).                                                                                                                                                                                         |
 | Extensions                           | See [Extensions](#extensions).                                                                                                                                                                                                                |
 | Developer tools                      | See [Developer tools](#developer-tools).                                                                                                                                                                                                      |

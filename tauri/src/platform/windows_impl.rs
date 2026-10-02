@@ -20,27 +20,34 @@ use tauri::Manager;
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Controller, ICoreWebView2Deferral, ICoreWebView2NavigationStartingEventArgs3,
-    ICoreWebView2ScriptDialogOpeningEventArgs, COREWEBVIEW2_NAVIGATION_KIND,
+    ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2_19, ICoreWebView2_3, ICoreWebView2_8,
+    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, COREWEBVIEW2_NAVIGATION_KIND,
     COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_SCRIPT_DIALOG_KIND,
     COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD, COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM,
     COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
 };
 use webview2_com::{
     take_pwstr, CallDevToolsProtocolMethodCompletedHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, NavigationStartingEventHandler,
-    ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
+    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    NavigationStartingEventHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
+    TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HANDLE, HWND};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR,
 };
+use windows::Win32::System::Memory::{
+    CreateMemoryResourceNotification, LowMemoryResourceNotification, QueryMemoryResourceNotification,
+};
+use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
 
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
-use super::{PageSignal, PageSink, PhysicalRect};
+use super::{PageSignal, PageSink, PhysicalRect, RoundedRect};
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
 use crate::model::{Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog};
@@ -97,6 +104,67 @@ where
         .map_err(|error| HakuError::WindowMissing(error.to_string()))?
 }
 
+/// Runs `action` against a webview's `ICoreWebView2` on the UI thread, without
+/// waiting for it: nothing that freezing or resuming does is worth blocking on.
+fn with_core<R, F>(webview: &tauri::Webview<R>, action: F) -> Result<()>
+where
+    R: tauri::Runtime,
+    F: FnOnce(&ICoreWebView2) -> windows::core::Result<()> + Send + 'static,
+{
+    webview
+        .with_webview(move |platform| {
+            let _ = unsafe { platform.controller().CoreWebView2() }.and_then(|core| action(&core));
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))
+}
+
+/// Asks the engine to trim a webview's memory, or to stop trimming it. Older
+/// runtimes lack the setting, and freezing still works without it.
+unsafe fn set_memory_target(core: &ICoreWebView2, level: COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL) {
+    if let Ok(core) = core.cast::<ICoreWebView2_19>() {
+        let _ = core.SetMemoryUsageTargetLevel(level);
+    }
+}
+
+pub fn freeze<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    with_core(webview, |core| unsafe {
+        set_memory_target(core, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+        // Declining is not an error worth reporting: the page simply keeps
+        // running, as it would have with freezing turned off.
+        let done = TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(())));
+        core.cast::<ICoreWebView2_3>()?.TrySuspend(&done)
+    })
+}
+
+pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    with_core(webview, |core| unsafe {
+        set_memory_target(core, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
+        core.cast::<ICoreWebView2_3>()?.Resume()
+    })
+}
+
+pub fn total_memory() -> Option<u64> {
+    let mut status = MEMORYSTATUSEX { dwLength: size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
+    Some(status.ullTotalPhys)
+}
+
+pub fn memory_is_low() -> bool {
+    // Created once and kept for the life of the process. Stored as an integer
+    // because a raw handle is not shareable between threads, though the
+    // notification object behind it is.
+    static NOTIFICATION: std::sync::OnceLock<Option<isize>> = std::sync::OnceLock::new();
+    let handle = NOTIFICATION.get_or_init(|| {
+        unsafe { CreateMemoryResourceNotification(LowMemoryResourceNotification) }
+            .ok()
+            .map(|handle| handle.0 as isize)
+    });
+    let Some(handle) = *handle else { return false };
+
+    let mut low = BOOL::default();
+    unsafe { QueryMemoryResourceNotification(HANDLE(handle as *mut _), &mut low) }.is_ok() && low.as_bool()
+}
+
 pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
     with_hwnd(webview, |hwnd| unsafe {
         SetWindowPos(hwnd, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
@@ -104,11 +172,23 @@ pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()
     })
 }
 
+/// A region covering `rect`, with its corners rounded to `radius` when above zero.
+///
+/// The caller owns the region and must delete it.
+unsafe fn rounded_region(rect: PhysicalRect, radius: i32) -> HRGN {
+    if radius > 0 {
+        // CreateRoundRectRgn takes the full width and height of the ellipse.
+        CreateRoundRectRgn(rect.x, rect.y, rect.right(), rect.bottom(), radius * 2, radius * 2)
+    } else {
+        CreateRectRgn(rect.x, rect.y, rect.right(), rect.bottom())
+    }
+}
+
 pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
     viewport: Option<PhysicalRect>,
     radius: i32,
-    overlays: &[PhysicalRect],
+    overlays: &[RoundedRect],
 ) -> Result<()> {
     let overlays = overlays.to_vec();
 
@@ -126,24 +206,15 @@ pub fn set_input_mask<R: tauri::Runtime>(
         let region = CreateRectRgn(0, 0, client.right, client.bottom);
         // A rounded hole is what gives the page rounded corners: the chrome
         // keeps painting the corner, and the page shows through the curve.
-        // CreateRoundRectRgn takes the full width and height of the ellipse.
-        let hole = if radius > 0 {
-            CreateRoundRectRgn(
-                viewport.x,
-                viewport.y,
-                viewport.right(),
-                viewport.bottom(),
-                radius * 2,
-                radius * 2,
-            )
-        } else {
-            CreateRectRgn(viewport.x, viewport.y, viewport.right(), viewport.bottom())
-        };
+        let hole = rounded_region(viewport, radius);
         CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
         let _ = DeleteObject(hole.into());
 
+        // A rounded overlay is added back rounded for the same reason the other
+        // way round: a square patch would paint chrome over the page at its
+        // corners.
         for overlay in &overlays {
-            let patch = CreateRectRgn(overlay.x, overlay.y, overlay.right(), overlay.bottom());
+            let patch = rounded_region(overlay.rect, overlay.radius);
             CombineRgn(Some(region), Some(region), Some(patch), RGN_OR);
             let _ = DeleteObject(patch.into());
         }
@@ -240,6 +311,25 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
         }))
     };
     core.add_ScriptDialogOpening(&on_dialog, &mut token)?;
+
+    // Whether a page is playing audio decides whether a smart policy leaves it
+    // running in the background. Older runtimes lack the event, and a page is
+    // then treated as silent.
+    if let Ok(core) = core.cast::<ICoreWebView2_8>() {
+        let on_audio = {
+            let sink = sink.clone();
+            IsDocumentPlayingAudioChangedEventHandler::create(Box::new(move |sender, _| {
+                let Some(core) = sender.and_then(|sender| sender.cast::<ICoreWebView2_8>().ok()) else {
+                    return Ok(());
+                };
+                let mut playing = BOOL::default();
+                core.IsDocumentPlayingAudio(&mut playing)?;
+                sink(PageSignal::AudioChanged { playing: playing.as_bool() });
+                Ok(())
+            }))
+        };
+        core.add_IsDocumentPlayingAudioChanged(&on_audio, &mut token)?;
+    }
     Ok(())
 }
 

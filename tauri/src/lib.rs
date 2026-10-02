@@ -33,6 +33,7 @@ pub mod webview;
 
 use tauri::Manager;
 
+use crate::model::Preset;
 use crate::state::AppState;
 use crate::storage::{HistoryDb, Paths, Session, Settings};
 
@@ -53,12 +54,24 @@ pub fn run() {
             let root = app.path().app_data_dir().expect("no application data directory");
             let paths = Paths::under(&root);
 
-            let settings: Settings = storage::read_json::<Settings>(&paths.settings).sanitized();
+            // A first launch starts balanced for this machine rather than on
+            // fixed defaults, since the right pool size depends on its memory.
+            let first_launch = !paths.settings.exists();
+            let mut settings: Settings = storage::read_json::<Settings>(&paths.settings).sanitized();
+            if first_launch {
+                settings = settings.with_preset(Preset::Balanced, platform::total_memory());
+            }
             let session: Session = storage::read_json(&paths.session);
             let history = HistoryDb::open(&paths.history).expect("could not open the history database");
 
-            let browser = session.restore(settings.webview_capacity, &settings.home_url);
+            let browser = session
+                .restore(settings.pool_capacity(), &settings.home_url)
+                .with_policies(settings.freeze_tabs, settings.discard_tabs);
             app.manage(AppState::new(browser, settings, history, paths));
+            if first_launch {
+                let _ = app.state::<AppState>().save_settings();
+            }
+            ipc::commands::relieve_memory_periodically(app.handle().clone());
 
             // The chrome starts underneath any content webview created later, so
             // it is lifted once here and again after every slot is created. It

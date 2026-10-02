@@ -1,13 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::model::DEFAULT_CAPACITY;
-
-/// Thirty seconds of silence before a pinned tab is considered idle.
-///
-/// Long enough that a paused video or a page being read is not discarded, short
-/// enough that a forgotten pinned tab stops holding a webview hostage.
-pub const DEFAULT_IDLE_RELEASE_MS: u64 = 30_000;
+use crate::model::{Policy, Preset, DEFAULT_CAPACITY};
 
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
 const DEFAULT_HOME_URL: &str = "haku://new-tab";
@@ -16,29 +10,32 @@ const DEFAULT_HOME_URL: &str = "haku://new-tab";
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// How many webviews may exist at once. One means only the visible tab is
-    /// loaded; raising it keeps that many background tabs running.
+    /// loaded; raising it keeps that many background tabs in memory. Ignored
+    /// while every background tab is discarded.
     #[specta(type = specta_typescript::Number)]
     pub webview_capacity: usize,
+    /// Whether background tabs still holding a webview are paused.
+    pub freeze_tabs: Policy,
+    /// Whether Haku discards background tabs before it has to.
+    pub discard_tabs: Policy,
     /// `system`, `light` or `dark`.
     pub theme: String,
     /// BCP-47 language tag the interface is shown in.
     pub locale: String,
     pub search_url: String,
     pub home_url: String,
-    /// Milliseconds a pinned tab may be quiet before it gives up its webview.
-    #[specta(type = specta_typescript::Number)]
-    pub idle_release_ms: u64,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             webview_capacity: DEFAULT_CAPACITY,
+            freeze_tabs: Policy::Smart,
+            discard_tabs: Policy::Smart,
             theme: "system".into(),
             locale: "en".into(),
             search_url: DEFAULT_SEARCH_URL.into(),
             home_url: DEFAULT_HOME_URL.into(),
-            idle_release_ms: DEFAULT_IDLE_RELEASE_MS,
         }
     }
 }
@@ -58,6 +55,40 @@ impl Settings {
             self.home_url = defaults.home_url;
         }
         self
+    }
+
+    /// The pool size these settings call for. Discarding every background tab
+    /// leaves nothing for extra slots to hold, so the configured count is set
+    /// aside rather than kept as idle webviews.
+    pub fn pool_capacity(&self) -> usize {
+        if self.discard_tabs == Policy::Always {
+            1
+        } else {
+            self.webview_capacity
+        }
+    }
+
+    /// Takes on a preset's values.
+    ///
+    /// @param total_memory - Installed memory in bytes, which sizes the pool.
+    pub fn with_preset(mut self, preset: Preset, total_memory: Option<u64>) -> Self {
+        let values = preset.values(total_memory);
+        if let Some(slots) = values.slots {
+            self.webview_capacity = slots;
+        }
+        if let Some(freeze) = values.freeze {
+            self.freeze_tabs = freeze;
+        }
+        self.discard_tabs = values.discard;
+        self
+    }
+
+    /// The preset these settings match, or nothing when they were customised.
+    ///
+    /// Derived rather than stored, so it can never name values that are not in
+    /// effect.
+    pub fn preset(&self, total_memory: Option<u64>) -> Option<Preset> {
+        Preset::ALL.into_iter().find(|preset| self.clone().with_preset(*preset, total_memory) == *self)
     }
 }
 
@@ -93,7 +124,30 @@ mod tests {
         let json = serde_json::to_value(Settings::default()).unwrap();
 
         assert!(json.get("webviewCapacity").is_some());
-        assert!(json.get("idleReleaseMs").is_some());
+        assert!(json.get("homeUrl").is_some());
+    }
+
+    #[test]
+    fn applying_a_preset_is_recognised_as_that_preset() {
+        for preset in Preset::ALL {
+            let settings = Settings::default().with_preset(preset, Some(16 << 30));
+            assert_eq!(settings.preset(Some(16 << 30)), Some(preset));
+        }
+    }
+
+    #[test]
+    fn changing_a_value_a_preset_set_leaves_no_preset_matching() {
+        let mut settings = Settings::default().with_preset(Preset::Balanced, Some(16 << 30));
+        settings.freeze_tabs = Policy::Always;
+        assert_eq!(settings.preset(Some(16 << 30)), None);
+    }
+
+    #[test]
+    fn saving_memory_matches_whatever_slots_and_freezing_were_left_at() {
+        let mut settings = Settings::default().with_preset(Preset::SaveMemory, None);
+        settings.webview_capacity = 5;
+        settings.freeze_tabs = Policy::Never;
+        assert_eq!(settings.preset(None), Some(Preset::SaveMemory));
     }
 
     #[test]

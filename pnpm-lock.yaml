@@ -12,14 +12,14 @@ importers:
         specifier: ^0.2.1
         version: 0.2.1(postcss@8.5.16)(tailwindcss@4.3.3)(vite@8.1.0(@types/node@26.4.0)(jiti@2.7.0))
       '@codenhub/styles':
-        specifier: ^0.4.0
-        version: 0.4.0(tailwindcss@4.3.3)
+        specifier: ^0.6.0
+        version: 0.6.0(tailwindcss@4.3.3)
       '@codenhub/theme':
         specifier: ^0.1.2
         version: 0.1.2
       '@codenhub/toaster':
         specifier: ^0.2.0
-        version: 0.2.0(@codenhub/styles@0.4.0(tailwindcss@4.3.3))
+        version: 0.2.0(@codenhub/styles@0.6.0(tailwindcss@4.3.3))
       '@tauri-apps/api':
         specifier: ^2
         version: 2.10.1
@@ -130,10 +130,10 @@ packages:
       vite:
         optional: true
 
-  '@codenhub/styles@0.4.0':
-    resolution: {integrity: sha512-9BMfzXWj40EAQexTm757cn4wfNJr97WX9SPTQG/xWhTN5KyERnIu6C2gIwXJGQ8BKTBxbGjI844OVwmkVWzIuQ==}
+  '@codenhub/styles@0.6.0':
+    resolution: {integrity: sha512-9N+XLJFlhr6TdiRkKNk5qJKt2tzKokVPGOUg90vEz+UHuUoi9npbpAOA/fO388lAiO14/jcIDkQ/6ZpraObYRg==}
     peerDependencies:
-      tailwindcss: '>=4.0.0'
+      tailwindcss: '>=4.3.2 <5'
     peerDependenciesMeta:
       tailwindcss:
         optional: true
@@ -1350,15 +1350,15 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.1.0(@types/node@26.4.0)(jiti@2.7.0)
 
-  '@codenhub/styles@0.4.0(tailwindcss@4.3.3)':
+  '@codenhub/styles@0.6.0(tailwindcss@4.3.3)':
     optionalDependencies:
       tailwindcss: 4.3.3
 
   '@codenhub/theme@0.1.2': {}
 
-  '@codenhub/toaster@0.2.0(@codenhub/styles@0.4.0(tailwindcss@4.3.3))':
+  '@codenhub/toaster@0.2.0(@codenhub/styles@0.6.0(tailwindcss@4.3.3))':
     optionalDependencies:
-      '@codenhub/styles': 0.4.0(tailwindcss@4.3.3)
+      '@codenhub/styles': 0.6.0(tailwindcss@4.3.3)
 
   '@csstools/color-helpers@6.1.1': {}
 

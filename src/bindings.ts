@@ -17,6 +17,19 @@ export const commands = {
 	 *  release memory now.
 	 */
 	setSettings: (settings: Settings) => typedError<Settings, HakuError>(__TAURI_INVOKE("set_settings", { settings })),
+	/**
+	 *  Replaces the optimization settings with a preset's values.
+	 * 
+	 *  Resolved here rather than in the interface because the slot count depends
+	 *  on the machine's memory, which only Rust can read.
+	 */
+	applyPreset: (preset: Preset) => typedError<Settings, HakuError>(__TAURI_INVOKE("apply_preset", { preset })),
+	/**  The preset the current settings match, or nothing when they were customised. */
+	currentPreset: () => typedError<
+/**  One page loaded at a time: every background tab is discarded. */
+"saveMemory" | "balanced" | 
+/**  Background tabs stay loaded, frozen, until every slot is taken. */
+"performance" | null, HakuError>(__TAURI_INVOKE("current_preset")),
 	openTab: (url: string | null, activate: boolean) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate })),
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
@@ -42,13 +55,6 @@ export const commands = {
 	setLayout: (layout: Layout) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("set_layout", { layout })),
 	recentHistory: (limit: number) => typedError<HistoryEntry[], HakuError>(__TAURI_INVOKE("recent_history", { limit })),
 	clearHistory: () => typedError<null, HakuError>(__TAURI_INVOKE("clear_history")),
-	/**
-	 *  Releases the webviews of pinned tabs that have gone quiet.
-	 * 
-	 *  Driven by the interface on a timer rather than a background thread, so the
-	 *  policy runs only while there is someone to see the result.
-	 */
-	releaseIdleTabs: () => typedError<BrowserState, HakuError>(__TAURI_INVOKE("release_idle_tabs")),
 	openTabDevtools: (id: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("open_tab_devtools", { id })),
 	/**  Answers the dialog a page is paused on. */
 	answerDialog: (tab: TabId, dialog: DialogId, answer: DialogAnswer) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_dialog", { tab, dialog, answer })),
@@ -135,7 +141,7 @@ export type Layout = {
 	 *  Regions drawn above the page right now, such as an open menu. These are
 	 *  added back to the chrome's input area so they remain clickable.
 	 */
-	overlays?: Viewport[],
+	overlays?: Overlay[],
 	/**
 	 *  Corner radius of the viewport, in logical pixels.
 	 * 
@@ -144,6 +150,16 @@ export type Layout = {
 	 *  stylesheet uses, keeping CSS the single source of that number.
 	 */
 	radius?: number,
+};
+
+/**  A region drawn above the page, in logical pixels. */
+export type Overlay = {
+	rect: Viewport,
+	/**
+	 *  Corner radius, read from the element's own style. A rounded overlay
+	 *  needs a rounded region, or its corners would show chrome over the page.
+	 */
+	radius: number,
 };
 
 /**
@@ -163,10 +179,27 @@ export type PageDialog = {
 	url: string,
 };
 
+/**  How eagerly one optimization is applied to background tabs. */
+export type Policy = "never" | 
+/**  Haku decides from what it can observe of the tab and the system. */
+"smart" | 
+/**
+ *  Every background tab, including one that is playing audio. Keeping a tab
+ *  loaded is how a user exempts it.
+ */
+"always";
+
+/**  A named bundle of optimization settings. */
+export type Preset = 
+/**  One page loaded at a time: every background tab is discarded. */
+"saveMemory" | "balanced" | 
+/**  Background tabs stay loaded, frozen, until every slot is taken. */
+"performance";
+
 /**
  *  Where a page was scrolled to.
  * 
- *  Kept current for live tabs by the injected reporter so that suspending a tab
+ *  Kept current for live tabs by the injected reporter so that discarding a tab
  *  never has to ask a webview that may already be gone.
  */
 export type Scroll = {
@@ -177,17 +210,20 @@ export type Scroll = {
 export type Settings = {
 	/**
 	 *  How many webviews may exist at once. One means only the visible tab is
-	 *  loaded; raising it keeps that many background tabs running.
+	 *  loaded; raising it keeps that many background tabs in memory. Ignored
+	 *  while every background tab is discarded.
 	 */
 	webviewCapacity: number,
+	/**  Whether background tabs still holding a webview are paused. */
+	freezeTabs: Policy,
+	/**  Whether Haku discards background tabs before it has to. */
+	discardTabs: Policy,
 	/**  `system`, `light` or `dark`. */
 	theme: string,
 	/**  BCP-47 language tag the interface is shown in. */
 	locale: string,
 	searchUrl: string,
 	homeUrl: string,
-	/**  Milliseconds a pinned tab may be quiet before it gives up its webview. */
-	idleReleaseMs: number,
 };
 
 export type SettingsChanged = Settings;
@@ -214,8 +250,8 @@ export type Tab = {
 	 */
 	fixed: boolean,
 	/**
-	 *  Monotonic activity stamp reported by the page. A fixed tab that has gone
-	 *  quiet may give up its slot under pressure.
+	 *  When the tab was last shown, in milliseconds since the Unix epoch.
+	 *  Recency is how Haku judges whether a tab is likely to be shown again.
 	 */
 	activeAt: number,
 	/**
@@ -223,21 +259,26 @@ export type Tab = {
 	 *  active; a background tab's dialog waits until the tab is selected.
 	 */
 	dialog: PageDialog | null,
+	/**  The page is playing audio, which a smart policy will not interrupt. */
+	audible: boolean,
 };
 
 export type TabId = number;
 
 /**
- *  Whether a tab currently holds a webview.
+ *  Whether a tab currently holds a webview, and whether it is running.
  * 
- *  A suspended tab is not a paused page: its webview is gone and reactivating
- *  reloads the URL, then restores [`Tab::scroll`].
+ *  A discarded tab is not a paused page: its webview is gone and reactivating
+ *  reloads the URL, then restores [`Tab::scroll`]. A frozen tab is: it keeps
+ *  its page and resumes without a reload.
  */
 export type TabPresence = 
 /**  Bound to a pool slot and backed by a live webview. */
 { status: "live"; slot: SlotId } | 
+/**  Bound to a pool slot, with its page paused in the background. */
+{ status: "frozen"; slot: SlotId } | 
 /**  No webview. Reactivating reloads the page. */
-{ status: "suspended" } | 
+{ status: "discarded" } | 
 /**  Rendered by the chrome itself; never consumes a slot. */
 { status: "internal" };
 

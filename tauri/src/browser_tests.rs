@@ -42,7 +42,7 @@ fn a_single_slot_pool_moves_the_webview_between_tabs() {
 }
 
 #[test]
-fn selecting_a_suspended_tab_reloads_its_url_into_the_slot() {
+fn selecting_a_discarded_tab_reloads_its_url_into_the_slot() {
     let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
 
     let effects = browser.select_tab(ids[0], 0).unwrap();
@@ -159,43 +159,6 @@ fn shrinking_capacity_destroys_the_surplus_webviews() {
 
     assert!(effects.iter().any(|effect| matches!(effect, Effect::Destroy { .. })));
     assert_eq!(browser.state().live_count, 1);
-}
-
-#[test]
-fn a_fixed_tab_that_has_gone_idle_gives_its_slot_back() {
-    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
-    browser.select_tab(ids[0], 0).unwrap();
-    browser.set_fixed(ids[0], true).unwrap();
-    browser.select_tab(ids[1], 0).unwrap();
-    browser.report_activity(slot_of(&browser, ids[0]).unwrap(), 1_000);
-
-    let effects = browser.release_idle_fixed(1_000 + 60_000, 30_000);
-
-    assert!(slot_of(&browser, ids[0]).is_none());
-    assert!(effects.iter().any(|effect| matches!(effect, Effect::Blank { .. })));
-}
-
-#[test]
-fn a_fixed_tab_still_reporting_activity_keeps_its_slot() {
-    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
-    browser.select_tab(ids[0], 0).unwrap();
-    browser.set_fixed(ids[0], true).unwrap();
-    browser.select_tab(ids[1], 0).unwrap();
-    browser.report_activity(slot_of(&browser, ids[0]).unwrap(), 1_000);
-
-    browser.release_idle_fixed(1_010, 30_000);
-
-    assert!(slot_of(&browser, ids[0]).is_some());
-}
-
-#[test]
-fn the_active_tab_is_never_released_as_idle_even_when_fixed() {
-    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
-    browser.set_fixed(ids[0], true).unwrap();
-
-    browser.release_idle_fixed(u64::MAX, 0);
-
-    assert!(slot_of(&browser, ids[0]).is_some());
 }
 
 fn commit(url: &str, kind: NavigationKind) -> Commit {
@@ -565,12 +528,12 @@ fn a_page_haku_opened_is_a_visit_when_it_arrives() {
 }
 
 #[test]
-fn a_suspended_tab_reloading_its_page_is_not_a_visit() {
+fn a_discarded_tab_reloading_its_page_is_not_a_visit() {
     let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
     let slot = SlotId(0);
     browser.report_page(slot, &[commit("https://b.test", NavigationKind::Push)], None);
     browser.select_tab(ids[0], 0).unwrap();
-    // The first tab's page never arrived before it was suspended, so this is
+    // The first tab's page never arrived before it was discarded, so this is
     // its first load and still a visit.
     assert!(visited(browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None)));
 
@@ -608,4 +571,212 @@ fn a_replaced_route_or_a_retitle_only_refines_the_current_visit() {
 
     assert!(!visited(browser.report_page(slot, &[commit("https://a.test/?q=1", NavigationKind::Replace)], None)));
     assert!(!visited(browser.report_page(slot, &[], Some("Renamed".into()))));
+}
+
+// -- optimization policies -------------------------------------------------
+
+/// Three tabs in a three-slot pool, with the last one opened active.
+fn optimized(freeze: Policy, discard: Policy) -> (Browser, Vec<TabId>) {
+    let mut browser = Browser::new(3).with_policies(freeze, discard);
+    let ids = ["https://a.test", "https://b.test", "https://c.test"]
+        .iter()
+        .map(|url| browser.open_tab(*url, true).0)
+        .collect();
+    (browser, ids)
+}
+
+fn presence(browser: &Browser, id: TabId) -> TabPresence {
+    browser.tab(id).unwrap().presence
+}
+
+fn position(effects: &[Effect], wanted: &Effect) -> usize {
+    effects
+        .iter()
+        .position(|effect| effect == wanted)
+        .unwrap_or_else(|| panic!("{wanted:?} missing from {effects:?}"))
+}
+
+#[test]
+fn a_tab_left_in_the_background_is_frozen_after_it_is_hidden() {
+    let mut browser = Browser::new(3).with_policies(Policy::Smart, Policy::Never);
+    let (first, _) = browser.open_tab("https://a.test", true);
+    let slot = slot_of(&browser, first).unwrap();
+
+    let (_, effects) = browser.open_tab("https://b.test", true);
+
+    assert_eq!(presence(&browser, first), TabPresence::Frozen { slot });
+    assert!(position(&effects, &Effect::Hide { slot }) < position(&effects, &Effect::Freeze { slot }));
+}
+
+#[test]
+fn returning_to_a_frozen_tab_resumes_it_without_reloading() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.select_tab(ids[0], 0).unwrap();
+
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Live { slot });
+    assert!(position(&effects, &Effect::Resume { slot }) < position(&effects, &Effect::Show { slot }));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::EnsureSlot { .. } | Effect::Reload { .. })));
+}
+
+#[test]
+fn freezing_never_leaves_background_tabs_running() {
+    let (browser, ids) = optimized(Policy::Never, Policy::Never);
+    assert!(matches!(presence(&browser, ids[0]), TabPresence::Live { .. }));
+}
+
+#[test]
+fn turning_freezing_off_resumes_the_tabs_it_froze() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.set_optimization(3, Policy::Never, Policy::Never);
+
+    assert!(effects.contains(&Effect::Resume { slot }));
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Live { slot });
+}
+
+#[test]
+fn a_smart_policy_leaves_a_tab_playing_audio_running() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_audio(slot, true);
+
+    browser.select_tab(ids[1], 0).unwrap();
+
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Live { slot });
+}
+
+#[test]
+fn a_background_tab_that_falls_silent_is_frozen() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_audio(slot, true);
+    browser.select_tab(ids[1], 0).unwrap();
+
+    let effects = browser.report_audio(slot, false);
+
+    assert!(effects.contains(&Effect::Freeze { slot }));
+}
+
+#[test]
+fn freezing_always_freezes_a_tab_playing_audio_too() {
+    let (mut browser, ids) = optimized(Policy::Always, Policy::Never);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_audio(slot, true);
+
+    browser.select_tab(ids[1], 0).unwrap();
+
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Frozen { slot });
+}
+
+#[test]
+fn a_fixed_tab_is_never_frozen() {
+    let (mut browser, ids) = optimized(Policy::Always, Policy::Never);
+    browser.set_fixed(ids[0], true).unwrap();
+    browser.select_tab(ids[0], 0).unwrap();
+
+    browser.select_tab(ids[1], 0).unwrap();
+
+    assert!(matches!(presence(&browser, ids[0]), TabPresence::Live { .. }));
+}
+
+#[test]
+fn discarding_always_releases_a_tab_as_soon_as_it_is_left() {
+    let (browser, ids) = optimized(Policy::Smart, Policy::Always);
+
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Discarded);
+    assert_eq!(presence(&browser, ids[1]), TabPresence::Discarded);
+    assert!(matches!(presence(&browser, ids[2]), TabPresence::Live { .. }));
+}
+
+#[test]
+fn discarding_always_still_spares_a_fixed_tab() {
+    let (mut browser, ids) = optimized(Policy::Never, Policy::Always);
+    browser.select_tab(ids[0], 0).unwrap();
+    browser.set_fixed(ids[0], true).unwrap();
+
+    browser.select_tab(ids[1], 0).unwrap();
+
+    assert!(matches!(presence(&browser, ids[0]), TabPresence::Live { .. }));
+}
+
+#[test]
+fn a_frozen_tab_is_resumed_before_its_slot_is_handed_to_another_tab() {
+    let mut browser = Browser::new(2).with_policies(Policy::Smart, Policy::Never);
+    let (first, _) = browser.open_tab("https://a.test", true);
+    browser.open_tab("https://b.test", true);
+    let slot = slot_of(&browser, first).unwrap();
+
+    // A third tab in a two-slot pool evicts the coldest, the frozen first one.
+    let (_, effects) = browser.open_tab("https://c.test", true);
+
+    let ensure = effects
+        .iter()
+        .position(|effect| matches!(effect, Effect::EnsureSlot { slot: target, .. } if *target == slot))
+        .expect("the slot is navigated to the new tab");
+    assert!(position(&effects, &Effect::Resume { slot }) < ensure);
+    assert_eq!(presence(&browser, first), TabPresence::Discarded);
+}
+
+#[test]
+fn closing_a_frozen_tab_resumes_its_slot_before_parking_it() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.close_tab(ids[0], HOME).unwrap();
+
+    assert!(position(&effects, &Effect::Resume { slot }) < position(&effects, &Effect::Blank { slot }));
+}
+
+#[test]
+fn smart_discarding_frees_a_tab_left_unshown_for_long() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Smart);
+    browser.relieve(1_000, false);
+
+    let effects = browser.relieve(1_000 + LONG_UNSHOWN_MS, false);
+
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Discarded);
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::Blank { .. })));
+    assert!(matches!(presence(&browser, ids[2]), TabPresence::Live { .. }), "the visible tab stays");
+}
+
+#[test]
+fn low_memory_frees_tabs_not_shown_recently_but_spares_recent_ones() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Smart);
+    browser.relieve(1_000, false);
+    browser.select_tab(ids[1], 1_000 + RECENTLY_SHOWN_MS).unwrap();
+    browser.select_tab(ids[2], 1_000 + RECENTLY_SHOWN_MS).unwrap();
+
+    browser.relieve(1_000 + RECENTLY_SHOWN_MS + 1, true);
+
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Discarded);
+    assert!(matches!(presence(&browser, ids[1]), TabPresence::Frozen { .. }));
+}
+
+#[test]
+fn smart_discarding_spares_a_tab_playing_audio() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Smart);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_audio(slot, true);
+    browser.relieve(1_000, false);
+
+    browser.relieve(1_000 + LONG_UNSHOWN_MS, true);
+
+    assert!(slot_of(&browser, ids[0]).is_some());
+}
+
+#[test]
+fn discarding_never_leaves_old_tabs_loaded_even_when_memory_is_low() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    browser.relieve(1_000, false);
+
+    let effects = browser.relieve(1_000 + LONG_UNSHOWN_MS, true);
+
+    assert!(effects.is_empty());
+    assert!(slot_of(&browser, ids[0]).is_some());
 }

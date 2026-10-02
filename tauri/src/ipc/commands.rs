@@ -26,11 +26,11 @@ use tauri_specta::Event;
 use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId, SlotId, TabId};
+use crate::model::{DialogAnswer, DialogId, Preset, SlotId, TabId};
 use crate::state::{now_ms, AppState};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
-use crate::platform::PageSignal;
+use crate::platform::{self, PageSignal};
 use crate::webview::{self, PageObserver, CHROME_LABEL};
 
 use super::events::{SettingsChanged, StateChanged};
@@ -69,7 +69,38 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 let _ = mutate(&app, &state, |browser| Ok(browser.open_dialog(slot, dialog)));
             });
         }
+        PageSignal::AudioChanged { playing } => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let state = app.state::<AppState>();
+                let _ = mutate(&app, &state, |browser| Ok(browser.report_audio(slot, playing)));
+            });
+        }
     })
+}
+
+/// How often smart discarding looks for background tabs worth freeing.
+const RELIEF_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Runs smart discarding for as long as the application does.
+///
+/// A thread of its own rather than an interface timer: low memory is a reason
+/// to act whether or not anyone is looking at the window.
+pub fn relieve_memory_periodically(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(RELIEF_INTERVAL);
+        let state = app.state::<AppState>();
+        let low_memory = platform::memory_is_low();
+        let effects = match state.browser.write() {
+            Ok(mut browser) => browser.relieve(now_ms(), low_memory),
+            Err(_) => continue,
+        };
+        // Most passes only re-time the visible tab, which is not worth an event
+        // or a session write.
+        if !effects.is_empty() {
+            let _ = commit(&app, &state, &effects);
+        }
+    });
 }
 
 fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Commit], title: Option<String>) {
@@ -169,6 +200,39 @@ pub async fn set_settings(
     settings: Settings,
 ) -> Result<Settings> {
     ensure_chrome(&webview)?;
+    store_settings(&app, &state, settings)
+}
+
+/// Replaces the optimization settings with a preset's values.
+///
+/// Resolved here rather than in the interface because the slot count depends
+/// on the machine's memory, which only Rust can read.
+#[tauri::command]
+#[specta::specta]
+pub async fn apply_preset(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    preset: Preset,
+) -> Result<Settings> {
+    ensure_chrome(&webview)?;
+    let settings = {
+        let current = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        current.clone().with_preset(preset, platform::total_memory())
+    };
+    store_settings(&app, &state, settings)
+}
+
+/// The preset the current settings match, or nothing when they were customised.
+#[tauri::command]
+#[specta::specta]
+pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Option<Preset>> {
+    ensure_chrome(&webview)?;
+    let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+    Ok(settings.preset(platform::total_memory()))
+}
+
+fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
     let settings = settings.sanitized();
 
     {
@@ -177,10 +241,10 @@ pub async fn set_settings(
     }
     state.save_settings()?;
 
-    let capacity = settings.webview_capacity;
-    mutate(&app, &state, |browser| Ok(browser.set_capacity(capacity)))?;
+    let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
+    mutate(app, state, |browser| Ok(browser.set_optimization(capacity, freeze, discard)))?;
 
-    SettingsChanged(settings.clone()).emit(&app).map_err(HakuError::from)?;
+    SettingsChanged(settings.clone()).emit(app).map_err(HakuError::from)?;
     Ok(settings)
 }
 
@@ -395,25 +459,6 @@ pub fn clear_history(webview: tauri::Webview, state: State<'_, AppState>) -> Res
     ensure_chrome(&webview)?;
     let history = state.history.lock().map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
     history.clear()
-}
-
-/// Releases the webviews of pinned tabs that have gone quiet.
-///
-/// Driven by the interface on a timer rather than a background thread, so the
-/// policy runs only while there is someone to see the result.
-#[tauri::command]
-#[specta::specta]
-pub async fn release_idle_tabs(
-    app: tauri::AppHandle,
-    webview: tauri::Webview,
-    state: State<'_, AppState>,
-) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    let idle_after = {
-        let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        settings.idle_release_ms
-    };
-    mutate(&app, &state, |browser| Ok(browser.release_idle_fixed(now_ms(), idle_after)))
 }
 
 /// Answers the dialog a page is paused on.

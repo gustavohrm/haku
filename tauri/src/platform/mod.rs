@@ -54,6 +54,13 @@ impl PhysicalRect {
     }
 }
 
+/// A region of the input mask, rounded when `radius` is above zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RoundedRect {
+    pub rect: PhysicalRect,
+    pub radius: i32,
+}
+
 /// What a content webview reported about its own navigation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PageSignal {
@@ -69,6 +76,8 @@ pub enum PageSignal {
     /// The page opened `alert`, `confirm`, `prompt` or a "Leave site?"
     /// dialog and is paused until [`answer_dialog`] is called with its id.
     DialogRequested(PageDialog),
+    /// The page started or stopped playing audio.
+    AudioChanged { playing: bool },
 }
 
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on
@@ -110,6 +119,38 @@ pub fn stop_idle_workers<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Resul
     backend::stop_idle_workers(chrome)
 }
 
+/// Pauses a hidden content webview's page and lowers its memory target.
+///
+/// The engine may decline, for example while the webview is visible; the page
+/// then keeps running, which costs memory but loses nothing.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn freeze<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    backend::freeze(webview)
+}
+
+/// Undoes [`freeze`]. Harmless on a webview that is not frozen.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    backend::resume(webview)
+}
+
+/// Installed physical memory in bytes, or nothing when it cannot be read.
+pub fn total_memory() -> Option<u64> {
+    backend::total_memory()
+}
+
+/// Whether the operating system reports physical memory running low.
+///
+/// The system's own judgement rather than a threshold of Haku's, so it accounts
+/// for everything else running on the machine. False when it cannot be read.
+pub fn memory_is_low() -> bool {
+    backend::memory_is_low()
+}
+
 /// Raises the chrome webview above every content webview in its window.
 ///
 /// Must be re-applied after any content webview is created: the platform places
@@ -139,7 +180,7 @@ pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
     viewport: Option<PhysicalRect>,
     radius: i32,
-    overlays: &[PhysicalRect],
+    overlays: &[RoundedRect],
 ) -> Result<()> {
     backend::set_input_mask(webview, viewport, radius, overlays)
 }

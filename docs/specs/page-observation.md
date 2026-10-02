@@ -1,7 +1,7 @@
 # Page observation
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-10-01
+**Last updated:** 2026-10-02
 **Scope:** How Haku learns what a content webview is showing, how that becomes tab history, and how dialogs a
 page opens are shown and answered.
 
@@ -17,7 +17,7 @@ not surface, reached through `Webview::with_webview`. All of it sits behind `pla
 ### What goes wrong without it
 
 A page can change its URL without loading a document: a single-page app's `pushState` and `replaceState`. A
-page-load hook never sees those, so a tab kept the URL it was opened with, and returning to a suspended tab
+page-load hook never sees those, so a tab kept the URL it was opened with, and returning to a discarded tab
 reloaded an older page. Separately, a URL seen from outside does not say whether it should add a history entry:
 a followed link should, a redirect or a replaced route should not.
 
@@ -60,7 +60,7 @@ whether a report was one:
 
 - **A visit:** a `push` commit, or the arrival of a page Haku sent the tab to — opening a tab, the address bar,
   back and forward.
-- **Not a visit:** a suspended tab, or a restored session, reloading the page it already showed; a redirect; a
+- **Not a visit:** a discarded tab, or a restored session, reloading the page it already showed; a redirect; a
   replaced route; a reload; a retitle.
 
 Anything that is not a visit retitles the latest visit to its URL instead, so a visit carries the title the
