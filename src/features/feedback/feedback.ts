@@ -13,7 +13,7 @@
 
 import type { HakuError } from "@bindings";
 import { createToaster, type Toaster } from "@codenhub/toaster";
-import { rectOf, registerOverlay, unregisterOverlay } from "@features/overlays/registry";
+import { overlayOf, registerOverlay, unregisterOverlay } from "@features/overlays/registry";
 import { describeError } from "@ipc/result";
 import { t } from "@shared/i18n";
 
@@ -97,7 +97,7 @@ function trackAsOverlays(container: HTMLElement): void {
       }
       const visible = element instanceof HTMLDialogElement ? element.open : element.childElementCount > 0;
       if (visible) {
-        registerOverlay(id, rectOf(element));
+        registerOverlay(id, overlayOf(element));
         shown.add(id);
       }
     }

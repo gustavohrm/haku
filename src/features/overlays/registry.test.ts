@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { overlayStore, registerOverlay, unregisterOverlay } from "./registry";
 
-const rect = (x: number, y: number) => ({ x, y, width: 10, height: 10 });
+const rect = (x: number, y: number, radius = 0) => ({ rect: { x, y, width: 10, height: 10 }, radius });
 
 afterEach(() => {
   unregisterOverlay("a");
@@ -39,6 +39,13 @@ describe("overlay registry", () => {
 
     expect(listener).not.toHaveBeenCalled();
     stop();
+  });
+
+  it("republishes an overlay whose corners changed", () => {
+    registerOverlay("a", rect(1, 2));
+    registerOverlay("a", rect(1, 2, 8));
+
+    expect(overlayStore.get()).toEqual([rect(1, 2, 8)]);
   });
 
   it("removes an overlay so the page reclaims that area", () => {

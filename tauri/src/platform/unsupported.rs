@@ -6,7 +6,7 @@
 //! Both reach their handles through the same `Webview::with_webview` hook the
 //! Windows backend uses.
 
-use super::{PageSink, PhysicalRect};
+use super::{PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
 use crate::model::{DialogAnswer, DialogId};
 
@@ -22,7 +22,7 @@ pub fn set_input_mask<R: tauri::Runtime>(
     _webview: &tauri::Webview<R>,
     _viewport: Option<PhysicalRect>,
     _radius: i32,
-    _overlays: &[PhysicalRect],
+    _overlays: &[RoundedRect],
 ) -> Result<()> {
     Err(unsupported("masking chrome input"))
 }

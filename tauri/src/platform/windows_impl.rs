@@ -47,7 +47,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
-use super::{PageSignal, PageSink, PhysicalRect};
+use super::{PageSignal, PageSink, PhysicalRect, RoundedRect};
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
 use crate::model::{Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog};
@@ -172,11 +172,23 @@ pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()
     })
 }
 
+/// A region covering `rect`, with its corners rounded to `radius` when above zero.
+///
+/// The caller owns the region and must delete it.
+unsafe fn rounded_region(rect: PhysicalRect, radius: i32) -> HRGN {
+    if radius > 0 {
+        // CreateRoundRectRgn takes the full width and height of the ellipse.
+        CreateRoundRectRgn(rect.x, rect.y, rect.right(), rect.bottom(), radius * 2, radius * 2)
+    } else {
+        CreateRectRgn(rect.x, rect.y, rect.right(), rect.bottom())
+    }
+}
+
 pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
     viewport: Option<PhysicalRect>,
     radius: i32,
-    overlays: &[PhysicalRect],
+    overlays: &[RoundedRect],
 ) -> Result<()> {
     let overlays = overlays.to_vec();
 
@@ -194,24 +206,15 @@ pub fn set_input_mask<R: tauri::Runtime>(
         let region = CreateRectRgn(0, 0, client.right, client.bottom);
         // A rounded hole is what gives the page rounded corners: the chrome
         // keeps painting the corner, and the page shows through the curve.
-        // CreateRoundRectRgn takes the full width and height of the ellipse.
-        let hole = if radius > 0 {
-            CreateRoundRectRgn(
-                viewport.x,
-                viewport.y,
-                viewport.right(),
-                viewport.bottom(),
-                radius * 2,
-                radius * 2,
-            )
-        } else {
-            CreateRectRgn(viewport.x, viewport.y, viewport.right(), viewport.bottom())
-        };
+        let hole = rounded_region(viewport, radius);
         CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
         let _ = DeleteObject(hole.into());
 
+        // A rounded overlay is added back rounded for the same reason the other
+        // way round: a square patch would paint chrome over the page at its
+        // corners.
         for overlay in &overlays {
-            let patch = CreateRectRgn(overlay.x, overlay.y, overlay.right(), overlay.bottom());
+            let patch = rounded_region(overlay.rect, overlay.radius);
             CombineRgn(Some(region), Some(region), Some(patch), RGN_OR);
             let _ = DeleteObject(patch.into());
         }

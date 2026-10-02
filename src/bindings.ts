@@ -141,7 +141,7 @@ export type Layout = {
 	 *  Regions drawn above the page right now, such as an open menu. These are
 	 *  added back to the chrome's input area so they remain clickable.
 	 */
-	overlays?: Viewport[],
+	overlays?: Overlay[],
 	/**
 	 *  Corner radius of the viewport, in logical pixels.
 	 * 
@@ -150,6 +150,16 @@ export type Layout = {
 	 *  stylesheet uses, keeping CSS the single source of that number.
 	 */
 	radius?: number,
+};
+
+/**  A region drawn above the page, in logical pixels. */
+export type Overlay = {
+	rect: Viewport,
+	/**
+	 *  Corner radius, read from the element's own style. A rounded overlay
+	 *  needs a rounded region, or its corners would show chrome over the page.
+	 */
+	radius: number,
 };
 
 /**

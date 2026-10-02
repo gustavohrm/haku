@@ -125,7 +125,8 @@ The [Chrome layering](specs/chrome-layering.md) mechanism sets limits every appe
 
 - Anything over the page is **opaque**, with **hard edges**. No translucency, blur or shadow falls onto page
   content.
-- A rounded overlay needs a rounded region, cut the same way as the viewport's corners.
+- A rounded overlay needs a rounded region, cut the same way as the viewport's corners. **Implemented**: an
+  overlay's radius is read from its own style; see [Chrome layering](specs/chrome-layering.md#rounded-page-corners).
 - A bar that floats over the page and reveals on hover keeps a thin strip at the window edge inside the
   chrome's region. Otherwise the page owns those pixels and the chrome never sees the pointer arrive.
 

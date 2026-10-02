@@ -54,6 +54,13 @@ impl PhysicalRect {
     }
 }
 
+/// A region of the input mask, rounded when `radius` is above zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RoundedRect {
+    pub rect: PhysicalRect,
+    pub radius: i32,
+}
+
 /// What a content webview reported about its own navigation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PageSignal {
@@ -173,7 +180,7 @@ pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
     viewport: Option<PhysicalRect>,
     radius: i32,
-    overlays: &[PhysicalRect],
+    overlays: &[RoundedRect],
 ) -> Result<()> {
     backend::set_input_mask(webview, viewport, radius, overlays)
 }

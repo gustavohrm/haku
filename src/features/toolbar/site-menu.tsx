@@ -64,9 +64,13 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
     };
   }, [open]);
 
+  // The menu is anchored at the lock glyph rather than its button, whose hover
+  // box is wider than the glyph, and pulls itself back by its own inset so its
+  // text starts directly under the lock.
   const toggle = () => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    setAnchor(open || !rect ? null : { x: rect.left, y: rect.bottom + MENU_GAP });
+    const button = buttonRef.current?.getBoundingClientRect();
+    const glyph = buttonRef.current?.querySelector("i")?.getBoundingClientRect();
+    setAnchor(open || !button || !glyph ? null : { x: glyph.left, y: button.bottom + MENU_GAP });
   };
 
   const secure = url.startsWith("https://");
@@ -88,9 +92,9 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
 
       {/*
         Portalled out of the address field: inside its <label>, any click in
-        the menu would focus the field. Opaque and square, because the input
-        mask cuts a plain rectangle and a shadow or a rounded corner would show
-        the page through it.
+        the menu would focus the field. Opaque and without a shadow, because the
+        input mask cannot show either over the page. Its rounded corners are
+        cut into the mask from its own style.
       */}
       {anchor &&
         createPortal(
@@ -98,7 +102,7 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
             ref={menuRef}
             id={menuId}
             aria-label={t("site.menu")}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-80 flex-col gap-3 border p-3"
+            className="bg-chrome-raised border-text/15 text-text fixed z-10 -ml-[calc(--spacing(3)+1px)] flex w-80 flex-col gap-3 rounded-(--radius-surface) border p-3"
             style={{ left: anchor.x, top: anchor.y }}
           >
             <div className="flex min-w-0 flex-col">
@@ -133,9 +137,8 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
  * The bubble can reach past the menu, and anything outside a registered
  * overlay is drawn under the page's hole in the input mask, so it would be
  * invisible there. Whether it is open is therefore tracked here rather than
- * left to CSS, and the bubble is registered while it shows. Its transition is
- * turned off because the overlay is measured once on opening, and a bubble
- * still scaling up from nothing would be measured at its starting size.
+ * left to CSS, and the bubble is registered while it shows; `useOverlay`
+ * measures it again once it has finished scaling up.
  */
 function Warning({ message }: { message: string }) {
   const [open, setOpen] = useState(false);
@@ -161,13 +164,7 @@ function Warning({ message }: { message: string }) {
       >
         <i className="ic-triangle-alert ic-xs" aria-hidden="true" />
       </button>
-      <span
-        ref={bubbleRef}
-        id={bubbleId}
-        role="tooltip"
-        className="tooltip-bubble warning soft edged"
-        style={{ transition: "none" }}
-      >
+      <span ref={bubbleRef} id={bubbleId} role="tooltip" className="tooltip-bubble warning soft edged">
         {message}
       </span>
     </span>

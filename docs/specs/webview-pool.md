@@ -191,9 +191,10 @@ It is set from the **site menu**, which the address field's leading icon opens, 
 stays in memory whatever the optimization settings say. It is not on the tab itself, so overriding the pool
 takes a deliberate step. A fixed tab carries a marker in the tab strip.
 
-The menu hangs over page content, so it registers with `useOverlay`. It is opaque and square-cornered, because
-the input mask is cut as a plain rectangle, and it closes when the chrome loses focus: a click on the page never
-reaches the chrome.
+The menu hangs over page content, so it registers with `useOverlay`. It is opaque, with no shadow, because the
+input mask cannot show either over the page; its rounded corners are cut into the mask from its own style. Its
+text starts directly under the lock glyph that opens it. It closes when the chrome loses focus: a click on the
+page never reaches the chrome.
 
 The warning is a tooltip on an icon beside the option. Its bubble can reach past the menu's rectangle, so its
 open state is tracked in code rather than left to CSS, and it registers as an overlay of its own while it shows.

@@ -10,8 +10,18 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::Result;
-use crate::platform::{self, PhysicalRect};
+use crate::platform::{self, PhysicalRect, RoundedRect};
 use crate::webview::Viewport;
+
+/// A region drawn above the page, in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Type)]
+pub struct Overlay {
+    pub rect: Viewport,
+    /// Corner radius, read from the element's own style. A rounded overlay
+    /// needs a rounded region, or its corners would show chrome over the page.
+    #[specta(type = specta_typescript::Number)]
+    pub radius: f64,
+}
 
 /// What the interface currently occupies, in logical pixels.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Type)]
@@ -23,7 +33,7 @@ pub struct Layout {
     /// Regions drawn above the page right now, such as an open menu. These are
     /// added back to the chrome's input area so they remain clickable.
     #[serde(default)]
-    pub overlays: Vec<Viewport>,
+    pub overlays: Vec<Overlay>,
     /// Corner radius of the viewport, in logical pixels.
     ///
     /// The page is a native view and cannot be clipped by CSS, so the hole cut
@@ -55,19 +65,24 @@ fn is_visible(viewport: Viewport) -> bool {
     viewport.width >= 1.0 && viewport.height >= 1.0
 }
 
+fn to_physical_radius(radius: f64, scale: f64) -> i32 {
+    (radius.max(0.0) * scale).round() as i32
+}
+
 /// The viewport hole, its corner radius, and the overlays, in device pixels.
-pub fn mask_rects(layout: &Layout, scale: f64) -> (Option<PhysicalRect>, i32, Vec<PhysicalRect>) {
+pub fn mask_rects(layout: &Layout, scale: f64) -> (Option<PhysicalRect>, i32, Vec<RoundedRect>) {
     let viewport = layout.viewport.filter(|viewport| is_visible(*viewport)).map(|v| to_physical(v, scale));
     let overlays = layout
         .overlays
         .iter()
-        .copied()
-        .filter(|overlay| is_visible(*overlay))
-        .map(|overlay| to_physical(overlay, scale))
+        .filter(|overlay| is_visible(overlay.rect))
+        .map(|overlay| RoundedRect {
+            rect: to_physical(overlay.rect, scale),
+            radius: to_physical_radius(overlay.radius, scale),
+        })
         .collect();
 
-    let radius = (layout.radius.max(0.0) * scale).round() as i32;
-    (viewport, radius, overlays)
+    (viewport, to_physical_radius(layout.radius, scale), overlays)
 }
 
 /// Applies a reported layout: raises the chrome and rebuilds its input mask.
@@ -91,6 +106,10 @@ mod tests {
 
     fn viewport(x: f64, y: f64, width: f64, height: f64) -> Viewport {
         Viewport { x, y, width, height }
+    }
+
+    fn square(x: f64, y: f64, width: f64, height: f64) -> Overlay {
+        Overlay { rect: viewport(x, y, width, height), radius: 0.0 }
     }
 
     #[test]
@@ -129,12 +148,27 @@ mod tests {
     fn overlays_are_carried_through_so_open_menus_stay_clickable() {
         let layout = Layout {
             viewport: Some(viewport(0.0, 40.0, 1000.0, 800.0)),
-            overlays: vec![viewport(100.0, 100.0, 200.0, 300.0)],
+            overlays: vec![square(100.0, 100.0, 200.0, 300.0)],
             radius: 0.0,
         };
         let (_, _, overlays) = mask_rects(&layout, 2.0);
 
-        assert_eq!(overlays, vec![PhysicalRect { x: 200, y: 200, width: 400, height: 600 }]);
+        assert_eq!(
+            overlays,
+            vec![RoundedRect { rect: PhysicalRect { x: 200, y: 200, width: 400, height: 600 }, radius: 0 }]
+        );
+    }
+
+    #[test]
+    fn an_overlay_keeps_its_corner_radius_scaled_to_the_display() {
+        let layout = Layout {
+            viewport: Some(viewport(0.0, 40.0, 1000.0, 800.0)),
+            overlays: vec![Overlay { rect: viewport(10.0, 10.0, 100.0, 100.0), radius: 8.0 }],
+            radius: 0.0,
+        };
+        let (_, _, overlays) = mask_rects(&layout, 1.5);
+
+        assert_eq!(overlays[0].radius, 12);
     }
 
     #[test]
@@ -159,7 +193,7 @@ mod tests {
     fn collapsed_overlays_are_dropped_along_with_collapsed_viewports() {
         let layout = Layout {
             viewport: Some(viewport(0.0, 40.0, 1000.0, 800.0)),
-            overlays: vec![viewport(10.0, 10.0, 0.0, 0.0)],
+            overlays: vec![square(10.0, 10.0, 0.0, 0.0)],
             radius: 0.0,
         };
         let (_, _, overlays) = mask_rects(&layout, 1.0);

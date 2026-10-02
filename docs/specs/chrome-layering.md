@@ -1,7 +1,7 @@
 # Chrome layering
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-09-24
+**Last updated:** 2026-10-02
 **Scope:** How Haku's interface renders above page content, and how clicks still reach the page.
 
 ## The requirement
@@ -54,10 +54,15 @@ The radius comes from the interface, which reads it back from its own stylesheet
 antialiased; at the radius in use this is not noticeable, and softening it would mean giving up the region
 approach for one that depends on webview transparency.
 
+Overlays are rounded the same way, from the other side. Each one is reported with the corner radius its own
+style computes, and added back to the region with `CreateRoundRectRgn`; a square patch would paint chrome over
+the page at a rounded overlay's corners.
+
 ## The contract with the interface
 
 One element — `features/viewport` — marks where page content goes. `useChromeLayout` observes its rectangle,
-collects any registered overlay rectangles, and pushes both to Rust in a **single** `set_layout` call.
+collects any registered overlays, each a rectangle and a corner radius, and pushes both to Rust in a **single**
+`set_layout` call.
 
 Both halves travel together deliberately. Setting the webview bounds and the input mask separately would let
 them disagree for a frame, which shows as a flickering strip along the edge of the page.
@@ -75,6 +80,10 @@ completely unclickable. This is the single easiest mistake to make in this codeb
 const ref = useRef<HTMLDivElement>(null);
 useOverlay(ref, isOpen);
 ```
+
+`useOverlay` measures the element when it opens, as it resizes, and again when a transition or animation on it
+ends: a transform is not a resize, so a tooltip scaling up would otherwise stay registered at its starting size.
+While it is still animating, the part of it beyond what was measured is hidden under the page.
 
 Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a
 component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its

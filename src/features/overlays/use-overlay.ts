@@ -1,12 +1,14 @@
 import { useEffect, useId, type RefObject } from "react";
 
-import { rectOf, registerOverlay, unregisterOverlay } from "./registry";
+import { overlayOf, registerOverlay, unregisterOverlay } from "./registry";
 
 /**
  * Keeps a floating element clickable while it is open.
  *
- * Registers the element's rectangle with the overlay store for as long as
- * `open` is true, and follows it as it resizes or the window changes. Any
+ * Registers the element's region with the overlay store for as long as
+ * `open` is true, and follows it as it resizes or the window changes. A
+ * transform is not a resize, so an element that animates into place, such as a
+ * tooltip scaling up, is measured again once the animation ends. Any
  * component that renders over page content must use this; without it the
  * element paints correctly but every click lands on the page beneath.
  *
@@ -23,16 +25,20 @@ export function useOverlay(ref: RefObject<HTMLElement | null>, open: boolean): v
       return;
     }
 
-    const measure = () => registerOverlay(id, rectOf(element));
+    const measure = () => registerOverlay(id, overlayOf(element));
     measure();
 
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     window.addEventListener("resize", measure);
+    element.addEventListener("transitionend", measure);
+    element.addEventListener("animationend", measure);
 
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", measure);
+      element.removeEventListener("transitionend", measure);
+      element.removeEventListener("animationend", measure);
       unregisterOverlay(id);
     };
   }, [id, open, ref]);
