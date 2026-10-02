@@ -9,7 +9,7 @@ use super::pool::SlotId;
 ///
 /// A tab on one of these never occupies a webview slot, which is why the pool
 /// only ever competes over real web content.
-pub const INTERNAL_SCHEME: &str = "haku:";
+pub const INTERNAL_SCHEME: &str = "haku://";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type)]
 pub struct TabId(#[specta(type = specta_typescript::Number)] pub u64);
@@ -126,14 +126,14 @@ mod tests {
 
     #[test]
     fn a_tab_on_an_internal_page_never_needs_a_slot() {
-        let tab = Tab::new(TabId(1), "haku:settings");
+        let tab = Tab::new(TabId(1), "haku://settings");
         assert!(tab.is_internal());
         assert!(tab.slot().is_none());
     }
 
     #[test]
     fn navigating_from_an_internal_page_to_the_web_makes_the_tab_poolable() {
-        let mut tab = Tab::new(TabId(1), "haku:new-tab");
+        let mut tab = Tab::new(TabId(1), "haku://new-tab");
         tab.history.push(Visit::new("https://a.test"));
         tab.reclassify();
 
@@ -144,7 +144,7 @@ mod tests {
     fn navigating_from_the_web_to_an_internal_page_releases_the_tab_from_the_pool() {
         let mut tab = Tab::new(TabId(1), "https://a.test");
         tab.presence = TabPresence::Live { slot: SlotId(0) };
-        tab.history.push(Visit::new("haku:settings"));
+        tab.history.push(Visit::new("haku://settings"));
         tab.reclassify();
 
         assert_eq!(tab.presence, TabPresence::Internal);
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn leaving_an_internal_page_discards_scroll_from_the_page_being_left() {
-        let mut tab = Tab::new(TabId(1), "haku:history");
+        let mut tab = Tab::new(TabId(1), "haku://history");
         tab.scroll = Scroll { x: 0.0, y: 900.0 };
         tab.history.push(Visit::new("https://a.test"));
         tab.reclassify();

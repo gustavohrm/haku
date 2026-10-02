@@ -9,9 +9,9 @@ import { createElement, type ComponentType, type ReactElement } from "react";
  *
  * These live in the chrome rather than in a content webview, which means they
  * cost no webview slot, share the interface's theme and translations, and can
- * talk to Rust directly. The `haku:` scheme is what marks a tab as one of them.
+ * talk to Rust directly. The `haku://` scheme is what marks a tab as one of them.
  */
-const INTERNAL_PREFIX = "haku:";
+const INTERNAL_PREFIX = "haku://";
 
 // Components, not the result of calling them. Invoking a component as a plain
 // function runs its hooks inside the caller's hook sequence, so opening or
@@ -30,7 +30,7 @@ export function isInternalUrl(url: string): boolean {
 /**
  * Resolves an internal URL to its page.
  *
- * @param url - A `haku:` URL.
+ * @param url - A `haku://` URL.
  * @returns The page element, or `null` when the route is unknown.
  */
 export function renderInternal(url: string): ReactElement | null {
@@ -53,7 +53,8 @@ export function internalTitle(url: string): string | null {
 }
 
 function routeOf(url: string) {
-  const name = url.slice(INTERNAL_PREFIX.length);
-  // Own keys only: `haku:constructor` must not resolve to Object's prototype.
+  // The host names the page; a path, query or fragment after it belongs to the page.
+  const name = url.slice(INTERNAL_PREFIX.length).split(/[/?#]/, 1)[0] ?? "";
+  // Own keys only: `haku://constructor` must not resolve to Object's prototype.
   return isInternalUrl(url) && Object.hasOwn(routes, name) ? routes[name] : undefined;
 }

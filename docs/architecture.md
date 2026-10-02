@@ -105,7 +105,7 @@ pill-shaped — 3px between the tab row, the toolbar and the page, and a 4px mar
 
 ## Internal pages
 
-Pages Haku renders itself — new tab, settings, history — use the `haku:` scheme and are drawn by the chrome,
+Pages Haku renders itself — new tab, settings, history — use the `haku://` scheme and are drawn by the chrome,
 not loaded into a webview. A tab on one of them therefore consumes no pool slot, shares the interface's theme
 and translations, and can talk to Rust directly.
 

@@ -10,7 +10,7 @@ use crate::model::DEFAULT_CAPACITY;
 pub const DEFAULT_IDLE_RELEASE_MS: u64 = 30_000;
 
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
-const DEFAULT_HOME_URL: &str = "haku:new-tab";
+const DEFAULT_HOME_URL: &str = "haku://new-tab";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

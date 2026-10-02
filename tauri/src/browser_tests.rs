@@ -1,7 +1,7 @@
 use super::*;
 
 const SEARCH: &str = "https://duckduckgo.com/?q=";
-const HOME: &str = "haku:new-tab";
+const HOME: &str = "haku://new-tab";
 
 fn browser_with(capacity: usize, urls: &[&str]) -> (Browser, Vec<TabId>) {
     let mut browser = Browser::new(capacity);
@@ -86,7 +86,7 @@ fn pinning_grows_the_pool_beyond_the_configured_capacity() {
 
 #[test]
 fn an_internal_page_tab_never_takes_a_slot() {
-    let (browser, ids) = browser_with(1, &["haku:settings"]);
+    let (browser, ids) = browser_with(1, &["haku://settings"]);
     assert!(slot_of(&browser, ids[0]).is_none());
     assert!(browser.tab(ids[0]).unwrap().is_internal());
 }
@@ -96,7 +96,7 @@ fn navigating_from_the_web_to_an_internal_page_frees_the_slot() {
     let (mut browser, ids) = browser_with(1, &["https://a.test"]);
     assert!(slot_of(&browser, ids[0]).is_some());
 
-    let effects = browser.navigate(ids[0], "haku:settings").unwrap();
+    let effects = browser.navigate(ids[0], "haku://settings").unwrap();
 
     assert!(slot_of(&browser, ids[0]).is_none());
     assert!(effects.iter().any(|effect| matches!(effect, Effect::Blank { .. })));
@@ -365,7 +365,7 @@ fn a_native_back_or_forward_is_resolved_against_the_tab_history() {
 
 #[test]
 fn a_favicon_is_only_derived_for_web_pages() {
-    assert_eq!(favicon_for("haku:settings"), None);
+    assert_eq!(favicon_for("haku://settings"), None);
     assert_eq!(favicon_for("https://a.test/x"), Some("https://a.test/favicon.ico".to_string()));
     assert_eq!(favicon_for("http://a.test"), Some("http://a.test/favicon.ico".to_string()));
 }
@@ -409,7 +409,7 @@ fn reordering_past_the_end_clamps_to_the_last_position() {
 #[test]
 fn an_address_with_a_scheme_is_used_as_typed() {
     assert_eq!(resolve_target("https://a.test/x", SEARCH), "https://a.test/x");
-    assert_eq!(resolve_target("haku:settings", SEARCH), "haku:settings");
+    assert_eq!(resolve_target("haku://settings", SEARCH), "haku://settings");
 }
 
 #[test]
