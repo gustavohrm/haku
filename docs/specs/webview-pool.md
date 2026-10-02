@@ -28,7 +28,7 @@ A tab is in exactly one of three states:
 
 - **Live** — bound to a pool slot, backed by a real webview.
 - **Suspended** — no webview. Reactivating reloads the URL.
-- **Internal** — a `haku:` page drawn by the chrome. Never consumes a slot.
+- **Internal** — a `haku://` page drawn by the chrome. Never consumes a slot.
 
 ## Capacity
 

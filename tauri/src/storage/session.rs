@@ -74,15 +74,15 @@ mod tests {
 
     #[test]
     fn an_empty_session_restores_to_the_home_page() {
-        let browser = Session::default().restore(1, "haku:new-tab");
+        let browser = Session::default().restore(1, "haku://new-tab");
 
         assert_eq!(browser.tabs().len(), 1);
-        assert_eq!(browser.tabs()[0].url(), "haku:new-tab");
+        assert_eq!(browser.tabs()[0].url(), "haku://new-tab");
     }
 
     #[test]
     fn restoring_reopens_every_tab_in_order() {
-        let browser = session_of(&["https://a.test", "https://b.test"], Some(0)).restore(1, "haku:new-tab");
+        let browser = session_of(&["https://a.test", "https://b.test"], Some(0)).restore(1, "haku://new-tab");
 
         let urls: Vec<&str> = browser.tabs().iter().map(|tab| tab.url()).collect();
         assert_eq!(urls, vec!["https://a.test", "https://b.test"]);
@@ -90,14 +90,14 @@ mod tests {
 
     #[test]
     fn restoring_reactivates_the_tab_that_was_active() {
-        let browser = session_of(&["https://a.test", "https://b.test"], Some(1)).restore(1, "haku:new-tab");
+        let browser = session_of(&["https://a.test", "https://b.test"], Some(1)).restore(1, "haku://new-tab");
 
         assert_eq!(browser.active(), browser.tabs().get(1).map(|tab| tab.id));
     }
 
     #[test]
     fn an_out_of_range_active_index_falls_back_to_the_first_tab() {
-        let browser = session_of(&["https://a.test"], Some(9)).restore(1, "haku:new-tab");
+        let browser = session_of(&["https://a.test"], Some(9)).restore(1, "haku://new-tab");
 
         assert_eq!(browser.active(), browser.tabs().first().map(|tab| tab.id));
     }
@@ -107,7 +107,7 @@ mod tests {
         let mut session = session_of(&["https://a.test", "https://b.test"], Some(1));
         session.tabs[0].fixed = true;
 
-        let browser = session.restore(1, "haku:new-tab");
+        let browser = session.restore(1, "haku://new-tab");
 
         assert!(browser.tabs()[0].fixed);
     }
@@ -118,7 +118,7 @@ mod tests {
         // live and record which slot holds which URL, while producing effects
         // that nobody applies. Reconciling against the first reported layout
         // would then find nothing to do and the window would stay blank.
-        let browser = session_of(&["https://a.test", "https://b.test"], Some(0)).restore(2, "haku:new-tab");
+        let browser = session_of(&["https://a.test", "https://b.test"], Some(0)).restore(2, "haku://new-tab");
 
         assert_eq!(browser.state().live_count, 0);
         assert!(browser.tabs().iter().all(|tab| tab.slot().is_none()));
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn reconciling_a_restored_session_loads_the_active_tab() {
-        let mut browser = session_of(&["https://a.test", "https://b.test"], Some(1)).restore(1, "haku:new-tab");
+        let mut browser = session_of(&["https://a.test", "https://b.test"], Some(1)).restore(1, "haku://new-tab");
 
         let effects = browser.reconcile();
 
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn a_captured_session_restores_to_the_same_tabs() {
         let original = session_of(&["https://a.test", "https://b.test"], Some(1));
-        let browser = original.restore(2, "haku:new-tab");
+        let browser = original.restore(2, "haku://new-tab");
 
         let captured = Session::capture(&browser);
 

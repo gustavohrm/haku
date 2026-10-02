@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { addressIcon, displayAddress } from "./address";
 
-const SETTINGS_URL = "haku:settings";
+const SETTINGS_URL = "haku://settings";
 
 interface ToolbarProps {
   tab: Tab | null;

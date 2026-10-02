@@ -4,7 +4,7 @@ import { internalTitle, isInternalUrl, renderInternal } from "./router";
 
 describe("internal routing", () => {
   it("recognises an internal url", () => {
-    expect(isInternalUrl("haku:settings")).toBe(true);
+    expect(isInternalUrl("haku://settings")).toBe(true);
   });
 
   it("does not mistake a web url for an internal one", () => {
@@ -16,28 +16,35 @@ describe("internal routing", () => {
     // caller's hook sequence. Opening or leaving an internal page then changes
     // that sequence and React tears down the whole tree, which shows up as the
     // entire interface vanishing.
-    const element = renderInternal("haku:settings");
+    const element = renderInternal("haku://settings");
 
     expect(element).not.toBeNull();
     expect(typeof element?.type).toBe("function");
     expect(element?.props).toEqual({});
   });
 
-  it.each(["haku:new-tab", "haku:settings", "haku:history"])("renders %s", (url) => {
+  it.each(["haku://new-tab", "haku://settings", "haku://history"])("renders %s", (url) => {
     expect(renderInternal(url)).not.toBeNull();
   });
 
+  it.each(["haku://settings/", "haku://history/visits", "haku://history?q=a", "haku://settings#theme"])(
+    "routes %s by its host",
+    (url) => {
+      expect(renderInternal(url)).not.toBeNull();
+    },
+  );
+
   it("names an internal page for its tab", () => {
-    expect(internalTitle("haku:settings")).toBe("Settings");
+    expect(internalTitle("haku://settings")).toBe("Settings");
   });
 
   it("gives a web page no internal name, even one whose path looks like a route", () => {
     expect(internalTitle("https://a.test/settings")).toBeNull();
-    expect(internalTitle("haku:unknown")).toBeNull();
-    expect(internalTitle("haku:constructor")).toBeNull();
+    expect(internalTitle("haku://unknown")).toBeNull();
+    expect(internalTitle("haku://constructor")).toBeNull();
   });
 
   it("returns nothing for an unknown route", () => {
-    expect(renderInternal("haku:nope")).toBeNull();
+    expect(renderInternal("haku://nope")).toBeNull();
   });
 });

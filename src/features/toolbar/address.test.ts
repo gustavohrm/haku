@@ -16,7 +16,7 @@ describe("displayAddress", () => {
   });
 
   it("leaves internal pages alone", () => {
-    expect(displayAddress("haku:settings")).toBe("haku:settings");
+    expect(displayAddress("haku://settings")).toBe("haku://settings");
   });
 });
 
