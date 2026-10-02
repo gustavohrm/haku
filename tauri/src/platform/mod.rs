@@ -69,6 +69,8 @@ pub enum PageSignal {
     /// The page opened `alert`, `confirm`, `prompt` or a "Leave site?"
     /// dialog and is paused until [`answer_dialog`] is called with its id.
     DialogRequested(PageDialog),
+    /// The page started or stopped playing audio.
+    AudioChanged { playing: bool },
 }
 
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on
@@ -108,6 +110,38 @@ pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId,
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn stop_idle_workers<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<()> {
     backend::stop_idle_workers(chrome)
+}
+
+/// Pauses a hidden content webview's page and lowers its memory target.
+///
+/// The engine may decline, for example while the webview is visible; the page
+/// then keeps running, which costs memory but loses nothing.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn freeze<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    backend::freeze(webview)
+}
+
+/// Undoes [`freeze`]. Harmless on a webview that is not frozen.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    backend::resume(webview)
+}
+
+/// Installed physical memory in bytes, or nothing when it cannot be read.
+pub fn total_memory() -> Option<u64> {
+    backend::total_memory()
+}
+
+/// Whether the operating system reports physical memory running low.
+///
+/// The system's own judgement rather than a threshold of Haku's, so it accounts
+/// for everything else running on the machine. False when it cannot be read.
+pub fn memory_is_low() -> bool {
+    backend::memory_is_low()
 }
 
 /// Raises the chrome webview above every content webview in its window.

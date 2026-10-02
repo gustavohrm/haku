@@ -35,6 +35,22 @@ pub fn stop_idle_workers<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Resu
     Err(unsupported("stopping idle service workers"))
 }
 
+pub fn freeze<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<()> {
+    Err(unsupported("freezing background pages"))
+}
+
+pub fn resume<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<()> {
+    Err(unsupported("resuming frozen pages"))
+}
+
+pub fn total_memory() -> Option<u64> {
+    None
+}
+
+pub fn memory_is_low() -> bool {
+    false
+}
+
 pub fn answer_dialog<R: tauri::Runtime>(_app: &tauri::AppHandle<R>, _id: DialogId, _answer: DialogAnswer) -> Result<()> {
     Err(unsupported("answering page dialogs"))
 }

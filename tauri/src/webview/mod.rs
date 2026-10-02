@@ -74,6 +74,18 @@ pub fn apply<R: tauri::Runtime>(
             Effect::Show { slot } => set_visible(app, *slot, true)?,
             Effect::Hide { slot } => set_visible(app, *slot, false)?,
             Effect::Reload { slot } => reload(app, *slot)?,
+            // A page that fails to freeze keeps running, which costs memory but
+            // nothing else, so it must not stop the effects after it.
+            Effect::Freeze { slot } => {
+                if let Some(webview) = app.get_webview(&slot.label()) {
+                    let _ = platform::freeze(&webview);
+                }
+            }
+            Effect::Resume { slot } => {
+                if let Some(webview) = app.get_webview(&slot.label()) {
+                    let _ = platform::resume(&webview);
+                }
+            }
             // The page restores its own scroll offset, so a reload needs no
             // help from here.
             Effect::RestoreScroll { .. } => {}

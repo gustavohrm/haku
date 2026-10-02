@@ -26,15 +26,18 @@ pub struct Scroll {
     pub y: f64,
 }
 
-/// Whether a tab currently holds a webview.
+/// Whether a tab currently holds a webview, and whether it is running.
 ///
 /// A discarded tab is not a paused page: its webview is gone and reactivating
-/// reloads the URL, then restores [`Tab::scroll`].
+/// reloads the URL, then restores [`Tab::scroll`]. A frozen tab is: it keeps
+/// its page and resumes without a reload.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum TabPresence {
     /// Bound to a pool slot and backed by a live webview.
     Live { slot: SlotId },
+    /// Bound to a pool slot, with its page paused in the background.
+    Frozen { slot: SlotId },
     /// No webview. Reactivating reloads the page.
     Discarded,
     /// Rendered by the chrome itself; never consumes a slot.
@@ -52,11 +55,14 @@ pub struct Tab {
     /// effective capacity, so pinning can never starve the active tab.
     pub fixed: bool,
     /// When the tab was last shown, in milliseconds since the Unix epoch.
+    /// Recency is how Haku judges whether a tab is likely to be shown again.
     #[specta(type = specta_typescript::Number)]
     pub active_at: u64,
     /// A dialog the page opened and is waiting on. Shown while the tab is
     /// active; a background tab's dialog waits until the tab is selected.
     pub dialog: Option<PageDialog>,
+    /// The page is playing audio, which a smart policy will not interrupt.
+    pub audible: bool,
 }
 
 impl Tab {
@@ -72,6 +78,7 @@ impl Tab {
             fixed: false,
             active_at: 0,
             dialog: None,
+            audible: false,
         }
     }
 
@@ -85,7 +92,7 @@ impl Tab {
 
     pub fn slot(&self) -> Option<SlotId> {
         match self.presence {
-            TabPresence::Live { slot } => Some(slot),
+            TabPresence::Live { slot } | TabPresence::Frozen { slot } => Some(slot),
             _ => None,
         }
     }

@@ -22,6 +22,7 @@ export function TabItem({ tab, active }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
   const discarded = tab.presence.status === "discarded";
+  const state = { discarded: t("tabs.discarded"), frozen: t("tabs.frozen") }[tab.presence.status as string];
 
   return (
     <li className="flex w-50 min-w-10 shrink">
@@ -31,7 +32,7 @@ export function TabItem({ tab, active }: TabItemProps) {
           active ? "bg-chrome-raised text-text" : "text-text-secondary hover:bg-text/6 hover:text-text",
           discarded && !active && "opacity-70",
         )}
-        title={discarded ? `${title} — ${t("tabs.discarded")}` : title}
+        title={state ? `${title} — ${state}` : title}
       >
         <button
           type="button"

@@ -5,8 +5,8 @@ use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog, Scroll, SlotId,
-    Tab, TabId, TabPresence, Visit, WebviewPool,
+    is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog, Policy, Scroll,
+    SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -14,6 +14,14 @@ use crate::model::{
 /// Navigating away frees the page while keeping the webview itself alive, which
 /// is far cheaper than destroying and recreating one on every tab switch.
 pub const BLANK_URL: &str = "about:blank";
+
+/// A background tab shown within this long is likely to be shown again, so
+/// smart discarding spares it even when memory is low.
+pub const RECENTLY_SHOWN_MS: u64 = 5 * 60_000;
+
+/// A background tab not shown for this long is discarded by smart discarding
+/// whatever the memory situation.
+pub const LONG_UNSHOWN_MS: u64 = 30 * 60_000;
 
 /// A side effect the runtime must apply to a real webview.
 ///
@@ -30,6 +38,10 @@ pub enum Effect {
     Show { slot: SlotId },
     Hide { slot: SlotId },
     Reload { slot: SlotId },
+    /// Pause a hidden slot's page and let it give memory back.
+    Freeze { slot: SlotId },
+    /// Undo [`Effect::Freeze`]. Precedes anything else done to a frozen slot.
+    Resume { slot: SlotId },
     RestoreScroll { slot: SlotId, scroll: Scroll },
     /// Release a page paused on a dialog, with the given answer.
     AnswerDialog { id: DialogId, answer: DialogAnswer },
@@ -86,6 +98,8 @@ pub struct Browser {
     /// coming back, which is not.
     navigated: HashSet<TabId>,
     next_id: u64,
+    freeze: Policy,
+    discard: Policy,
 }
 
 impl Browser {
@@ -98,7 +112,18 @@ impl Browser {
             awaiting: HashSet::new(),
             navigated: HashSet::new(),
             next_id: 1,
+            // Nothing is frozen or discarded early until settings say so.
+            freeze: Policy::Never,
+            discard: Policy::Never,
         }
+    }
+
+    /// Sets the optimization policies without touching any webview, for a
+    /// browser that has none yet.
+    pub fn with_policies(mut self, freeze: Policy, discard: Policy) -> Self {
+        self.freeze = freeze;
+        self.discard = discard;
+        self
     }
 
     /// Rebuilds a browser from persisted tabs, touching no webviews.
@@ -218,12 +243,7 @@ impl Browser {
     pub fn close_tab(&mut self, id: TabId, replacement: &str) -> Result<Vec<Effect>> {
         let index = self.index_of(id)?;
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
-
-        if let Some(slot) = self.pool.release(id) {
-            effects.push(Effect::Hide { slot });
-            effects.push(Effect::Blank { slot });
-            self.forget_slot(slot);
-        }
+        effects.extend(self.release_slot(id));
         self.tabs.remove(index);
         self.navigated.remove(&id);
 
@@ -265,10 +285,10 @@ impl Browser {
 
         // The tab may have just left the pool for an internal page.
         if self.tab(id)?.is_internal() {
-            if let Some(slot) = self.pool.release(id) {
-                self.forget_slot(slot);
+            let released = self.release_slot(id);
+            if !released.is_empty() {
                 let mut effects: Vec<Effect> = dismissed.into_iter().collect();
-                effects.extend([Effect::Hide { slot }, Effect::Blank { slot }]);
+                effects.extend(released);
                 effects.extend(self.realize());
                 return Ok(effects);
             }
@@ -342,6 +362,16 @@ impl Browser {
         Ok(())
     }
 
+    /// Applies the user's optimization settings.
+    ///
+    /// @param capacity - The pool size to use, which is 1 while every
+    ///   background tab is discarded whatever the user configured.
+    pub fn set_optimization(&mut self, capacity: usize, freeze: Policy, discard: Policy) -> Vec<Effect> {
+        self.freeze = freeze;
+        self.discard = discard;
+        self.set_capacity(capacity)
+    }
+
     pub fn set_capacity(&mut self, capacity: usize) -> Vec<Effect> {
         self.pool.set_capacity(capacity);
         let effective = self.pool.effective_capacity(self.fixed_count());
@@ -370,7 +400,50 @@ impl Browser {
         self.realize()
     }
 
+    /// Discards background tabs that smart discarding judges worth freeing.
+    ///
+    /// Driven on a timer, so this is also where the visible tab is timed: a
+    /// tab is stamped when it is selected and on every pass while it stays in
+    /// view. A tab never stamped is timed from the first pass that sees it.
+    ///
+    /// @param low_memory - Whether the system reports memory running low.
+    pub fn relieve(&mut self, now: u64, low_memory: bool) -> Vec<Effect> {
+        let active = self.active;
+        for tab in &mut self.tabs {
+            if Some(tab.id) == active || tab.active_at == 0 {
+                tab.active_at = now;
+            }
+        }
+        if self.discard != Policy::Smart {
+            return Vec::new();
+        }
+
+        let stale: Vec<TabId> = self
+            .background()
+            .into_iter()
+            .filter(|&id| {
+                let Ok(tab) = self.tab(id) else { return false };
+                let unshown = now.saturating_sub(tab.active_at);
+                !tab.audible && (unshown >= LONG_UNSHOWN_MS || (low_memory && unshown >= RECENTLY_SHOWN_MS))
+            })
+            .collect();
+        stale.into_iter().flat_map(|id| self.discard_tab(id)).collect()
+    }
+
     // -- reports from the page -------------------------------------------
+
+    /// Records whether a slot's page is playing audio.
+    ///
+    /// A smart policy leaves a playing tab running, so a tab that falls silent
+    /// in the background may be frozen now.
+    pub fn report_audio(&mut self, slot: SlotId, playing: bool) -> Vec<Effect> {
+        let Some(id) = self.occupant_of(slot) else { return Vec::new() };
+        match self.tab_mut(id) {
+            Ok(tab) if tab.audible != playing => tab.audible = playing,
+            _ => return Vec::new(),
+        }
+        self.realize()
+    }
 
     fn occupant_of(&self, slot: SlotId) -> Option<TabId> {
         self.pool.slots().iter().find(|candidate| candidate.id == slot).and_then(|found| found.occupant)
@@ -520,6 +593,81 @@ impl Browser {
                 effects.push(Effect::Hide { slot });
             }
         }
+
+        // After hiding: a webview can only be frozen while it is hidden.
+        for id in self.background() {
+            effects.extend(self.settle(id));
+        }
+        effects
+    }
+
+    /// Tabs holding a slot that the optimization policies may act on: neither
+    /// visible nor fixed.
+    fn background(&self) -> Vec<TabId> {
+        self.tabs
+            .iter()
+            .filter(|tab| tab.slot().is_some() && !tab.fixed && Some(tab.id) != self.active)
+            .map(|tab| tab.id)
+            .collect()
+    }
+
+    /// Applies the freeze and discard policies to one background tab.
+    ///
+    /// Always means always: a tab playing audio is frozen or discarded like any
+    /// other, and keeping it loaded is how a user exempts it. Smart discarding
+    /// is not decided here but in [`Browser::relieve`], because it depends on
+    /// time and memory rather than on what just changed.
+    fn settle(&mut self, id: TabId) -> Vec<Effect> {
+        let Ok(tab) = self.tab(id) else { return Vec::new() };
+        let keep_running = tab.audible && self.freeze != Policy::Always;
+        // A page paused on a dialog is already still, and the dialog is waiting
+        // on an answer the page has to be running to receive.
+        let waiting = tab.dialog.is_some();
+
+        match (self.discard, self.freeze) {
+            (Policy::Always, _) => self.discard_tab(id),
+            (_, Policy::Never) => self.resume_tab(id),
+            _ if keep_running => self.resume_tab(id),
+            _ if waiting => Vec::new(),
+            _ => self.freeze_tab(id),
+        }
+    }
+
+    fn freeze_tab(&mut self, id: TabId) -> Vec<Effect> {
+        let Ok(tab) = self.tab_mut(id) else { return Vec::new() };
+        let TabPresence::Live { slot } = tab.presence else { return Vec::new() };
+        tab.presence = TabPresence::Frozen { slot };
+        vec![Effect::Freeze { slot }]
+    }
+
+    fn resume_tab(&mut self, id: TabId) -> Vec<Effect> {
+        let Ok(tab) = self.tab_mut(id) else { return Vec::new() };
+        let TabPresence::Frozen { slot } = tab.presence else { return Vec::new() };
+        tab.presence = TabPresence::Live { slot };
+        vec![Effect::Resume { slot }]
+    }
+
+    /// Gives up a tab's page, keeping its place in history.
+    fn discard_tab(&mut self, id: TabId) -> Vec<Effect> {
+        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        effects.extend(self.release_slot(id));
+        if let Ok(tab) = self.tab_mut(id) {
+            tab.presence = TabPresence::Discarded;
+        }
+        effects
+    }
+
+    /// Takes a tab's slot back and parks it, resuming it first if it was
+    /// frozen. Leaves the tab's presence to the caller.
+    fn release_slot(&mut self, id: TabId) -> Vec<Effect> {
+        let frozen = matches!(self.tab(id).map(|tab| tab.presence), Ok(TabPresence::Frozen { .. }));
+        let Some(slot) = self.pool.release(id) else { return Vec::new() };
+        self.forget_slot(slot);
+        let mut effects = Vec::new();
+        if frozen {
+            effects.push(Effect::Resume { slot });
+        }
+        effects.extend([Effect::Hide { slot }, Effect::Blank { slot }]);
         effects
     }
 
@@ -541,17 +689,23 @@ impl Browser {
         };
 
         let mut effects = Vec::new();
+        let slot = acquired.slot();
         if let Acquired::Evicted { evicted, .. } = acquired {
             // The evicted page may be paused on a dialog; it has to be released
             // before its slot is navigated to this tab.
             effects.extend(self.dismiss_dialog(evicted));
             if let Ok(tab) = self.tab_mut(evicted) {
+                if matches!(tab.presence, TabPresence::Frozen { .. }) {
+                    effects.push(Effect::Resume { slot });
+                }
                 tab.presence = TabPresence::Discarded;
             }
         }
 
-        let slot = acquired.slot();
         if let Ok(tab) = self.tab_mut(id) {
+            if matches!(tab.presence, TabPresence::Frozen { .. }) {
+                effects.push(Effect::Resume { slot });
+            }
             tab.presence = TabPresence::Live { slot };
         }
 

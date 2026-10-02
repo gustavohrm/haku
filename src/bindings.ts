@@ -17,6 +17,19 @@ export const commands = {
 	 *  release memory now.
 	 */
 	setSettings: (settings: Settings) => typedError<Settings, HakuError>(__TAURI_INVOKE("set_settings", { settings })),
+	/**
+	 *  Replaces the optimization settings with a preset's values.
+	 * 
+	 *  Resolved here rather than in the interface because the slot count depends
+	 *  on the machine's memory, which only Rust can read.
+	 */
+	applyPreset: (preset: Preset) => typedError<Settings, HakuError>(__TAURI_INVOKE("apply_preset", { preset })),
+	/**  The preset the current settings match, or nothing when they were customised. */
+	currentPreset: () => typedError<
+/**  One page loaded at a time: every background tab is discarded. */
+"saveMemory" | "balanced" | 
+/**  Background tabs stay loaded, frozen, until every slot is taken. */
+"performance" | null, HakuError>(__TAURI_INVOKE("current_preset")),
 	openTab: (url: string | null, activate: boolean) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate })),
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
@@ -156,6 +169,23 @@ export type PageDialog = {
 	url: string,
 };
 
+/**  How eagerly one optimization is applied to background tabs. */
+export type Policy = "never" | 
+/**  Haku decides from what it can observe of the tab and the system. */
+"smart" | 
+/**
+ *  Every background tab, including one that is playing audio. Keeping a tab
+ *  loaded is how a user exempts it.
+ */
+"always";
+
+/**  A named bundle of optimization settings. */
+export type Preset = 
+/**  One page loaded at a time: every background tab is discarded. */
+"saveMemory" | "balanced" | 
+/**  Background tabs stay loaded, frozen, until every slot is taken. */
+"performance";
+
 /**
  *  Where a page was scrolled to.
  * 
@@ -170,9 +200,14 @@ export type Scroll = {
 export type Settings = {
 	/**
 	 *  How many webviews may exist at once. One means only the visible tab is
-	 *  loaded; raising it keeps that many background tabs running.
+	 *  loaded; raising it keeps that many background tabs in memory. Ignored
+	 *  while every background tab is discarded.
 	 */
 	webviewCapacity: number,
+	/**  Whether background tabs still holding a webview are paused. */
+	freezeTabs: Policy,
+	/**  Whether Haku discards background tabs before it has to. */
+	discardTabs: Policy,
 	/**  `system`, `light` or `dark`. */
 	theme: string,
 	/**  BCP-47 language tag the interface is shown in. */
@@ -204,26 +239,34 @@ export type Tab = {
 	 *  effective capacity, so pinning can never starve the active tab.
 	 */
 	fixed: boolean,
-	/**  When the tab was last shown, in milliseconds since the Unix epoch. */
+	/**
+	 *  When the tab was last shown, in milliseconds since the Unix epoch.
+	 *  Recency is how Haku judges whether a tab is likely to be shown again.
+	 */
 	activeAt: number,
 	/**
 	 *  A dialog the page opened and is waiting on. Shown while the tab is
 	 *  active; a background tab's dialog waits until the tab is selected.
 	 */
 	dialog: PageDialog | null,
+	/**  The page is playing audio, which a smart policy will not interrupt. */
+	audible: boolean,
 };
 
 export type TabId = number;
 
 /**
- *  Whether a tab currently holds a webview.
+ *  Whether a tab currently holds a webview, and whether it is running.
  * 
  *  A discarded tab is not a paused page: its webview is gone and reactivating
- *  reloads the URL, then restores [`Tab::scroll`].
+ *  reloads the URL, then restores [`Tab::scroll`]. A frozen tab is: it keeps
+ *  its page and resumes without a reload.
  */
 export type TabPresence = 
 /**  Bound to a pool slot and backed by a live webview. */
 { status: "live"; slot: SlotId } | 
+/**  Bound to a pool slot, with its page paused in the background. */
+{ status: "frozen"; slot: SlotId } | 
 /**  No webview. Reactivating reloads the page. */
 { status: "discarded" } | 
 /**  Rendered by the chrome itself; never consumes a slot. */
