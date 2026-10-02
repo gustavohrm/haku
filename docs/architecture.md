@@ -1,7 +1,7 @@
 # App architecture
 
 **Status:** IMPLEMENTED
-**Last updated:** 2026-09-24
+**Last updated:** 2026-10-01
 
 This document explains what goes where in Haku and why, where the reason is not obvious from the code.
 
@@ -108,6 +108,15 @@ pill-shaped — 3px between the tab row, the toolbar and the page, and a 4px mar
 Pages Haku renders itself — new tab, settings, history — use the `haku://` scheme and are drawn by the chrome,
 not loaded into a webview. A tab on one of them therefore consumes no pool slot, shares the interface's theme
 and translations, and can talk to Rust directly.
+
+The host names the page; a path, query or fragment after it belongs to the page, so `haku://history?q=…`
+reaches the history page.
+
+## Where this is heading
+
+[First release](first-release.md) records the decisions the next features are built on: several viewports,
+several windows sharing one pool, webviews keyed by profile, and native keyboard handling while a page has
+focus. Read it before building anything it lists.
 
 ## Threading
 
