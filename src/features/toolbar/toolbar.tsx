@@ -2,9 +2,10 @@ import { type Tab } from "@bindings";
 import { commands } from "@ipc/commands";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { addressIcon, displayAddress } from "./address";
+import { SiteMenu } from "./site-menu";
 
 const SETTINGS_URL = "haku://settings";
 
@@ -16,6 +17,7 @@ export function Toolbar({ tab }: ToolbarProps) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
 
   const url = tab ? (tab.history.entries[tab.history.index]?.url ?? "") : "";
   const canGoBack = (tab?.history.index ?? 0) > 0;
@@ -71,10 +73,20 @@ export function Toolbar({ tab }: ToolbarProps) {
       {/* An omnibox rather than a form control from @codenhub/styles: its
           shape and resting state are specific to a browser address bar. */}
       <form className="ml-1.5 min-w-0 flex-1" onSubmit={submit}>
-        <label className="bg-chrome-raised text-text-secondary focus-within:outline-text/30 flex h-(--control-height) items-center gap-2 rounded-(--radius-control) px-2.5 focus-within:outline-2">
-          <i className={cx(addressIcon(url, editing), "ic-sm shrink-0")} aria-hidden="true" />
+        {/* Pointed at the input explicitly: the site menu's button comes first,
+            and a label otherwise labels its first labelable descendant. */}
+        <label
+          htmlFor={inputId}
+          className="bg-chrome-raised text-text-secondary focus-within:outline-text/30 flex h-(--control-height) items-center gap-2 rounded-(--radius-control) px-2.5 focus-within:outline-2"
+        >
+          {tab && !editing && url !== "" && tab.presence.status !== "internal" ? (
+            <SiteMenu key={tab.id} tab={tab} url={url} />
+          ) : (
+            <i className={cx(addressIcon(url, editing), "ic-sm shrink-0")} aria-hidden="true" />
+          )}
           <input
             ref={inputRef}
+            id={inputId}
             className="text-text placeholder:text-text-secondary min-w-0 flex-1 bg-transparent outline-none select-text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}

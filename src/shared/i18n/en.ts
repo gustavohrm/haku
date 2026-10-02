@@ -9,10 +9,9 @@ export const en = {
   "tabs.list": "Open tabs",
   "tabs.new": "New tab",
   "tabs.close": "Close tab",
-  "tabs.pin": "Pin — keep this tab loaded in the background",
-  "tabs.unpin": "Unpin — let this tab be discarded",
   "tabs.untitled": "Untitled",
   "tabs.discarded": "Discarded — reloads when you open it",
+  "tabs.fixed": "Kept loaded",
 
   "toolbar.navigation": "Navigation",
   "toolbar.back": "Back",
@@ -21,6 +20,13 @@ export const en = {
   "toolbar.address": "Search or enter address",
   "toolbar.devtools": "Open developer tools",
   "toolbar.settings": "Settings",
+
+  "site.menu": "Site information",
+  "site.secure": "Connection is secure",
+  "site.insecure": "Connection is not secure",
+  "site.keepLoaded": "Keep this tab loaded",
+  "site.keepLoaded.warning":
+    "Not recommended. This tab stays in memory and keeps running in the background, whatever the optimization settings say. Use it only for pages the automatic behavior does not suit.",
 
   "window.minimize": "Minimize",
   "window.maximize": "Maximize",

@@ -55,8 +55,8 @@ export function feedback(): Toaster {
 /**
  * Tells the user a command failed.
  *
- * Some commands run on a timer, so a persistent failure would otherwise repeat
- * the same toast indefinitely.
+ * A persistent failure tends to repeat as the user retries, and would otherwise
+ * stack the same toast again and again.
  *
  * @param error - The failure Rust reported.
  */

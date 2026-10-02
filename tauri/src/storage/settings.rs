@@ -3,12 +3,6 @@ use specta::Type;
 
 use crate::model::DEFAULT_CAPACITY;
 
-/// Thirty seconds of silence before a pinned tab is considered idle.
-///
-/// Long enough that a paused video or a page being read is not discarded, short
-/// enough that a forgotten pinned tab stops holding a webview hostage.
-pub const DEFAULT_IDLE_RELEASE_MS: u64 = 30_000;
-
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
 const DEFAULT_HOME_URL: &str = "haku://new-tab";
 
@@ -25,9 +19,6 @@ pub struct Settings {
     pub locale: String,
     pub search_url: String,
     pub home_url: String,
-    /// Milliseconds a pinned tab may be quiet before it gives up its webview.
-    #[specta(type = specta_typescript::Number)]
-    pub idle_release_ms: u64,
 }
 
 impl Default for Settings {
@@ -38,7 +29,6 @@ impl Default for Settings {
             locale: "en".into(),
             search_url: DEFAULT_SEARCH_URL.into(),
             home_url: DEFAULT_HOME_URL.into(),
-            idle_release_ms: DEFAULT_IDLE_RELEASE_MS,
         }
     }
 }
@@ -93,7 +83,7 @@ mod tests {
         let json = serde_json::to_value(Settings::default()).unwrap();
 
         assert!(json.get("webviewCapacity").is_some());
-        assert!(json.get("idleReleaseMs").is_some());
+        assert!(json.get("homeUrl").is_some());
     }
 
     #[test]

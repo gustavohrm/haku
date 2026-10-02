@@ -51,8 +51,7 @@ pub struct Tab {
     /// The user asked this tab to stay resident. Fixed tabs raise the pool's
     /// effective capacity, so pinning can never starve the active tab.
     pub fixed: bool,
-    /// Monotonic activity stamp reported by the page. A fixed tab that has gone
-    /// quiet may give up its slot under pressure.
+    /// When the tab was last shown, in milliseconds since the Unix epoch.
     #[specta(type = specta_typescript::Number)]
     pub active_at: u64,
     /// A dialog the page opened and is waiting on. Shown while the tab is

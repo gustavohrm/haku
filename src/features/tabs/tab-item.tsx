@@ -13,15 +13,15 @@ interface TabItemProps {
 /**
  * One tab: a rounded rectangle that shrinks evenly with its neighbours.
  *
- * Actions stay out of the way until they matter. Close shows on the active
- * tab and on hover; the pin shows on hover, and stays visible once pinned so a
- * tab holding a webview of its own is recognisable at a glance.
+ * Close stays out of the way until it matters: it shows on the active tab and
+ * on hover. A tab kept loaded carries a marker, so a tab holding a webview of
+ * its own is recognisable at a glance; keeping it loaded is set from the site
+ * menu, not here.
  */
 export function TabItem({ tab, active }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
   const discarded = tab.presence.status === "discarded";
-  const pinLabel = tab.fixed ? t("tabs.unpin") : t("tabs.pin");
 
   return (
     <li className="flex w-50 min-w-10 shrink">
@@ -50,13 +50,13 @@ export function TabItem({ tab, active }: TabItemProps) {
           <span className="truncate">{title}</span>
         </button>
 
-        <TabAction
-          icon="ic-pin"
-          label={pinLabel}
-          pressed={tab.fixed}
-          alwaysVisible={tab.fixed}
-          onClick={() => void commands.setTabFixed(tab.id, !tab.fixed)}
-        />
+        {tab.fixed && (
+          <i
+            className="ic-pin ic-xs text-text-secondary shrink-0"
+            title={t("tabs.fixed")}
+            aria-label={t("tabs.fixed")}
+          />
+        )}
         <TabAction
           icon="ic-x"
           label={t("tabs.close")}
@@ -71,13 +71,12 @@ export function TabItem({ tab, active }: TabItemProps) {
 interface TabActionProps {
   icon: string;
   label: string;
-  pressed?: boolean;
   /** Otherwise shown only while the tab is hovered or holds focus. */
   alwaysVisible: boolean;
   onClick: () => void;
 }
 
-function TabAction({ icon, label, pressed, alwaysVisible, onClick }: TabActionProps) {
+function TabAction({ icon, label, alwaysVisible, onClick }: TabActionProps) {
   return (
     // Hidden on a wrapper rather than the button: `.btn` sets its own display,
     // and two utilities setting the same property on one element resolve by
@@ -88,7 +87,6 @@ function TabAction({ icon, label, pressed, alwaysVisible, onClick }: TabActionPr
         className="btn icon ghost dense [--ui-radius:var(--radius-small)]"
         aria-label={label}
         title={label}
-        aria-pressed={pressed}
         onClick={onClick}
       >
         <i className={cx(icon, "ic-xs")} aria-hidden="true" />

@@ -397,25 +397,6 @@ pub fn clear_history(webview: tauri::Webview, state: State<'_, AppState>) -> Res
     history.clear()
 }
 
-/// Releases the webviews of pinned tabs that have gone quiet.
-///
-/// Driven by the interface on a timer rather than a background thread, so the
-/// policy runs only while there is someone to see the result.
-#[tauri::command]
-#[specta::specta]
-pub async fn release_idle_tabs(
-    app: tauri::AppHandle,
-    webview: tauri::Webview,
-    state: State<'_, AppState>,
-) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    let idle_after = {
-        let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        settings.idle_release_ms
-    };
-    mutate(&app, &state, |browser| Ok(browser.release_idle_fixed(now_ms(), idle_after)))
-}
-
 /// Answers the dialog a page is paused on.
 #[tauri::command]
 #[specta::specta]

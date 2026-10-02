@@ -87,19 +87,17 @@ What remains above the idle figure after closing is the GPU process's caches and
 
 ## Fixed tabs
 
-Pinning a tab is the user saying it must stay loaded. It raises the effective capacity and protects the tab
-from eviction.
+Keeping a tab loaded is the user saying it must stay resident. It raises the effective capacity and protects the
+tab from eviction, and nothing gives its slot back but closing the tab or turning the option off. There is no
+idle release: a tab the user asked to keep is not dropped for being quiet.
 
-A fixed tab that has gone quiet gives its slot back anyway: pinning promises the tab will not be reloaded while
-it is _doing_ something, and once it is idle there is nothing left to preserve. `release_idle_tabs` is driven
-by the interface on a timer, so the policy only runs while there is someone to see the result.
+It is set from the **site menu**, which the address field's leading icon opens, alongside a warning that the tab
+stays in memory whatever the optimization settings say. It is not on the tab itself, so overriding the pool
+takes a deliberate step. A fixed tab carries a marker in the tab strip.
 
-### What "idle" currently means
-
-Activity is stamped when a tab is **viewed**. Richer signals — media playing, recent interaction — would
-require a channel from the page back into the application, and Haku deliberately grants remote pages none (see
-[Architecture § Security](../architecture.md#security)). The policy and its stamp are in place, so a better
-signal is a change of source, not a change of design.
+The menu hangs over page content, so it registers with `useOverlay`. It is opaque and square-cornered, because
+the input mask is cut as a plain rectangle, and it closes when the chrome loses focus: a click on the page never
+reaches the chrome.
 
 ## Scroll
 

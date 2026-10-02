@@ -323,7 +323,8 @@ impl Browser {
         Ok(effects)
     }
 
-    /// Pins or unpins a tab so it keeps a webview while other tabs are discarded.
+    /// Pins or unpins a tab. A fixed tab keeps its webview until it is closed or
+    /// unpinned; no policy discards it.
     ///
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
@@ -367,39 +368,6 @@ impl Browser {
     /// the chrome has been laid out.
     pub fn reconcile(&mut self) -> Vec<Effect> {
         self.realize()
-    }
-
-    /// Gives up the slots of fixed tabs that have been quiet for too long.
-    ///
-    /// Pinning promises a tab will not be reloaded while it is doing something.
-    /// Once a page reports no activity there is nothing left to preserve, so the
-    /// webview is worth more to another tab.
-    pub fn release_idle_fixed(&mut self, now: u64, idle_after: u64) -> Vec<Effect> {
-        let stale: Vec<TabId> = self
-            .tabs
-            .iter()
-            .filter(|tab| {
-                tab.fixed
-                    && Some(tab.id) != self.active
-                    && tab.slot().is_some()
-                    && now.saturating_sub(tab.active_at) >= idle_after
-            })
-            .map(|tab| tab.id)
-            .collect();
-
-        let mut effects = Vec::new();
-        for id in stale {
-            effects.extend(self.dismiss_dialog(id));
-            if let Some(slot) = self.pool.release(id) {
-                self.forget_slot(slot);
-                effects.push(Effect::Hide { slot });
-                effects.push(Effect::Blank { slot });
-            }
-            if let Ok(tab) = self.tab_mut(id) {
-                tab.presence = TabPresence::Discarded;
-            }
-        }
-        effects
     }
 
     // -- reports from the page -------------------------------------------
@@ -517,15 +485,6 @@ impl Browser {
         }
         tab.dialog = None;
         Ok(vec![Effect::AnswerDialog { id: dialog, answer }])
-    }
-
-    pub fn report_activity(&mut self, slot: SlotId, at: u64) {
-        let Some(id) = self.occupant_of(slot) else {
-            return;
-        };
-        if let Ok(tab) = self.tab_mut(id) {
-            tab.active_at = at;
-        }
     }
 
     // -- reconciliation ---------------------------------------------------

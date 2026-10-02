@@ -28,7 +28,6 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::set_layout,
             commands::recent_history,
             commands::clear_history,
-            commands::release_idle_tabs,
             commands::open_tab_devtools,
             commands::answer_dialog,
         ])

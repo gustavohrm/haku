@@ -161,43 +161,6 @@ fn shrinking_capacity_destroys_the_surplus_webviews() {
     assert_eq!(browser.state().live_count, 1);
 }
 
-#[test]
-fn a_fixed_tab_that_has_gone_idle_gives_its_slot_back() {
-    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
-    browser.select_tab(ids[0], 0).unwrap();
-    browser.set_fixed(ids[0], true).unwrap();
-    browser.select_tab(ids[1], 0).unwrap();
-    browser.report_activity(slot_of(&browser, ids[0]).unwrap(), 1_000);
-
-    let effects = browser.release_idle_fixed(1_000 + 60_000, 30_000);
-
-    assert!(slot_of(&browser, ids[0]).is_none());
-    assert!(effects.iter().any(|effect| matches!(effect, Effect::Blank { .. })));
-}
-
-#[test]
-fn a_fixed_tab_still_reporting_activity_keeps_its_slot() {
-    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
-    browser.select_tab(ids[0], 0).unwrap();
-    browser.set_fixed(ids[0], true).unwrap();
-    browser.select_tab(ids[1], 0).unwrap();
-    browser.report_activity(slot_of(&browser, ids[0]).unwrap(), 1_000);
-
-    browser.release_idle_fixed(1_010, 30_000);
-
-    assert!(slot_of(&browser, ids[0]).is_some());
-}
-
-#[test]
-fn the_active_tab_is_never_released_as_idle_even_when_fixed() {
-    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
-    browser.set_fixed(ids[0], true).unwrap();
-
-    browser.release_idle_fixed(u64::MAX, 0);
-
-    assert!(slot_of(&browser, ids[0]).is_some());
-}
-
 fn commit(url: &str, kind: NavigationKind) -> Commit {
     Commit { url: url.to_string(), kind }
 }

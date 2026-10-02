@@ -42,13 +42,6 @@ export const commands = {
 	setLayout: (layout: Layout) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("set_layout", { layout })),
 	recentHistory: (limit: number) => typedError<HistoryEntry[], HakuError>(__TAURI_INVOKE("recent_history", { limit })),
 	clearHistory: () => typedError<null, HakuError>(__TAURI_INVOKE("clear_history")),
-	/**
-	 *  Releases the webviews of pinned tabs that have gone quiet.
-	 * 
-	 *  Driven by the interface on a timer rather than a background thread, so the
-	 *  policy runs only while there is someone to see the result.
-	 */
-	releaseIdleTabs: () => typedError<BrowserState, HakuError>(__TAURI_INVOKE("release_idle_tabs")),
 	openTabDevtools: (id: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("open_tab_devtools", { id })),
 	/**  Answers the dialog a page is paused on. */
 	answerDialog: (tab: TabId, dialog: DialogId, answer: DialogAnswer) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_dialog", { tab, dialog, answer })),
@@ -186,8 +179,6 @@ export type Settings = {
 	locale: string,
 	searchUrl: string,
 	homeUrl: string,
-	/**  Milliseconds a pinned tab may be quiet before it gives up its webview. */
-	idleReleaseMs: number,
 };
 
 export type SettingsChanged = Settings;
@@ -213,10 +204,7 @@ export type Tab = {
 	 *  effective capacity, so pinning can never starve the active tab.
 	 */
 	fixed: boolean,
-	/**
-	 *  Monotonic activity stamp reported by the page. A fixed tab that has gone
-	 *  quiet may give up its slot under pressure.
-	 */
+	/**  When the tab was last shown, in milliseconds since the Unix epoch. */
 	activeAt: number,
 	/**
 	 *  A dialog the page opened and is waiting on. Shown while the tab is

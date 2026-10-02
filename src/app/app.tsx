@@ -5,12 +5,8 @@ import { TabStrip } from "@features/tabs/tab-strip";
 import { Toolbar } from "@features/toolbar/toolbar";
 import { useChromeLayout } from "@features/viewport/use-chrome-layout";
 import { WindowControls } from "@features/window-controls/window-controls";
-import { commands } from "@ipc/commands";
 import { useActiveTab, useSettings } from "@ipc/hooks";
 import { useEffect, useRef } from "react";
-
-/** How often to check whether a pinned tab has gone idle. */
-const IDLE_SWEEP_MS = 30_000;
 
 export function App() {
   const tab = useActiveTab();
@@ -32,11 +28,6 @@ export function App() {
       applyTheme(themePreference);
     }
   }, [themePreference]);
-
-  useEffect(() => {
-    const timer = setInterval(() => void commands.releaseIdleTabs(), IDLE_SWEEP_MS);
-    return () => clearInterval(timer);
-  }, []);
 
   return (
     // Compact is the default density; the attribute is where a density setting
