@@ -204,6 +204,38 @@ the browsing session, unlike `localStorage`.
 The trade-off is that the offset lives in the webview that saved it, so a tab restored into a _different_ pool
 slot starts at the top.
 
+## Form contents
+
+A discarded tab would also lose whatever was typed into its forms. A second injected script
+(`inject::form_memory_script`) keeps it the same way scroll is kept: in `sessionStorage`, inside the page, with
+the same limit that a different slot starts empty.
+
+- **Only changes are kept.** A field still holding what the page loaded with is not stored, so a reload never
+  overwrites the page's own values. On restore, a field the page has already changed is left alone, and a page
+  whose fields no longer line up by position and name is skipped field by field.
+- **Secrets are never stored:** password, hidden and file fields, anything whose own or form's `autocomplete` is
+  `off`, a payment (`cc-*`) or password token, or `one-time-code`, and fields named like card numbers or security
+  codes.
+- **Submitting forgets the draft**, and leaving the page right after does not save it back.
+- **Restored values are typed in properly**: set through the element's own setter and followed by `input` and
+  `change` events, so a framework that owns its fields' state sees them. Those synthetic events are not mistaken
+  for an edit.
+
+Restoring is tried at `load` and again shortly after, for pages that build their forms with script. Single-page
+apps that render a form long after load, or rebuild it per route, may not be restored.
+
+The script cannot tell a discarded tab's reload from any other visit to the same URL in the same webview, so a
+draft also comes back when the user returns to that page some other way during the session, as browsers do on
+back and forward.
+
+## Reloads and the HTTP cache
+
+A discarded tab reloads through the ordinary HTTP cache: anything still fresh comes from disk, and stale
+responses are revalidated. Browsers' back and forward go further and accept stale responses without asking the
+server, but WebView2 gives a navigation no way to ask for that. `NavigateWithWebResourceRequest` can set headers,
+but only on the document request, not on the scripts, styles and images that make up most of a reload, so it is
+not used.
+
 ## Restoring a session
 
 `Session::restore` builds a browser with every tab **discarded** and no slot state at all. It deliberately does

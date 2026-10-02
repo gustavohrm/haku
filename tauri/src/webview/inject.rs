@@ -76,6 +76,151 @@ pub fn scroll_memory_script() -> String {
     )
 }
 
+/// Key prefix for the per-page form contents.
+const FORM_PREFIX: &str = "__haku_form__";
+
+/// Remembers what the user typed into a page's forms, and puts it back when a
+/// discarded tab reloads.
+///
+/// Kept in `sessionStorage`, as scroll is and for the same reasons, with the same
+/// limit: a tab restored into a different pool slot starts empty.
+///
+/// Only fields the user changed are kept, so a reload never overwrites what the
+/// page itself filled in, and a field the page has already changed again is left
+/// alone. Fields that hold secrets are never stored: passwords, payment details,
+/// one-time codes, hidden and file fields, and anything the page marked
+/// `autocomplete="off"`. A submitted form's contents are forgotten, since what
+/// was submitted is no longer a draft.
+///
+/// Values are set through the element's own setter and announced with `input`
+/// and `change` events, which is what frameworks that own their fields' state
+/// listen for.
+pub fn form_memory_script() -> String {
+    FORM_MEMORY_JS.replace("__PREFIX__", FORM_PREFIX)
+}
+
+const FORM_MEMORY_JS: &str = r#"
+(function () {
+  if (window.top !== window) return;
+  var key = function () { return "__PREFIX__" + location.href; };
+  var SKIPPED_TYPES = /^(password|hidden|file|submit|button|reset|image)$/i;
+  var SECRET_AUTOCOMPLETE = /(^|\s)(off|cc-[a-z-]+|one-time-code|current-password|new-password)(\s|$)/i;
+  var SECRET_NAME = /(card.?num|cc.?num|cvv|cvc|csc|iban|security.?code)/i;
+
+  function fields() {
+    return Array.prototype.filter.call(
+      document.querySelectorAll("input, textarea, select"),
+      function (field) {
+        if (field.tagName === "INPUT" && SKIPPED_TYPES.test(field.type)) return false;
+        var auto = (field.getAttribute("autocomplete") || "") + " " +
+          ((field.form && field.form.getAttribute("autocomplete")) || "");
+        if (SECRET_AUTOCOMPLETE.test(auto)) return false;
+        return !SECRET_NAME.test((field.name || "") + " " + (field.id || ""));
+      }
+    );
+  }
+
+  function checkable(field) {
+    return field.type === "checkbox" || field.type === "radio";
+  }
+
+  function identity(field) {
+    return field.tagName + ":" + (field.type || "") + ":" + (field.name || field.id || "");
+  }
+
+  function read(field) {
+    if (checkable(field)) return field.checked === field.defaultChecked ? null : { c: field.checked };
+    if (field.tagName === "SELECT") {
+      var chosen = Array.prototype.map.call(field.options, function (option) { return option.selected; });
+      var initial = Array.prototype.map.call(field.options, function (option) { return option.defaultSelected; });
+      // A single choice with nothing marked selected shows its first option.
+      if (!field.multiple && initial.indexOf(true) === -1 && initial.length) initial[0] = true;
+      return chosen.join() === initial.join() ? null : { s: chosen };
+    }
+    return field.value === field.defaultValue ? null : { v: field.value };
+  }
+
+  // Set by a submit and cleared by the next edit, so leaving the page right
+  // after submitting does not save the submitted values straight back.
+  var submitted = false;
+
+  function save() {
+    if (submitted) return;
+    try {
+      var stored = [];
+      fields().forEach(function (field, index) {
+        var value = read(field);
+        if (value) {
+          value.i = index;
+          value.k = identity(field);
+          stored.push(value);
+        }
+      });
+      if (stored.length) sessionStorage.setItem(key(), JSON.stringify(stored));
+      else sessionStorage.removeItem(key());
+    } catch (_) {
+      // Storage can be unavailable or full; losing a draft is not worth
+      // breaking the page over.
+    }
+  }
+
+  function set(field, property, value) {
+    var prototype = Object.getPrototypeOf(field);
+    var descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+    if (descriptor && descriptor.set) descriptor.set.call(field, value);
+    else field[property] = value;
+  }
+
+  var restored = false;
+  function restore() {
+    if (restored) return;
+    try {
+      var stored = JSON.parse(sessionStorage.getItem(key()) || "null");
+      if (!stored) return;
+      var current = fields();
+      stored.forEach(function (entry) {
+        var field = current[entry.i];
+        // The page has changed shape, or already holds something of its own.
+        if (!field || identity(field) !== entry.k || read(field)) return;
+        if ("c" in entry) set(field, "checked", entry.c);
+        else if ("s" in entry) {
+          Array.prototype.forEach.call(field.options, function (option, index) {
+            option.selected = !!entry.s[index];
+          });
+        } else set(field, "value", entry.v);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        restored = true;
+      });
+    } catch (_) {}
+  }
+
+  var timer = null;
+  function schedule(event) {
+    // Restoring announces itself with the same events; that is not an edit.
+    if (!event.isTrusted) return;
+    submitted = false;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(save, 300);
+  }
+  document.addEventListener("input", schedule, true);
+  document.addEventListener("change", schedule, true);
+  document.addEventListener("submit", function () {
+    submitted = true;
+    if (timer) clearTimeout(timer);
+    try { sessionStorage.removeItem(key()); } catch (_) {}
+  }, true);
+  window.addEventListener("pagehide", save);
+
+  // Pages that build their forms with script are not done at "load", so the
+  // restore is tried again once they have had a moment.
+  window.addEventListener("load", function () {
+    restore();
+    setTimeout(restore, 500);
+  });
+})();
+"#;
+
 /// Name of the page-side function that hands over the navigation log.
 const NAVIGATION_READER: &str = "__hakuNavigation";
 
@@ -167,6 +312,14 @@ mod tests {
             ]
         );
         assert_eq!(title, "A");
+    }
+
+    #[test]
+    fn form_contents_are_kept_under_their_own_prefix() {
+        let script = form_memory_script();
+
+        assert!(script.contains(FORM_PREFIX));
+        assert!(!script.contains("__PREFIX__"));
     }
 
     #[test]

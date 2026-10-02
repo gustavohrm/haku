@@ -72,28 +72,21 @@ assumption anywhere outside startup.
 
 ### Tab optimization
 
-**Implemented, except cheaper reloads.** The pool keeps memory flat by giving up page state, and users choose how
-far that goes, from "one page loaded at a time" to "keep everything running". The states, the Optimization
-settings and their presets, the freeze and discard policy, the signals it reads, and fixed tabs and the site menu
-are specified in [Webview pool](specs/webview-pool.md).
+**Implemented.** The pool keeps memory flat by giving up page state, and users choose how far that goes, from
+"one page loaded at a time" to "keep everything running". The states, the Optimization settings and their
+presets, the freeze and discard policy, the signals it reads, fixed tabs and the site menu, and how a discarded
+tab keeps its form contents are specified in [Webview pool](specs/webview-pool.md).
 
-Two decisions changed in implementation:
+Three decisions changed in implementation:
 
 - **Under memory pressure, every eligible tab is discarded**, rather than one at a time, largest first. Measuring
   each slot's memory would need process accounting the policy did not otherwise need, and low memory is rare
   enough that freeing everything not shown recently is the safer answer.
 - **Freezing a tab does not wait for it to have been shown recently.** With _Freeze: smart_, a background tab is
   frozen as soon as it is left, unless it is playing audio; recency decides only what smart discarding spares.
-
-#### Cheaper reloads
-
-A discarded tab still reloads, so the reload is made to cost less:
-
-- **Form contents** are saved and restored by the injected script in `sessionStorage`, as scroll already is, with
-  the same limit: restoring into a different slot starts empty. Password fields, payment fields and fields
-  marked `autocomplete="off"` are never saved.
-- **Cached responses** are preferred over revalidation when a discarded tab reloads, as back and forward do —
-  provided WebView2 lets a navigation ask for it, which is verified when this is implemented.
+- **Reloads do not prefer stale cached responses.** WebView2 gives a navigation no way to ask for it; see
+  [Webview pool § Reloads and the HTTP cache](specs/webview-pool.md#reloads-and-the-http-cache). Form contents
+  are kept as planned.
 
 ### Running in the background
 

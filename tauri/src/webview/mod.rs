@@ -118,7 +118,8 @@ fn ensure_slot<R: tauri::Runtime>(
         .user_agent(USER_AGENT)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
-        .initialization_script(inject::scroll_memory_script());
+        .initialization_script(inject::scroll_memory_script())
+        .initialization_script(inject::form_memory_script());
 
     let webview = window.add_child(
         builder,
