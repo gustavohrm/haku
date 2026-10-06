@@ -2,10 +2,7 @@
 logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
 # Dependencies
 node_modules
@@ -14,16 +11,22 @@ node_modules
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
 coverage
 **/coverage
 test-results
 **/test-results
-**/tests/**/output.css
+
+# Rust build output is ignored by `tauri/.gitignore`.
 
 # AI agents
+.agents
 .antigravity
 .claude
 .codex
 .cursor
 .gemini
-.docs/plans
+.opencode
+
+# Short-lived plans (docs/guidelines/documentation.md, "What belongs here")
+docs/plans
