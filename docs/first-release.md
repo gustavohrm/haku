@@ -1,8 +1,10 @@
-# First release
+---
+status: APPROVED
+last_updated: 2026-10-06
+scope: What the first release includes, and the structural decisions it rests on.
+---
 
-**Status:** APPROVED
-**Last updated:** 2026-10-06
-**Scope:** What the first release includes, and the structural decisions it rests on.
+# First release
 
 Most of this is not built yet. It is approved so that features are built on these decisions instead of
 retrofitted onto the single-window, single-viewport shape the code has today.

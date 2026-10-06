@@ -1,9 +1,10 @@
-# Tab optimization
+---
+status: APPROVED
+last_updated: 2026-10-06
+scope: Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a discarded tab gets back when it reloads.
+---
 
-**Status:** APPROVED
-**Last updated:** 2026-10-06
-**Scope:** Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a
-discarded tab gets back when it reloads.
+# Tab optimization
 
 ## Goal
 

@@ -1,8 +1,10 @@
-# Chrome layering
+---
+status: IMPLEMENTED
+last_updated: 2026-10-02
+scope: How Haku's interface renders above page content, and how clicks still reach the page.
+---
 
-**Status:** IMPLEMENTED
-**Last updated:** 2026-10-02
-**Scope:** How Haku's interface renders above page content, and how clicks still reach the page.
+# Chrome layering
 
 ## The requirement
 

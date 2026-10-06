@@ -1,7 +1,9 @@
-# Errors
+---
+status: IMPLEMENTED
+last_updated: 2026-09-24
+---
 
-**Status:** IMPLEMENTED
-**Last updated:** 2026-09-24
+# Errors
 
 This document covers how failures are represented and handled in Haku.
 

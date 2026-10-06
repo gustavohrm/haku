@@ -1,8 +1,10 @@
-# Webview pool
+---
+status: IMPLEMENTED
+last_updated: 2026-10-02
+scope: How tabs share a limited number of webviews.
+---
 
-**Status:** IMPLEMENTED
-**Last updated:** 2026-10-02
-**Scope:** How tabs share a limited number of webviews.
+# Webview pool
 
 ## The idea
 

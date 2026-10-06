@@ -1,7 +1,9 @@
-# App architecture
+---
+status: IMPLEMENTED
+last_updated: 2026-10-01
+---
 
-**Status:** IMPLEMENTED
-**Last updated:** 2026-10-01
+# App architecture
 
 This document explains what goes where in Haku and why, where the reason is not obvious from the code.
 

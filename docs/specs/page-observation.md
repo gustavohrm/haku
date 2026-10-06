@@ -1,9 +1,10 @@
-# Page observation
+---
+status: IMPLEMENTED
+last_updated: 2026-10-02
+scope: How Haku learns what a content webview is showing, how that becomes tab history, and how dialogs a page opens are shown and answered.
+---
 
-**Status:** IMPLEMENTED
-**Last updated:** 2026-10-02
-**Scope:** How Haku learns what a content webview is showing, how that becomes tab history, and how dialogs a
-page opens are shown and answered.
+# Page observation
 
 ## The constraint
 
