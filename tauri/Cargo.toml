@@ -3,6 +3,7 @@ name = "haku"
 version = "0.1.0"
 description = "A lightweight desktop browser"
 authors = ["Gustavo Motta"]
+rust-version = "1.95"
 edition = "2021"
 
 [lib]
