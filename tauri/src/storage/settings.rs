@@ -88,7 +88,9 @@ impl Settings {
     /// Derived rather than stored, so it can never name values that are not in
     /// effect.
     pub fn preset(&self, total_memory: Option<u64>) -> Option<Preset> {
-        Preset::ALL.into_iter().find(|preset| self.clone().with_preset(*preset, total_memory) == *self)
+        Preset::ALL
+            .into_iter()
+            .find(|preset| self.clone().with_preset(*preset, total_memory) == *self)
     }
 }
 
@@ -103,19 +105,31 @@ mod tests {
 
     #[test]
     fn a_zero_capacity_is_raised_so_the_active_tab_can_still_render() {
-        let settings = Settings { webview_capacity: 0, ..Settings::default() }.sanitized();
+        let settings = Settings {
+            webview_capacity: 0,
+            ..Settings::default()
+        }
+        .sanitized();
         assert_eq!(settings.webview_capacity, 1);
     }
 
     #[test]
     fn a_blank_search_url_falls_back_to_the_default() {
-        let settings = Settings { search_url: "  ".into(), ..Settings::default() }.sanitized();
+        let settings = Settings {
+            search_url: "  ".into(),
+            ..Settings::default()
+        }
+        .sanitized();
         assert_eq!(settings.search_url, Settings::default().search_url);
     }
 
     #[test]
     fn a_blank_home_url_falls_back_to_the_default() {
-        let settings = Settings { home_url: String::new(), ..Settings::default() }.sanitized();
+        let settings = Settings {
+            home_url: String::new(),
+            ..Settings::default()
+        }
+        .sanitized();
         assert_eq!(settings.home_url, Settings::default().home_url);
     }
 
@@ -152,7 +166,10 @@ mod tests {
 
     #[test]
     fn a_valid_configuration_passes_through_sanitizing_unchanged() {
-        let settings = Settings { webview_capacity: 4, ..Settings::default() };
+        let settings = Settings {
+            webview_capacity: 4,
+            ..Settings::default()
+        };
         assert_eq!(settings.clone().sanitized(), settings);
     }
 }

@@ -51,6 +51,10 @@ pub fn memory_is_low() -> bool {
     false
 }
 
-pub fn answer_dialog<R: tauri::Runtime>(_app: &tauri::AppHandle<R>, _id: DialogId, _answer: DialogAnswer) -> Result<()> {
+pub fn answer_dialog<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _id: DialogId,
+    _answer: DialogAnswer,
+) -> Result<()> {
     Err(unsupported("answering page dialogs"))
 }

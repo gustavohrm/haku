@@ -289,7 +289,10 @@ pub fn parse_navigation_log(json: &str) -> Option<(Vec<Commit>, String)> {
     let commits = drained
         .log
         .into_iter()
-        .map(|entry| Commit { url: entry.url, kind: NavigationKind::parse(&entry.kind) })
+        .map(|entry| Commit {
+            url: entry.url,
+            kind: NavigationKind::parse(&entry.kind),
+        })
         .collect();
     Some((commits, drained.title))
 }
@@ -307,8 +310,14 @@ mod tests {
         assert_eq!(
             commits,
             vec![
-                Commit { url: "https://a.test/1".into(), kind: NavigationKind::Push },
-                Commit { url: "https://a.test/2".into(), kind: NavigationKind::Replace },
+                Commit {
+                    url: "https://a.test/1".into(),
+                    kind: NavigationKind::Push
+                },
+                Commit {
+                    url: "https://a.test/2".into(),
+                    kind: NavigationKind::Replace
+                },
             ]
         );
         assert_eq!(title, "A");

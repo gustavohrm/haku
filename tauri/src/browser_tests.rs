@@ -33,7 +33,10 @@ fn opening_a_tab_in_the_background_leaves_the_active_tab_alone() {
 fn a_single_slot_pool_moves_the_webview_between_tabs() {
     let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
 
-    assert!(slot_of(&browser, ids[0]).is_none(), "the first tab gave up the only slot");
+    assert!(
+        slot_of(&browser, ids[0]).is_none(),
+        "the first tab gave up the only slot"
+    );
     assert_eq!(slot_of(&browser, ids[1]), Some(SlotId(0)));
 
     browser.select_tab(ids[0], 0).unwrap();
@@ -47,7 +50,10 @@ fn selecting_a_discarded_tab_reloads_its_url_into_the_slot() {
 
     let effects = browser.select_tab(ids[0], 0).unwrap();
 
-    assert!(effects.contains(&Effect::EnsureSlot { slot: SlotId(0), url: "https://a.test".to_string() }));
+    assert!(effects.contains(&Effect::EnsureSlot {
+        slot: SlotId(0),
+        url: "https://a.test".to_string()
+    }));
 }
 
 #[test]
@@ -145,7 +151,10 @@ fn closing_the_only_tab_opens_a_new_one_in_its_place() {
 #[test]
 fn closing_an_unknown_tab_reports_it_rather_than_failing_silently() {
     let (mut browser, _) = browser_with(1, &["https://a.test"]);
-    assert!(matches!(browser.close_tab(TabId(404), HOME), Err(HakuError::TabNotFound(_))));
+    assert!(matches!(
+        browser.close_tab(TabId(404), HOME),
+        Err(HakuError::TabNotFound(_))
+    ));
 }
 
 #[test]
@@ -162,7 +171,10 @@ fn shrinking_capacity_destroys_the_surplus_webviews() {
 }
 
 fn commit(url: &str, kind: NavigationKind) -> Commit {
-    Commit { url: url.to_string(), kind }
+    Commit {
+        url: url.to_string(),
+        kind,
+    }
 }
 
 /// A tab whose first load has already been observed, so later commits are the
@@ -179,7 +191,11 @@ fn the_first_commit_after_haku_navigates_is_that_navigation_even_when_redirected
     let (mut browser, ids) = browser_with(1, &["https://a.test"]);
     let slot = slot_of(&browser, ids[0]).unwrap();
 
-    browser.report_page(slot, &[commit("https://a.test/final", NavigationKind::Push)], Some("Final".into()));
+    browser.report_page(
+        slot,
+        &[commit("https://a.test/final", NavigationKind::Push)],
+        Some("Final".into()),
+    );
 
     let tab = browser.tab(ids[0]).unwrap();
     assert_eq!(tab.history.entries().len(), 1);
@@ -215,12 +231,19 @@ fn a_single_page_app_route_change_is_what_the_tab_returns_to() {
     browser.select_tab(ids[0], 0).unwrap();
     let slot = slot_of(&browser, ids[0]).unwrap();
     browser.report_page(slot, &[commit("https://spa.test", NavigationKind::Push)], None);
-    browser.report_page(slot, &[commit("https://spa.test/thread/42", NavigationKind::Push)], None);
+    browser.report_page(
+        slot,
+        &[commit("https://spa.test/thread/42", NavigationKind::Push)],
+        None,
+    );
 
     browser.select_tab(ids[1], 1).unwrap();
     let effects = browser.select_tab(ids[0], 2).unwrap();
 
-    assert!(effects.contains(&Effect::EnsureSlot { slot, url: "https://spa.test/thread/42".to_string() }));
+    assert!(effects.contains(&Effect::EnsureSlot {
+        slot,
+        url: "https://spa.test/thread/42".to_string()
+    }));
 }
 
 #[test]
@@ -263,7 +286,10 @@ fn commits_are_applied_in_the_order_the_page_made_them() {
 
     let tab = browser.tab(id).unwrap();
     let urls: Vec<&str> = tab.history.entries().iter().map(|visit| visit.url.as_str()).collect();
-    assert_eq!(urls, ["https://a.test", "https://a.test/one?tab=2", "https://a.test/two"]);
+    assert_eq!(
+        urls,
+        ["https://a.test", "https://a.test/one?tab=2", "https://a.test/two"]
+    );
 }
 
 #[test]
@@ -273,7 +299,11 @@ fn a_title_reported_with_commits_belongs_to_the_last_of_them() {
     let (mut browser, id, slot) = loaded("https://a.test");
     browser.report_page(slot, &[], Some("Home".into()));
 
-    browser.report_page(slot, &[commit("https://a.test/post", NavigationKind::Push)], Some("Post".into()));
+    browser.report_page(
+        slot,
+        &[commit("https://a.test/post", NavigationKind::Push)],
+        Some("Post".into()),
+    );
 
     let entries = browser.tab(id).unwrap().history.entries().to_vec();
     assert_eq!(entries[0].title, "Home");
@@ -294,7 +324,9 @@ fn a_pushed_route_keeps_the_page_title_until_the_page_changes_it() {
 fn the_blank_page_a_parked_slot_shows_is_never_recorded() {
     let (mut browser, id, slot) = loaded("https://a.test");
 
-    assert!(browser.report_page(slot, &[commit(BLANK_URL, NavigationKind::Push)], None).is_none());
+    assert!(browser
+        .report_page(slot, &[commit(BLANK_URL, NavigationKind::Push)], None)
+        .is_none());
     assert_eq!(browser.tab(id).unwrap().url(), "https://a.test");
 }
 
@@ -320,17 +352,29 @@ fn a_native_back_or_forward_is_resolved_against_the_tab_history() {
     let (mut browser, id, slot) = loaded("https://a.test");
     browser.report_page(slot, &[commit("https://a.test/b", NavigationKind::Push)], None);
 
-    assert_eq!(browser.traversal(slot, "https://another-tab.test"), Some((id, Direction::Back)));
+    assert_eq!(
+        browser.traversal(slot, "https://another-tab.test"),
+        Some((id, Direction::Back))
+    );
 
     browser.go_back(id).unwrap();
-    assert_eq!(browser.traversal(slot, "https://a.test/b"), Some((id, Direction::Forward)));
+    assert_eq!(
+        browser.traversal(slot, "https://a.test/b"),
+        Some((id, Direction::Forward))
+    );
 }
 
 #[test]
 fn a_favicon_is_only_derived_for_web_pages() {
     assert_eq!(favicon_for("haku://settings"), None);
-    assert_eq!(favicon_for("https://a.test/x"), Some("https://a.test/favicon.ico".to_string()));
-    assert_eq!(favicon_for("http://a.test"), Some("http://a.test/favicon.ico".to_string()));
+    assert_eq!(
+        favicon_for("https://a.test/x"),
+        Some("https://a.test/favicon.ico".to_string())
+    );
+    assert_eq!(
+        favicon_for("http://a.test"),
+        Some("http://a.test/favicon.ico".to_string())
+    );
 }
 
 #[test]
@@ -387,7 +431,10 @@ fn words_are_searched_rather_than_treated_as_a_host() {
 
 #[test]
 fn a_dotted_phrase_containing_spaces_is_a_search_not_a_host() {
-    assert_eq!(resolve_target("what is node.js", SEARCH), format!("{SEARCH}what+is+node.js"));
+    assert_eq!(
+        resolve_target("what is node.js", SEARCH),
+        format!("{SEARCH}what+is+node.js")
+    );
 }
 
 #[test]
@@ -427,7 +474,10 @@ fn a_page_dialog_waits_on_its_tab_until_answered() {
     let effects = browser.open_dialog(slot, dialog(1, DialogKind::Confirm));
 
     assert!(answers(&effects).is_empty());
-    assert_eq!(browser.tab(id).unwrap().dialog.as_ref().map(|open| open.id), Some(DialogId(1)));
+    assert_eq!(
+        browser.tab(id).unwrap().dialog.as_ref().map(|open| open.id),
+        Some(DialogId(1))
+    );
 }
 
 #[test]
@@ -435,7 +485,9 @@ fn answering_a_dialog_clears_it_and_passes_the_answer_to_the_page() {
     let (mut browser, id, slot) = loaded("https://a.test");
     browser.open_dialog(slot, dialog(1, DialogKind::Prompt));
 
-    let answer = DialogAnswer::Accept { text: Some("typed".into()) };
+    let answer = DialogAnswer::Accept {
+        text: Some("typed".into()),
+    };
     let effects = browser.answer_dialog(id, DialogId(1), answer.clone()).unwrap();
 
     assert_eq!(answers(&effects), vec![(DialogId(1), answer)]);
@@ -463,9 +515,16 @@ fn a_tab_that_loses_its_webview_dismisses_the_dialog_first() {
 
     let effects = browser.select_tab(ids[0], 0).unwrap();
 
-    let answered = effects.iter().position(|effect| matches!(effect, Effect::AnswerDialog { .. }));
-    let navigated = effects.iter().position(|effect| matches!(effect, Effect::EnsureSlot { .. }));
-    assert!(answered.unwrap() < navigated.unwrap(), "the dialog is answered before the slot moves on");
+    let answered = effects
+        .iter()
+        .position(|effect| matches!(effect, Effect::AnswerDialog { .. }));
+    let navigated = effects
+        .iter()
+        .position(|effect| matches!(effect, Effect::EnsureSlot { .. }));
+    assert!(
+        answered.unwrap() < navigated.unwrap(),
+        "the dialog is answered before the slot moves on"
+    );
     assert!(browser.tab(ids[1]).unwrap().dialog.is_none());
 }
 
@@ -498,7 +557,10 @@ fn leaving_a_page_haku_is_navigating_does_not_ask_the_user() {
 
     let effects = browser.open_dialog(slot, dialog(1, DialogKind::BeforeUnload));
 
-    assert_eq!(answers(&effects), vec![(DialogId(1), DialogAnswer::Accept { text: None })]);
+    assert_eq!(
+        answers(&effects),
+        vec![(DialogId(1), DialogAnswer::Accept { text: None })]
+    );
     assert!(browser.tab(id).unwrap().dialog.is_none());
 }
 
@@ -510,7 +572,10 @@ fn a_dialog_from_a_slot_no_tab_owns_is_answered_at_once() {
     let leave = browser.open_dialog(SlotId(0), dialog(2, DialogKind::BeforeUnload));
 
     assert_eq!(answers(&alert), vec![(DialogId(1), DialogAnswer::Dismiss)]);
-    assert_eq!(answers(&leave), vec![(DialogId(2), DialogAnswer::Accept { text: None })]);
+    assert_eq!(
+        answers(&leave),
+        vec![(DialogId(2), DialogAnswer::Accept { text: None })]
+    );
 }
 
 // -- what counts as a visit ---------------------------------------------
@@ -524,7 +589,11 @@ fn a_page_haku_opened_is_a_visit_when_it_arrives() {
     let (mut browser, ids) = browser_with(1, &["https://a.test"]);
     let slot = slot_of(&browser, ids[0]).unwrap();
 
-    assert!(visited(browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None)));
+    assert!(visited(browser.report_page(
+        slot,
+        &[commit("https://a.test", NavigationKind::Push)],
+        None
+    )));
 }
 
 #[test]
@@ -535,11 +604,19 @@ fn a_discarded_tab_reloading_its_page_is_not_a_visit() {
     browser.select_tab(ids[0], 0).unwrap();
     // The first tab's page never arrived before it was discarded, so this is
     // its first load and still a visit.
-    assert!(visited(browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None)));
+    assert!(visited(browser.report_page(
+        slot,
+        &[commit("https://a.test", NavigationKind::Push)],
+        None
+    )));
 
     browser.select_tab(ids[1], 0).unwrap();
 
-    assert!(!visited(browser.report_page(slot, &[commit("https://b.test", NavigationKind::Push)], None)));
+    assert!(!visited(browser.report_page(
+        slot,
+        &[commit("https://b.test", NavigationKind::Push)],
+        None
+    )));
 }
 
 #[test]
@@ -547,7 +624,11 @@ fn a_restored_session_reloading_its_pages_is_not_a_visit() {
     let mut browser = Browser::restored(1, [("https://a.test".to_string(), false)], Some(0));
     browser.reconcile();
 
-    assert!(!visited(browser.report_page(SlotId(0), &[commit("https://a.test", NavigationKind::Push)], None)));
+    assert!(!visited(browser.report_page(
+        SlotId(0),
+        &[commit("https://a.test", NavigationKind::Push)],
+        None
+    )));
 }
 
 #[test]
@@ -555,21 +636,33 @@ fn navigating_a_tab_is_a_visit_when_the_page_arrives() {
     let (mut browser, id, slot) = loaded("https://a.test");
     browser.navigate(id, "https://b.test").unwrap();
 
-    assert!(visited(browser.report_page(slot, &[commit("https://b.test", NavigationKind::Push)], None)));
+    assert!(visited(browser.report_page(
+        slot,
+        &[commit("https://b.test", NavigationKind::Push)],
+        None
+    )));
 }
 
 #[test]
 fn following_a_link_or_pushing_a_route_is_a_visit() {
     let (mut browser, _, slot) = loaded("https://a.test");
 
-    assert!(visited(browser.report_page(slot, &[commit("https://a.test/post", NavigationKind::Push)], None)));
+    assert!(visited(browser.report_page(
+        slot,
+        &[commit("https://a.test/post", NavigationKind::Push)],
+        None
+    )));
 }
 
 #[test]
 fn a_replaced_route_or_a_retitle_only_refines_the_current_visit() {
     let (mut browser, _, slot) = loaded("https://a.test");
 
-    assert!(!visited(browser.report_page(slot, &[commit("https://a.test/?q=1", NavigationKind::Replace)], None)));
+    assert!(!visited(browser.report_page(
+        slot,
+        &[commit("https://a.test/?q=1", NavigationKind::Replace)],
+        None
+    )));
     assert!(!visited(browser.report_page(slot, &[], Some("Renamed".into()))));
 }
 
@@ -617,7 +710,9 @@ fn returning_to_a_frozen_tab_resumes_it_without_reloading() {
 
     assert_eq!(presence(&browser, ids[0]), TabPresence::Live { slot });
     assert!(position(&effects, &Effect::Resume { slot }) < position(&effects, &Effect::Show { slot }));
-    assert!(!effects.iter().any(|effect| matches!(effect, Effect::EnsureSlot { .. } | Effect::Reload { .. })));
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::EnsureSlot { .. } | Effect::Reload { .. })));
 }
 
 #[test]
@@ -742,7 +837,10 @@ fn smart_discarding_frees_a_tab_left_unshown_for_long() {
 
     assert_eq!(presence(&browser, ids[0]), TabPresence::Discarded);
     assert!(effects.iter().any(|effect| matches!(effect, Effect::Blank { .. })));
-    assert!(matches!(presence(&browser, ids[2]), TabPresence::Live { .. }), "the visible tab stays");
+    assert!(
+        matches!(presence(&browser, ids[2]), TabPresence::Live { .. }),
+        "the visible tab stays"
+    );
 }
 
 #[test]

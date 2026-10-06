@@ -19,11 +19,11 @@ use std::time::Duration;
 use tauri::Manager;
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Controller, ICoreWebView2Deferral, ICoreWebView2NavigationStartingEventArgs3,
-    ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2_19, ICoreWebView2_3, ICoreWebView2_8,
-    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
-    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, COREWEBVIEW2_NAVIGATION_KIND,
-    COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_SCRIPT_DIALOG_KIND,
+    ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Controller,
+    ICoreWebView2Deferral, ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2ScriptDialogOpeningEventArgs,
+    ICoreWebView2_19, ICoreWebView2_3, ICoreWebView2_8, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    COREWEBVIEW2_NAVIGATION_KIND, COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_SCRIPT_DIALOG_KIND,
     COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD, COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM,
     COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
 };
@@ -144,7 +144,10 @@ pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
 }
 
 pub fn total_memory() -> Option<u64> {
-    let mut status = MEMORYSTATUSEX { dwLength: size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    let mut status = MEMORYSTATUSEX {
+        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
     unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
     Some(status.ullTotalPhys)
 }
@@ -167,8 +170,16 @@ pub fn memory_is_low() -> bool {
 
 pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
     with_hwnd(webview, |hwnd| unsafe {
-        SetWindowPos(hwnd, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
-            .map_err(|error| HakuError::WindowMissing(error.to_string()))
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOP),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))
     })
 }
 
@@ -255,7 +266,9 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
         NavigationStartingEventHandler::create(Box::new(move |_, args| {
             let Some(args) = args else { return Ok(()) };
             // Older runtimes lack the navigation kind; they keep native behaviour.
-            let Ok(args) = args.cast::<ICoreWebView2NavigationStartingEventArgs3>() else { return Ok(()) };
+            let Ok(args) = args.cast::<ICoreWebView2NavigationStartingEventArgs3>() else {
+                return Ok(());
+            };
 
             let mut kind = COREWEBVIEW2_NAVIGATION_KIND::default();
             args.NavigationKind(&mut kind)?;
@@ -275,7 +288,9 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     let on_source = {
         let sink = sink.clone();
         SourceChangedEventHandler::create(Box::new(move |sender, args| {
-            let (Some(core), Some(args)) = (sender, args) else { return Ok(()) };
+            let (Some(core), Some(args)) = (sender, args) else {
+                return Ok(());
+            };
             let mut new_document = BOOL::default();
             args.IsNewDocument(&mut new_document)?;
             drain(&core, sink.clone(), Some(new_document.as_bool()))
@@ -324,7 +339,9 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
                 };
                 let mut playing = BOOL::default();
                 core.IsDocumentPlayingAudio(&mut playing)?;
-                sink(PageSignal::AudioChanged { playing: playing.as_bool() });
+                sink(PageSignal::AudioChanged {
+                    playing: playing.as_bool(),
+                });
                 Ok(())
             }))
         };
@@ -390,7 +407,11 @@ unsafe fn attach_worker_watch<R: tauri::Runtime>(
         let json = take_pwstr(json);
 
         let idle = WORKERS.with(|state| {
-            state.borrow_mut().as_mut().map(|(_, tracker)| tracker.update(&json)).unwrap_or_default()
+            state
+                .borrow_mut()
+                .as_mut()
+                .map(|(_, tracker)| tracker.update(&json))
+                .unwrap_or_default()
         });
         for (version, token) in idle {
             let app = app.clone();
@@ -407,7 +428,11 @@ unsafe fn attach_worker_watch<R: tauri::Runtime>(
 
     // Updates only flow once the domain is enabled, and it stays enabled for
     // the life of the webview's DevTools session.
-    core.CallDevToolsProtocolMethod(&HSTRING::from("ServiceWorker.enable"), &HSTRING::from("{}"), &ignore_result())
+    core.CallDevToolsProtocolMethod(
+        &HSTRING::from("ServiceWorker.enable"),
+        &HSTRING::from("{}"),
+        &ignore_result(),
+    )
 }
 
 /// Stops a worker the grace period has expired on, unless a page took it back.
@@ -420,7 +445,8 @@ fn stop_if_still_idle(version: &str, token: u64) {
         }
         let params = HSTRING::from(workers::stop_params(version));
         unsafe {
-            let _ = core.CallDevToolsProtocolMethod(&HSTRING::from("ServiceWorker.stopWorker"), &params, &ignore_result());
+            let _ =
+                core.CallDevToolsProtocolMethod(&HSTRING::from("ServiceWorker.stopWorker"), &params, &ignore_result());
         }
     });
 }
@@ -470,16 +496,26 @@ unsafe fn drain(core: &ICoreWebView2, sink: PageSink, new_document: Option<bool>
     let handler = ExecuteScriptCompletedHandler::create(Box::new(move |status, result| {
         let drained = status.ok().and_then(|()| inject::parse_navigation_log(&result));
         let signal = match drained {
-            Some((commits, title)) => PageSignal::Changed { commits, title: Some(title) },
+            Some((commits, title)) => PageSignal::Changed {
+                commits,
+                title: Some(title),
+            },
             None => {
                 let commits = match new_document {
                     Some(new) => {
-                        let kind = if new { NavigationKind::Push } else { NavigationKind::Replace };
+                        let kind = if new {
+                            NavigationKind::Push
+                        } else {
+                            NavigationKind::Replace
+                        };
                         vec![Commit { url: source, kind }]
                     }
                     None => Vec::new(),
                 };
-                PageSignal::Changed { commits, title: Some(title) }
+                PageSignal::Changed {
+                    commits,
+                    title: Some(title),
+                }
             }
         };
         sink(signal);

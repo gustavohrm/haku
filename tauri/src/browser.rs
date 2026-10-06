@@ -31,20 +31,43 @@ pub const LONG_UNSHOWN_MS: u64 = 30 * 60_000;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
     /// Create the slot's webview if it does not exist, otherwise navigate it.
-    EnsureSlot { slot: SlotId, url: String },
+    EnsureSlot {
+        slot: SlotId,
+        url: String,
+    },
     /// Park the slot on [`BLANK_URL`] to release the page it was holding.
-    Blank { slot: SlotId },
-    Destroy { slot: SlotId },
-    Show { slot: SlotId },
-    Hide { slot: SlotId },
-    Reload { slot: SlotId },
+    Blank {
+        slot: SlotId,
+    },
+    Destroy {
+        slot: SlotId,
+    },
+    Show {
+        slot: SlotId,
+    },
+    Hide {
+        slot: SlotId,
+    },
+    Reload {
+        slot: SlotId,
+    },
     /// Pause a hidden slot's page and let it give memory back.
-    Freeze { slot: SlotId },
+    Freeze {
+        slot: SlotId,
+    },
     /// Undo [`Effect::Freeze`]. Precedes anything else done to a frozen slot.
-    Resume { slot: SlotId },
-    RestoreScroll { slot: SlotId, scroll: Scroll },
+    Resume {
+        slot: SlotId,
+    },
+    RestoreScroll {
+        slot: SlotId,
+        scroll: Scroll,
+    },
     /// Release a page paused on a dialog, with the given answer.
-    AnswerDialog { id: DialogId, answer: DialogAnswer },
+    AnswerDialog {
+        id: DialogId,
+        answer: DialogAnswer,
+    },
 }
 
 /// Which way a back or forward request moves through a tab's history.
@@ -203,7 +226,10 @@ impl Browser {
     /// Releases a tab's pending dialog because its page is going away.
     fn dismiss_dialog(&mut self, id: TabId) -> Option<Effect> {
         let dialog = self.tab_mut(id).ok()?.dialog.take()?;
-        Some(Effect::AnswerDialog { id: dialog.id, answer: dialog.abandoned() })
+        Some(Effect::AnswerDialog {
+            id: dialog.id,
+            answer: dialog.abandoned(),
+        })
     }
 
     fn fixed_count(&self) -> usize {
@@ -312,7 +338,11 @@ impl Browser {
 
     fn step_history(&mut self, id: TabId, backwards: bool) -> Result<Vec<Effect>> {
         let tab = self.tab(id)?;
-        let can_move = if backwards { tab.history.can_go_back() } else { tab.history.can_go_forward() };
+        let can_move = if backwards {
+            tab.history.can_go_back()
+        } else {
+            tab.history.can_go_forward()
+        };
         if !can_move {
             return Ok(Vec::new());
         }
@@ -437,7 +467,9 @@ impl Browser {
     /// A smart policy leaves a playing tab running, so a tab that falls silent
     /// in the background may be frozen now.
     pub fn report_audio(&mut self, slot: SlotId, playing: bool) -> Vec<Effect> {
-        let Some(id) = self.occupant_of(slot) else { return Vec::new() };
+        let Some(id) = self.occupant_of(slot) else {
+            return Vec::new();
+        };
         match self.tab_mut(id) {
             Ok(tab) if tab.audible != playing => tab.audible = playing,
             _ => return Vec::new(),
@@ -446,7 +478,11 @@ impl Browser {
     }
 
     fn occupant_of(&self, slot: SlotId) -> Option<TabId> {
-        self.pool.slots().iter().find(|candidate| candidate.id == slot).and_then(|found| found.occupant)
+        self.pool
+            .slots()
+            .iter()
+            .find(|candidate| candidate.id == slot)
+            .and_then(|found| found.occupant)
     }
 
     /// Records what a slot's webview is actually showing.
@@ -473,7 +509,11 @@ impl Browser {
         for commit in commits {
             self.slot_urls.insert(slot, commit.url.clone());
             let awaited = self.awaiting.remove(&slot);
-            visited |= if awaited { self.navigated.remove(&id) } else { commit.kind == NavigationKind::Push };
+            visited |= if awaited {
+                self.navigated.remove(&id)
+            } else {
+                commit.kind == NavigationKind::Push
+            };
             let favicon = favicon_for(&commit.url);
             let tab = self.tab_mut(id).ok()?;
 
@@ -503,7 +543,11 @@ impl Browser {
         }
 
         let current = tab.history.current();
-        Some(PageReport { url: current.url.clone(), title: current.title.clone(), visited })
+        Some(PageReport {
+            url: current.url.clone(),
+            title: current.title.clone(),
+            visited,
+        })
     }
 
     /// Decides what a webview's own back or forward should do.
@@ -530,7 +574,10 @@ impl Browser {
     pub fn open_dialog(&mut self, slot: SlotId, dialog: PageDialog) -> Vec<Effect> {
         let unattended = dialog.kind == DialogKind::BeforeUnload && self.awaiting.contains(&slot);
         let Some(id) = self.occupant_of(slot).filter(|_| !unattended) else {
-            return vec![Effect::AnswerDialog { id: dialog.id, answer: dialog.abandoned() }];
+            return vec![Effect::AnswerDialog {
+                id: dialog.id,
+                answer: dialog.abandoned(),
+            }];
         };
 
         // A page is paused while its dialog is open, so it cannot open a second
@@ -539,7 +586,10 @@ impl Browser {
         if let Ok(tab) = self.tab_mut(id) {
             tab.dialog = Some(dialog);
         } else {
-            effects.push(Effect::AnswerDialog { id: dialog.id, answer: dialog.abandoned() });
+            effects.push(Effect::AnswerDialog {
+                id: dialog.id,
+                answer: dialog.abandoned(),
+            });
         }
         effects
     }
@@ -635,14 +685,18 @@ impl Browser {
 
     fn freeze_tab(&mut self, id: TabId) -> Vec<Effect> {
         let Ok(tab) = self.tab_mut(id) else { return Vec::new() };
-        let TabPresence::Live { slot } = tab.presence else { return Vec::new() };
+        let TabPresence::Live { slot } = tab.presence else {
+            return Vec::new();
+        };
         tab.presence = TabPresence::Frozen { slot };
         vec![Effect::Freeze { slot }]
     }
 
     fn resume_tab(&mut self, id: TabId) -> Vec<Effect> {
         let Ok(tab) = self.tab_mut(id) else { return Vec::new() };
-        let TabPresence::Frozen { slot } = tab.presence else { return Vec::new() };
+        let TabPresence::Frozen { slot } = tab.presence else {
+            return Vec::new();
+        };
         tab.presence = TabPresence::Live { slot };
         vec![Effect::Resume { slot }]
     }
@@ -661,7 +715,9 @@ impl Browser {
     /// frozen. Leaves the tab's presence to the caller.
     fn release_slot(&mut self, id: TabId) -> Vec<Effect> {
         let frozen = matches!(self.tab(id).map(|tab| tab.presence), Ok(TabPresence::Frozen { .. }));
-        let Some(slot) = self.pool.release(id) else { return Vec::new() };
+        let Some(slot) = self.pool.release(id) else {
+            return Vec::new();
+        };
         self.forget_slot(slot);
         let mut effects = Vec::new();
         if frozen {

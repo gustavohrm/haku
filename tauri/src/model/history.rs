@@ -12,7 +12,11 @@ pub struct Visit {
 impl Visit {
     pub fn new(url: impl Into<String>) -> Self {
         let url = url.into();
-        Self { title: url.clone(), url, favicon: None }
+        Self {
+            title: url.clone(),
+            url,
+            favicon: None,
+        }
     }
 }
 
@@ -67,7 +71,10 @@ pub struct History {
 
 impl History {
     pub fn new(initial: Visit) -> Self {
-        Self { entries: vec![initial], index: 0 }
+        Self {
+            entries: vec![initial],
+            index: 0,
+        }
     }
 
     pub fn current(&self) -> &Visit {

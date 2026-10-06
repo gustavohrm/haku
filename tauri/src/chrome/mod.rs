@@ -71,7 +71,10 @@ fn to_physical_radius(radius: f64, scale: f64) -> i32 {
 
 /// The viewport hole, its corner radius, and the overlays, in device pixels.
 pub fn mask_rects(layout: &Layout, scale: f64) -> (Option<PhysicalRect>, i32, Vec<RoundedRect>) {
-    let viewport = layout.viewport.filter(|viewport| is_visible(*viewport)).map(|v| to_physical(v, scale));
+    let viewport = layout
+        .viewport
+        .filter(|viewport| is_visible(*viewport))
+        .map(|v| to_physical(v, scale));
     let overlays = layout
         .overlays
         .iter()
@@ -90,11 +93,7 @@ pub fn mask_rects(layout: &Layout, scale: f64) -> (Option<PhysicalRect>, i32, Ve
 /// # Errors
 /// Propagates platform failures, including [`crate::error::HakuError::Unsupported`]
 /// on targets without a native implementation.
-pub fn apply_layout<R: tauri::Runtime>(
-    chrome: &tauri::Webview<R>,
-    layout: &Layout,
-    scale: f64,
-) -> Result<()> {
+pub fn apply_layout<R: tauri::Runtime>(chrome: &tauri::Webview<R>, layout: &Layout, scale: f64) -> Result<()> {
     let (viewport, radius, overlays) = mask_rects(layout, scale);
     platform::raise_chrome(chrome)?;
     platform::set_input_mask(chrome, viewport, radius, &overlays)
@@ -109,14 +108,25 @@ mod tests {
     }
 
     fn square(x: f64, y: f64, width: f64, height: f64) -> Overlay {
-        Overlay { rect: viewport(x, y, width, height), radius: 0.0 }
+        Overlay {
+            rect: viewport(x, y, width, height),
+            radius: 0.0,
+        }
     }
 
     #[test]
     fn logical_pixels_scale_to_device_pixels() {
         let rect = to_physical(viewport(10.0, 20.0, 100.0, 50.0), 1.5);
 
-        assert_eq!(rect, PhysicalRect { x: 15, y: 30, width: 150, height: 75 });
+        assert_eq!(
+            rect,
+            PhysicalRect {
+                x: 15,
+                y: 30,
+                width: 150,
+                height: 75
+            }
+        );
     }
 
     #[test]
@@ -129,7 +139,11 @@ mod tests {
 
     #[test]
     fn a_layout_without_a_viewport_masks_nothing_so_the_chrome_stays_solid() {
-        let layout = Layout { viewport: None, overlays: Vec::new(), radius: 0.0 };
+        let layout = Layout {
+            viewport: None,
+            overlays: Vec::new(),
+            radius: 0.0,
+        };
         let (viewport, _, overlays) = mask_rects(&layout, 1.0);
 
         assert!(viewport.is_none());
@@ -138,7 +152,11 @@ mod tests {
 
     #[test]
     fn a_collapsed_viewport_is_ignored_so_no_sliver_of_page_shows_through() {
-        let layout = Layout { viewport: Some(viewport(0.0, 0.0, 0.0, 800.0)), overlays: Vec::new(), radius: 0.0 };
+        let layout = Layout {
+            viewport: Some(viewport(0.0, 0.0, 0.0, 800.0)),
+            overlays: Vec::new(),
+            radius: 0.0,
+        };
         let (viewport, _, _) = mask_rects(&layout, 1.0);
 
         assert!(viewport.is_none());
@@ -155,7 +173,15 @@ mod tests {
 
         assert_eq!(
             overlays,
-            vec![RoundedRect { rect: PhysicalRect { x: 200, y: 200, width: 400, height: 600 }, radius: 0 }]
+            vec![RoundedRect {
+                rect: PhysicalRect {
+                    x: 200,
+                    y: 200,
+                    width: 400,
+                    height: 600
+                },
+                radius: 0
+            }]
         );
     }
 
@@ -163,7 +189,10 @@ mod tests {
     fn an_overlay_keeps_its_corner_radius_scaled_to_the_display() {
         let layout = Layout {
             viewport: Some(viewport(0.0, 40.0, 1000.0, 800.0)),
-            overlays: vec![Overlay { rect: viewport(10.0, 10.0, 100.0, 100.0), radius: 8.0 }],
+            overlays: vec![Overlay {
+                rect: viewport(10.0, 10.0, 100.0, 100.0),
+                radius: 8.0,
+            }],
             radius: 0.0,
         };
         let (_, _, overlays) = mask_rects(&layout, 1.5);
@@ -173,8 +202,11 @@ mod tests {
 
     #[test]
     fn the_corner_radius_scales_with_the_display() {
-        let layout =
-            Layout { viewport: Some(viewport(0.0, 0.0, 100.0, 100.0)), overlays: Vec::new(), radius: 14.0 };
+        let layout = Layout {
+            viewport: Some(viewport(0.0, 0.0, 100.0, 100.0)),
+            overlays: Vec::new(),
+            radius: 14.0,
+        };
         let (_, radius, _) = mask_rects(&layout, 1.5);
 
         assert_eq!(radius, 21);
@@ -182,8 +214,11 @@ mod tests {
 
     #[test]
     fn a_negative_radius_is_treated_as_square_corners() {
-        let layout =
-            Layout { viewport: Some(viewport(0.0, 0.0, 100.0, 100.0)), overlays: Vec::new(), radius: -5.0 };
+        let layout = Layout {
+            viewport: Some(viewport(0.0, 0.0, 100.0, 100.0)),
+            overlays: Vec::new(),
+            radius: -5.0,
+        };
         let (_, radius, _) = mask_rects(&layout, 1.0);
 
         assert_eq!(radius, 0);

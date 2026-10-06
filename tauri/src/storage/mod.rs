@@ -36,7 +36,9 @@ pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
         return defaults;
     };
 
-    let stored = fs::read_to_string(path).ok().and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    let stored = fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
     let Some(stored) = stored else {
         return defaults;
     };
