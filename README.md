@@ -12,13 +12,20 @@ Windows only for now. The macOS and Linux native layers are stubs behind a share
 
 ## Running it
 
+Haku builds on Windows. [Contributing](CONTRIBUTING.md#setup) lists the prerequisites; with them installed:
+
 ```bash
 pnpm install
 pnpm tauri dev
 ```
 
-## Contributing
+## Documentation
 
-Start with [AGENTS.md](AGENTS.md), then the source of truth in [`docs/`](docs/).
+- [Contributing](CONTRIBUTING.md): setup, branches, commits, validation, and pull requests.
+- [Agent instructions](AGENTS.md): how AI agents work in this repository.
+- [Documentation](docs/README.md): the architecture, guidelines, and specifications. Start with [Architecture](docs/architecture.md).
+- [Security](SECURITY.md): how to report a vulnerability.
 
-Run `pnpm verify` before opening a pull request.
+## License
+
+[Apache-2.0](LICENSE).
