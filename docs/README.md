@@ -39,4 +39,5 @@ Start with [Architecture](architecture.md).
 | [Tab optimization](specs/tab-optimization.md) | Approved, not built: which tabs keep a webview, and why. |
 | [Chrome layering](specs/chrome-layering.md)   | How the interface renders above page content.            |
 | [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.          |
+| [Tests](specs/tests.md)                       | Test categories, locations, tooling, and coverage.       |
 | [Errors](specs/errors.md)                     | How failures are represented.                            |
