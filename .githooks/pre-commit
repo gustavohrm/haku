@@ -1,0 +1,96 @@
+#!/bin/sh
+# Formats and lints what is about to be committed.
+#
+# Only the mechanical checks run here. Type checking, clippy and tests belong to
+# `pnpm verify`: they take minutes, and a hook that slow gets bypassed until it
+# may as well not exist.
+#
+# Files are read from the working tree rather than from the index, which matters
+# for a file that is only partly staged. Such a file is never rewritten, because
+# re-staging it would sweep in the parts deliberately left out of the commit, and
+# it is checked as it sits on disk. That can fail a commit whose staged content
+# is already clean; the alternative is skipping the file, which would let
+# unformatted code through the one check meant to stop it.
+#
+# Bypass with `git commit --no-verify` when a commit has to land unfixed.
+set -eu
+
+# A closed stderr, as when the caller pipes git through `head`, would kill this
+# hook with SIGPIPE mid-message, and git for Windows lets a commit through a hook
+# killed that way. Ignoring the signal turns a failed write into an ordinary
+# error, so the hook's own verdict is what sets its exit status.
+trap "" PIPE
+
+cd "$(git rev-parse --show-toplevel)"
+
+work=$(mktemp -d)
+report() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    printf '\npre-commit failed. Run `pnpm format:fix` and `pnpm lint:fix`, or commit with --no-verify.\n' >&2
+  fi
+  rm -rf "$work"
+  exit "$status"
+}
+trap report EXIT
+
+git diff --cached --name-only --diff-filter=ACMR |
+  grep -E '\.(cjs|css|html|js|json|jsx|md|mjs|mts|rs|ts|tsx)$' >"$work/staged" || true
+
+if [ ! -s "$work/staged" ]; then
+  exit 0
+fi
+
+git diff --name-only >"$work/unstaged" || true
+grep -Fxv -f "$work/unstaged" "$work/staged" >"$work/fixable" || true
+
+# Runs a command over a newline-delimited file list, skipping an empty one.
+run_on() {
+  list=$1
+  shift
+  if [ -s "$list" ]; then
+    tr '\n' '\0' <"$list" | xargs -0 "$@"
+  fi
+}
+
+# Splits a file list by the tool that owns each file. oxfmt does not format
+# Markdown and Prettier does, so Prettier takes the Markdown; rustfmt takes the
+# Rust; oxlint reads code only, and exits non-zero when handed nothing it can
+# parse. `src/bindings.ts` is generated and left as its generator wrote it.
+select_web() {
+  grep -Ev '\.(md|rs)$' "$1" | grep -Fxv 'src/bindings.ts' >"$2" || true
+}
+select_md() {
+  grep -E '\.md$' "$1" >"$2" || true
+}
+select_rust() {
+  grep -E '\.rs$' "$1" >"$2" || true
+}
+select_code() {
+  grep -E '\.(cjs|js|jsx|mjs|mts|ts|tsx)$' "$1" | grep -Fxv 'src/bindings.ts' >"$2" || true
+}
+
+# rustfmt finds `tauri/rustfmt.toml` from each file's directory; the edition is
+# the crate's, which rustfmt cannot read from a file path alone.
+RUST_EDITION=2021
+
+if [ -s "$work/fixable" ]; then
+  select_web "$work/fixable" "$work/fixable-web"
+  run_on "$work/fixable-web" pnpm exec oxfmt --no-error-on-unmatched-pattern --
+  select_md "$work/fixable" "$work/fixable-md"
+  run_on "$work/fixable-md" pnpm exec prettier --write --log-level warn --
+  select_rust "$work/fixable" "$work/fixable-rust"
+  run_on "$work/fixable-rust" rustfmt --edition "$RUST_EDITION" --
+  select_code "$work/fixable" "$work/fixable-code"
+  run_on "$work/fixable-code" pnpm exec oxlint --fix --deny-warnings --
+  run_on "$work/fixable" git add --
+fi
+
+select_web "$work/staged" "$work/web"
+run_on "$work/web" pnpm exec oxfmt --check --no-error-on-unmatched-pattern --
+select_md "$work/staged" "$work/md"
+run_on "$work/md" pnpm exec prettier --check --log-level warn --
+select_rust "$work/staged" "$work/rust"
+run_on "$work/rust" rustfmt --check --edition "$RUST_EDITION" --
+select_code "$work/staged" "$work/code"
+run_on "$work/code" pnpm exec oxlint --deny-warnings --

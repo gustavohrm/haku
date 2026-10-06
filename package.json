@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prepare": "node .githooks/install.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

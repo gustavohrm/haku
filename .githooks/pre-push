@@ -1,0 +1,70 @@
+#!/bin/sh
+# Refuses a push that would write to `main`, or to a branch whose name is not
+# `<type>/<slug>`.
+#
+# `main` is verified in full by CI and deployed from, so a commit that arrives
+# there without a pull request is one nobody reviewed and one that publishes
+# itself. The rule is in CONTRIBUTING.md; this is what makes it more than advice.
+#
+# The branch name is checked here because a tool often picks it before anyone
+# has read the rule: `claude/...` and `codex/...` are names nobody chose.
+#
+# The destination ref is what matters, not the branch you are standing on. A
+# push to `main` is rejected whether it comes from `main`, from a branch pushed
+# with an explicit refspec, or from a `--delete`.
+#
+# Bypass with `git push --no-verify` when the exception is a deliberate one.
+set -eu
+
+# A closed stderr, as when the caller pipes git through `head`, would kill this
+# hook with SIGPIPE mid-message, and git for Windows lets a commit through a hook
+# killed that way. Ignoring the signal turns a failed write into an ordinary
+# error, so the hook's own verdict is what sets its exit status.
+trap "" PIPE
+
+PROTECTED=refs/heads/main
+
+# The commit types, as in `commit-msg`. Keep the two lists the same.
+TYPES='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+
+# `<local ref> <local sha> <remote ref> <remote sha>` per ref being pushed.
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  if [ "$remote_ref" = "$PROTECTED" ]; then
+    printf '\npre-push: refusing to push to `main`.\n\n' >&2
+    printf 'Open a pull request instead:\n\n' >&2
+    printf '  git switch -c <type>/<slug>\n' >&2
+    printf '  git push -u origin <type>/<slug>\n\n' >&2
+    printf 'See CONTRIBUTING.md, or push with --no-verify if this is the\n' >&2
+    printf 'exception a maintainer asked for.\n' >&2
+    exit 1
+  fi
+
+  # Tags and other refs carry no branch name to check.
+  case "$remote_ref" in
+    refs/heads/*) ;;
+    *) continue ;;
+  esac
+
+  # An all-zero local sha is a delete. Removing a misnamed branch is the
+  # cleanup, so it passes.
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
+
+  branch=${remote_ref#refs/heads/}
+
+  if ! printf '%s' "$branch" | grep -qE "^($TYPES)/[a-z0-9]+([.-][a-z0-9]+)*$"; then
+    printf '\npre-push: refusing to push the branch `%s`.\n\n' "$branch" >&2
+    printf 'Expected `<type>/<slug>`, for example:\n\n' >&2
+    printf '  feat/tab-search\n' >&2
+    printf '  fix/slot-eviction-order\n\n' >&2
+    printf 'Types: %s\n\n' "$(printf '%s' "$TYPES" | tr '|' ' ')" >&2
+    printf 'Rename it, then push again:\n\n' >&2
+    printf '  git branch -m <type>/<slug>\n\n' >&2
+    printf 'See CONTRIBUTING.md, or push with --no-verify.\n' >&2
+    exit 1
+  fi
+done
+
+exit 0

@@ -1,0 +1,71 @@
+#!/bin/sh
+# Checks the subject line against the Conventional Commits shape.
+#
+# Only the subject is checked, and only its shape. A body is optional, and no
+# hook can tell whether a message is honest about what the commit does, which is
+# the part that matters. This catches the mechanical failure -- a missing type,
+# a subject too long to read in a log -- and leaves the rest to review.
+#
+# The rules and the reasoning behind them live in CONTRIBUTING.md.
+#
+# Bypass with `git commit --no-verify` when a commit has to land unfixed.
+set -eu
+
+# A closed stderr, as when the caller pipes git through `head`, would kill this
+# hook with SIGPIPE mid-message, and git for Windows lets a commit through a hook
+# killed that way. Ignoring the signal turns a failed write into an ordinary
+# error, so the hook's own verdict is what sets its exit status.
+trap "" PIPE
+
+message_file=$1
+
+# Generated messages that no one composed: a merge, an autosquash marker, or the
+# default `git revert` subject. Rejecting these would only teach people to pass
+# --no-verify for commits they never wrote a word of.
+if [ -f "$(git rev-parse --git-path MERGE_MSG)" ]; then
+  exit 0
+fi
+
+# The first line that is neither blank nor a git comment.
+subject=$(grep -vE '^[[:space:]]*#' "$message_file" | grep -vE '^[[:space:]]*$' | head -n 1 || true)
+
+case "$subject" in
+  "Merge "* | "Revert "* | "fixup!"* | "squash!"* | "amend!"*) exit 0 ;;
+esac
+
+TYPES='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+SUBJECT_LIMIT=72
+
+reject() {
+  printf '\ncommit-msg: %s\n\n' "$1" >&2
+  printf '  %s\n\n' "$subject" >&2
+  printf 'Expected `<type>(<scope>)!: <subject>`, for example:\n\n' >&2
+  printf '  feat(tabs): restore pinned tabs on startup\n' >&2
+  printf '  fix(ipc)!: rename the tab moved event\n' >&2
+  printf '  docs(ci): record why rust runs on windows\n\n' >&2
+  printf 'Types: %s\n' "$(printf '%s' "$TYPES" | tr '|' ' ')" >&2
+  printf 'See CONTRIBUTING.md, or commit with --no-verify.\n' >&2
+  exit 1
+}
+
+if [ -z "$subject" ]; then
+  reject "the commit message is empty."
+fi
+
+if ! printf '%s' "$subject" | grep -qE "^($TYPES)(\([a-z0-9][a-z0-9/._-]*\))?!?: .+$"; then
+  reject "the subject does not start with a type and a colon."
+fi
+
+if [ "${#subject}" -gt "$SUBJECT_LIMIT" ]; then
+  reject "the subject is ${#subject} characters, over the $SUBJECT_LIMIT limit."
+fi
+
+# Checked separately from the pattern above so the message can say which half of
+# the convention the subject broke.
+if printf '%s' "$subject" | grep -qE "^($TYPES)(\([^)]*\))?!?: [A-Z]"; then
+  reject "the subject starts with a capital. Use the imperative, lowercase."
+fi
+
+if printf '%s' "$subject" | grep -qE '\.$'; then
+  reject "the subject ends with a period."
+fi
