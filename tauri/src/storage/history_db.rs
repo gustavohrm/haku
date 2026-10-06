@@ -16,16 +16,14 @@ use crate::error::Result;
 /// Schema revisions, applied in order to whatever version a database is on.
 ///
 /// Migrations are append-only: never edit a shipped entry, add a new one.
-const MIGRATIONS: &[&str] = &[
-    "CREATE TABLE visits (
+const MIGRATIONS: &[&str] = &["CREATE TABLE visits (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         url        TEXT    NOT NULL,
         title      TEXT    NOT NULL,
         visited_at INTEGER NOT NULL
     );
     CREATE INDEX idx_visits_visited_at ON visits (visited_at DESC);
-    CREATE INDEX idx_visits_url ON visits (url);",
-];
+    CREATE INDEX idx_visits_url ON visits (url);"];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +54,9 @@ impl HistoryDb {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut database = Self { connection: Connection::open(path)? };
+        let mut database = Self {
+            connection: Connection::open(path)?,
+        };
         database.migrate()?;
         Ok(database)
     }
@@ -66,7 +66,9 @@ impl HistoryDb {
     /// # Errors
     /// Returns [`crate::error::HakuError::Storage`] when migration fails.
     pub fn in_memory() -> Result<Self> {
-        let mut database = Self { connection: Connection::open_in_memory()? };
+        let mut database = Self {
+            connection: Connection::open_in_memory()?,
+        };
         database.migrate()?;
         Ok(database)
     }
@@ -76,8 +78,9 @@ impl HistoryDb {
     /// `user_version` is used as the revision counter because it costs no table
     /// and SQLite maintains it as part of the file header.
     fn migrate(&mut self) -> Result<()> {
-        let version: usize =
-            self.connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))? as usize;
+        let version: usize = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))? as usize;
 
         for (index, migration) in MIGRATIONS.iter().enumerate().skip(version) {
             let transaction = self.connection.transaction()?;
@@ -176,8 +179,10 @@ mod tests {
     #[test]
     fn a_fresh_database_is_migrated_to_the_latest_revision() {
         let database = database();
-        let version: i64 =
-            database.connection.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let version: i64 = database
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
 
         assert_eq!(version as usize, MIGRATIONS.len());
     }
@@ -260,8 +265,11 @@ mod tests {
 
         let entries = database.recent(10).unwrap();
         assert_eq!(entries.len(), 4);
-        let titles: Vec<&str> =
-            entries.iter().filter(|entry| entry.url == "https://a.test").map(|entry| entry.title.as_str()).collect();
+        let titles: Vec<&str> = entries
+            .iter()
+            .filter(|entry| entry.url == "https://a.test")
+            .map(|entry| entry.title.as_str())
+            .collect();
         assert_eq!(titles, vec!["New", "Old"]);
     }
 

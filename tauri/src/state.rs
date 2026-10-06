@@ -11,7 +11,10 @@ use crate::webview::Viewport;
 ///
 /// Used for history timestamps and for when a tab was last shown.
 pub fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Everything the command layer needs, behind the locks that make it shareable.
@@ -71,14 +74,20 @@ impl AppState {
     /// # Errors
     /// Returns [`HakuError::Storage`] when the session file cannot be written.
     pub fn save_session(&self) -> Result<()> {
-        let browser = self.browser.read().map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let browser = self
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
         crate::storage::write_json(&self.paths.session, &Session::capture(&browser))
     }
 
     /// # Errors
     /// Returns [`HakuError::Storage`] when the settings file cannot be written.
     pub fn save_settings(&self) -> Result<()> {
-        let settings = self.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        let settings = self
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         crate::storage::write_json(&self.paths.settings, &*settings)
     }
 }

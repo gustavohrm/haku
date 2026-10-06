@@ -1,0 +1,15 @@
+# Line endings are normalized to LF in the repository and in the working tree.
+# oxfmt, Prettier and rustfmt write LF, so a CRLF checkout fails `pnpm verify`
+# on every file. `eol=lf` overrides a machine's `core.autocrlf`, which is what
+# makes the result the same on every platform.
+* text=auto eol=lf
+
+# Binary assets must never be touched by end-of-line conversion.
+*.icns binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.png binary
+*.webp binary
+*.woff binary
+*.woff2 binary

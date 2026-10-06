@@ -1,0 +1,12 @@
+# Agent instructions: `tauri/`
+
+## Traps
+
+- A webview is created but never navigates, with no error anywhere, when the command driving it is synchronous. Tauri runs synchronous commands on the main thread, and creating, moving or raising a webview dispatches to that same thread and waits, deadlocking the event loop. Prefer an `async` command for anything that drives a webview. [Architecture § Threading](../docs/architecture.md#threading) records the rule. Held on Tauri 2.
+- The browser believes restored tabs are already loaded when session restore goes through open or select. Those return effects meant for real webviews; at startup there are none, so the effects are discarded while the state records them as applied. Prefer `Browser::restored`.
+- A tab returns to an older page after a single-page-app route change when the URL is taken from a page-load hook alone, because route changes fire no load. Content webviews have no IPC, so the page cannot report it either. Prefer `platform::observe_page`, which [Page observation](../docs/specs/page-observation.md) describes. Granting remote pages IPC is a security decision, not a fix for this.
+- A content webview can lose its first navigation commit when it is created directly on its URL. Prefer creating the slot on `about:blank`, observing it, then navigating it, as `webview/` does.
+- A capability scoped with `"windows": ["main"]` grants its permissions to every webview in that window, and content webviews are children of it. Prefer scoping by `webviews` only. [Architecture § Security](../docs/architecture.md#security) records why.
+- `pnpm tauri build` fails while every debug check passes when Tauri's `devtools` feature is dropped, because `open_devtools` exists in a release build only through it. `pnpm check:release`, which CI runs, catches it with `no method named open_devtools`. Held on Tauri 2.
+- specta refuses to export a 64-bit integer and maps a bare `f64` to `number | null`. Prefer `#[specta(type = specta_typescript::Number)]` on numbers that cross the IPC boundary. Held on specta 2.0.0-rc.25 and specta-typescript 0.0.12.
+- The next launch shows no window content, with no error, after Haku is force-killed. Its WebView2 processes outlive it for a while and hold the profile. Prefer waiting for the `msedgewebview2.exe` processes started with `--webview-exe-name=haku.exe` to exit before launching again. Held on WebView2 for Windows.

@@ -56,7 +56,11 @@ impl Preset {
     /// @param total_memory - Installed memory in bytes, when it is known.
     pub fn values(self, total_memory: Option<u64>) -> PresetValues {
         match self {
-            Preset::SaveMemory => PresetValues { slots: None, freeze: None, discard: Policy::Always },
+            Preset::SaveMemory => PresetValues {
+                slots: None,
+                freeze: None,
+                discard: Policy::Always,
+            },
             Preset::Balanced => PresetValues {
                 slots: Some(slots_for(total_memory).0),
                 freeze: Some(Policy::Smart),
@@ -109,6 +113,13 @@ mod tests {
     #[test]
     fn saving_memory_discards_everything_and_leaves_the_rest_alone() {
         let values = Preset::SaveMemory.values(Some(64 * GIB));
-        assert_eq!(values, PresetValues { slots: None, freeze: None, discard: Policy::Always });
+        assert_eq!(
+            values,
+            PresetValues {
+                slots: None,
+                freeze: None,
+                discard: Policy::Always
+            }
+        );
     }
 }

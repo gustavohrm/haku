@@ -71,7 +71,11 @@ pub struct WebviewPool {
 
 impl WebviewPool {
     pub fn new(capacity: usize) -> Self {
-        Self { capacity: capacity.max(1), slots: Vec::new(), clock: 0 }
+        Self {
+            capacity: capacity.max(1),
+            slots: Vec::new(),
+            clock: 0,
+        }
     }
 
     pub fn capacity(&self) -> usize {
@@ -95,7 +99,10 @@ impl WebviewPool {
     }
 
     pub fn slot_of(&self, tab: TabId) -> Option<SlotId> {
-        self.slots.iter().find(|slot| slot.occupant == Some(tab)).map(|slot| slot.id)
+        self.slots
+            .iter()
+            .find(|slot| slot.occupant == Some(tab))
+            .map(|slot| slot.id)
     }
 
     /// Marks a slot as most recently used, so eviction picks a colder one.
@@ -132,7 +139,11 @@ impl WebviewPool {
 
         if self.slots.len() < effective_capacity {
             let id = SlotId(self.slots.len());
-            self.slots.push(Slot { id, occupant: Some(tab), used_at: self.clock });
+            self.slots.push(Slot {
+                id,
+                occupant: Some(tab),
+                used_at: self.clock,
+            });
             return Ok(Acquired::Free(id));
         }
 
@@ -147,7 +158,10 @@ impl WebviewPool {
         coldest.occupant = Some(tab);
         coldest.used_at = self.clock;
 
-        Ok(Acquired::Evicted { slot: coldest.id, evicted })
+        Ok(Acquired::Evicted {
+            slot: coldest.id,
+            evicted,
+        })
     }
 
     /// Frees whatever slot `tab` held, if any.
@@ -245,7 +259,13 @@ mod tests {
         pool.touch(tab(1));
 
         let acquired = pool.acquire(tab(3), 2, NONE).unwrap();
-        assert_eq!(acquired, Acquired::Evicted { slot: SlotId(1), evicted: tab(2) });
+        assert_eq!(
+            acquired,
+            Acquired::Evicted {
+                slot: SlotId(1),
+                evicted: tab(2)
+            }
+        );
     }
 
     #[test]
@@ -255,7 +275,13 @@ mod tests {
         pool.acquire(tab(2), 2, NONE).unwrap();
 
         let acquired = pool.acquire(tab(3), 2, &[tab(1)]).unwrap();
-        assert_eq!(acquired, Acquired::Evicted { slot: SlotId(1), evicted: tab(2) });
+        assert_eq!(
+            acquired,
+            Acquired::Evicted {
+                slot: SlotId(1),
+                evicted: tab(2)
+            }
+        );
     }
 
     #[test]

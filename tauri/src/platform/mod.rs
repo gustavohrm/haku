@@ -66,7 +66,10 @@ pub struct RoundedRect {
 pub enum PageSignal {
     /// The page changed URL, title, or both. `commits` are in the order the
     /// page made them and `title` is the document title after all of them.
-    Changed { commits: Vec<Commit>, title: Option<String> },
+    Changed {
+        commits: Vec<Commit>,
+        title: Option<String>,
+    },
     /// The webview's own back or forward was requested, and stopped.
     ///
     /// A webview's native history spans every tab that has used its slot, so

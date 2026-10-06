@@ -27,10 +27,10 @@ use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{DialogAnswer, DialogId, Preset, SlotId, TabId};
+use crate::platform::{self, PageSignal};
 use crate::state::{now_ms, AppState};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
-use crate::platform::{self, PageSignal};
 use crate::webview::{self, PageObserver, CHROME_LABEL};
 
 use super::events::{SettingsChanged, StateChanged};
@@ -43,7 +43,10 @@ fn ensure_chrome(webview: &tauri::Webview) -> Result<()> {
     if webview.label() == CHROME_LABEL {
         return Ok(());
     }
-    Err(HakuError::Unsupported(format!("{} may not call browser commands", webview.label())))
+    Err(HakuError::Unsupported(format!(
+        "{} may not call browser commands",
+        webview.label()
+    )))
 }
 
 /// Observes what content webviews load, without the pages taking part.
@@ -56,27 +59,29 @@ fn ensure_chrome(webview: &tauri::Webview) -> Result<()> {
 /// the same reason commands that do are `async`: webview operations dispatch to
 /// the UI thread and wait, and waiting on it from it never returns.
 fn page_observer() -> PageObserver<tauri::Wry> {
-    Arc::new(|app: &tauri::AppHandle, slot: SlotId, signal: PageSignal| match signal {
-        PageSignal::Changed { commits, title } => record_page(app, slot, &commits, title),
-        PageSignal::TraverseRequested { url } => {
-            let app = app.clone();
-            std::thread::spawn(move || traverse(&app, slot, &url));
-        }
-        PageSignal::DialogRequested(dialog) => {
-            let app = app.clone();
-            std::thread::spawn(move || {
-                let state = app.state::<AppState>();
-                let _ = mutate(&app, &state, |browser| Ok(browser.open_dialog(slot, dialog)));
-            });
-        }
-        PageSignal::AudioChanged { playing } => {
-            let app = app.clone();
-            std::thread::spawn(move || {
-                let state = app.state::<AppState>();
-                let _ = mutate(&app, &state, |browser| Ok(browser.report_audio(slot, playing)));
-            });
-        }
-    })
+    Arc::new(
+        |app: &tauri::AppHandle, slot: SlotId, signal: PageSignal| match signal {
+            PageSignal::Changed { commits, title } => record_page(app, slot, &commits, title),
+            PageSignal::TraverseRequested { url } => {
+                let app = app.clone();
+                std::thread::spawn(move || traverse(&app, slot, &url));
+            }
+            PageSignal::DialogRequested(dialog) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let state = app.state::<AppState>();
+                    let _ = mutate(&app, &state, |browser| Ok(browser.open_dialog(slot, dialog)));
+                });
+            }
+            PageSignal::AudioChanged { playing } => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let state = app.state::<AppState>();
+                    let _ = mutate(&app, &state, |browser| Ok(browser.report_audio(slot, playing)));
+                });
+            }
+        },
+    )
 }
 
 /// How often smart discarding looks for background tabs worth freeing.
@@ -146,7 +151,10 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
     webview::apply(app, effects, state.viewport(), &page_observer())?;
 
     let snapshot = {
-        let browser = state.browser.read().map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
         browser.state()
     };
 
@@ -164,7 +172,10 @@ where
     F: FnOnce(&mut crate::browser::Browser) -> Result<Vec<Effect>>,
 {
     let effects = {
-        let mut browser = state.browser.write().map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let mut browser = state
+            .browser
+            .write()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
         mutate(&mut browser)?
     };
     commit(app, state, &effects)
@@ -174,7 +185,10 @@ where
 #[specta::specta]
 pub fn get_state(webview: tauri::Webview, state: State<'_, AppState>) -> Result<BrowserState> {
     ensure_chrome(&webview)?;
-    let browser = state.browser.read().map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
     Ok(browser.state())
 }
 
@@ -182,7 +196,10 @@ pub fn get_state(webview: tauri::Webview, state: State<'_, AppState>) -> Result<
 #[specta::specta]
 pub fn get_settings(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Settings> {
     ensure_chrome(&webview)?;
-    let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
     Ok(settings.clone())
 }
 
@@ -217,7 +234,10 @@ pub async fn apply_preset(
 ) -> Result<Settings> {
     ensure_chrome(&webview)?;
     let settings = {
-        let current = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        let current = state
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         current.clone().with_preset(preset, platform::total_memory())
     };
     store_settings(&app, &state, settings)
@@ -228,7 +248,10 @@ pub async fn apply_preset(
 #[specta::specta]
 pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Option<Preset>> {
     ensure_chrome(&webview)?;
-    let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
     Ok(settings.preset(platform::total_memory()))
 }
 
@@ -236,13 +259,18 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
     let settings = settings.sanitized();
 
     {
-        let mut current = state.settings.write().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        let mut current = state
+            .settings
+            .write()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         *current = settings.clone();
     }
     state.save_settings()?;
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
-    mutate(app, state, |browser| Ok(browser.set_optimization(capacity, freeze, discard)))?;
+    mutate(app, state, |browser| {
+        Ok(browser.set_optimization(capacity, freeze, discard))
+    })?;
 
     SettingsChanged(settings.clone()).emit(app).map_err(HakuError::from)?;
     Ok(settings)
@@ -260,11 +288,17 @@ pub async fn open_tab(
     ensure_chrome(&webview)?;
     let target = match url {
         Some(url) => {
-            let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+            let settings = state
+                .settings
+                .read()
+                .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
             resolve_target(&url, &settings.search_url)
         }
         None => {
-            let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+            let settings = state
+                .settings
+                .read()
+                .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
             settings.home_url.clone()
         }
     };
@@ -285,7 +319,10 @@ pub async fn close_tab(
 ) -> Result<BrowserState> {
     ensure_chrome(&webview)?;
     let home = {
-        let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        let settings = state
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         settings.home_url.clone()
     };
     mutate(&app, &state, |browser| browser.close_tab(id, &home))
@@ -318,7 +355,10 @@ pub async fn navigate_tab(
 ) -> Result<BrowserState> {
     ensure_chrome(&webview)?;
     let target = {
-        let settings = state.settings.read().map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        let settings = state
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         resolve_target(&input, &settings.search_url)
     };
     if target.is_empty() {
@@ -410,7 +450,10 @@ pub async fn set_layout(
     state.set_layout(layout.clone());
 
     let slots = {
-        let browser = state.browser.read().map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
         browser.slot_ids()
     };
 
@@ -443,13 +486,12 @@ fn record_visit(state: &AppState, report: &PageReport) {
 
 #[tauri::command]
 #[specta::specta]
-pub fn recent_history(
-    webview: tauri::Webview,
-    state: State<'_, AppState>,
-    limit: u32,
-) -> Result<Vec<HistoryEntry>> {
+pub fn recent_history(webview: tauri::Webview, state: State<'_, AppState>, limit: u32) -> Result<Vec<HistoryEntry>> {
     ensure_chrome(&webview)?;
-    let history = state.history.lock().map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
+    let history = state
+        .history
+        .lock()
+        .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
     history.recent(limit as usize)
 }
 
@@ -457,7 +499,10 @@ pub fn recent_history(
 #[specta::specta]
 pub fn clear_history(webview: tauri::Webview, state: State<'_, AppState>) -> Result<()> {
     ensure_chrome(&webview)?;
-    let history = state.history.lock().map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
+    let history = state
+        .history
+        .lock()
+        .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
     history.clear()
 }
 
@@ -486,7 +531,10 @@ pub async fn open_tab_devtools(
 ) -> Result<()> {
     ensure_chrome(&webview)?;
     let slot = {
-        let browser = state.browser.read().map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
         browser.tab(id)?.slot()
     };
     if let Some(target) = slot.and_then(|slot| app.get_webview(&slot.label())) {

@@ -1,0 +1,11 @@
+# Prettier governs Markdown only in this repository; oxfmt owns every other
+# format. The scripts always hand Prettier an explicit `**/*.md` target set, so
+# this file only has to carve out the paths within that set to leave alone.
+
+# Build output, caches and generated files.
+**/node_modules/
+**/dist/
+**/coverage/
+**/test-results/
+tauri/target/
+tauri/gen/

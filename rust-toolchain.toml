@@ -1,0 +1,8 @@
+# The exact Rust every run uses, local and CI alike; rustup installs it on first
+# use. It lives at the repository root rather than in `tauri/` because rustup
+# reads it from the working directory, and root scripts run cargo from here with
+# `--manifest-path`. `docs/ci.md` explains where each toolchain version is pinned.
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

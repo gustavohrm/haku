@@ -66,7 +66,11 @@ mod tests {
         Session {
             tabs: urls
                 .iter()
-                .map(|url| SessionTab { url: (*url).to_string(), title: (*url).to_string(), fixed: false })
+                .map(|url| SessionTab {
+                    url: (*url).to_string(),
+                    title: (*url).to_string(),
+                    fixed: false,
+                })
                 .collect(),
             active,
         }

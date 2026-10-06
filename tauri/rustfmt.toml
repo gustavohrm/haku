@@ -1,0 +1,4 @@
+# Matches `printWidth` in `.oxfmtrc.json`, so Rust and TypeScript wrap at the
+# same column. Every other option is rustfmt's default, which keeps this file
+# free of nightly-only settings the pinned stable toolchain would ignore.
+max_width = 120

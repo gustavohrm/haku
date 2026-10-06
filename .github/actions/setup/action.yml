@@ -1,0 +1,22 @@
+name: Set up the workspace
+description: Installs the pinned pnpm and Node versions and the dependencies.
+
+runs:
+  using: composite
+  steps:
+    # No version input: the action reads `packageManager` from package.json, which
+    # is the same field pnpm itself reads locally.
+    - name: Install pnpm
+      uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+    # pnpm has to exist before this step, because the store cache it keys on is
+    # resolved through the pnpm binary.
+    - name: Install Node
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      shell: bash

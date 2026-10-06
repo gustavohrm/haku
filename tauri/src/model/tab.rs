@@ -68,7 +68,11 @@ pub struct Tab {
 impl Tab {
     pub fn new(id: TabId, url: impl Into<String>) -> Self {
         let visit = Visit::new(url);
-        let presence = if is_internal(&visit.url) { TabPresence::Internal } else { TabPresence::Discarded };
+        let presence = if is_internal(&visit.url) {
+            TabPresence::Internal
+        } else {
+            TabPresence::Discarded
+        };
 
         Self {
             id,

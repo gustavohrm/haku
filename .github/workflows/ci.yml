@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A pull request that is pushed to again abandons the run it just superseded;
+# `main` keeps every run, because each merge is the authoritative check of a commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # The interface and its tooling are platform-independent, so they run on the
+  # fastest and cheapest runner. `docs/ci.md` explains the split.
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up the workspace
+        uses: ./.github/actions/setup
+
+      - name: Verify
+        run: pnpm verify:web
+
+  # Windows is the one platform with a native layer; the macOS and Linux layers
+  # are stubs, and Linux would also need WebKitGTK's system libraries to build at
+  # all. Rust is verified where Haku actually runs.
+  rust:
+    name: Rust
+    runs-on: windows-latest
+    timeout-minutes: 45
+    # Line tables only: backtraces keep their file and line, and the variable and
+    # type information only a debugger reads is dropped. Measured on a cold run:
+    # 9m00s to 8m34s, and a 6% smaller cache; `docs/ci.md` has the breakdown.
+    # Local builds keep Cargo's defaults. A panic always prints its backtrace.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      RUST_BACKTRACE: 1
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # Node is needed here too: `bindings:check` is a Node script, and the
+      # release check compiles the interface bundle into the binary.
+      - name: Set up the workspace
+        uses: ./.github/actions/setup
+
+      # Installs the version and components `rust-toolchain.toml` names, rather
+      # than relying on rustup to do it on first use.
+      - name: Install Rust
+        run: rustup toolchain install
+        shell: bash
+
+      # Keyed on the toolchain and `Cargo.lock`, so a dependency or toolchain
+      # change starts a fresh cache instead of reusing stale artifacts.
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: tauri
+
+      - name: Verify
+        run: pnpm verify:rust
+
+      # A release build compiles code a debug build never sees: `open_devtools`
+      # exists in release only through Tauri's `devtools` feature. The release
+      # profile embeds the interface, so it is built first.
+      - name: Check the release profile
+        run: |
+          pnpm build
+          pnpm check:release
+        shell: bash
