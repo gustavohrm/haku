@@ -1,0 +1,47 @@
+name: Bug
+description: Haku does not behave the way it should.
+labels: ["type:bug", "status:needs-triage"]
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: The commit you built, from `git rev-parse --short HEAD`. Haku has no releases yet.
+      placeholder: "37db5f5"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system and version. Haku runs on Windows only today.
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows it, including the sites involved if the page matters.
+      placeholder: |
+        1. Open three tabs
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround in place
+      description: What you did to keep going, and where, so it can be removed once this is fixed.

@@ -1,0 +1,8 @@
+[
+  { "name": "type:bug", "color": "d73a4a", "description": "Something does not work as documented or expected" },
+  { "name": "type:feature", "color": "a2eeef", "description": "New functionality or a change to existing behavior" },
+  { "name": "type:docs", "color": "0075ca", "description": "Documentation only" },
+  { "name": "type:chore", "color": "cfd3d7", "description": "Tooling, CI, dependencies, or repository upkeep" },
+  { "name": "status:needs-triage", "color": "fbca04", "description": "Not yet reviewed by a maintainer" },
+  { "name": "status:blocked", "color": "b60205", "description": "Waiting on another issue, release, or decision" }
+]

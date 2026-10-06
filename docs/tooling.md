@@ -12,27 +12,28 @@ There is no task runner. Haku is one application, and a dozen scripts chained wi
 
 ## Scripts
 
-| Script                | Runs                                                        |
-| --------------------- | ----------------------------------------------------------- |
-| `pnpm tauri dev`      | The app, with the interface served by Vite                  |
-| `pnpm dev`            | Vite alone, on port 1420                                    |
-| `pnpm build`          | `tsc`, then the interface bundle into `dist/`               |
-| `pnpm verify`         | `verify:web`, then `verify:rust`                            |
-| `pnpm verify:web`     | Format, lint, type check, Vitest, and the interface bundle  |
-| `pnpm verify:rust`    | rustfmt, clippy, the bindings drift check, and `cargo test` |
-| `pnpm format:check`   | oxfmt, Prettier for Markdown, and rustfmt, without writing  |
-| `pnpm format:fix`     | The same three formatters, writing                          |
-| `pnpm format`         | `format:check`                                              |
-| `pnpm lint:check`     | oxlint and clippy, both failing on any warning              |
-| `pnpm lint:fix`       | oxlint's fixes                                              |
-| `pnpm typecheck`      | `tsc`                                                       |
-| `pnpm test`           | Vitest, once                                                |
-| `pnpm test:watch`     | Vitest in watch mode                                        |
-| `pnpm test:coverage`  | Vitest with a V8 coverage report                            |
-| `pnpm test:rust`      | `cargo test`                                                |
-| `pnpm bindings`       | Regenerates `src/bindings.ts` from Rust                     |
-| `pnpm bindings:check` | Fails when `src/bindings.ts` is stale                       |
-| `pnpm check:release`  | `cargo check` on the release profile                        |
+| Script                | Runs                                                          |
+| --------------------- | ------------------------------------------------------------- |
+| `pnpm tauri dev`      | The app, with the interface served by Vite                    |
+| `pnpm dev`            | Vite alone, on port 1420                                      |
+| `pnpm build`          | `tsc`, then the interface bundle into `dist/`                 |
+| `pnpm verify`         | `verify:web`, then `verify:rust`                              |
+| `pnpm verify:web`     | Format, lint, type check, Vitest, and the interface bundle    |
+| `pnpm verify:rust`    | rustfmt, clippy, the bindings drift check, and `cargo test`   |
+| `pnpm format:check`   | oxfmt, Prettier for Markdown, and rustfmt, without writing    |
+| `pnpm format:fix`     | The same three formatters, writing                            |
+| `pnpm format`         | `format:check`                                                |
+| `pnpm lint:check`     | oxlint and clippy, both failing on any warning                |
+| `pnpm lint:fix`       | oxlint's fixes                                                |
+| `pnpm typecheck`      | `tsc`                                                         |
+| `pnpm test`           | Vitest, once                                                  |
+| `pnpm test:watch`     | Vitest in watch mode                                          |
+| `pnpm test:coverage`  | Vitest with a V8 coverage report                              |
+| `pnpm test:rust`      | `cargo test`                                                  |
+| `pnpm bindings`       | Regenerates `src/bindings.ts` from Rust                       |
+| `pnpm bindings:check` | Fails when `src/bindings.ts` is stale                         |
+| `pnpm check:release`  | `cargo check` on the release profile                          |
+| `pnpm labels`         | Creates or updates the GitHub labels in `.github/labels.json` |
 
 `format:check`, `lint:check`, and `verify` each have a `:web` and a `:rust` half, so CI can run each half on the runner it needs. The halves are what the whole runs; there is no step only one of them knows about.
 
