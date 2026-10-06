@@ -39,9 +39,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     # Line tables only: backtraces keep their file and line, and the variable and
-    # type information only a debugger reads is dropped. A cold build took about
-    # half the time and the target directory 40% less space. Local builds keep
-    # Cargo's defaults. A panic always prints its backtrace.
+    # type information only a debugger reads is dropped. Measured on a cold run:
+    # 9m00s to 8m34s, and a 6% smaller cache; `docs/ci.md` has the breakdown.
+    # Local builds keep Cargo's defaults. A panic always prints its backtrace.
     env:
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
