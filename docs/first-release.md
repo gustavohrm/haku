@@ -1,7 +1,7 @@
 # First release
 
 **Status:** APPROVED
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-06
 **Scope:** What the first release includes, and the structural decisions it rests on.
 
 Most of this is not built yet. It is approved so that features are built on these decisions instead of
@@ -88,6 +88,11 @@ Three decisions changed in implementation:
   [Webview pool § Reloads and the HTTP cache](specs/webview-pool.md#reloads-and-the-http-cache). Form contents
   are kept as planned.
 
+**Next.** [Tab optimization](specs/tab-optimization.md) is approved and not built. It replaces the policy above
+with a fixed footprint: a tab holds a webview only while discarding it would cost the user something, within a
+memory budget, and memory pressure shrinks that further. It also moves scroll and form contents into Rust and
+specifies tab previews. Build tab optimization work on it, not on the policy as implemented.
+
 ### Running in the background
 
 Closing the last window may leave Haku running in the tray (a setting). While no browser window exists, every
@@ -117,7 +122,8 @@ nothing.
   depend on its tab being live.
 - **Tab previews.** Before a slot is handed to another tab, Rust captures it (WebView2's `CapturePreview`). The
   viewport shows the incoming tab's last capture while its page loads. Captures live in memory, bounded, and
-  are not persisted: keeping memory flat is the point of the pool.
+  are not persisted: keeping memory flat is the point of the pool. Specified in
+  [Tab optimization § Previews](specs/tab-optimization.md#previews).
 
 ### What the chrome can draw over a page
 
