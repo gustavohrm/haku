@@ -38,6 +38,14 @@ jobs:
     name: Rust
     runs-on: windows-latest
     timeout-minutes: 45
+    # Line tables only: backtraces keep their file and line, and the variable and
+    # type information only a debugger reads is dropped. A cold build took about
+    # half the time and the target directory 40% less space. Local builds keep
+    # Cargo's defaults. A panic always prints its backtrace.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      RUST_BACKTRACE: 1
     steps:
       - name: Check out the repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
