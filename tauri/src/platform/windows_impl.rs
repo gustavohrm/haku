@@ -232,7 +232,7 @@ pub fn set_input_mask<R: tauri::Runtime>(
 
         // The window owns the region after this call; it must not be deleted.
         if SetWindowRgn(hwnd, Some(region), true) == 0 {
-            let _ = DeleteObject(HRGN::from(region).into());
+            let _ = DeleteObject(region.into());
             return Err(HakuError::WindowMissing("SetWindowRgn failed".into()));
         }
         Ok(())
