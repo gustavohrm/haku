@@ -12,24 +12,24 @@ Start with [Architecture](architecture.md).
 
 ## Overview
 
-| Document                            | Contains                                                       |
-| ----------------------------------- | -------------------------------------------------------------- |
-| [Architecture](architecture.md)     | What goes where and why. Start here.                           |
-| [First release](first-release.md)   | Release scope and the structural decisions features rest on.   |
+| Document                          | Contains                                                     |
+| --------------------------------- | ------------------------------------------------------------ |
+| [Architecture](architecture.md)   | What goes where and why. Start here.                         |
+| [First release](first-release.md) | Release scope and the structural decisions features rest on. |
 
 ## Guidelines
 
-| Document                                     | Contains                                                                       |
-| -------------------------------------------- | ------------------------------------------------------------------------------ |
-| [Code](guidelines/code.md)                   | Naming, structure, TypeScript, Rust, React and styling conventions; testing.   |
-| [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, and layout.   |
+| Document                                     | Contains                                                                     |
+| -------------------------------------------- | ---------------------------------------------------------------------------- |
+| [Code](guidelines/code.md)                   | Naming, structure, TypeScript, Rust, React and styling conventions; testing. |
+| [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, and layout. |
 
 ## Specifications
 
-| Document                                       | Contains                                                         |
-| ---------------------------------------------- | ---------------------------------------------------------------- |
-| [Webview pool](specs/webview-pool.md)          | How tabs share webviews; discarding, pinning, eviction.          |
-| [Tab optimization](specs/tab-optimization.md)  | Approved, not built: which tabs keep a webview, and why.         |
-| [Chrome layering](specs/chrome-layering.md)    | How the interface renders above page content.                    |
-| [Page observation](specs/page-observation.md)  | How page URLs become tab history; page dialogs.                  |
-| [Errors](specs/errors.md)                      | How failures are represented.                                    |
+| Document                                      | Contains                                                 |
+| --------------------------------------------- | -------------------------------------------------------- |
+| [Webview pool](specs/webview-pool.md)         | How tabs share webviews; discarding, pinning, eviction.  |
+| [Tab optimization](specs/tab-optimization.md) | Approved, not built: which tabs keep a webview, and why. |
+| [Chrome layering](specs/chrome-layering.md)   | How the interface renders above page content.            |
+| [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.          |
+| [Errors](specs/errors.md)                     | How failures are represented.                            |

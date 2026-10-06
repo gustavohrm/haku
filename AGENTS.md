@@ -6,24 +6,22 @@ Reference for AI agents working on Haku.
 
 Haku is a lightweight desktop browser: Tauri v2 with a Rust backend, and a React 19 interface built with Vite.
 
-Its distinguishing idea is that **tabs and webviews are not the same thing**. A small, configurable pool of
-real webviews — one by default — is shared between any number of tabs, so memory stays close to flat as tabs
-accumulate.
+Its distinguishing idea is that **tabs and webviews are not the same thing**. A small, configurable pool of real webviews — one by default — is shared between any number of tabs, so memory stays close to flat as tabs accumulate.
 
 ## Read first
 
 This repository is docs-first. Before non-trivial work, read the relevant source of truth in `docs/`:
 
-| Document                         | Covers                                                       |
-| -------------------------------- | ------------------------------------------------------------ |
-| `docs/architecture.md`           | What goes where and why. Start here.                         |
-| `docs/first-release.md`          | Release scope and the structural decisions features rest on. |
-| `docs/guidelines/code.md`        | Naming, structure, Rust and React conventions, testing.      |
-| `docs/specs/webview-pool.md`     | How tabs share webviews; discarding, pinning, eviction.      |
-| `docs/specs/tab-optimization.md` | Approved, not built: which tabs keep a webview, and why.     |
-| `docs/specs/chrome-layering.md`  | How the interface renders above page content.                |
-| `docs/specs/page-observation.md` | How page URLs become tab history; page dialogs.              |
-| `docs/specs/errors.md`           | How failures are represented.                                |
+| Document                           | Covers                                                       |
+| ---------------------------------- | ------------------------------------------------------------ |
+| `docs/architecture.md`             | What goes where and why. Start here.                         |
+| `docs/first-release.md`            | Release scope and the structural decisions features rest on. |
+| `docs/guidelines/code.md`          | Naming, structure, Rust and React conventions, testing.      |
+| `docs/specs/webview-pool.md`       | How tabs share webviews; discarding, pinning, eviction.      |
+| `docs/specs/tab-optimization.md`   | Approved, not built: which tabs keep a webview, and why.     |
+| `docs/specs/chrome-layering.md`    | How the interface renders above page content.                |
+| `docs/specs/page-observation.md`   | How page URLs become tab history; page dialogs.              |
+| `docs/specs/errors.md`             | How failures are represented.                                |
 | `docs/guidelines/documentation.md` | How to interpret and maintain these documents.               |
 
 ## Commands
@@ -47,12 +45,9 @@ Run `pnpm verify` before delivering a change.
 
 **Rust owns the browser. The interface renders it.**
 
-`browser::Browser` holds every tab, its history and the webview pool, and is the only thing allowed to change
-them. React keeps no tab state: it sends intents and renders `StateChanged` events.
+`browser::Browser` holds every tab, its history and the webview pool, and is the only thing allowed to change them. React keeps no tab state: it sends intents and renders `StateChanged` events.
 
-`Browser` contains no Tauri types. It decides what should be true and returns `Effect`s describing the
-difference, which `webview/` applies. That is what makes the whole tab and pool policy testable without a
-window.
+`Browser` contains no Tauri types. It decides what should be true and returns `Effect`s describing the difference, which `webview/` applies. That is what makes the whole tab and pool policy testable without a window.
 
 ## Layout
 
@@ -82,47 +77,26 @@ haku/
 
 These are mistakes that fail silently. Each one cost real debugging time.
 
-- **A command that drives a webview must be `async`.** Tauri runs synchronous commands on the main thread, and
-  creating or raising a webview dispatches to that thread and waits — deadlocking the event loop. The symptom
-  is a webview that is created but never navigates, with no error anywhere.
-- **Anything drawn over page content must call `useOverlay`.** The chrome sits above the page with a native
-  input mask cut out of it; an unregistered overlay renders correctly and is completely unclickable. Toasts
-  and dialogs are registered by `features/feedback`, so only ever show them through `feedback()`.
-- **Call commands through `@ipc/commands`, not `@bindings`.** The generated commands resolve a failure to a
-  value, and most call sites fire and forget; the wrapper is what turns a failure into a toast.
-- **Session restore must not go through open/select.** Those produce effects meant for real webviews. At
-  startup there are none, the effects are discarded, and the browser wrongly believes tabs are already loaded.
-  Use `Browser::restored`.
-- **Content webviews have no IPC.** Tauri withholds it from remote origins and Haku does not opt in. What a
-  page shows is read from Rust (`platform::observe_page`); do not add a capability granting remote pages
-  access without deciding that deliberately. A page-load hook alone misses single-page-app route changes —
-  that was the "tab returns to an older page" bug.
-- **A content webview must be observed before it loads anything.** Slots are created on `about:blank`,
-  observed, then navigated. Creating one directly on its URL can lose the first commit.
+- **A command that drives a webview must be `async`.** Tauri runs synchronous commands on the main thread, and creating or raising a webview dispatches to that thread and waits — deadlocking the event loop. The symptom is a webview that is created but never navigates, with no error anywhere.
+- **Anything drawn over page content must call `useOverlay`.** The chrome sits above the page with a native input mask cut out of it; an unregistered overlay renders correctly and is completely unclickable. Toasts and dialogs are registered by `features/feedback`, so only ever show them through `feedback()`.
+- **Call commands through `@ipc/commands`, not `@bindings`.** The generated commands resolve a failure to a value, and most call sites fire and forget; the wrapper is what turns a failure into a toast.
+- **Session restore must not go through open/select.** Those produce effects meant for real webviews. At startup there are none, the effects are discarded, and the browser wrongly believes tabs are already loaded. Use `Browser::restored`.
+- **Content webviews have no IPC.** Tauri withholds it from remote origins and Haku does not opt in. What a page shows is read from Rust (`platform::observe_page`); do not add a capability granting remote pages access without deciding that deliberately. A page-load hook alone misses single-page-app route changes — that was the "tab returns to an older page" bug.
+- **A content webview must be observed before it loads anything.** Slots are created on `about:blank`, observed, then navigated. Creating one directly on its URL can lose the first commit.
 - **`src/bindings.ts` is generated.** Change Rust, run `pnpm bindings`.
-- **Icons come from `virtual:icons.css`, imported in `main.tsx`.** Importing `@codenhub/icons` from CSS
-  resolves to the package's plain base sheet, which has no per-icon rules, and every icon renders as a solid
-  block. Icon class names must appear as literal strings somewhere in `src/` to be generated.
-- **Force-killing Haku breaks the next launch.** Its WebView2 processes outlive it for a while and hold the
-  profile; a launch in that window gets no webview and shows nothing, with no error. Wait for
-  `msedgewebview2.exe` processes started with `--webview-exe-name=haku.exe` to exit first.
-- **A capability must not scope by window.** `"windows": ["main"]` grants its permissions to every webview in
-  that window, and content webviews are children of it. Scope by `webviews` only.
-- **Release builds need Tauri's `devtools` feature.** `open_devtools` only exists in debug builds without it,
-  so dropping the feature breaks `pnpm tauri build` while every debug check still passes.
-- **Numbers crossing the IPC boundary** need `#[specta(type = specta_typescript::Number)]`; specta refuses to
-  export 64-bit integers and maps bare `f64` to `number | null`.
+- **Icons come from `virtual:icons.css`, imported in `main.tsx`.** Importing `@codenhub/icons` from CSS resolves to the package's plain base sheet, which has no per-icon rules, and every icon renders as a solid block. Icon class names must appear as literal strings somewhere in `src/` to be generated.
+- **Force-killing Haku breaks the next launch.** Its WebView2 processes outlive it for a while and hold the profile; a launch in that window gets no webview and shows nothing, with no error. Wait for `msedgewebview2.exe` processes started with `--webview-exe-name=haku.exe` to exit first.
+- **A capability must not scope by window.** `"windows": ["main"]` grants its permissions to every webview in that window, and content webviews are children of it. Scope by `webviews` only.
+- **Release builds need Tauri's `devtools` feature.** `open_devtools` only exists in debug builds without it, so dropping the feature breaks `pnpm tauri build` while every debug check still passes.
+- **Numbers crossing the IPC boundary** need `#[specta(type = specta_typescript::Number)]`; specta refuses to export 64-bit integers and maps bare `f64` to `number | null`.
 
 ## Dependencies
 
-Only `@codenhub/theme`, `@codenhub/styles`, `@codenhub/icons` and `@codenhub/toaster`. Everything else is built
-for Haku on purpose: general-purpose packages with breaking changes pending are a poor foundation for a project
-meant to avoid repeated refactors. Do not add dependencies unless simple in-house code is clearly worse.
+Only `@codenhub/theme`, `@codenhub/styles`, `@codenhub/icons` and `@codenhub/toaster`. Everything else is built for Haku on purpose: general-purpose packages with breaking changes pending are a poor foundation for a project meant to avoid repeated refactors. Do not add dependencies unless simple in-house code is clearly worse.
 
 ## Platforms
 
-Windows is implemented. macOS and Linux native layers are `unimplemented` stubs behind the same interface in
-`platform/`, so adding a platform means filling in a known interface, not redesigning.
+Windows is implemented. macOS and Linux native layers are `unimplemented` stubs behind the same interface in `platform/`, so adding a platform means filling in a known interface, not redesigning.
 
 ## Working agreement
 
@@ -130,16 +104,13 @@ Do not assume. When a request has two readings that lead to different work, ask 
 
 Ask at the point the answer is needed, not at the end. Do everything that does not depend on it first.
 
-Report what happened. A failing check, a skipped step or a partially finished task is stated plainly, with the
-output that shows it. Never describe work as done when it is not.
+Report what happened. A failing check, a skipped step or a partially finished task is stated plainly, with the output that shows it. Never describe work as done when it is not.
 
-Close by listing the judgment calls made and the assumptions worked under, so each can be confirmed or
-reversed.
+Close by listing the judgment calls made and the assumptions worked under, so each can be confirmed or reversed.
 
 ## Change rules
 
 - Prefer small, targeted changes. Do not refactor outside the requested scope.
 - Update `docs/` in the same change when behavior, architecture, conventions or decisions change.
-- Never commit to `main` without being asked, for that commit, in the moment. Work on `<type>/<slug>` branches
-  with Conventional Commits.
+- Never commit to `main` without being asked, for that commit, in the moment. Work on `<type>/<slug>` branches with Conventional Commits.
 - Ask before pushing a branch or opening a pull request.

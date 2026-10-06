@@ -9,21 +9,15 @@ This document explains what goes where in Haku and why, where the reason is not 
 
 ## What Haku is
 
-A lightweight desktop browser built on Tauri v2. Its distinguishing idea is that tabs and webviews are not the
-same thing: a small, configurable pool of real webviews is shared between any number of tabs, so memory stays
-close to flat as tabs accumulate.
+A lightweight desktop browser built on Tauri v2. Its distinguishing idea is that tabs and webviews are not the same thing: a small, configurable pool of real webviews is shared between any number of tabs, so memory stays close to flat as tabs accumulate.
 
 ## The one big decision
 
 **Rust owns the browser. The interface renders it.**
 
-`browser::Browser` holds every tab, its navigation history, and the webview pool, and it is the only thing
-allowed to change them. The React application in the chrome webview keeps no tab state of its own: it sends
-intents (`open_tab`, `select_tab`, `navigate_tab`) and renders the `StateChanged` events that come back.
+`browser::Browser` holds every tab, its navigation history, and the webview pool, and it is the only thing allowed to change them. The React application in the chrome webview keeps no tab state of its own: it sends intents (`open_tab`, `select_tab`, `navigate_tab`) and renders the `StateChanged` events that come back.
 
-This was chosen over a TypeScript-side model because global shortcuts that open new windows are on the roadmap.
-The moment a second window exists, a model living inside one window cannot be the authority for both. Moving it
-later would mean rewriting every feature built on top of it.
+This was chosen over a TypeScript-side model because global shortcuts that open new windows are on the roadmap. The moment a second window exists, a model living inside one window cannot be the authority for both. Moving it later would mean rewriting every feature built on top of it.
 
 ## Layers
 
@@ -35,46 +29,31 @@ React interface  →  generated bindings  →  Tauri commands  →  Browser  →
 
 ### `browser.rs` — the authority
 
-`Browser` contains no Tauri types at all. It decides what _should_ be true and returns a `Vec<Effect>`
-describing the difference: create this webview, park that one on `about:blank`, show this, hide that.
+`Browser` contains no Tauri types at all. It decides what _should_ be true and returns a `Vec<Effect>` describing the difference: create this webview, park that one on `about:blank`, show this, hide that.
 
-That separation is what makes tab and pool behaviour testable without a window, a webview, or an event loop.
-Every rule about eviction, pinning, discarding and history is exercised by ordinary unit tests.
+That separation is what makes tab and pool behaviour testable without a window, a webview, or an event loop. Every rule about eviction, pinning, discarding and history is exercised by ordinary unit tests.
 
-Every mutation ends by calling `realize()`, which reconciles the whole state, rather than emitting effects
-itself. There is therefore exactly one description of what "correct" looks like, and no operation can forget a
-step another one remembers.
+Every mutation ends by calling `realize()`, which reconciles the whole state, rather than emitting effects itself. There is therefore exactly one description of what "correct" looks like, and no operation can forget a step another one remembers.
 
 ### `model/` — the pieces
 
-`tab.rs`, `history.rs` and `pool.rs` hold the data and the rules that belong to it alone. `WebviewPool` is
-deliberately ignorant of tabs beyond their identity: the caller decides which tabs may not be displaced and
-what the effective capacity is, which keeps the eviction policy independently testable.
+`tab.rs`, `history.rs` and `pool.rs` hold the data and the rules that belong to it alone. `WebviewPool` is deliberately ignorant of tabs beyond their identity: the caller decides which tabs may not be displaced and what the effective capacity is, which keeps the eviction policy independently testable.
 
 ### `webview/` — the Tauri side
 
-Applies `Effect`s to real webviews. It knows how to drive a webview, not what to do with one. It attaches
-`platform::observe_page` to every content webview and hands what it reports — URL changes, titles, native
-back and forward, dialogs — back to the caller through a `PageObserver`, so this module never touches
-application state. See [Page observation](specs/page-observation.md).
+Applies `Effect`s to real webviews. It knows how to drive a webview, not what to do with one. It attaches `platform::observe_page` to every content webview and hands what it reports — URL changes, titles, native back and forward, dialogs — back to the caller through a `PageObserver`, so this module never touches application state. See [Page observation](specs/page-observation.md).
 
 ### `chrome/` and `platform/` — layering the interface over the page
 
-See [Chrome layering](specs/chrome-layering.md). `chrome/` converts the geometry the interface reports into
-physical rectangles; `platform/` performs the native operations Tauri does not expose.
+See [Chrome layering](specs/chrome-layering.md). `chrome/` converts the geometry the interface reports into physical rectangles; `platform/` performs the native operations Tauri does not expose.
 
 ### `storage/` — what survives a restart
 
-Settings and the open-tab session are small, read whole, and worth being able to hand-edit, so they are JSON.
-History grows without bound and will need ranged and filtered queries, so it is SQLite. Both are read through
-`read_json`, which layers a stored document over the type's defaults, so a file naming one key does not reset
-the rest.
+Settings and the open-tab session are small, read whole, and worth being able to hand-edit, so they are JSON. History grows without bound and will need ranged and filtered queries, so it is SQLite. Both are read through `read_json`, which layers a stored document over the type's defaults, so a file naming one key does not reset the rest.
 
 ### `ipc/` — the boundary
 
-`ipc::builder()` is the single description of the command and event surface. The running application and the
-TypeScript binding generator both read it, so the bindings cannot describe a command Rust does not have.
-`src/bindings.ts` is generated by `pnpm bindings` and is never edited by hand.
+`ipc::builder()` is the single description of the command and event surface. The running application and the TypeScript binding generator both read it, so the bindings cannot describe a command Rust does not have. `src/bindings.ts` is generated by `pnpm bindings` and is never edited by hand.
 
 ## Frontend
 
@@ -88,67 +67,44 @@ src/
 └─ styles/            imports, Haku's surface tokens, density
 ```
 
-State reaches React through `useSyncExternalStore` over the Rust event stream. There is no client-side cache to
-invalidate and nothing to keep in sync.
+State reaches React through `useSyncExternalStore` over the Rust event stream. There is no client-side cache to invalidate and nothing to keep in sync.
 
-Commands are called through `@ipc/commands`, a wrapper over the generated bindings that passes every failure
-to one handler. `features/feedback` points that handler at a toast, and owns the one `@codenhub/toaster`
-instance that every notification and page dialog goes through.
+Commands are called through `@ipc/commands`, a wrapper over the generated bindings that passes every failure to one handler. `features/feedback` points that handler at a toast, and owns the one `@codenhub/toaster` instance that every notification and page dialog goes through.
 
 ### Styling
 
-Components from `@codenhub/styles` are used wherever one fits — buttons, fields, cards — in its default
-monochrome palette. Pieces with no component, such as tabs and the address field, are Tailwind utilities over
-the same tokens, plus Haku's two surface tokens (`chrome`, `chrome-raised`). Density is an attribute on the
-shell; compact is the default and applies to the bars only.
+Components from `@codenhub/styles` are used wherever one fits — buttons, fields, cards — in its default monochrome palette. Pieces with no component, such as tabs and the address field, are Tailwind utilities over the same tokens, plus Haku's two surface tokens (`chrome`, `chrome-raised`). Density is an attribute on the shell; compact is the default and applies to the bars only.
 
-The bars follow Helium's proportions: 28px controls with the package's 8px control radius — rounded, not
-pill-shaped — 3px between the tab row, the toolbar and the page, and a 4px margin around the page.
+The bars follow Helium's proportions: 28px controls with the package's 8px control radius — rounded, not pill-shaped — 3px between the tab row, the toolbar and the page, and a 4px margin around the page.
 
 ## Internal pages
 
-Pages Haku renders itself — new tab, settings, history — use the `haku://` scheme and are drawn by the chrome,
-not loaded into a webview. A tab on one of them therefore consumes no pool slot, shares the interface's theme
-and translations, and can talk to Rust directly.
+Pages Haku renders itself — new tab, settings, history — use the `haku://` scheme and are drawn by the chrome, not loaded into a webview. A tab on one of them therefore consumes no pool slot, shares the interface's theme and translations, and can talk to Rust directly.
 
-The host names the page; a path, query or fragment after it belongs to the page, so `haku://history?q=…`
-reaches the history page.
+The host names the page; a path, query or fragment after it belongs to the page, so `haku://history?q=…` reaches the history page.
 
 ## Where this is heading
 
-[First release](first-release.md) records the decisions the next features are built on: several viewports,
-several windows sharing one pool, webviews keyed by profile, and native keyboard handling while a page has
-focus. Read it before building anything it lists.
+[First release](first-release.md) records the decisions the next features are built on: several viewports, several windows sharing one pool, webviews keyed by profile, and native keyboard handling while a page has focus. Read it before building anything it lists.
 
 ## Threading
 
-Commands that drive a webview are `async`. Tauri runs synchronous commands **on the main thread**, and
-creating, moving or raising a webview dispatches work to that same thread and waits for it — which deadlocks
-the event loop. Commands that only read state stay synchronous.
+Commands that drive a webview are `async`. Tauri runs synchronous commands **on the main thread**, and creating, moving or raising a webview dispatches work to that same thread and waits for it — which deadlocks the event loop. Commands that only read state stay synchronous.
 
-This is not a theoretical concern: it was the cause of a silent failure where webviews were created but never
-navigated, because the event loop was blocked inside webview creation.
+This is not a theoretical concern: it was the cause of a silent failure where webviews were created but never navigated, because the event loop was blocked inside webview creation.
 
 ## Security
 
 Content webviews load arbitrary remote pages, so they are given nothing:
 
-- The Tauri capability is scoped to `webviews: ["main"]`. The chrome webview alone receives core permissions. It
-  must not name `windows`: a window scope also covers every child webview in the window, content webviews
-  included.
+- The Tauri capability is scoped to `webviews: ["main"]`. The chrome webview alone receives core permissions. It must not name `windows`: a window scope also covers every child webview in the window, content webviews included.
 - No capability grants remote origins IPC access, so a page has no channel into the application at all.
 - Every command guards with `ensure_chrome`, rejecting any caller that is not the interface.
-- Page metadata is observed from Rust rather than reported by the page. Rust evaluates an expression in the
-  page to read what an injected script recorded; the page has no way to call back. See
-  [Page observation](specs/page-observation.md).
-- Dialogs a page opens are drawn by the chrome, titled with the requesting site, so a page cannot present its
-  text as Haku's.
+- Page metadata is observed from Rust rather than reported by the page. Rust evaluates an expression in the page to read what an injected script recorded; the page has no way to call back. See [Page observation](specs/page-observation.md).
+- Dialogs a page opens are drawn by the chrome, titled with the requesting site, so a page cannot present its text as Haku's.
 
 ## Dependencies
 
-Only four external packages, all first-party: `@codenhub/theme` (preference storage and the pre-paint script),
-`@codenhub/styles` (tokens, palette, reset and components, through its Tailwind source entry),
-`@codenhub/icons` and `@codenhub/toaster` (notifications and dialogs).
+Only four external packages, all first-party: `@codenhub/theme` (preference storage and the pre-paint script), `@codenhub/styles` (tokens, palette, reset and components, through its Tailwind source entry), `@codenhub/icons` and `@codenhub/toaster` (notifications and dialogs).
 
-Everything else is built for Haku. General-purpose libraries with breaking changes pending are a poor
-foundation for a project meant to avoid repeated refactors.
+Everything else is built for Haku. General-purpose libraries with breaking changes pending are a poor foundation for a project meant to avoid repeated refactors.
