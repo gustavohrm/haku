@@ -17,6 +17,13 @@ Start with [Architecture](architecture.md).
 | [Architecture](architecture.md)   | What goes where and why. Start here.                         |
 | [First release](first-release.md) | Release scope and the structural decisions features rest on. |
 
+## Repository references
+
+| Document              | Contains                                                          |
+| --------------------- | ----------------------------------------------------------------- |
+| [Tooling](tooling.md) | Scripts, what `pnpm verify` runs, git hooks, and generated files. |
+| [CI](ci.md)           | Pinned toolchain, the verification jobs, and action pinning.      |
+
 ## Guidelines
 
 | Document                                     | Contains                                                                     |
