@@ -1,4 +1,4 @@
-root = true 
+root = true
 
 [*]
 indent_style = space
@@ -6,5 +6,12 @@ indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
 
+[*.rs]
+# rustfmt's own indentation; `tauri/rustfmt.toml` sets the width.
+indent_size = 4
+
 [*.md]
 trim_trailing_whitespace = false
+# Prose is not hard-wrapped; Prettier runs with proseWrap "never" and reads this
+# as an unlimited print width, which also keeps wide tables aligned.
+max_line_length = off

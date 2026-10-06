@@ -14,11 +14,12 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:rust": "cargo test --manifest-path tauri/Cargo.toml",
-    "format:check": "oxfmt --check",
-    "format:fix": "oxfmt --write",
+    "format:check": "oxfmt --check && prettier --check --log-level warn \"**/*.md\"",
+    "format:fix": "oxfmt --write && prettier --write --log-level warn \"**/*.md\"",
     "lint:check": "oxlint",
     "lint:fix": "oxlint --fix",
-    "verify": "pnpm format:check && pnpm lint:check && pnpm typecheck && pnpm test && pnpm test:rust"
+    "verify": "pnpm format:check && pnpm lint:check && pnpm typecheck && pnpm test && pnpm test:rust",
+    "format": "pnpm format:check"
   },
   "dependencies": {
     "@codenhub/icons": "^0.2.1",
@@ -40,6 +41,7 @@
     "jsdom": "^29.1.1",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
+    "prettier": "^3.9.9",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vite": "^8.1.0",
