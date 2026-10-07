@@ -1,5 +1,14 @@
 import { InternalPage } from "@app/internal-page";
-import { events, type MemoryReport, type Pressure, type ProcessKind, type Tab } from "@bindings";
+import {
+  events,
+  type Loss,
+  type LossSignal,
+  type MemoryReport,
+  type Pressure,
+  type ProcessKind,
+  type SlotMemory,
+  type Tab,
+} from "@bindings";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { unwrap } from "@ipc/result";
@@ -12,6 +21,21 @@ const PRESSURE_LABELS: Record<Pressure, TranslationKey> = {
   normal: "memory.pressure.normal",
   tight: "memory.pressure.tight",
   critical: "memory.pressure.critical",
+};
+
+const LOSS_LABELS: Record<Loss, TranslationKey> = {
+  none: "memory.loss.none",
+  state: "memory.loss.state",
+  work: "memory.loss.work",
+};
+
+const SIGNAL_LABELS: Record<LossSignal, TranslationKey> = {
+  unsaved: "memory.signal.unsaved",
+  unloadArmed: "memory.signal.unloadArmed",
+  formResult: "memory.signal.formResult",
+  interactions: "memory.signal.interactions",
+  mediaPaused: "memory.signal.mediaPaused",
+  unreadable: "memory.signal.unreadable",
 };
 
 const PROCESS_LABELS: Record<ProcessKind, TranslationKey> = {
@@ -58,6 +82,7 @@ export function MemoryPage() {
                   <th className="w-16 font-normal">{t("memory.slot")}</th>
                   <th className="font-normal">{t("memory.tab")}</th>
                   <th className="w-24 font-normal">{t("memory.state")}</th>
+                  <th className="w-48 font-normal">{t("memory.loss")}</th>
                   <th className="w-24 text-right font-normal">{t("memory.memory")}</th>
                 </tr>
               </thead>
@@ -69,6 +94,9 @@ export function MemoryPage() {
                       <td>{slot.slot}</td>
                       <td className="truncate">{tab ? tabLabel(tab) : "—"}</td>
                       <td>{t(stateLabel(tab))}</td>
+                      <td className="truncate" title={lossLabel(slot)}>
+                        {lossLabel(slot)}
+                      </td>
                       <td className="text-right tabular-nums">{formatBytes(slot.bytes)}</td>
                     </tr>
                   );
@@ -143,6 +171,16 @@ function useMemoryReport(): MemoryReport | null {
 function tabLabel(tab: Tab): string {
   const visit = tab.history.entries[tab.history.index];
   return visit?.title.trim() || visit?.url || t("tabs.untitled");
+}
+
+/** The loss level, followed by the signals behind it. */
+function lossLabel(slot: SlotMemory): string {
+  if (slot.loss === null) {
+    return "—";
+  }
+  const level = t(LOSS_LABELS[slot.loss]);
+  const reasons = slot.signals.map((signal) => t(SIGNAL_LABELS[signal]));
+  return reasons.length === 0 ? level : `${level}: ${reasons.join(", ")}`;
 }
 
 function stateLabel(tab: Tab | undefined): TranslationKey {

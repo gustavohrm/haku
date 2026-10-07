@@ -13,110 +13,80 @@
 //! record, but all it could corrupt is its own tab's history, and it gains no
 //! way to call into Haku.
 
-use crate::model::{Commit, NavigationKind};
+use crate::model::{Commit, NavigationKind, PageState, Scroll};
 
-/// Key prefix for the per-page scroll offset.
-const STORAGE_PREFIX: &str = "__haku_scroll__";
+/// Name of the page-side object that hands over the page's record.
+const STATE_READER: &str = "__hakuState";
 
-/// Milliseconds to coalesce scroll events over.
-const SCROLL_DEBOUNCE_MS: u32 = 150;
+/// Media shorter than this is not worth keeping a tab for when paused.
+const MEDIA_MIN_SECONDS: u32 = 60;
 
-/// Remembers and restores the scroll position, entirely within the page.
+/// How long after the first attempt scroll is restored again, for pages that
+/// lay out after their own scripts run.
+const SCROLL_RETRY_MS: u32 = 120;
+
+/// How long after the first attempt a draft is restored again, for pages that
+/// build their forms with script.
+const DRAFT_RETRY_MS: u32 = 500;
+
+/// Keeps a record of what the page holds that a reload would lose, and puts
+/// scroll and form contents back when a discarded tab reloads.
 ///
-/// A discarded tab is reloaded when it comes back, which would otherwise return
-/// to the top of the page. The offset is kept in `sessionStorage` so it never
-/// leaves the origin it belongs to and is discarded with the browsing session,
-/// unlike `localStorage`, which would leave Haku's data on the site permanently.
+/// Nothing is stored in the page. Rust reads the record with
+/// [`page_state_drain_expression`] and keeps scroll and drafts itself, so
+/// they follow the tab into whichever slot it is restored in.
 ///
-/// The trade-off is that the offset lives in the webview that saved it, so a tab
-/// restored into a different pool slot starts at the top.
-pub fn scroll_memory_script() -> String {
-    format!(
-        r#"
-(function () {{
-  var key = function () {{ return "{STORAGE_PREFIX}" + location.href; }};
-
-  function save() {{
-    try {{
-      sessionStorage.setItem(key(), window.scrollX + "," + window.scrollY);
-    }} catch (_) {{
-      // Storage can be unavailable or full; losing a scroll offset is not
-      // worth breaking the page over.
-    }}
-  }}
-
-  function restore() {{
-    try {{
-      var stored = sessionStorage.getItem(key());
-      if (!stored) return;
-      var parts = stored.split(",");
-      window.scrollTo(parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0);
-    }} catch (_) {{}}
-  }}
-
-  var timer = null;
-  window.addEventListener(
-    "scroll",
-    function () {{
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(save, {SCROLL_DEBOUNCE_MS});
-    }},
-    {{ passive: true }}
-  );
-
-  // Restoring on load alone lands too early for pages that lay out after their
-  // own scripts run, so it is attempted again once everything has settled.
-  window.addEventListener("load", function () {{
-    restore();
-    setTimeout(restore, 120);
-  }});
-  window.addEventListener("pagehide", save);
-}})();
-"#
-    )
+/// - **Unsaved text**: a field or editable region the user typed into, still
+///   in the document and not empty, whose form has not been submitted since.
+/// - **An armed unload prompt**: a `beforeunload` handler on `window`, once
+///   the user has interacted with the page. Listeners are counted by wrapping
+///   `addEventListener` and `removeEventListener` on `window` itself.
+/// - **Interactions**: trusted clicks and key presses since the URL changed.
+/// - **Paused media**: a long `video` or `audio` paused partway through.
+/// - **Capture**: a live track from `getUserMedia` or `getDisplayMedia`.
+/// - **The draft**: changed form fields, never secret ones: passwords,
+///   payment details, one-time codes, hidden and file fields, and anything
+///   marked `autocomplete="off"`. A submitted form has no draft.
+///
+/// Restored values are set through the element's own setter and announced
+/// with `input` and `change` events, which is what frameworks that own their
+/// fields' state listen for. A restore is only applied on the origin it was
+/// read on, so a reload that redirects elsewhere never receives another site's
+/// text.
+///
+/// Runs in the top frame only.
+pub fn page_state_script() -> String {
+    PAGE_STATE_JS
+        .replace("__READER__", STATE_READER)
+        .replace("__MEDIA_MIN_SECONDS__", &MEDIA_MIN_SECONDS.to_string())
+        .replace("__SCROLL_RETRY_MS__", &SCROLL_RETRY_MS.to_string())
+        .replace("__DRAFT_RETRY_MS__", &DRAFT_RETRY_MS.to_string())
 }
 
-/// Key prefix for the per-page form contents.
-const FORM_PREFIX: &str = "__haku_form__";
-
-/// Remembers what the user typed into a page's forms, and puts it back when a
-/// discarded tab reloads.
-///
-/// Kept in `sessionStorage`, as scroll is and for the same reasons, with the same
-/// limit: a tab restored into a different pool slot starts empty.
-///
-/// Only fields the user changed are kept, so a reload never overwrites what the
-/// page itself filled in, and a field the page has already changed again is left
-/// alone. Fields that hold secrets are never stored: passwords, payment details,
-/// one-time codes, hidden and file fields, and anything the page marked
-/// `autocomplete="off"`. A submitted form's contents are forgotten, since what
-/// was submitted is no longer a draft.
-///
-/// Values are set through the element's own setter and announced with `input`
-/// and `change` events, which is what frameworks that own their fields' state
-/// listen for.
-pub fn form_memory_script() -> String {
-    FORM_MEMORY_JS.replace("__PREFIX__", FORM_PREFIX)
-}
-
-const FORM_MEMORY_JS: &str = r#"
+const PAGE_STATE_JS: &str = r#"
 (function () {
-  if (window.top !== window) return;
-  var key = function () { return "__PREFIX__" + location.href; };
+  if (window.top !== window || window.__READER__) return;
+
   var SKIPPED_TYPES = /^(password|hidden|file|submit|button|reset|image)$/i;
   var SECRET_AUTOCOMPLETE = /(^|\s)(off|cc-[a-z-]+|one-time-code|current-password|new-password)(\s|$)/i;
   var SECRET_NAME = /(card.?num|cc.?num|cvv|cvc|csc|iban|security.?code)/i;
+  var FIELD_TAGS = /^(INPUT|TEXTAREA|SELECT)$/;
+
+  var addListener = window.addEventListener;
+  var removeListener = window.removeEventListener;
+
+  function isSecret(field) {
+    if (field.tagName === "INPUT" && SKIPPED_TYPES.test(field.type)) return true;
+    var auto = (field.getAttribute("autocomplete") || "") + " " +
+      ((field.form && field.form.getAttribute("autocomplete")) || "");
+    if (SECRET_AUTOCOMPLETE.test(auto)) return true;
+    return SECRET_NAME.test((field.name || "") + " " + (field.id || ""));
+  }
 
   function fields() {
     return Array.prototype.filter.call(
       document.querySelectorAll("input, textarea, select"),
-      function (field) {
-        if (field.tagName === "INPUT" && SKIPPED_TYPES.test(field.type)) return false;
-        var auto = (field.getAttribute("autocomplete") || "") + " " +
-          ((field.form && field.form.getAttribute("autocomplete")) || "");
-        if (SECRET_AUTOCOMPLETE.test(auto)) return false;
-        return !SECRET_NAME.test((field.name || "") + " " + (field.id || ""));
-      }
+      function (field) { return !isSecret(field); }
     );
   }
 
@@ -128,7 +98,9 @@ const FORM_MEMORY_JS: &str = r#"
     return field.tagName + ":" + (field.type || "") + ":" + (field.name || field.id || "");
   }
 
-  function read(field) {
+  // What the user changed in a field, or null when it holds what the page
+  // loaded with.
+  function changed(field) {
     if (checkable(field)) return field.checked === field.defaultChecked ? null : { c: field.checked };
     if (field.tagName === "SELECT") {
       var chosen = Array.prototype.map.call(field.options, function (option) { return option.selected; });
@@ -140,28 +112,103 @@ const FORM_MEMORY_JS: &str = r#"
     return field.value === field.defaultValue ? null : { v: field.value };
   }
 
-  // Set by a submit and cleared by the next edit, so leaving the page right
-  // after submitting does not save the submitted values straight back.
+  var interactions = 0;
+  function count(event) {
+    if (event.isTrusted) interactions++;
+  }
+  document.addEventListener("click", count, true);
+  document.addEventListener("keydown", count, true);
+  if (window.navigation) {
+    navigation.addEventListener("currententrychange", function () { interactions = 0; });
+  }
+
+  // Elements the user typed into. Set by a trusted edit; a submit removes its
+  // form's fields and holds the draft back until the next edit.
+  var edited = [];
   var submitted = false;
 
-  function save() {
-    if (submitted) return;
-    try {
-      var stored = [];
-      fields().forEach(function (field, index) {
-        var value = read(field);
-        if (value) {
-          value.i = index;
-          value.k = identity(field);
-          stored.push(value);
-        }
-      });
-      if (stored.length) sessionStorage.setItem(key(), JSON.stringify(stored));
-      else sessionStorage.removeItem(key());
-    } catch (_) {
-      // Storage can be unavailable or full; losing a draft is not worth
-      // breaking the page over.
+  function editable(target) {
+    if (!target || target.nodeType !== 1) return null;
+    if (FIELD_TAGS.test(target.tagName)) return target;
+    if (!target.isContentEditable) return null;
+    var host = target;
+    while (host.parentElement && host.parentElement.isContentEditable) host = host.parentElement;
+    return host;
+  }
+
+  document.addEventListener("input", function (event) {
+    if (!event.isTrusted) return;
+    submitted = false;
+    var target = editable(event.target);
+    if (target && edited.indexOf(target) === -1) edited.push(target);
+  }, true);
+  document.addEventListener("submit", function (event) {
+    submitted = true;
+    var form = event.target;
+    edited = edited.filter(function (field) { return field.form !== form && !form.contains(field); });
+  }, true);
+
+  function holdsText(element) {
+    if (!element.isConnected) return false;
+    if (!FIELD_TAGS.test(element.tagName)) return (element.textContent || "").trim() !== "";
+    if (isSecret(element)) return false;
+    if (checkable(element) || element.tagName === "SELECT") return changed(element) !== null;
+    return (element.value || "").trim() !== "";
+  }
+
+  var unloadListeners = [];
+  window.addEventListener = function (type, listener) {
+    if (type === "beforeunload" && listener && unloadListeners.indexOf(listener) === -1) {
+      unloadListeners.push(listener);
     }
+    return addListener.apply(this, arguments);
+  };
+  window.removeEventListener = function (type, listener) {
+    var index = type === "beforeunload" ? unloadListeners.indexOf(listener) : -1;
+    if (index !== -1) unloadListeners.splice(index, 1);
+    return removeListener.apply(this, arguments);
+  };
+
+  function unloadArmed() {
+    var handled = unloadListeners.length > 0 || typeof window.onbeforeunload === "function";
+    return handled && !!(navigator.userActivation && navigator.userActivation.hasBeenActive);
+  }
+
+  var tracks = [];
+  var devices = navigator.mediaDevices;
+  ["getUserMedia", "getDisplayMedia"].forEach(function (name) {
+    if (!devices || typeof devices[name] !== "function") return;
+    var original = devices[name];
+    devices[name] = function () {
+      return original.apply(this, arguments).then(function (stream) {
+        tracks = tracks.filter(live).concat(stream.getTracks());
+        return stream;
+      });
+    };
+  });
+
+  function live(track) {
+    return track.readyState === "live";
+  }
+
+  function mediaPaused() {
+    return Array.prototype.some.call(document.querySelectorAll("video, audio"), function (media) {
+      return media.paused && !media.ended && media.currentTime > 0 && media.duration > __MEDIA_MIN_SECONDS__;
+    });
+  }
+
+  function draft() {
+    if (submitted) return null;
+    var stored = [];
+    fields().forEach(function (field, index) {
+      var value = changed(field);
+      if (value) {
+        value.i = index;
+        value.k = identity(field);
+        stored.push(value);
+      }
+    });
+    return stored.length ? JSON.stringify(stored) : null;
   }
 
   function set(field, property, value) {
@@ -171,55 +218,100 @@ const FORM_MEMORY_JS: &str = r#"
     else field[property] = value;
   }
 
-  var restored = false;
-  function restore() {
-    if (restored) return;
-    try {
-      var stored = JSON.parse(sessionStorage.getItem(key()) || "null");
-      if (!stored) return;
-      var current = fields();
-      stored.forEach(function (entry) {
-        var field = current[entry.i];
-        // The page has changed shape, or already holds something of its own.
-        if (!field || identity(field) !== entry.k || read(field)) return;
-        if ("c" in entry) set(field, "checked", entry.c);
-        else if ("s" in entry) {
-          Array.prototype.forEach.call(field.options, function (option, index) {
-            option.selected = !!entry.s[index];
-          });
-        } else set(field, "value", entry.v);
-        field.dispatchEvent(new Event("input", { bubbles: true }));
-        field.dispatchEvent(new Event("change", { bubbles: true }));
-        restored = true;
-      });
-    } catch (_) {}
+  var draftRestored = false;
+  function restoreDraft(json) {
+    if (draftRestored) return;
+    var stored = JSON.parse(json);
+    var current = fields();
+    stored.forEach(function (entry) {
+      var field = current[entry.i];
+      // The page has changed shape, or already holds something of its own.
+      if (!field || identity(field) !== entry.k || changed(field)) return;
+      if ("c" in entry) set(field, "checked", entry.c);
+      else if ("s" in entry) {
+        Array.prototype.forEach.call(field.options, function (option, index) {
+          option.selected = !!entry.s[index];
+        });
+      } else set(field, "value", entry.v);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+      draftRestored = true;
+    });
   }
 
-  var timer = null;
-  function schedule(event) {
-    // Restoring announces itself with the same events; that is not an edit.
-    if (!event.isTrusted) return;
-    submitted = false;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(save, 300);
+  // Tried once the page has loaded, then again after `retry` milliseconds,
+  // for pages that lay out or build their forms after their own scripts run.
+  function whenLoaded(action, retry) {
+    function run() {
+      try { action(); } catch (_) {}
+      setTimeout(function () { try { action(); } catch (_) {} }, retry);
+    }
+    if (document.readyState === "complete") run();
+    else addListener.call(window, "load", run);
   }
-  document.addEventListener("input", schedule, true);
-  document.addEventListener("change", schedule, true);
-  document.addEventListener("submit", function () {
-    submitted = true;
-    if (timer) clearTimeout(timer);
-    try { sessionStorage.removeItem(key()); } catch (_) {}
-  }, true);
-  window.addEventListener("pagehide", save);
 
-  // Pages that build their forms with script are not done at "load", so the
-  // restore is tried again once they have had a moment.
-  window.addEventListener("load", function () {
-    restore();
-    setTimeout(restore, 500);
+  Object.defineProperty(window, "__READER__", {
+    value: {
+      read: function () {
+        return {
+          url: location.href,
+          unsaved: edited.some(holdsText),
+          unloadArmed: unloadArmed(),
+          interactions: interactions,
+          mediaPaused: mediaPaused(),
+          capturing: tracks.some(live),
+          scroll: { x: window.scrollX, y: window.scrollY },
+          draft: draft(),
+        };
+      },
+      restore: function (state) {
+        if (new URL(state.url).origin !== location.origin) return;
+        if (state.scroll.x || state.scroll.y) {
+          whenLoaded(function () { window.scrollTo(state.scroll.x, state.scroll.y); }, __SCROLL_RETRY_MS__);
+        }
+        if (state.draft) {
+          whenLoaded(function () { restoreDraft(state.draft); }, __DRAFT_RETRY_MS__);
+        }
+      },
+    },
   });
 })();
 "#;
+
+/// Expression Rust evaluates to read the record kept by
+/// [`page_state_script`].
+///
+/// Evaluates to `null` where the script never ran, such as an error page or
+/// the built-in PDF viewer.
+pub fn page_state_drain_expression() -> String {
+    format!(r#"typeof window.{STATE_READER} === "object" ? window.{STATE_READER}.read() : null"#)
+}
+
+/// Reads what [`page_state_drain_expression`] evaluated to.
+///
+/// @param json - The evaluation result, as JSON.
+/// @returns The reading, or `None` when the page had no record to hand over.
+pub fn parse_page_state(json: &str) -> Option<PageState> {
+    serde_json::from_str::<Option<PageState>>(json).ok().flatten()
+}
+
+#[derive(serde::Serialize)]
+struct Restore<'a> {
+    url: &'a str,
+    scroll: Scroll,
+    draft: Option<&'a str>,
+}
+
+/// Expression that hands a reloaded page its scroll and draft.
+///
+/// @param url - The URL they were read on; the page applies them only on the
+///   same origin.
+pub fn restore_expression(url: &str, scroll: Scroll, draft: Option<&str>) -> String {
+    // JSON is a JavaScript expression, so the values arrive as data, never as
+    // code, whatever the page put in its draft.
+    let state = serde_json::to_string(&Restore { url, scroll, draft }).unwrap_or_else(|_| "null".into());
+    format!(r#"typeof window.{STATE_READER} === "object" && {state} && window.{STATE_READER}.restore({state})"#)
+}
 
 /// Name of the page-side function that hands over the navigation log.
 const NAVIGATION_READER: &str = "__hakuNavigation";
@@ -324,11 +416,46 @@ mod tests {
     }
 
     #[test]
-    fn form_contents_are_kept_under_their_own_prefix() {
-        let script = form_memory_script();
+    fn the_page_state_script_has_every_placeholder_filled() {
+        let script = page_state_script();
 
-        assert!(script.contains(FORM_PREFIX));
-        assert!(!script.contains("__PREFIX__"));
+        assert!(script.contains(STATE_READER));
+        for placeholder in [
+            "__READER__",
+            "__MEDIA_MIN_SECONDS__",
+            "__SCROLL_RETRY_MS__",
+            "__DRAFT_RETRY_MS__",
+        ] {
+            assert!(!script.contains(placeholder), "{placeholder} was left in the script");
+        }
+    }
+
+    #[test]
+    fn a_page_reading_is_parsed_from_its_record() {
+        let json = r#"{"url":"https://a.test/","unsaved":true,"unloadArmed":false,"interactions":12,
+            "mediaPaused":true,"capturing":false,"scroll":{"x":0,"y":480},"draft":"[]"}"#;
+
+        let state = parse_page_state(json).unwrap();
+
+        assert_eq!(state.url, "https://a.test/");
+        assert!(state.unsaved);
+        assert_eq!(state.interactions, 12);
+        assert!(state.media_paused);
+        assert_eq!(state.scroll, Scroll { x: 0.0, y: 480.0 });
+        assert_eq!(state.draft.as_deref(), Some("[]"));
+    }
+
+    #[test]
+    fn a_page_without_a_record_reads_as_nothing() {
+        assert!(parse_page_state("null").is_none());
+        assert!(parse_page_state("not json").is_none());
+    }
+
+    #[test]
+    fn a_restore_carries_a_draft_as_data_not_code() {
+        let expression = restore_expression("https://a.test/", Scroll::default(), Some(r#"");alert(1);(""#));
+
+        assert!(expression.contains(r#"\");alert(1);(\""#));
     }
 
     #[test]

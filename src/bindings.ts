@@ -158,6 +158,18 @@ export type Layout = {
 	radius?: number,
 };
 
+/**  What discarding a tab would cost, from least to most. */
+export type Loss = 
+/**  A reload shows the same thing. */
+"none" | 
+/**  The page would come back different. */
+"state" | 
+/**  Something the user made would be gone. */
+"work";
+
+/**  A reason behind a tab's [`Loss`]. */
+export type LossSignal = "unsaved" | "unloadArmed" | "formResult" | "interactions" | "mediaPaused" | "unreadable";
+
 /**
  *  Emitted on every tick with what memory looks like now.
  * 
@@ -264,6 +276,10 @@ export type SlotMemory = {
 	tab: TabId | null,
 	/**  Commit charge in bytes, or nothing when the slot has not been measured. */
 	bytes: number | null,
+	/**  What discarding the tab would cost. Nothing while the slot is parked. */
+	loss: Loss | null,
+	/**  The reasons behind `loss`. */
+	signals: LossSignal[],
 };
 
 /**

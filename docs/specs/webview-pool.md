@@ -20,7 +20,7 @@ What a discarded tab keeps is its URL, title, favicon and place in history. What
 
 Pausing a page _is_ possible while it keeps its webview — that is [freezing](#freezing) — but a frozen page still holds most of its memory. A page's state is its memory: only discarding gives it back.
 
-Scroll position survives through a script the page runs on its own — see [Scroll](#scroll) below.
+Scroll position and form contents survive — see [Scroll and form contents](#scroll-and-form-contents) below.
 
 ## States
 
@@ -156,24 +156,17 @@ The menu hangs over page content, so it registers with `useOverlay`. It is opaqu
 
 The warning is a tooltip on an icon beside the option. Its bubble can reach past the menu's rectangle, so its open state is tracked in code rather than left to CSS, and it registers as an overlay of its own while it shows.
 
-## Scroll
+## Scroll and form contents
 
-A discarded tab reloads, which would otherwise return to the top of the page. The injected script saves and restores the offset in `sessionStorage`, entirely within the page: no IPC, and nothing left on the site after the browsing session, unlike `localStorage`.
-
-The trade-off is that the offset lives in the webview that saved it, so a tab restored into a _different_ pool slot starts at the top.
-
-## Form contents
-
-A discarded tab would also lose whatever was typed into its forms. A second injected script (`inject::form_memory_script`) keeps it the same way scroll is kept: in `sessionStorage`, inside the page, with the same limit that a different slot starts empty.
+A discarded tab reloads, which would otherwise return to the top of the page with its forms empty. The page's scroll offset and changed form fields are read as it is left, kept in `Tab` by Rust, and handed back when the tab reloads, in whichever slot it lands. Nothing is stored in the page or on the site. [Tab optimization § What a discarded tab gets back](tab-optimization.md#what-a-discarded-tab-gets-back) owns how; what is kept of a form is:
 
 - **Only changes are kept.** A field still holding what the page loaded with is not stored, so a reload never overwrites the page's own values. On restore, a field the page has already changed is left alone, and a page whose fields no longer line up by position and name is skipped field by field.
 - **Secrets are never stored:** password, hidden and file fields, anything whose own or form's `autocomplete` is `off`, a payment (`cc-*`) or password token, or `one-time-code`, and fields named like card numbers or security codes.
-- **Submitting forgets the draft**, and leaving the page right after does not save it back.
+- **A submitted form has no draft** until it is edited again.
 - **Restored values are typed in properly**: set through the element's own setter and followed by `input` and `change` events, so a framework that owns its fields' state sees them. Those synthetic events are not mistaken for an edit.
+- **Only on the same origin.** A reload that lands on another origin, such as a sign-in page, receives nothing, so text typed on one site never reaches another's fields.
 
-Restoring is tried at `load` and again shortly after, for pages that build their forms with script. Single-page apps that render a form long after load, or rebuild it per route, may not be restored.
-
-The script cannot tell a discarded tab's reload from any other visit to the same URL in the same webview, so a draft also comes back when the user returns to that page some other way during the session, as browsers do on back and forward.
+Restoring is tried at `load` and again shortly after, for pages that build their forms with script. Single-page apps that render a form long after load, or rebuild it per route, may not be restored. Only a discarded tab's reload restores; returning to a page some other way does not.
 
 ## Reloads and the HTTP cache
 

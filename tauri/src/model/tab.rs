@@ -3,6 +3,7 @@ use specta::Type;
 
 use super::dialog::PageDialog;
 use super::history::{History, Visit};
+use super::page_state::{PageRecord, PageState, DRAFT_LIMIT};
 use super::pool::SlotId;
 
 /// Scheme used by pages Haku renders itself, inside the chrome webview.
@@ -63,6 +64,13 @@ pub struct Tab {
     pub dialog: Option<PageDialog>,
     /// The page is playing audio, which a smart policy will not interrupt.
     pub audible: bool,
+    /// What the user typed into the page's forms, to put back when a
+    /// discarded tab reloads. Never sent to the interface or written to disk.
+    #[serde(skip)]
+    pub draft: Option<String>,
+    /// What the page would lose if discarded, as last read. Rust's alone.
+    #[serde(skip)]
+    pub page: PageRecord,
 }
 
 impl Tab {
@@ -83,7 +91,41 @@ impl Tab {
             active_at: 0,
             dialog: None,
             audible: false,
+            draft: None,
+            page: PageRecord::default(),
         }
+    }
+
+    /// Forgets what belonged to the page in the current history entry, as
+    /// the tab moves to another one.
+    ///
+    /// Whether the page is a form result is left alone: that is decided when
+    /// a navigation starts, before the entry it lands on is committed.
+    pub fn leave_entry(&mut self) {
+        self.scroll = Scroll::default();
+        self.draft = None;
+        self.page.state = None;
+        self.page.unreadable = false;
+    }
+
+    /// Records a reading of the page.
+    ///
+    /// A reading taken on another URL than the tab's current one arrived after
+    /// the tab moved on, and only says the page could be read.
+    ///
+    /// @param state - The reading, or nothing when the page could not be read.
+    pub fn record_state(&mut self, state: Option<PageState>) {
+        let Some(mut state) = state else {
+            self.page.unreadable = true;
+            return;
+        };
+        self.page.unreadable = false;
+        if state.url != self.url() {
+            return;
+        }
+        self.scroll = state.scroll;
+        self.draft = state.draft.take().filter(|draft| draft.len() <= DRAFT_LIMIT);
+        self.page.state = Some(state);
     }
 
     pub fn url(&self) -> &str {

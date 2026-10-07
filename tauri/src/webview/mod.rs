@@ -1,12 +1,14 @@
 pub mod inject;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 use crate::browser::{Effect, BLANK_URL};
 use crate::error::{HakuError, Result};
-use crate::model::SlotId;
+use crate::model::{PageState, Scroll, SlotId, TabId};
 use crate::platform::{self, PageSignal};
 
 /// Label of the webview that renders Haku's own interface.
@@ -43,6 +45,35 @@ pub struct Viewport {
 /// the UI thread.
 pub type PageObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, SlotId, PageSignal) + Send + Sync>;
 
+/// Longest a page is waited on when it is read as it is left, which is
+/// also the most a tab switch can be held up by it.
+pub const LEAVE_TIMEOUT: Duration = Duration::from_millis(150);
+
+/// What a page held, read as it was left or on a tick. `None` means it could
+/// not be read.
+pub type PageReading = (TabId, Option<PageState>);
+
+/// Scroll and draft waiting for a slot's next document to load.
+struct PendingRestore {
+    url: String,
+    scroll: Scroll,
+    draft: Option<String>,
+}
+
+/// Restores waiting per slot. Set by [`Effect::RestoreState`], taken when the
+/// document loads, and dropped whenever the slot is navigated elsewhere, so a
+/// restore never lands on another tab's page.
+static PENDING_RESTORES: LazyLock<Mutex<HashMap<SlotId, PendingRestore>>> = LazyLock::new(Mutex::default);
+
+fn set_pending(slot: SlotId, restore: Option<PendingRestore>) {
+    if let Ok(mut pending) = PENDING_RESTORES.lock() {
+        match restore {
+            Some(restore) => pending.insert(slot, restore),
+            None => pending.remove(&slot),
+        };
+    }
+}
+
 fn rect_of(viewport: Viewport) -> tauri::Rect {
     tauri::Rect {
         position: tauri::Position::Logical(LogicalPosition::new(viewport.x, viewport.y)),
@@ -57,6 +88,13 @@ pub fn chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri::Web
 
 /// Applies the effects [`crate::browser::Browser`] produced to real webviews.
 ///
+/// Reading a page that is being left waits for the page, up to
+/// [`LEAVE_TIMEOUT`], before the effect that leaves it is applied. Commands
+/// that apply effects run off the UI thread, so the wait never blocks it.
+///
+/// @returns What each page that was left held, for
+///   [`crate::browser::Browser::report_state`].
+///
 /// # Errors
 /// Returns [`HakuError::WindowMissing`] when the main window is gone, and
 /// propagates Tauri failures from the individual operations.
@@ -65,12 +103,22 @@ pub fn apply<R: tauri::Runtime>(
     effects: &[Effect],
     viewport: Viewport,
     observer: &PageObserver<R>,
-) -> Result<()> {
+) -> Result<Vec<PageReading>> {
+    let mut readings = Vec::new();
     for effect in effects {
         match effect {
-            Effect::EnsureSlot { slot, url } => ensure_slot(app, *slot, url, viewport, observer)?,
-            Effect::Blank { slot } => navigate(app, *slot, BLANK_URL)?,
-            Effect::Destroy { slot } => destroy(app, *slot)?,
+            Effect::EnsureSlot { slot, url } => {
+                set_pending(*slot, None);
+                ensure_slot(app, *slot, url, viewport, observer)?;
+            }
+            Effect::Blank { slot } => {
+                set_pending(*slot, None);
+                navigate(app, *slot, BLANK_URL)?;
+            }
+            Effect::Destroy { slot } => {
+                set_pending(*slot, None);
+                destroy(app, *slot)?;
+            }
             Effect::Show { slot } => set_visible(app, *slot, true)?,
             Effect::Hide { slot } => set_visible(app, *slot, false)?,
             Effect::Reload { slot } => reload(app, *slot)?,
@@ -86,13 +134,60 @@ pub fn apply<R: tauri::Runtime>(
                     let _ = platform::resume(&webview);
                 }
             }
-            // The page restores its own scroll offset, so a reload needs no
-            // help from here.
-            Effect::RestoreScroll { .. } => {}
+            Effect::Leave { slot, tab } => readings.push((*tab, read_page(app, *slot, LEAVE_TIMEOUT))),
+            Effect::RestoreState {
+                slot,
+                url,
+                scroll,
+                draft,
+            } => set_pending(
+                *slot,
+                Some(PendingRestore {
+                    url: url.clone(),
+                    scroll: *scroll,
+                    draft: draft.clone(),
+                }),
+            ),
             Effect::AnswerDialog { id, answer } => platform::answer_dialog(app, *id, answer.clone())?,
         }
     }
-    Ok(())
+    Ok(readings)
+}
+
+/// Reads what a slot's page holds, waiting at most `timeout`.
+///
+/// Must not be called on the UI thread, where the reading has to run.
+///
+/// @returns The reading, or nothing when the page has no record, does not
+///   answer in time, or the slot has no webview.
+pub fn read_page<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, timeout: Duration) -> Option<PageState> {
+    let webview = app.get_webview(&slot.label())?;
+    let json = platform::evaluate(&webview, &inject::page_state_drain_expression(), timeout)?;
+    inject::parse_page_state(&json)
+}
+
+/// Hands a freshly loaded document the restore waiting for its slot.
+///
+/// The blank page a slot is created or parked on is not the document the
+/// restore is for, and leaves it waiting.
+fn restore_pending<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, url: &str) {
+    if url == BLANK_URL {
+        return;
+    }
+    let Some(restore) = PENDING_RESTORES
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.remove(&slot))
+    else {
+        return;
+    };
+    if let Some(webview) = app.get_webview(&slot.label()) {
+        let _ = webview.eval(inject::restore_expression(
+            &restore.url,
+            restore.scroll,
+            restore.draft.as_deref(),
+        ));
+    }
 }
 
 /// Creates the slot's webview if it does not exist yet, otherwise navigates it.
@@ -118,8 +213,7 @@ fn ensure_slot<R: tauri::Runtime>(
         .user_agent(USER_AGENT)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
-        .initialization_script(inject::scroll_memory_script())
-        .initialization_script(inject::form_memory_script());
+        .initialization_script(inject::page_state_script());
 
     let webview = window.add_child(
         builder,
@@ -137,7 +231,10 @@ fn ensure_slot<R: tauri::Runtime>(
     let sink = {
         let observer = observer.clone();
         let app = app.clone();
-        Arc::new(move |signal| observer(&app, slot, signal))
+        Arc::new(move |signal| match signal {
+            PageSignal::Loaded { url } => restore_pending(&app, slot, &url),
+            signal => observer(&app, slot, signal),
+        })
     };
     platform::observe_page(&webview, sink)?;
 
