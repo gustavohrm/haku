@@ -23,7 +23,7 @@ describe("internal routing", () => {
     expect(element?.props).toEqual({});
   });
 
-  it.each(["haku://new-tab", "haku://settings", "haku://history"])("renders %s", (url) => {
+  it.each(["haku://new-tab", "haku://settings", "haku://history", "haku://memory"])("renders %s", (url) => {
     expect(renderInternal(url)).not.toBeNull();
   });
 

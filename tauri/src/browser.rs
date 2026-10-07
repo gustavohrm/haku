@@ -6,7 +6,7 @@ use specta::Type;
 use crate::error::{HakuError, Result};
 use crate::model::{
     is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog, Policy, Scroll,
-    SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
+    Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -193,6 +193,11 @@ impl Browser {
 
     pub fn capacity(&self) -> usize {
         self.pool.capacity()
+    }
+
+    /// Every slot the pool currently owns, with its occupant if it has one.
+    pub fn slots(&self) -> &[Slot] {
+        self.pool.slots()
     }
 
     /// Every slot the pool currently owns, whether occupied or parked.

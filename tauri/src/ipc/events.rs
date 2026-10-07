@@ -3,6 +3,7 @@ use specta::Type;
 use tauri_specta::Event;
 
 use crate::browser::BrowserState;
+use crate::state::MemoryReport;
 use crate::storage::Settings;
 
 /// Emitted whenever tabs, activation or pool occupancy change.
@@ -15,3 +16,10 @@ pub struct StateChanged(pub BrowserState);
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct SettingsChanged(pub Settings);
+
+/// Emitted on every tick with what memory looks like now.
+///
+/// Separate from [`StateChanged`] because the figures move on every tick while
+/// the tabs mostly do not, and a tick that changes no tab writes nothing.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct MemoryChanged(pub MemoryReport);

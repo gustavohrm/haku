@@ -19,6 +19,7 @@
 //! [`page_observer`].
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::{Manager, State};
 use tauri_specta::Event;
@@ -26,14 +27,14 @@ use tauri_specta::Event;
 use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId, Preset, SlotId, TabId};
+use crate::model::{DialogAnswer, DialogId, Preset, Pressure, SlotId, TabId};
 use crate::platform::{self, PageSignal};
-use crate::state::{now_ms, AppState};
+use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
 use crate::webview::{self, PageObserver, CHROME_LABEL};
 
-use super::events::{SettingsChanged, StateChanged};
+use super::events::{MemoryChanged, SettingsChanged, StateChanged};
 
 /// Rejects a command that only the interface may issue.
 ///
@@ -84,28 +85,81 @@ fn page_observer() -> PageObserver<tauri::Wry> {
     )
 }
 
-/// How often smart discarding looks for background tabs worth freeing.
-const RELIEF_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+/// How often the tick runs while memory is plentiful.
+const TICK: Duration = Duration::from_secs(5);
 
-/// Runs smart discarding for as long as the application does.
+/// How often the tick runs under pressure, when memory runs out faster than
+/// a slower timer would notice.
+const TICK_PRESSED: Duration = Duration::from_secs(1);
+
+/// Measures memory and runs smart discarding for as long as the application
+/// does.
 ///
 /// A thread of its own rather than an interface timer: low memory is a reason
 /// to act whether or not anyone is looking at the window.
-pub fn relieve_memory_periodically(app: tauri::AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(RELIEF_INTERVAL);
-        let state = app.state::<AppState>();
-        let low_memory = platform::memory_is_low();
-        let effects = match state.browser.write() {
-            Ok(mut browser) => browser.relieve(now_ms(), low_memory),
-            Err(_) => continue,
-        };
-        // Most passes only re-time the visible tab, which is not worth an event
-        // or a session write.
-        if !effects.is_empty() {
-            let _ = commit(&app, &state, &effects);
+pub fn tick_periodically(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let mut interval = TICK;
+        loop {
+            std::thread::sleep(interval);
+            let state = app.state::<AppState>();
+            let pressure = measure_memory(&app, &state);
+            interval = if pressure == Pressure::Normal {
+                TICK
+            } else {
+                TICK_PRESSED
+            };
+
+            let effects = match state.browser.write() {
+                Ok(mut browser) => browser.relieve(now_ms(), platform::memory_is_low()),
+                Err(_) => continue,
+            };
+            // Most passes only re-time the visible tab, which is not worth an
+            // event or a session write.
+            if !effects.is_empty() {
+                let _ = commit(&app, &state, &effects);
+            }
+            if let Ok(report) = report_memory(&state) {
+                let _ = MemoryChanged(report).emit(&app);
+            }
         }
     });
+}
+
+/// Takes a new memory reading into the state.
+///
+/// @returns The pressure level the reading puts the machine at.
+fn measure_memory(app: &tauri::AppHandle, state: &AppState) -> Pressure {
+    let slots: Vec<(SlotId, tauri::Webview)> = match state.browser.read() {
+        Ok(browser) => browser
+            .slot_ids()
+            .into_iter()
+            .filter_map(|slot| app.get_webview(&slot.label()).map(|webview| (slot, webview)))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let attribution = webview::chrome(app)
+        .and_then(|chrome| platform::slot_memory(&chrome, &slots))
+        .ok();
+    let status = platform::memory_status();
+
+    let Ok(mut memory) = state.memory.write() else {
+        return Pressure::Normal;
+    };
+    *memory = memory.next(status, attribution);
+    memory.pressure
+}
+
+fn report_memory(state: &AppState) -> Result<MemoryReport> {
+    let memory = state
+        .memory
+        .read()
+        .map_err(|_| HakuError::Storage("memory lock poisoned".into()))?;
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    Ok(memory.report(browser.slots()))
 }
 
 fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Commit], title: Option<String>) {
@@ -482,6 +536,15 @@ fn record_visit(state: &AppState, report: &PageReport) {
     } else {
         history.retitle(&report.url, &report.title)
     };
+}
+
+/// What `haku://memory` shows: the last tick's reading against the slots as
+/// they are now.
+#[tauri::command]
+#[specta::specta]
+pub fn memory_report(webview: tauri::Webview, state: State<'_, AppState>) -> Result<MemoryReport> {
+    ensure_chrome(&webview)?;
+    report_memory(&state)
 }
 
 #[tauri::command]

@@ -1,9 +1,14 @@
 use std::sync::{Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::browser::Browser;
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
+use crate::model::{MemoryStatus, Pressure, Slot, SlotId, TabId};
+use crate::platform::memory::{Attribution, UnattributedProcess};
 use crate::storage::{HistoryDb, Paths, Session, Settings};
 use crate::webview::Viewport;
 
@@ -15,6 +20,67 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|since| since.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// The last tick's reading of memory.
+#[derive(Clone, Debug, Default)]
+pub struct MemoryReading {
+    pub pressure: Pressure,
+    /// Nothing when the system's figures could not be read.
+    pub headroom: Option<f64>,
+    pub attribution: Attribution,
+}
+
+impl MemoryReading {
+    /// Takes a new reading, carrying the pressure level and, when the engine
+    /// could not be reached, the last attribution over from this one.
+    pub fn next(&self, status: Option<MemoryStatus>, attribution: Option<Attribution>) -> MemoryReading {
+        let headroom = status.map(|status| status.headroom());
+        MemoryReading {
+            pressure: headroom.map_or(Pressure::Normal, |headroom| self.pressure.next(headroom)),
+            headroom,
+            attribution: attribution.unwrap_or_else(|| self.attribution.clone()),
+        }
+    }
+
+    /// The reading laid out against the pool's slots as they are now.
+    pub fn report(&self, slots: &[Slot]) -> MemoryReport {
+        MemoryReport {
+            pressure: self.pressure,
+            headroom: self.headroom,
+            slots: slots
+                .iter()
+                .map(|slot| SlotMemory {
+                    slot: slot.id,
+                    tab: slot.occupant,
+                    bytes: self.attribution.slots.get(&slot.id).copied(),
+                })
+                .collect(),
+            unattributed: self.attribution.unattributed.clone(),
+        }
+    }
+}
+
+/// What `haku://memory` shows.
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryReport {
+    pub pressure: Pressure,
+    /// The scarcer of free physical memory and free commit, from 0 to 1.
+    pub headroom: Option<f64>,
+    pub slots: Vec<SlotMemory>,
+    pub unattributed: Vec<UnattributedProcess>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotMemory {
+    pub slot: SlotId,
+    /// Nothing while the slot is parked.
+    pub tab: Option<TabId>,
+    /// Commit charge in bytes, or nothing when the slot has not been measured.
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub bytes: Option<u64>,
 }
 
 /// Everything the command layer needs, behind the locks that make it shareable.
@@ -34,6 +100,7 @@ pub struct AppState {
     /// rectangle, so remembering it keeps a webview created while an internal
     /// page is showing from being built at zero size and staying invisible.
     last_viewport: RwLock<Viewport>,
+    pub memory: RwLock<MemoryReading>,
     pub paths: Paths,
 }
 
@@ -45,6 +112,7 @@ impl AppState {
             history: Mutex::new(history),
             layout: RwLock::new(Layout::default()),
             last_viewport: RwLock::new(Viewport::default()),
+            memory: RwLock::new(MemoryReading::default()),
             paths,
         }
     }
@@ -89,5 +157,69 @@ impl AppState {
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         crate::storage::write_json(&self.paths.settings, &*settings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status(available_share: f64) -> MemoryStatus {
+        let total = 1_000_000;
+        MemoryStatus {
+            total_physical: total,
+            available_physical: (total as f64 * available_share) as u64,
+            commit_limit: total,
+            commit_total: 0,
+        }
+    }
+
+    fn attribution(slot: SlotId, bytes: u64) -> Attribution {
+        Attribution {
+            slots: [(slot, bytes)].into(),
+            unattributed: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_reading_carries_the_pressure_level_through_hysteresis() {
+        let tight = MemoryReading::default().next(Some(status(0.10)), None);
+        assert_eq!(tight.pressure, Pressure::Tight);
+        assert_eq!(tight.next(Some(status(0.16)), None).pressure, Pressure::Tight);
+    }
+
+    #[test]
+    fn an_unreadable_system_reads_as_normal_without_headroom() {
+        let tight = MemoryReading::default().next(Some(status(0.10)), None);
+        let reading = tight.next(None, None);
+        assert_eq!(reading.pressure, Pressure::Normal);
+        assert_eq!(reading.headroom, None);
+    }
+
+    #[test]
+    fn an_unreachable_engine_keeps_the_last_attribution() {
+        let first = MemoryReading::default().next(None, Some(attribution(SlotId(0), 42)));
+        assert_eq!(first.next(None, None).attribution, attribution(SlotId(0), 42));
+    }
+
+    #[test]
+    fn the_report_follows_the_slots_as_they_are_now() {
+        let reading = MemoryReading::default().next(None, Some(attribution(SlotId(0), 42)));
+        let slots = [
+            Slot {
+                id: SlotId(0),
+                occupant: Some(TabId(3)),
+                used_at: 0,
+            },
+            Slot {
+                id: SlotId(1),
+                occupant: None,
+                used_at: 0,
+            },
+        ];
+        let report = reading.report(&slots);
+        assert_eq!(report.slots[0].tab, Some(TabId(3)));
+        assert_eq!(report.slots[0].bytes, Some(42));
+        assert_eq!(report.slots[1].bytes, None);
     }
 }
