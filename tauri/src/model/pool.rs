@@ -60,8 +60,9 @@ impl Acquired {
 /// A fixed-size set of reusable webviews shared by every web tab.
 ///
 /// The pool is deliberately ignorant of tabs beyond their identity. Callers
-/// decide which tabs may not be displaced and what the effective capacity is,
-/// which keeps the eviction policy testable without a live Tauri runtime.
+/// decide what the effective capacity is and which tab gives up its slot when
+/// the pool is full, which keeps the eviction policy testable without a live
+/// Tauri runtime.
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct WebviewPool {
     capacity: usize,
@@ -88,10 +89,11 @@ impl WebviewPool {
 
     /// How many slots the pool may hold right now.
     ///
-    /// Every fixed tab reserves one, plus one for whichever tab is active, so
-    /// pinning tabs can never leave the active tab without a webview.
-    pub fn effective_capacity(&self, fixed_count: usize) -> usize {
-        self.capacity.max(fixed_count + 1)
+    /// @param reserved - Slots that must exist whatever the configured
+    ///   capacity: one per visible, fixed or must-run tab, so none of them can
+    ///   be left without a webview.
+    pub fn effective_capacity(&self, reserved: usize) -> usize {
+        self.capacity.max(reserved)
     }
 
     pub fn set_capacity(&mut self, capacity: usize) {
@@ -114,16 +116,16 @@ impl WebviewPool {
         }
     }
 
-    /// Claims a slot for `tab`, growing the pool or evicting the coldest
-    /// displaceable resident as needed.
+    /// Claims a slot for `tab`, reusing a free one, growing the pool, or
+    /// taking `victim`'s, in that order.
     ///
-    /// `protected` lists tabs that must keep their slot: the active tab and any
-    /// fixed tab still reporting activity.
+    /// @param victim - The tab to displace if the pool is full. The caller
+    ///   chooses it, since only the caller knows what each tab would lose.
     ///
     /// # Errors
-    /// Returns [`HakuError::NoSlotAvailable`] when the pool is full and every
-    /// resident is protected.
-    pub fn acquire(&mut self, tab: TabId, effective_capacity: usize, protected: &[TabId]) -> Result<Acquired> {
+    /// Returns [`HakuError::NoSlotAvailable`] when the pool is full and no
+    /// victim holding a slot was named.
+    pub fn acquire(&mut self, tab: TabId, effective_capacity: usize, victim: Option<TabId>) -> Result<Acquired> {
         if let Some(slot) = self.slot_of(tab) {
             self.touch(tab);
             return Ok(Acquired::Held(slot));
@@ -138,7 +140,7 @@ impl WebviewPool {
         }
 
         if self.slots.len() < effective_capacity {
-            let id = SlotId(self.slots.len());
+            let id = self.unused_id();
             self.slots.push(Slot {
                 id,
                 occupant: Some(tab),
@@ -147,21 +149,28 @@ impl WebviewPool {
             return Ok(Acquired::Free(id));
         }
 
-        let coldest = self
+        let victim = victim.ok_or(HakuError::NoSlotAvailable)?;
+        let slot = self
             .slots
             .iter_mut()
-            .filter(|slot| slot.occupant.is_some_and(|occupant| !protected.contains(&occupant)))
-            .min_by_key(|slot| slot.used_at)
+            .find(|slot| slot.occupant == Some(victim))
             .ok_or(HakuError::NoSlotAvailable)?;
-
-        let evicted = coldest.occupant.ok_or(HakuError::NoSlotAvailable)?;
-        coldest.occupant = Some(tab);
-        coldest.used_at = self.clock;
+        slot.occupant = Some(tab);
+        slot.used_at = self.clock;
 
         Ok(Acquired::Evicted {
-            slot: coldest.id,
-            evicted,
+            slot: slot.id,
+            evicted: victim,
         })
+    }
+
+    /// The lowest id no slot uses. Slots can be removed from anywhere in the
+    /// pool, so the next id is not simply the count.
+    fn unused_id(&self) -> SlotId {
+        let id = (0..)
+            .find(|candidate| self.slots.iter().all(|slot| slot.id.0 != *candidate))
+            .unwrap_or(self.slots.len());
+        SlotId(id)
     }
 
     /// Frees whatever slot `tab` held, if any.
@@ -171,24 +180,18 @@ impl WebviewPool {
         Some(slot.id)
     }
 
-    /// Drops slots that exceed the effective capacity, returning the ones whose
-    /// webviews the caller must destroy along with any tab they displaced.
-    pub fn shrink_to(&mut self, effective_capacity: usize) -> Vec<(SlotId, Option<TabId>)> {
-        let mut removed = Vec::new();
-        while self.slots.len() > effective_capacity {
-            if let Some(slot) = self.slots.pop() {
-                removed.push((slot.id, slot.occupant));
-            }
-        }
-        removed
+    /// Removes a slot whose webview the caller will destroy.
+    ///
+    /// @returns The removed slot, with the tab it displaced if it had one.
+    pub fn remove(&mut self, id: SlotId) -> Option<Slot> {
+        let index = self.slots.iter().position(|slot| slot.id == id)?;
+        Some(self.slots.remove(index))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const NONE: &[TabId] = &[];
 
     fn tab(id: u64) -> TabId {
         TabId(id)
@@ -221,101 +224,116 @@ mod tests {
     }
 
     #[test]
-    fn fixed_tabs_raise_effective_capacity_above_the_configured_value() {
+    fn reserved_slots_raise_effective_capacity_above_the_configured_value() {
         let pool = WebviewPool::new(1);
-        assert_eq!(pool.effective_capacity(0), 1);
-        assert_eq!(pool.effective_capacity(3), 4);
+        assert_eq!(pool.effective_capacity(1), 1);
+        assert_eq!(pool.effective_capacity(4), 4);
     }
 
     #[test]
-    fn a_configured_capacity_larger_than_the_fixed_count_wins() {
+    fn a_configured_capacity_larger_than_the_reservation_wins() {
         let pool = WebviewPool::new(8);
-        assert_eq!(pool.effective_capacity(2), 8);
+        assert_eq!(pool.effective_capacity(3), 8);
     }
 
     #[test]
     fn the_pool_grows_lazily_up_to_the_effective_capacity() {
         let mut pool = WebviewPool::new(2);
 
-        assert_eq!(pool.acquire(tab(1), 2, NONE).unwrap(), Acquired::Free(SlotId(0)));
-        assert_eq!(pool.acquire(tab(2), 2, NONE).unwrap(), Acquired::Free(SlotId(1)));
+        assert_eq!(pool.acquire(tab(1), 2, None).unwrap(), Acquired::Free(SlotId(0)));
+        assert_eq!(pool.acquire(tab(2), 2, None).unwrap(), Acquired::Free(SlotId(1)));
         assert_eq!(pool.slots().len(), 2);
     }
 
     #[test]
     fn acquiring_a_slot_the_tab_already_holds_changes_nothing() {
         let mut pool = WebviewPool::new(2);
-        let first = pool.acquire(tab(1), 2, NONE).unwrap().slot();
+        let first = pool.acquire(tab(1), 2, None).unwrap().slot();
 
-        assert_eq!(pool.acquire(tab(1), 2, NONE).unwrap(), Acquired::Held(first));
+        assert_eq!(pool.acquire(tab(1), 2, None).unwrap(), Acquired::Held(first));
         assert_eq!(pool.slots().len(), 1);
     }
 
     #[test]
-    fn a_full_pool_evicts_the_least_recently_used_tab() {
+    fn a_full_pool_evicts_the_named_victim() {
         let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, NONE).unwrap();
-        pool.acquire(tab(2), 2, NONE).unwrap();
-        pool.touch(tab(1));
+        pool.acquire(tab(1), 2, None).unwrap();
+        pool.acquire(tab(2), 2, None).unwrap();
 
-        let acquired = pool.acquire(tab(3), 2, NONE).unwrap();
+        let acquired = pool.acquire(tab(3), 2, Some(tab(1))).unwrap();
         assert_eq!(
             acquired,
             Acquired::Evicted {
-                slot: SlotId(1),
-                evicted: tab(2)
+                slot: SlotId(0),
+                evicted: tab(1)
             }
         );
     }
 
     #[test]
-    fn protected_tabs_are_never_evicted() {
+    fn a_full_pool_refuses_when_no_victim_is_named() {
         let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, NONE).unwrap();
-        pool.acquire(tab(2), 2, NONE).unwrap();
+        pool.acquire(tab(1), 2, None).unwrap();
+        pool.acquire(tab(2), 2, None).unwrap();
 
-        let acquired = pool.acquire(tab(3), 2, &[tab(1)]).unwrap();
-        assert_eq!(
-            acquired,
-            Acquired::Evicted {
-                slot: SlotId(1),
-                evicted: tab(2)
-            }
-        );
-    }
-
-    #[test]
-    fn a_full_pool_of_protected_tabs_refuses_rather_than_displacing_one() {
-        let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, NONE).unwrap();
-        pool.acquire(tab(2), 2, NONE).unwrap();
-
-        let error = pool.acquire(tab(3), 2, &[tab(1), tab(2)]).unwrap_err();
+        let error = pool.acquire(tab(3), 2, None).unwrap_err();
         assert!(matches!(error, HakuError::NoSlotAvailable));
+    }
+
+    #[test]
+    fn a_full_pool_refuses_a_victim_that_holds_no_slot() {
+        let mut pool = WebviewPool::new(1);
+        pool.acquire(tab(1), 1, None).unwrap();
+
+        let error = pool.acquire(tab(2), 1, Some(tab(9))).unwrap_err();
+        assert!(matches!(error, HakuError::NoSlotAvailable));
+    }
+
+    #[test]
+    fn a_free_slot_is_used_before_any_victim() {
+        let mut pool = WebviewPool::new(2);
+        pool.acquire(tab(1), 2, None).unwrap();
+        pool.acquire(tab(2), 2, None).unwrap();
+        pool.release(tab(2));
+
+        assert_eq!(
+            pool.acquire(tab(3), 2, Some(tab(1))).unwrap(),
+            Acquired::Free(SlotId(1))
+        );
     }
 
     #[test]
     fn a_released_slot_is_reused_before_the_pool_grows() {
         let mut pool = WebviewPool::new(3);
-        pool.acquire(tab(1), 3, NONE).unwrap();
-        pool.acquire(tab(2), 3, NONE).unwrap();
+        pool.acquire(tab(1), 3, None).unwrap();
+        pool.acquire(tab(2), 3, None).unwrap();
         pool.release(tab(1));
 
-        assert_eq!(pool.acquire(tab(3), 3, NONE).unwrap(), Acquired::Free(SlotId(0)));
+        assert_eq!(pool.acquire(tab(3), 3, None).unwrap(), Acquired::Free(SlotId(0)));
         assert_eq!(pool.slots().len(), 2);
     }
 
     #[test]
-    fn shrinking_reports_the_slots_to_destroy_and_the_tabs_they_held() {
-        let mut pool = WebviewPool::new(3);
-        pool.acquire(tab(1), 3, NONE).unwrap();
-        pool.acquire(tab(2), 3, NONE).unwrap();
-        pool.acquire(tab(3), 3, NONE).unwrap();
+    fn removing_a_slot_reports_the_tab_it_held() {
+        let mut pool = WebviewPool::new(2);
+        pool.acquire(tab(1), 2, None).unwrap();
+        pool.acquire(tab(2), 2, None).unwrap();
 
-        let removed = pool.shrink_to(1);
+        let removed = pool.remove(SlotId(0)).unwrap();
 
-        assert_eq!(removed, vec![(SlotId(2), Some(tab(3))), (SlotId(1), Some(tab(2)))]);
+        assert_eq!(removed.occupant, Some(tab(1)));
+        assert_eq!(pool.slot_of(tab(2)), Some(SlotId(1)));
         assert_eq!(pool.slots().len(), 1);
+    }
+
+    #[test]
+    fn growing_after_a_removal_reuses_the_lowest_free_id() {
+        let mut pool = WebviewPool::new(2);
+        pool.acquire(tab(1), 2, None).unwrap();
+        pool.acquire(tab(2), 2, None).unwrap();
+        pool.remove(SlotId(0));
+
+        assert_eq!(pool.acquire(tab(3), 2, None).unwrap(), Acquired::Free(SlotId(0)));
     }
 
     #[test]

@@ -237,17 +237,62 @@ impl Browser {
         })
     }
 
-    fn fixed_count(&self) -> usize {
-        self.tabs.iter().filter(|tab| tab.fixed && !tab.is_internal()).count()
+    /// Whether a tab must keep running in the background: it is fixed, or its
+    /// page is playing audio.
+    ///
+    /// Audio is not honoured under an _always_ policy. Always means always, and
+    /// fixing the tab is how a user exempts it.
+    fn must_run(&self, tab: &Tab) -> bool {
+        let honours_audio = self.freeze != Policy::Always && self.discard != Policy::Always;
+        tab.fixed || (honours_audio && tab.audible && tab.slot().is_some())
     }
 
-    /// Tabs that must not lose their slot: the active tab and every fixed tab.
-    fn protected(&self) -> Vec<TabId> {
-        let mut protected: Vec<TabId> = self.tabs.iter().filter(|tab| tab.fixed).map(|tab| tab.id).collect();
-        if let Some(active) = self.active {
-            protected.push(active);
-        }
-        protected
+    /// Slots that must exist whatever the configured capacity: one for the
+    /// visible tab, one per fixed tab, and one per background tab that must
+    /// run for another reason.
+    fn reserved(&self) -> usize {
+        let fixed = self.tabs.iter().filter(|tab| tab.fixed && !tab.is_internal()).count();
+        let running = self
+            .tabs
+            .iter()
+            .filter(|tab| !tab.fixed && Some(tab.id) != self.active && self.must_run(tab))
+            .count();
+        1 + fixed + running
+    }
+
+    fn effective_capacity(&self) -> usize {
+        self.pool.effective_capacity(self.reserved())
+    }
+
+    /// Whether a tab must keep its slot: it is visible, or it must run.
+    fn is_protected(&self, id: TabId) -> bool {
+        Some(id) == self.active || self.tab(id).is_ok_and(|tab| self.must_run(tab))
+    }
+
+    /// The tab to give up its slot when the pool is full: the unprotected
+    /// occupant shown least recently.
+    fn victim(&self) -> Option<TabId> {
+        self.pool
+            .slots()
+            .iter()
+            .filter_map(|slot| slot.occupant.map(|occupant| (occupant, slot.used_at)))
+            .filter(|&(occupant, _)| !self.is_protected(occupant))
+            .min_by_key(|&(_, used_at)| used_at)
+            .map(|(occupant, _)| occupant)
+    }
+
+    /// The slot to destroy when the pool shrinks: a parked one if there is
+    /// one, otherwise the victim's.
+    fn surplus_slot(&self) -> Option<SlotId> {
+        let slots = self.pool.slots();
+        slots
+            .iter()
+            .find(|slot| slot.occupant.is_none())
+            .or_else(|| {
+                let victim = self.victim()?;
+                slots.iter().find(|slot| slot.occupant == Some(victim))
+            })
+            .map(|slot| slot.id)
     }
 
     // -- mutations -------------------------------------------------------
@@ -409,18 +454,22 @@ impl Browser {
 
     pub fn set_capacity(&mut self, capacity: usize) -> Vec<Effect> {
         self.pool.set_capacity(capacity);
-        let effective = self.pool.effective_capacity(self.fixed_count());
 
+        // Parked webviews go first, then the tabs eviction would pick, so
+        // shrinking never takes a visible or must-run tab's webview.
         let mut effects = Vec::new();
-        for (slot, occupant) in self.pool.shrink_to(effective) {
-            if let Some(occupant) = occupant {
+        while self.pool.slots().len() > self.effective_capacity() {
+            let Some(removed) = self.surplus_slot().and_then(|slot| self.pool.remove(slot)) else {
+                break;
+            };
+            if let Some(occupant) = removed.occupant {
                 effects.extend(self.dismiss_dialog(occupant));
                 if let Ok(tab) = self.tab_mut(occupant) {
-                    tab.presence = TabPresence::Discarded;
+                    tab.lose_page();
                 }
             }
-            self.forget_slot(slot);
-            effects.push(Effect::Destroy { slot });
+            self.forget_slot(removed.id);
+            effects.push(Effect::Destroy { slot: removed.id });
         }
         effects.extend(self.realize());
         effects
@@ -459,7 +508,7 @@ impl Browser {
             .filter(|&id| {
                 let Ok(tab) = self.tab(id) else { return false };
                 let unshown = now.saturating_sub(tab.active_at);
-                !tab.audible && (unshown >= LONG_UNSHOWN_MS || (low_memory && unshown >= RECENTLY_SHOWN_MS))
+                !self.must_run(tab) && (unshown >= LONG_UNSHOWN_MS || (low_memory && unshown >= RECENTLY_SHOWN_MS))
             })
             .collect();
         stale.into_iter().flat_map(|id| self.discard_tab(id)).collect()
@@ -471,12 +520,20 @@ impl Browser {
     ///
     /// A smart policy leaves a playing tab running, so a tab that falls silent
     /// in the background may be frozen now.
-    pub fn report_audio(&mut self, slot: SlotId, playing: bool) -> Vec<Effect> {
+    ///
+    /// A background tab that falls silent becomes an ordinary background tab,
+    /// timed from `now` rather than from when it was last shown.
+    pub fn report_audio(&mut self, slot: SlotId, playing: bool, now: u64) -> Vec<Effect> {
         let Some(id) = self.occupant_of(slot) else {
             return Vec::new();
         };
         match self.tab_mut(id) {
-            Ok(tab) if tab.audible != playing => tab.audible = playing,
+            Ok(tab) if tab.audible != playing => {
+                tab.audible = playing;
+                if !playing {
+                    tab.active_at = now;
+                }
+            }
             _ => return Vec::new(),
         }
         self.realize()
@@ -668,13 +725,13 @@ impl Browser {
 
     /// Applies the freeze and discard policies to one background tab.
     ///
-    /// Always means always: a tab playing audio is frozen or discarded like any
-    /// other, and keeping it loaded is how a user exempts it. Smart discarding
-    /// is not decided here but in [`Browser::relieve`], because it depends on
-    /// time and memory rather than on what just changed.
+    /// A tab that must run is left running; see [`Browser::must_run`] for why
+    /// that does not hold under an _always_ policy. Smart discarding is not
+    /// decided here but in [`Browser::relieve`], because it depends on time
+    /// and memory rather than on what just changed.
     fn settle(&mut self, id: TabId) -> Vec<Effect> {
         let Ok(tab) = self.tab(id) else { return Vec::new() };
-        let keep_running = tab.audible && self.freeze != Policy::Always;
+        let keep_running = self.must_run(tab);
         // A page paused on a dialog is already still, and the dialog is waiting
         // on an answer the page has to be running to receive.
         let waiting = tab.dialog.is_some();
@@ -711,7 +768,7 @@ impl Browser {
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
         effects.extend(self.release_slot(id));
         if let Ok(tab) = self.tab_mut(id) {
-            tab.presence = TabPresence::Discarded;
+            tab.lose_page();
         }
         effects
     }
@@ -724,6 +781,10 @@ impl Browser {
             return Vec::new();
         };
         self.forget_slot(slot);
+        // Parking stops whatever the page was playing.
+        if let Ok(tab) = self.tab_mut(id) {
+            tab.audible = false;
+        }
         let mut effects = Vec::new();
         if frozen {
             effects.push(Effect::Resume { slot });
@@ -741,10 +802,10 @@ impl Browser {
 
         let url = tab.url().to_string();
         let scroll = tab.scroll;
-        let effective = self.pool.effective_capacity(self.fixed_count());
-        let protected = self.protected();
+        let effective = self.effective_capacity();
+        let victim = self.victim();
 
-        let Ok(acquired) = self.pool.acquire(id, effective, &protected) else {
+        let Ok(acquired) = self.pool.acquire(id, effective, victim) else {
             // Every slot is spoken for; the tab stays discarded until one frees.
             return Vec::new();
         };
@@ -759,7 +820,7 @@ impl Browser {
                 if matches!(tab.presence, TabPresence::Frozen { .. }) {
                     effects.push(Effect::Resume { slot });
                 }
-                tab.presence = TabPresence::Discarded;
+                tab.lose_page();
             }
         }
 

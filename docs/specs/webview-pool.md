@@ -34,24 +34,28 @@ A tab is in exactly one of four states:
 ## Capacity
 
 ```
-effective_capacity = max(configured_capacity, fixed_count + 1)
+effective_capacity = max(configured_capacity, 1 + fixed_count + must_run_count)
 ```
 
-Every fixed tab reserves a slot, plus one for whichever tab is active, so **pinning tabs can never leave the active tab without a webview**. Pinning is never refused; the pool grows to accommodate it.
+The active tab, every fixed tab, and every other background tab that [must run](#must-run) reserve a slot, so **pinning tabs can never leave the active tab without a webview**, and music survives a tab switch at a configured capacity of 1. Pinning is never refused; the pool grows to accommodate it. A reservation lasts as long as its reason: a tab that falls silent stops counting.
 
 While every background tab is discarded, the configured capacity is treated as 1 (`Settings::pool_capacity`): there is nothing for extra slots to hold, and parked webviews would only cost memory. The user's number is kept for when they change their mind.
 
-Lowering the configured capacity destroys surplus webviews immediately rather than waiting for the next tab switch, because the reason to lower it is to release memory now.
+Lowering the configured capacity destroys surplus webviews immediately rather than waiting for the next tab switch, because the reason to lower it is to release memory now. Parked webviews go first, then the slots of the tabs eviction would pick, so a protected tab never loses its webview to it.
+
+### Must run
+
+A background tab must run while it is **fixed**, or while it is **playing audio** and neither Freeze nor Discard is _always_. A must-run tab is protected from eviction, never frozen, and never discarded by smart discarding.
 
 ## Eviction
 
 When a tab needs a slot and none is free:
 
 1. If the pool may still grow, it grows.
-2. Otherwise the **least recently used** slot whose occupant is not protected is taken, and its occupant is discarded.
+2. Otherwise `Browser` names a victim: the occupant that is not protected and was **shown least recently**. Its slot is taken and it is discarded. `WebviewPool` takes whichever tab it is given, so the choice stays with the code that knows why a tab matters.
 3. If every resident is protected, the request fails with `NoSlotAvailable` and the tab stays discarded.
 
-Protected tabs are the active tab and every fixed tab.
+Protected tabs are the active tab and every tab that must run.
 
 Eviction navigates the slot to `about:blank` rather than destroying the webview. That frees the page while keeping the slot warm, which is far cheaper than recreating a webview on every tab switch. Webviews are only destroyed when capacity shrinks.
 
@@ -95,18 +99,18 @@ Visible tabs and fixed tabs are exempt from all of it. Every other tab holding a
 
 1. **Discard: always** — discard it.
 2. **Freeze: never** — leave it running, resuming it if it was frozen.
-3. It is **playing audio** and Freeze is not _always_ — leave it running.
+3. It [must run](#must-run) — leave it running.
 4. It has a **dialog open** — leave it; the page is already paused on it.
 5. Otherwise — freeze it.
 
 **Always means always.** A tab playing music is frozen or discarded like any other; keeping it loaded is how a user keeps it running.
 
-**Smart discarding** depends on time and memory rather than on what just changed, so it runs on the [tick](tab-optimization.md#the-tick) (`Browser::relieve`), every 5 seconds or every second under [memory pressure](tab-optimization.md#memory-pressure), in Rust, because low memory is a reason to act whether or not anyone is looking at the window. It discards a background tab that is not playing audio and either:
+**Smart discarding** depends on time and memory rather than on what just changed, so it runs on the [tick](tab-optimization.md#the-tick) (`Browser::relieve`), every 5 seconds or every second under [memory pressure](tab-optimization.md#memory-pressure), in Rust, because low memory is a reason to act whether or not anyone is looking at the window. It discards a background tab that need not [run](#must-run) and either:
 
 - has not been shown for 30 minutes, or
 - has not been shown for 5 minutes while Windows reports low memory.
 
-A tab is timed from when it was last selected, and the visible tab is re-timed on every pass. A pass that discards nothing writes nothing and emits no event.
+A tab is timed from when it was last selected, or from when it fell silent if that is later, and the visible tab is re-timed on every pass. A pass that discards nothing writes nothing and emits no event.
 
 ### Signals
 

@@ -78,7 +78,9 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 let app = app.clone();
                 std::thread::spawn(move || {
                     let state = app.state::<AppState>();
-                    let _ = mutate(&app, &state, |browser| Ok(browser.report_audio(slot, playing)));
+                    let _ = mutate(&app, &state, |browser| {
+                        Ok(browser.report_audio(slot, playing, now_ms()))
+                    });
                 });
             }
         },

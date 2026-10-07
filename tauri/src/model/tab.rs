@@ -101,6 +101,15 @@ impl Tab {
         }
     }
 
+    /// Marks the tab discarded once its page is gone.
+    ///
+    /// Whatever the page was playing went with it. The engine reports the
+    /// silence on the slot, which by then may belong to another tab.
+    pub fn lose_page(&mut self) {
+        self.presence = TabPresence::Discarded;
+        self.audible = false;
+    }
+
     /// Reclassifies the tab after its URL changed, so navigating between an
     /// internal page and the web moves it in and out of the pool correctly.
     ///

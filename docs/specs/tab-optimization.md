@@ -18,8 +18,8 @@ The price is that reloading becomes the common way a tab comes back, so the seco
 
 | Webview pool section                   | Replaced by                                                       |
 | -------------------------------------- | ----------------------------------------------------------------- |
-| Capacity                               | [Effective capacity](#effective-capacity)                         |
-| Eviction (the choice of victim)        | [Eviction](#eviction)                                             |
+| Capacity (rewritten)                   | [Effective capacity](#effective-capacity)                         |
+| Eviction (rewritten)                   | [Eviction](#eviction)                                             |
 | Optimization › Presets                 | [Settings and presets](#settings-and-presets)                     |
 | Optimization › Policy, smart discard   | [The rule](#the-rule)                                             |
 | Optimization › Signals (low memory)    | [Memory pressure](#memory-pressure)                               |
@@ -290,7 +290,7 @@ Starting values. Each is a named constant, and each is expected to move once `ha
 Each step is a change that can ship on its own, and each leaves the documents agreeing with the code.
 
 1. **Measure.** _Built._ `platform::memory_status`, `platform::slot_memory`, the pressure level, the tick replacing the 30-second timer with unchanged discarding behaviour, and `haku://memory`.
-2. **Must run and eviction.** A tab playing audio reserves a slot, and `Browser` names the eviction victim. Capture and loss are not known yet, so only audio counts as must-run and the order is recency alone.
+2. **Must run and eviction.** _Built._ A tab playing audio reserves a slot, and `Browser` names the eviction victim. Capture and loss are not known yet, so only audio counts as must-run and the order is recency alone.
 3. **Page state and restore.** `page_state_script`, `Effect::Leave` without capture, `report_state`, scroll and drafts in `Tab`, `Effect::RestoreState`. Capture joins must-run. Loss appears on `haku://memory` before anything acts on it.
 4. **The rule.** Smart discarding as specified, the budget, pressure levels acting, the `relieved` marker, kept sites, the new settings and presets.
 5. **Previews.** Capture in `Leave`, the preview store, `restoring` and the cover.
