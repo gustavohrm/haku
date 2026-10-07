@@ -84,6 +84,11 @@ pub enum PageSignal {
     DialogRequested(PageDialog),
     /// The page started or stopped playing audio.
     AudioChanged { playing: bool },
+    /// A navigation of the top frame started. `form` is set when it carries a
+    /// form submission, which makes the page it loads the user's work.
+    NavigationStarted { form: bool },
+    /// The document reached `DOMContentLoaded`, on `url`.
+    Loaded { url: String },
 }
 
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on
@@ -99,6 +104,21 @@ pub type PageSink = Arc<dyn Fn(PageSignal) + Send + Sync>;
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
     backend::observe_page(webview, sink)
+}
+
+/// Evaluates `expression` in a webview's page and returns the result as JSON.
+///
+/// Blocks for at most `timeout`, so it must not be called on the UI thread,
+/// where the evaluation itself has to run.
+///
+/// @returns The result, or nothing when the evaluation failed or did not
+///   finish in time, or the platform cannot evaluate.
+pub fn evaluate<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    expression: &str,
+    timeout: std::time::Duration,
+) -> Option<String> {
+    backend::evaluate(webview, expression, timeout)
 }
 
 /// Releases a page paused on a dialog, with the given answer.

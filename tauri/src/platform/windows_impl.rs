@@ -31,10 +31,10 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM, COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
 };
 use webview2_com::{
-    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler,
-    IsDocumentPlayingAudioChangedEventHandler, NavigationStartingEventHandler, ScriptDialogOpeningEventHandler,
-    SourceChangedEventHandler, TrySuspendCompletedHandler,
+    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, DOMContentLoadedEventHandler,
+    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
+    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler, NavigationStartingEventHandler,
+    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
@@ -175,6 +175,26 @@ pub fn memory_is_low() -> bool {
 
     let mut low = BOOL::default();
     unsafe { QueryMemoryResourceNotification(HANDLE(handle as *mut _), &mut low) }.is_ok() && low.as_bool()
+}
+
+pub fn evaluate<R: tauri::Runtime>(webview: &tauri::Webview<R>, expression: &str, timeout: Duration) -> Option<String> {
+    let (sender, receiver) = mpsc::channel();
+    let expression = HSTRING::from(expression);
+    webview
+        .with_webview(move |platform| {
+            let handler = ExecuteScriptCompletedHandler::create(Box::new(move |status, result| {
+                let _ = sender.send(status.ok().map(|()| result));
+                Ok(())
+            }));
+            let _ = unsafe {
+                platform
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|core| core.ExecuteScript(&expression, &handler))
+            };
+        })
+        .ok()?;
+    receiver.recv_timeout(timeout).ok().flatten()
 }
 
 pub fn memory_status() -> Option<MemoryStatus> {
@@ -472,7 +492,14 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
                 args.Uri(&mut uri)?;
                 args.SetCancel(true)?;
                 sink(PageSignal::TraverseRequested { url: take_pwstr(uri) });
+                return Ok(());
             }
+            // Only a navigation with a body carries a content type, and a
+            // top-level one with a body is a form submission.
+            let mut form = BOOL::default();
+            args.RequestHeaders()?
+                .Contains(&HSTRING::from("Content-Type"), &mut form)?;
+            sink(PageSignal::NavigationStarted { form: form.as_bool() });
             Ok(())
         }))
     };
@@ -502,6 +529,22 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
         }))
     };
     core.add_DocumentTitleChanged(&on_title, &mut token)?;
+
+    // A reloading tab's scroll and draft go back in once its document exists.
+    let on_loaded = {
+        let sink = sink.clone();
+        DOMContentLoadedEventHandler::create(Box::new(move |sender, _| {
+            let Some(core) = sender else { return Ok(()) };
+            let mut source = PWSTR::null();
+            core.Source(&mut source)?;
+            sink(PageSignal::Loaded {
+                url: take_pwstr(source),
+            });
+            Ok(())
+        }))
+    };
+    core.cast::<ICoreWebView2_2>()?
+        .add_DOMContentLoaded(&on_loaded, &mut token)?;
 
     // The webview's own dialogs are replaced by Haku's, which match the
     // interface and name the site asking. The page stays paused on a deferral

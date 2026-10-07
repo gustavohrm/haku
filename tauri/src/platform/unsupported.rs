@@ -52,6 +52,14 @@ pub fn memory_is_low() -> bool {
     false
 }
 
+pub fn evaluate<R: tauri::Runtime>(
+    _webview: &tauri::Webview<R>,
+    _expression: &str,
+    _timeout: std::time::Duration,
+) -> Option<String> {
+    None
+}
+
 pub fn memory_status() -> Option<MemoryStatus> {
     None
 }

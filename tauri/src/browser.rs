@@ -5,8 +5,8 @@ use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog, Policy, Scroll,
-    Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
+    is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog, PageState, Policy,
+    Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -59,9 +59,22 @@ pub enum Effect {
     Resume {
         slot: SlotId,
     },
-    RestoreScroll {
+    /// Read the page before it is frozen, parked, destroyed or replaced by
+    /// another tab's, and report what it holds with [`Browser::report_state`].
+    /// Precedes the effect that leaves it.
+    Leave {
         slot: SlotId,
+        tab: TabId,
+    },
+    /// Put a reloading tab's scroll and draft back once its document has
+    /// loaded. Follows the [`Effect::EnsureSlot`] that reloads it.
+    RestoreState {
+        slot: SlotId,
+        /// The URL they were read on. A page that loads on another origin
+        /// does not receive them.
+        url: String,
         scroll: Scroll,
+        draft: Option<String>,
     },
     /// Release a page paused on a dialog, with the given answer.
     AnswerDialog {
@@ -238,13 +251,14 @@ impl Browser {
     }
 
     /// Whether a tab must keep running in the background: it is fixed, or its
-    /// page is playing audio.
+    /// page is playing audio or capturing the camera, microphone or screen.
     ///
-    /// Audio is not honoured under an _always_ policy. Always means always, and
-    /// fixing the tab is how a user exempts it.
+    /// Audio and capture are not honoured under an _always_ policy. Always
+    /// means always, and fixing the tab is how a user exempts it.
     fn must_run(&self, tab: &Tab) -> bool {
-        let honours_audio = self.freeze != Policy::Always && self.discard != Policy::Always;
-        tab.fixed || (honours_audio && tab.audible && tab.slot().is_some())
+        let honours_signals = self.freeze != Policy::Always && self.discard != Policy::Always;
+        let signalled = tab.audible || tab.page.capturing();
+        tab.fixed || (honours_signals && signalled && tab.slot().is_some())
     }
 
     /// Slots that must exist whatever the configured capacity: one for the
@@ -355,7 +369,7 @@ impl Browser {
         let dismissed = self.dismiss_dialog(id);
         let tab = self.tab_mut(id)?;
         tab.history.push(Visit::new(url));
-        tab.scroll = Scroll::default();
+        tab.leave_entry();
         tab.reclassify();
         self.navigated.insert(id);
 
@@ -404,7 +418,7 @@ impl Browser {
         } else {
             tab.history.go_forward();
         }
-        tab.scroll = Scroll::default();
+        tab.leave_entry();
         tab.reclassify();
         self.navigated.insert(id);
         effects.extend(self.realize());
@@ -464,6 +478,7 @@ impl Browser {
             };
             if let Some(occupant) = removed.occupant {
                 effects.extend(self.dismiss_dialog(occupant));
+                effects.extend(self.leave(occupant));
                 if let Ok(tab) = self.tab_mut(occupant) {
                     tab.lose_page();
                 }
@@ -539,6 +554,47 @@ impl Browser {
         self.realize()
     }
 
+    /// Records a reading of a tab's page.
+    ///
+    /// Keyed by tab rather than slot: by the time a reading completes, the
+    /// slot may belong to another tab. A tab that started or stopped capturing
+    /// may have to keep running, or may now be frozen; nothing else in a
+    /// reading changes what webviews should do.
+    ///
+    /// @param state - The reading, or nothing when the page could not be read.
+    pub fn report_state(&mut self, id: TabId, state: Option<PageState>) -> Vec<Effect> {
+        let Ok(tab) = self.tab_mut(id) else {
+            return Vec::new();
+        };
+        let was_capturing = tab.page.capturing();
+        tab.record_state(state);
+        if tab.page.capturing() == was_capturing {
+            return Vec::new();
+        }
+        self.realize()
+    }
+
+    /// Records that a navigation started in a slot, and whether it carries a
+    /// form submission. A page loaded from one is the user's work.
+    pub fn report_navigation(&mut self, slot: SlotId, form: bool) {
+        let Some(id) = self.occupant_of(slot) else { return };
+        if let Ok(tab) = self.tab_mut(id) {
+            tab.page.form_result = form;
+        }
+    }
+
+    /// The running pages worth reading on a tick: the visible tab's and every
+    /// background tab's that is not frozen. A frozen page cannot change.
+    pub fn running_pages(&self) -> Vec<(SlotId, TabId)> {
+        self.tabs
+            .iter()
+            .filter_map(|tab| match tab.presence {
+                TabPresence::Live { slot } => Some((slot, tab.id)),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn occupant_of(&self, slot: SlotId) -> Option<TabId> {
         self.pool
             .slots()
@@ -590,7 +646,7 @@ impl Browser {
                     visit.title = tab.history.current().title.clone();
                     visit.favicon = favicon;
                     tab.history.push(visit);
-                    tab.scroll = Scroll::default();
+                    tab.leave_entry();
                 }
                 NavigationKind::Traverse if tab.history.step_to(&commit.url) => {}
                 NavigationKind::Traverse | NavigationKind::Replace | NavigationKind::Reload => {
@@ -751,7 +807,16 @@ impl Browser {
             return Vec::new();
         };
         tab.presence = TabPresence::Frozen { slot };
-        vec![Effect::Freeze { slot }]
+        vec![Effect::Leave { slot, tab: id }, Effect::Freeze { slot }]
+    }
+
+    /// Reads a running page before it is left. A frozen page was read when it
+    /// was frozen, and cannot have changed since.
+    fn leave(&self, id: TabId) -> Option<Effect> {
+        match self.tab(id).ok()?.presence {
+            TabPresence::Live { slot } => Some(Effect::Leave { slot, tab: id }),
+            _ => None,
+        }
     }
 
     fn resume_tab(&mut self, id: TabId) -> Vec<Effect> {
@@ -766,6 +831,7 @@ impl Browser {
     /// Gives up a tab's page, keeping its place in history.
     fn discard_tab(&mut self, id: TabId) -> Vec<Effect> {
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        effects.extend(self.leave(id));
         effects.extend(self.release_slot(id));
         if let Ok(tab) = self.tab_mut(id) {
             tab.lose_page();
@@ -802,6 +868,7 @@ impl Browser {
 
         let url = tab.url().to_string();
         let scroll = tab.scroll;
+        let draft = tab.draft.clone();
         let effective = self.effective_capacity();
         let victim = self.victim();
 
@@ -816,6 +883,7 @@ impl Browser {
             // The evicted page may be paused on a dialog; it has to be released
             // before its slot is navigated to this tab.
             effects.extend(self.dismiss_dialog(evicted));
+            effects.extend(self.leave(evicted));
             if let Ok(tab) = self.tab_mut(evicted) {
                 if matches!(tab.presence, TabPresence::Frozen { .. }) {
                     effects.push(Effect::Resume { slot });
@@ -834,9 +902,15 @@ impl Browser {
         if self.slot_urls.get(&slot) != Some(&url) {
             self.slot_urls.insert(slot, url.clone());
             self.awaiting.insert(slot);
-            effects.push(Effect::EnsureSlot { slot, url });
-            if scroll != Scroll::default() {
-                effects.push(Effect::RestoreScroll { slot, scroll });
+            effects.push(Effect::EnsureSlot { slot, url: url.clone() });
+            // Whatever slot the tab lands in, it gets back where it was.
+            if scroll != Scroll::default() || draft.is_some() {
+                effects.push(Effect::RestoreState {
+                    slot,
+                    url,
+                    scroll,
+                    draft,
+                });
             }
         }
         effects

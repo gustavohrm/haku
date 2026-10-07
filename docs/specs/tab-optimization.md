@@ -16,14 +16,14 @@ The price is that reloading becomes the common way a tab comes back, so the seco
 
 [Webview pool](webview-pool.md) describes the code as it is. This document replaces these parts of it, and each is rewritten there in the change that implements it, not before:
 
-| Webview pool section                   | Replaced by                                                       |
-| -------------------------------------- | ----------------------------------------------------------------- |
-| Capacity (rewritten)                   | [Effective capacity](#effective-capacity)                         |
-| Eviction (rewritten)                   | [Eviction](#eviction)                                             |
-| Optimization › Presets                 | [Settings and presets](#settings-and-presets)                     |
-| Optimization › Policy, smart discard   | [The rule](#the-rule)                                             |
-| Optimization › Signals (low memory)    | [Memory pressure](#memory-pressure)                               |
-| Scroll, Form contents (where it lives) | [What a discarded tab gets back](#what-a-discarded-tab-gets-back) |
+| Webview pool section                 | Replaced by                                                       |
+| ------------------------------------ | ----------------------------------------------------------------- |
+| Capacity (rewritten)                 | [Effective capacity](#effective-capacity)                         |
+| Eviction (rewritten)                 | [Eviction](#eviction)                                             |
+| Optimization › Presets               | [Settings and presets](#settings-and-presets)                     |
+| Optimization › Policy, smart discard | [The rule](#the-rule)                                             |
+| Optimization › Signals (low memory)  | [Memory pressure](#memory-pressure)                               |
+| Scroll, Form contents (rewritten)    | [What a discarded tab gets back](#what-a-discarded-tab-gets-back) |
 
 Everything else there stands: the four states, what discarding is, freezing, parking on `about:blank`, fixed tabs, service workers, session restore. A tab opened in the background still takes no webview until it is first shown.
 
@@ -143,7 +143,7 @@ One thread replaces `relieve_memory_periodically`. Every `TICK` (every `TICK_PRE
 3. reads the [page state](#page-state) of every running background tab, which is how the end of a capture is noticed;
 4. calls `Browser::tick(now, pressure, samples)`, which re-times the visible tab and applies the rule.
 
-Steps 1 and 2 are built: until [the rule](#the-rule) is, the tick ends by running `Browser::relieve` as the 30-second timer did, judging low memory by `LowMemoryResourceNotification` as before.
+Steps 1 to 3 are built: until [the rule](#the-rule) is, the tick ends by running `Browser::relieve` as the 30-second timer did, judging low memory by `LowMemoryResourceNotification` as before.
 
 Pressure is also read when a tab is selected or opened, before it takes a slot, because a burst of tab switches is exactly when memory runs out faster than a timer notices.
 
@@ -226,7 +226,7 @@ Unchanged: `IsDocumentPlayingAudioChanged`.
 
 ## Leaving a page
 
-A page is read, and captured if it was visible, **before** it is frozen, hidden behind another tab's navigation, or parked. `Browser` emits `Effect::Leave { slot, tab, capture }` ahead of the `Freeze`, `Blank` or `EnsureSlot` that follows.
+A page is read, and captured if it was visible, **before** it is frozen, hidden behind another tab's navigation, parked, or destroyed by shrinking the pool. `Browser` emits `Effect::Leave { slot, tab, capture }` ahead of the `Freeze`, `Blank`, `EnsureSlot` or `Destroy` that follows. Until [previews](#previews) are built, `Leave` carries no `capture`.
 
 `webview/` applies it by evaluating the drain expression and, when `capture` is set, calling `CapturePreview` as JPEG, then waiting for both up to `LEAVE_TIMEOUT` before applying the next effect. Commands that drive webviews are already `async`, so the wait is off the main thread. On timeout the next effect proceeds and the tab keeps the state from its last tick.
 
@@ -245,7 +245,7 @@ Scroll and form contents move out of `sessionStorage` into `Tab`, so they follow
 - A draft over `DRAFT_LIMIT` is dropped, not truncated.
 - The rules about what is never stored are unchanged, and are applied in the page before anything is read.
 
-When `bind` navigates a slot for a tab with either, it emits `Effect::RestoreState { slot, scroll, draft }` in place of the unused `RestoreScroll`. `webview/` holds it for the slot and evaluates the restore expression when the document reaches `DOMContentLoaded`. The page-side script then applies it with the retries it has today, for pages that lay out or build their forms late.
+When `bind` navigates a slot for a tab with either, it emits `Effect::RestoreState { slot, url, scroll, draft }` in place of the unused `RestoreScroll`. `webview/` holds it for the slot, drops it if the slot is navigated elsewhere first, and evaluates the restore expression when the document reaches `DOMContentLoaded`. The page-side script then applies it with the retries it has today, for pages that lay out or build their forms late, and only if the page is on the origin of `url`: a reload that redirects to another site, such as a sign-in page, must not receive text typed on this one.
 
 `scroll_memory_script` and `form_memory_script` are folded into `page_state_script` and stop writing to `sessionStorage`. A draft is no longer restored on an ordinary return to the same URL in the same webview; only a reload of a discarded tab restores.
 
@@ -291,7 +291,7 @@ Each step is a change that can ship on its own, and each leaves the documents ag
 
 1. **Measure.** _Built._ `platform::memory_status`, `platform::slot_memory`, the pressure level, the tick replacing the 30-second timer with unchanged discarding behaviour, and `haku://memory`.
 2. **Must run and eviction.** _Built._ A tab playing audio reserves a slot, and `Browser` names the eviction victim. Capture and loss are not known yet, so only audio counts as must-run and the order is recency alone.
-3. **Page state and restore.** `page_state_script`, `Effect::Leave` without capture, `report_state`, scroll and drafts in `Tab`, `Effect::RestoreState`. Capture joins must-run. Loss appears on `haku://memory` before anything acts on it.
+3. **Page state and restore.** _Built._ `page_state_script`, `Effect::Leave` without capture, `report_state`, scroll and drafts in `Tab`, `Effect::RestoreState`. Capture joins must-run. Loss appears on `haku://memory` before anything acts on it.
 4. **The rule.** Smart discarding as specified, the budget, pressure levels acting, the `relieved` marker, kept sites, the new settings and presets.
 5. **Previews.** Capture in `Leave`, the preview store, `restoring` and the cover.
 
@@ -319,12 +319,12 @@ The rule is pure and is tested in `browser_tests.rs` with supplied memory sample
 
 Facts this design assumes and that have not been checked against the WebView2 runtime Haku ships on. Each is checked at the start of the step that needs it, and each has a fallback that keeps the design intact.
 
-| Assumption                                                                                                                  | Step | If false                                                                                    |
-| --------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------- |
-| **Verified 2026-10-06.** A slot webview's main frame id can be read and matches `FrameInfo::FrameId`                        | 1    | Attribute by process: read each webview's renderer process id through the DevTools protocol |
-| `NavigationStarting` exposes a `Content-Type` request header for a form submission                                          | 3    | Drop the signal; such tabs are judged by the rest                                           |
-| `ExecuteScript` and `CapturePreview` complete on a webview that is still visible within `LEAVE_TIMEOUT` on an ordinary page | 3, 5 | Raise the timeout, or capture on the tick as well as on leaving                             |
-| `DOMContentLoaded` is late enough that removing the cover does not show a blank page                                        | 5    | Remove the cover on `NavigationCompleted`                                                   |
+| Assumption                                                                                                                                                                         | Step | If false                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------- |
+| **Verified 2026-10-06.** A slot webview's main frame id can be read and matches `FrameInfo::FrameId`                                                                               | 1    | Attribute by process: read each webview's renderer process id through the DevTools protocol |
+| **Verified 2026-10-06.** `NavigationStarting` exposes a `Content-Type` request header for a form submission                                                                        | 3    | Drop the signal; such tabs are judged by the rest                                           |
+| `ExecuteScript` (**verified 2026-10-06**, 1–26 ms on local test pages) and `CapturePreview` complete on a webview that is still visible within `LEAVE_TIMEOUT` on an ordinary page | 3, 5 | Raise the timeout, or capture on the tick as well as on leaving                             |
+| `DOMContentLoaded` is late enough that removing the cover does not show a blank page                                                                                               | 5    | Remove the cover on `NavigationCompleted`                                                   |
 
 ## Known limits
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::Loss;
 
 const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
@@ -1011,4 +1012,237 @@ fn shrinking_capacity_destroys_a_parked_webview_before_a_loaded_one() {
         .filter(|effect| matches!(effect, Effect::Destroy { .. }))
         .collect();
     assert_eq!(destroyed, vec![&Effect::Destroy { slot: parked }]);
+}
+
+fn reading(url: &str) -> PageState {
+    PageState {
+        url: url.to_string(),
+        ..PageState::default()
+    }
+}
+
+fn scrolled(url: &str, y: f64, draft: Option<&str>) -> PageState {
+    PageState {
+        scroll: Scroll { x: 0.0, y },
+        draft: draft.map(str::to_string),
+        ..reading(url)
+    }
+}
+
+#[test]
+fn a_page_is_read_before_it_is_frozen() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.select_tab(ids[1], 0).unwrap();
+
+    let leave = Effect::Leave { slot, tab: ids[0] };
+    assert!(position(&effects, &leave) < position(&effects, &Effect::Freeze { slot }));
+}
+
+#[test]
+fn a_page_is_read_before_it_is_parked() {
+    let (mut browser, ids) = optimized(Policy::Never, Policy::Always);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.select_tab(ids[1], 0).unwrap();
+
+    let leave = Effect::Leave { slot, tab: ids[0] };
+    assert!(position(&effects, &leave) < position(&effects, &Effect::Blank { slot }));
+}
+
+#[test]
+fn an_evicted_page_is_read_before_another_tab_takes_its_slot() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let (_, effects) = browser.open_tab("https://b.test", true);
+
+    let leave = Effect::Leave { slot, tab: ids[0] };
+    let ensure = Effect::EnsureSlot {
+        slot,
+        url: "https://b.test".into(),
+    };
+    assert!(position(&effects, &leave) < position(&effects, &ensure));
+}
+
+#[test]
+fn a_frozen_page_is_not_read_again_when_it_is_evicted() {
+    let mut browser = Browser::new(2).with_policies(Policy::Smart, Policy::Never);
+    let (first, _) = browser.open_tab("https://a.test", true);
+    browser.open_tab("https://b.test", true);
+
+    let (_, effects) = browser.open_tab("https://c.test", true);
+
+    assert_eq!(presence(&browser, first), TabPresence::Discarded);
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Leave { tab, .. } if *tab == first)));
+}
+
+#[test]
+fn a_closing_tab_is_not_read() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+
+    let effects = browser.close_tab(ids[0], HOME).unwrap();
+
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::Leave { .. })));
+}
+
+#[test]
+fn a_reading_keeps_the_scroll_and_draft_of_the_page() {
+    let (mut browser, id, _) = loaded("https://a.test");
+
+    browser.report_state(id, Some(scrolled("https://a.test", 480.0, Some("[]"))));
+
+    let tab = browser.tab(id).unwrap();
+    assert_eq!(tab.scroll, Scroll { x: 0.0, y: 480.0 });
+    assert_eq!(tab.draft.as_deref(), Some("[]"));
+}
+
+#[test]
+fn a_reading_taken_on_another_url_is_not_applied() {
+    let (mut browser, id, _) = loaded("https://a.test");
+
+    browser.report_state(id, Some(scrolled("https://elsewhere.test", 480.0, Some("[]"))));
+
+    let tab = browser.tab(id).unwrap();
+    assert_eq!(tab.scroll, Scroll::default());
+    assert!(tab.draft.is_none());
+}
+
+#[test]
+fn a_draft_over_the_limit_is_dropped() {
+    let (mut browser, id, _) = loaded("https://a.test");
+    let huge = "x".repeat(crate::model::page_state::DRAFT_LIMIT + 1);
+
+    browser.report_state(id, Some(scrolled("https://a.test", 0.0, Some(&huge))));
+
+    assert!(browser.tab(id).unwrap().draft.is_none());
+}
+
+#[test]
+fn a_page_that_cannot_be_read_would_lose_state() {
+    let (mut browser, id, _) = loaded("https://a.test");
+
+    browser.report_state(id, None);
+
+    assert_eq!(browser.tab(id).unwrap().page.loss(), Loss::State);
+}
+
+#[test]
+fn a_pushed_route_clears_the_scroll_and_draft() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.report_state(id, Some(scrolled("https://a.test", 480.0, Some("[]"))));
+
+    browser.report_page(slot, &[commit("https://a.test/next", NavigationKind::Push)], None);
+
+    let tab = browser.tab(id).unwrap();
+    assert_eq!(tab.scroll, Scroll::default());
+    assert!(tab.draft.is_none());
+}
+
+#[test]
+fn a_discarded_tab_gets_its_scroll_and_draft_back_in_any_slot() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
+    browser.report_state(ids[1], Some(scrolled("https://b.test", 480.0, Some("[]"))));
+    browser.select_tab(ids[0], 0).unwrap();
+
+    let effects = browser.select_tab(ids[1], 0).unwrap();
+
+    let slot = slot_of(&browser, ids[1]).unwrap();
+    assert!(effects.contains(&Effect::RestoreState {
+        slot,
+        url: "https://b.test".into(),
+        scroll: Scroll { x: 0.0, y: 480.0 },
+        draft: Some("[]".into()),
+    }));
+}
+
+#[test]
+fn the_draft_never_reaches_the_interface() {
+    let (mut browser, id, _) = loaded("https://a.test");
+    browser.report_state(id, Some(scrolled("https://a.test", 0.0, Some("typed text"))));
+
+    let json = serde_json::to_string(&browser.state()).unwrap();
+
+    assert!(!json.contains("typed text"));
+}
+
+#[test]
+fn a_page_loaded_by_a_form_submission_is_work() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+
+    browser.report_navigation(slot, true);
+    browser.report_page(slot, &[commit("https://a.test/sent", NavigationKind::Push)], None);
+
+    assert_eq!(browser.tab(id).unwrap().page.loss(), Loss::Work);
+}
+
+#[test]
+fn the_next_navigation_clears_a_form_result() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.report_navigation(slot, true);
+
+    browser.report_navigation(slot, false);
+
+    assert_eq!(browser.tab(id).unwrap().page.loss(), Loss::None);
+}
+
+/// A one-slot browser whose first tab is capturing while the second is shown.
+fn capturing_in_background(freeze: Policy) -> (Browser, Vec<TabId>, SlotId) {
+    let mut browser = Browser::new(1).with_policies(freeze, Policy::Smart);
+    let (call, _) = browser.open_tab("https://call.test", true);
+    let slot = slot_of(&browser, call).unwrap();
+    browser.report_state(
+        call,
+        Some(PageState {
+            capturing: true,
+            ..reading("https://call.test")
+        }),
+    );
+    let (other, _) = browser.open_tab("https://b.test", true);
+    (browser, vec![call, other], slot)
+}
+
+#[test]
+fn a_capturing_tab_keeps_running_in_the_background() {
+    let (browser, ids, slot) = capturing_in_background(Policy::Smart);
+
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Live { slot });
+    assert!(slot_of(&browser, ids[1]).is_some());
+}
+
+#[test]
+fn freezing_always_does_not_honour_capture() {
+    let (browser, ids, _) = capturing_in_background(Policy::Always);
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Discarded);
+}
+
+#[test]
+fn a_page_found_capturing_as_it_was_frozen_is_resumed() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    assert_eq!(presence(&browser, ids[0]), TabPresence::Frozen { slot });
+
+    let effects = browser.report_state(
+        ids[0],
+        Some(PageState {
+            capturing: true,
+            ..reading("https://a.test")
+        }),
+    );
+
+    assert!(effects.contains(&Effect::Resume { slot }));
+}
+
+#[test]
+fn a_reading_that_changes_nothing_produces_no_effects() {
+    let (mut browser, id, _) = loaded("https://a.test");
+
+    let effects = browser.report_state(id, Some(scrolled("https://a.test", 10.0, None)));
+
+    assert!(effects.is_empty());
 }

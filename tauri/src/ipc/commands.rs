@@ -32,7 +32,7 @@ use crate::platform::{self, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
-use crate::webview::{self, PageObserver, CHROME_LABEL};
+use crate::webview::{self, PageObserver, PageReading, CHROME_LABEL};
 
 use super::events::{MemoryChanged, SettingsChanged, StateChanged};
 
@@ -74,6 +74,15 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     let _ = mutate(&app, &state, |browser| Ok(browser.open_dialog(slot, dialog)));
                 });
             }
+            // Recorded before the page commits, on this thread, so the
+            // navigation it belongs to finds it.
+            PageSignal::NavigationStarted { form } => {
+                if let Ok(mut browser) = app.state::<AppState>().browser.write() {
+                    browser.report_navigation(slot, form);
+                }
+            }
+            // Handled by the webview module, which holds what is restored.
+            PageSignal::Loaded { .. } => {}
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -112,8 +121,16 @@ pub fn tick_periodically(app: tauri::AppHandle) {
                 TICK_PRESSED
             };
 
+            let readings = read_running_pages(&app, &state);
             let effects = match state.browser.write() {
-                Ok(mut browser) => browser.relieve(now_ms(), platform::memory_is_low()),
+                Ok(mut browser) => {
+                    let mut effects: Vec<Effect> = readings
+                        .into_iter()
+                        .flat_map(|(tab, reading)| browser.report_state(tab, reading))
+                        .collect();
+                    effects.extend(browser.relieve(now_ms(), platform::memory_is_low()));
+                    effects
+                }
                 Err(_) => continue,
             };
             // Most passes only re-time the visible tab, which is not worth an
@@ -161,7 +178,7 @@ fn report_memory(state: &AppState) -> Result<MemoryReport> {
         .browser
         .read()
         .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-    Ok(memory.report(browser.slots()))
+    Ok(memory.report(browser.slots(), browser.tabs()))
 }
 
 fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Commit], title: Option<String>) {
@@ -204,7 +221,17 @@ fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
 
 /// Applies effects to real webviews and tells the interface what changed.
 fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<BrowserState> {
-    webview::apply(app, effects, state.viewport(), &page_observer())?;
+    let mut readings = webview::apply(app, effects, state.viewport(), &page_observer())?;
+    // A page read as it was left may turn out to be capturing, which changes
+    // what should happen to it. Bounded, though a reading only ever leads to
+    // freezing or resuming one tab.
+    for _ in 0..MAX_READING_ROUNDS {
+        if readings.is_empty() {
+            break;
+        }
+        let effects = report_readings(state, readings)?;
+        readings = webview::apply(app, &effects, state.viewport(), &page_observer())?;
+    }
 
     let snapshot = {
         let browser = state
@@ -217,6 +244,34 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
     StateChanged(snapshot.clone()).emit(app).map_err(HakuError::from)?;
     let _ = state.save_session();
     Ok(snapshot)
+}
+
+/// More rounds of reading than one tab switch can cause.
+const MAX_READING_ROUNDS: usize = 4;
+
+fn report_readings(state: &AppState, readings: Vec<PageReading>) -> Result<Vec<Effect>> {
+    let mut browser = state
+        .browser
+        .write()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    Ok(readings
+        .into_iter()
+        .flat_map(|(tab, reading)| browser.report_state(tab, reading))
+        .collect())
+}
+
+/// Reads every running page: the visible one, so a page that hangs as it is
+/// left still has a recent reading, and background ones, which is how the end
+/// of a capture is noticed. Frozen pages are not read.
+fn read_running_pages(app: &tauri::AppHandle, state: &AppState) -> Vec<PageReading> {
+    let pages = match state.browser.read() {
+        Ok(browser) => browser.running_pages(),
+        Err(_) => return Vec::new(),
+    };
+    pages
+        .into_iter()
+        .map(|(slot, tab)| (tab, webview::read_page(app, slot, webview::LEAVE_TIMEOUT)))
+        .collect()
 }
 
 /// Runs `mutate` under the write lock and commits whatever it produced.

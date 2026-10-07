@@ -7,7 +7,7 @@ use specta::Type;
 use crate::browser::Browser;
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
-use crate::model::{MemoryStatus, Pressure, Slot, SlotId, TabId};
+use crate::model::{Loss, LossSignal, MemoryStatus, PageRecord, Pressure, Slot, SlotId, Tab, TabId};
 use crate::platform::memory::{Attribution, UnattributedProcess};
 use crate::storage::{HistoryDb, Paths, Session, Settings};
 use crate::webview::Viewport;
@@ -43,17 +43,26 @@ impl MemoryReading {
         }
     }
 
-    /// The reading laid out against the pool's slots as they are now.
-    pub fn report(&self, slots: &[Slot]) -> MemoryReport {
+    /// The reading laid out against the pool's slots and their tabs as they
+    /// are now.
+    pub fn report(&self, slots: &[Slot], tabs: &[Tab]) -> MemoryReport {
         MemoryReport {
             pressure: self.pressure,
             headroom: self.headroom,
             slots: slots
                 .iter()
-                .map(|slot| SlotMemory {
-                    slot: slot.id,
-                    tab: slot.occupant,
-                    bytes: self.attribution.slots.get(&slot.id).copied(),
+                .map(|slot| {
+                    let page = slot
+                        .occupant
+                        .and_then(|occupant| tabs.iter().find(|tab| tab.id == occupant))
+                        .map(|tab| &tab.page);
+                    SlotMemory {
+                        slot: slot.id,
+                        tab: slot.occupant,
+                        bytes: self.attribution.slots.get(&slot.id).copied(),
+                        loss: page.map(PageRecord::loss),
+                        signals: page.map(PageRecord::signals).unwrap_or_default(),
+                    }
                 })
                 .collect(),
             unattributed: self.attribution.unattributed.clone(),
@@ -81,6 +90,10 @@ pub struct SlotMemory {
     /// Commit charge in bytes, or nothing when the slot has not been measured.
     #[specta(type = Option<specta_typescript::Number>)]
     pub bytes: Option<u64>,
+    /// What discarding the tab would cost. Nothing while the slot is parked.
+    pub loss: Option<Loss>,
+    /// The reasons behind `loss`.
+    pub signals: Vec<LossSignal>,
 }
 
 /// Everything the command layer needs, behind the locks that make it shareable.
@@ -217,9 +230,14 @@ mod tests {
                 used_at: 0,
             },
         ];
-        let report = reading.report(&slots);
+        let mut tab = Tab::new(TabId(3), "https://a.test/");
+        tab.page.unreadable = true;
+        let report = reading.report(&slots, &[tab]);
         assert_eq!(report.slots[0].tab, Some(TabId(3)));
         assert_eq!(report.slots[0].bytes, Some(42));
+        assert_eq!(report.slots[0].loss, Some(Loss::State));
+        assert_eq!(report.slots[0].signals, vec![LossSignal::Unreadable]);
         assert_eq!(report.slots[1].bytes, None);
+        assert_eq!(report.slots[1].loss, None);
     }
 }
