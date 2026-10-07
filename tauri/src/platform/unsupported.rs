@@ -52,6 +52,15 @@ pub fn evaluate<R: tauri::Runtime>(
     None
 }
 
+pub fn leave_page<R: tauri::Runtime>(
+    _webview: &tauri::Webview<R>,
+    _expression: &str,
+    _capture: bool,
+    _timeout: std::time::Duration,
+) -> (Option<String>, Option<Vec<u8>>) {
+    (None, None)
+}
+
 pub fn memory_status() -> Option<MemoryStatus> {
     None
 }

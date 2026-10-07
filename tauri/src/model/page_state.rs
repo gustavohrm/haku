@@ -36,6 +36,9 @@ pub struct PageState {
     /// The page holds a live camera, microphone or screen capture.
     pub capturing: bool,
     pub scroll: Scroll,
+    /// The document's full height, in CSS pixels. A reload shows the same
+    /// content at the same scroll once it is that tall again.
+    pub height: f64,
     /// The changed form fields, as the page script serialises them.
     pub draft: Option<String>,
 }

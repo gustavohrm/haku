@@ -33,6 +33,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::open_tab_devtools,
             commands::answer_dialog,
             commands::memory_report,
+            commands::tab_preview,
         ])
         .events(collect_events![StateChanged, SettingsChanged, MemoryChanged])
 }
