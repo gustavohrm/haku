@@ -5,18 +5,21 @@
 //! chrome must sit above every page so the viewport can have rounded corners
 //! and menus can overlap page content. That requires per-platform code, which
 //! lives here behind one interface, along with the other native operations
-//! Haku needs: observing pages, answering their dialogs, and stopping idle
-//! service workers.
+//! Haku needs: observing pages, answering their dialogs, stopping idle
+//! service workers, and measuring memory.
 //!
 //! Windows is implemented. The other targets fail with
 //! [`HakuError::Unsupported`] rather than silently doing nothing, so a missing
 //! platform surfaces as a visible error instead of a subtly broken window.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
-use crate::error::Result;
-use crate::model::{Commit, DialogAnswer, DialogId, PageDialog};
+use crate::error::{HakuError, Result};
+use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, SlotId};
 
+use memory::{Attribution, SlotMemoryTracker};
+
+pub mod memory;
 pub mod workers;
 
 #[cfg(windows)]
@@ -144,6 +147,37 @@ pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
 /// Installed physical memory in bytes, or nothing when it cannot be read.
 pub fn total_memory() -> Option<u64> {
     backend::total_memory()
+}
+
+/// The system's physical memory and commit figures, or nothing when they
+/// cannot be read.
+pub fn memory_status() -> Option<MemoryStatus> {
+    backend::memory_status()
+}
+
+/// How much memory each slot's page holds, and what no slot accounts for.
+///
+/// Attribution remembers what it saw last time, so it is kept here for the
+/// life of the process; see [`SlotMemoryTracker`].
+///
+/// @param chrome - The interface's webview, which shares the engine with every
+/// slot and so can list its processes.
+/// @param slots - Every slot's webview.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation,
+/// and [`HakuError::WindowMissing`] when the engine cannot be reached.
+pub fn slot_memory<R: tauri::Runtime>(
+    chrome: &tauri::Webview<R>,
+    slots: &[(SlotId, tauri::Webview<R>)],
+) -> Result<Attribution> {
+    static TRACKER: LazyLock<Mutex<SlotMemoryTracker>> = LazyLock::new(Mutex::default);
+
+    let snapshot = backend::engine_processes(chrome, slots)?;
+    let mut tracker = TRACKER
+        .lock()
+        .map_err(|_| HakuError::Storage("memory tracker lock poisoned".into()))?;
+    Ok(tracker.attribute(&snapshot.frames, &snapshot.processes))
 }
 
 /// Whether the operating system reports physical memory running low.

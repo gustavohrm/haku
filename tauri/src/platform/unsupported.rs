@@ -6,9 +6,10 @@
 //! Both reach their handles through the same `Webview::with_webview` hook the
 //! Windows backend uses.
 
+use super::memory::EngineSnapshot;
 use super::{PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId};
+use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId};
 
 fn unsupported(operation: &str) -> HakuError {
     HakuError::Unsupported(format!("{operation} is only implemented on Windows"))
@@ -49,6 +50,17 @@ pub fn total_memory() -> Option<u64> {
 
 pub fn memory_is_low() -> bool {
     false
+}
+
+pub fn memory_status() -> Option<MemoryStatus> {
+    None
+}
+
+pub fn engine_processes<R: tauri::Runtime>(
+    _chrome: &tauri::Webview<R>,
+    _slots: &[(SlotId, tauri::Webview<R>)],
+) -> Result<EngineSnapshot> {
+    Err(unsupported("measuring page memory"))
 }
 
 pub fn answer_dialog<R: tauri::Runtime>(

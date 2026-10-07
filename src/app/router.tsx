@@ -1,4 +1,5 @@
 import { HistoryPage } from "@features/history/history-page";
+import { MemoryPage } from "@features/memory/memory-page";
 import { SettingsPage } from "@features/settings/settings-page";
 import { NewTabPage } from "@features/viewport/new-tab-page";
 import { t, type TranslationKey } from "@shared/i18n";
@@ -21,6 +22,7 @@ const routes: Record<string, { page: ComponentType; title: TranslationKey }> = {
   "new-tab": { page: NewTabPage, title: "newTab.title" },
   settings: { page: SettingsPage, title: "settings.title" },
   history: { page: HistoryPage, title: "history.title" },
+  memory: { page: MemoryPage, title: "memory.title" },
 };
 
 export function isInternalUrl(url: string): boolean {

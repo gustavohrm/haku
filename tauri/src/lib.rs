@@ -71,7 +71,7 @@ pub fn run() {
             if first_launch {
                 let _ = app.state::<AppState>().save_settings();
             }
-            ipc::commands::relieve_memory_periodically(app.handle().clone());
+            ipc::commands::tick_periodically(app.handle().clone());
 
             // The chrome starts underneath any content webview created later, so
             // it is lifted once here and again after every slot is created. It

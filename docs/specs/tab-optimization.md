@@ -143,9 +143,11 @@ One thread replaces `relieve_memory_periodically`. Every `TICK` (every `TICK_PRE
 3. reads the [page state](#page-state) of every running background tab, which is how the end of a capture is noticed;
 4. calls `Browser::tick(now, pressure, samples)`, which re-times the visible tab and applies the rule.
 
+Steps 1 and 2 are built: until [the rule](#the-rule) is, the tick ends by running `Browser::relieve` as the 30-second timer did, judging low memory by `LowMemoryResourceNotification` as before.
+
 Pressure is also read when a tab is selected or opened, before it takes a slot, because a burst of tab switches is exactly when memory runs out faster than a timer notices.
 
-A pass that changes nothing writes nothing and emits no event, as now.
+A pass that changes no tab writes nothing and emits no `StateChanged`, as now. Every pass emits `MemoryChanged` with the [memory report](#hakumemory), whose figures move on every tick.
 
 ## Settings and presets
 
@@ -263,7 +265,7 @@ Navigating within a live tab shows no cover; that is an ordinary page load.
 
 An internal page listing, per slot: the tab, its state, its position and loss level with the signals behind it, and its memory. Above the list: the pressure level and headroom, the budget and how much of it is used, and the unattributed processes.
 
-It exists so the constants below can be tuned against real pages, and so a user can see why a tab was or was not kept. It reads a `memory_report` command and refreshes on the tick's event.
+It exists so the constants below can be tuned against real pages, and so a user can see why a tab was or was not kept. It reads a `memory_report` command and refreshes on the tick's event. Until loss and the budget are built, it shows each slot's tab, state and memory, and above the list the pressure level, the headroom and the totals.
 
 ## Constants
 
@@ -287,7 +289,7 @@ Starting values. Each is a named constant, and each is expected to move once `ha
 
 Each step is a change that can ship on its own, and each leaves the documents agreeing with the code.
 
-1. **Measure.** `platform::memory_status`, `platform::slot_memory`, the pressure level, the tick replacing the 30-second timer with unchanged discarding behaviour, and `haku://memory`.
+1. **Measure.** _Built._ `platform::memory_status`, `platform::slot_memory`, the pressure level, the tick replacing the 30-second timer with unchanged discarding behaviour, and `haku://memory`.
 2. **Must run and eviction.** A tab playing audio reserves a slot, and `Browser` names the eviction victim. Capture and loss are not known yet, so only audio counts as must-run and the order is recency alone.
 3. **Page state and restore.** `page_state_script`, `Effect::Leave` without capture, `report_state`, scroll and drafts in `Tab`, `Effect::RestoreState`. Capture joins must-run. Loss appears on `haku://memory` before anything acts on it.
 4. **The rule.** Smart discarding as specified, the budget, pressure levels acting, the `relieved` marker, kept sites, the new settings and presets.
@@ -319,7 +321,7 @@ Facts this design assumes and that have not been checked against the WebView2 ru
 
 | Assumption                                                                                                                  | Step | If false                                                                                    |
 | --------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------- |
-| A slot webview's main frame id can be read and matches `FrameInfo::FrameId`                                                 | 1    | Attribute by process: read each webview's renderer process id through the DevTools protocol |
+| **Verified 2026-10-06.** A slot webview's main frame id can be read and matches `FrameInfo::FrameId`                        | 1    | Attribute by process: read each webview's renderer process id through the DevTools protocol |
 | `NavigationStarting` exposes a `Content-Type` request header for a form submission                                          | 3    | Drop the signal; such tabs are judged by the rest                                           |
 | `ExecuteScript` and `CapturePreview` complete on a webview that is still visible within `LEAVE_TIMEOUT` on an ordinary page | 3, 5 | Raise the timeout, or capture on the tick as well as on leaving                             |
 | `DOMContentLoaded` is late enough that removing the cover does not show a blank page                                        | 5    | Remove the cover on `NavigationCompleted`                                                   |

@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-02
+last_updated: 2026-10-06
 scope: How tabs share a limited number of webviews.
 ---
 
@@ -101,7 +101,7 @@ Visible tabs and fixed tabs are exempt from all of it. Every other tab holding a
 
 **Always means always.** A tab playing music is frozen or discarded like any other; keeping it loaded is how a user keeps it running.
 
-**Smart discarding** depends on time and memory rather than on what just changed, so it runs on its own timer every 30 seconds (`Browser::relieve`), in Rust, because low memory is a reason to act whether or not anyone is looking at the window. It discards a background tab that is not playing audio and either:
+**Smart discarding** depends on time and memory rather than on what just changed, so it runs on the [tick](tab-optimization.md#the-tick) (`Browser::relieve`), every 5 seconds or every second under [memory pressure](tab-optimization.md#memory-pressure), in Rust, because low memory is a reason to act whether or not anyone is looking at the window. It discards a background tab that is not playing audio and either:
 
 - has not been shown for 30 minutes, or
 - has not been shown for 5 minutes while Windows reports low memory.

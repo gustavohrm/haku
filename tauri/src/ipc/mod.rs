@@ -3,7 +3,7 @@ pub mod events;
 
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-use events::{SettingsChanged, StateChanged};
+use events::{MemoryChanged, SettingsChanged, StateChanged};
 
 /// The single description of Haku's IPC surface.
 ///
@@ -32,8 +32,9 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::clear_history,
             commands::open_tab_devtools,
             commands::answer_dialog,
+            commands::memory_report,
         ])
-        .events(collect_events![StateChanged, SettingsChanged])
+        .events(collect_events![StateChanged, SettingsChanged, MemoryChanged])
 }
 
 #[cfg(test)]

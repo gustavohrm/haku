@@ -58,10 +58,16 @@ export const commands = {
 	openTabDevtools: (id: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("open_tab_devtools", { id })),
 	/**  Answers the dialog a page is paused on. */
 	answerDialog: (tab: TabId, dialog: DialogId, answer: DialogAnswer) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_dialog", { tab, dialog, answer })),
+	/**
+	 *  What `haku://memory` shows: the last tick's reading against the slots as
+	 *  they are now.
+	 */
+	memoryReport: () => typedError<MemoryReport, HakuError>(__TAURI_INVOKE("memory_report")),
 };
 
 /** Events */
 export const events = {
+	memoryChanged: makeEvent<MemoryChanged>("memory-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	stateChanged: makeEvent<StateChanged>("state-changed"),
 };
@@ -152,6 +158,23 @@ export type Layout = {
 	radius?: number,
 };
 
+/**
+ *  Emitted on every tick with what memory looks like now.
+ * 
+ *  Separate from [`StateChanged`] because the figures move on every tick while
+ *  the tabs mostly do not, and a tick that changes no tab writes nothing.
+ */
+export type MemoryChanged = MemoryReport;
+
+/**  What `haku://memory` shows. */
+export type MemoryReport = {
+	pressure: Pressure,
+	/**  The scarcer of free physical memory and free commit, from 0 to 1. */
+	headroom: number | null,
+	slots: SlotMemory[],
+	unattributed: UnattributedProcess[],
+};
+
 /**  A region drawn above the page, in logical pixels. */
 export type Overlay = {
 	rect: Viewport,
@@ -196,6 +219,11 @@ export type Preset =
 /**  Background tabs stay loaded, frozen, until every slot is taken. */
 "performance";
 
+export type Pressure = "normal" | "tight" | "critical";
+
+/**  What an engine process is for. */
+export type ProcessKind = "browser" | "renderer" | "gpu" | "utility" | "other";
+
 /**
  *  Where a page was scrolled to.
  * 
@@ -229,6 +257,14 @@ export type Settings = {
 export type SettingsChanged = Settings;
 
 export type SlotId = number;
+
+export type SlotMemory = {
+	slot: SlotId,
+	/**  Nothing while the slot is parked. */
+	tab: TabId | null,
+	/**  Commit charge in bytes, or nothing when the slot has not been measured. */
+	bytes: number | null,
+};
 
 /**
  *  Emitted whenever tabs, activation or pool occupancy change.
@@ -281,6 +317,16 @@ export type TabPresence =
 { status: "discarded" } | 
 /**  Rendered by the chrome itself; never consumes a slot. */
 { status: "internal" };
+
+/**
+ *  A process no slot accounts for: the browser, GPU and utility processes, and
+ *  the interface's own renderer.
+ */
+export type UnattributedProcess = {
+	pid: number,
+	kind: ProcessKind,
+	bytes: number,
+};
 
 /**  Where content webviews sit inside the window, in logical pixels. */
 export type Viewport = {
