@@ -75,6 +75,9 @@ pub enum Effect {
         /// does not receive them.
         url: String,
         scroll: Scroll,
+        /// The document's height when the scroll was read, which the page
+        /// waits to grow back to before its scroll counts as restored.
+        height: Option<f64>,
         draft: Option<String>,
     },
     /// Release a page paused on a dialog, with the given answer.
@@ -1125,6 +1128,12 @@ impl Browser {
         let url = tab.url().to_string();
         let scroll = tab.scroll;
         let draft = tab.draft.clone();
+        let height = tab
+            .page
+            .state
+            .as_ref()
+            .map(|state| state.height)
+            .filter(|height| *height > 0.0);
         let had_slot = tab.slot().is_some();
         let effective = self.effective_capacity();
         let victim = self.victim();
@@ -1172,6 +1181,7 @@ impl Browser {
                     slot,
                     url,
                     scroll,
+                    height,
                     draft,
                 });
             }

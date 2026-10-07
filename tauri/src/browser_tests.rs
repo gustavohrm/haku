@@ -1092,6 +1092,7 @@ fn a_discarded_tab_gets_its_scroll_and_draft_back_in_any_slot() {
         slot,
         url: "https://b.test".into(),
         scroll: Scroll { x: 0.0, y: 480.0 },
+        height: None,
         draft: Some("[]".into()),
     }));
 }
@@ -1566,4 +1567,23 @@ fn a_tab_that_loses_its_slot_stops_restoring() {
     browser.select_tab(ids[1], 0).unwrap();
 
     assert!(!browser.tab(ids[0]).unwrap().restoring);
+}
+
+#[test]
+fn a_restore_carries_the_height_the_page_had_when_it_was_read() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
+    browser.report_state(
+        ids[1],
+        Some(PageState {
+            height: 9000.0,
+            ..scrolled("https://b.test", 480.0, None)
+        }),
+    );
+    browser.select_tab(ids[0], 0).unwrap();
+
+    let effects = browser.select_tab(ids[1], 0).unwrap();
+
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::RestoreState { height: Some(height), .. } if *height == 9000.0)));
 }

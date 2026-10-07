@@ -21,9 +21,19 @@ const STATE_READER: &str = "__hakuState";
 /// Media shorter than this is not worth keeping a tab for when paused.
 const MEDIA_MIN_SECONDS: u32 = 60;
 
-/// How long after the first attempt scroll is restored again, for pages that
-/// lay out after their own scripts run.
-pub const SCROLL_RETRY_MS: u32 = 120;
+/// How long a restoring page's height must stay unchanged, once it has
+/// loaded and grown back to the height it had when it was left, before its
+/// scroll is taken as settled.
+const SCROLL_QUIET_MS: u32 = 100;
+
+/// The same, for a page that has not grown back to that height, or whose
+/// height was not known: content may still be arriving above the restored
+/// position, such as late images, and would move what that position shows.
+const SCROLL_UNSURE_QUIET_MS: u32 = 1000;
+
+/// Longest a restoring page is held at its scroll before it is taken as
+/// settled regardless, for a page that never stops changing height.
+pub const SCROLL_SETTLE_LIMIT_MS: u32 = 3000;
 
 /// How long after the first attempt a draft is restored again, for pages that
 /// build their forms with script.
@@ -59,7 +69,9 @@ pub fn page_state_script() -> String {
     PAGE_STATE_JS
         .replace("__READER__", STATE_READER)
         .replace("__MEDIA_MIN_SECONDS__", &MEDIA_MIN_SECONDS.to_string())
-        .replace("__SCROLL_RETRY_MS__", &SCROLL_RETRY_MS.to_string())
+        .replace("__SCROLL_QUIET_MS__", &SCROLL_QUIET_MS.to_string())
+        .replace("__SCROLL_UNSURE_QUIET_MS__", &SCROLL_UNSURE_QUIET_MS.to_string())
+        .replace("__SCROLL_SETTLE_LIMIT_MS__", &SCROLL_SETTLE_LIMIT_MS.to_string())
         .replace("__DRAFT_RETRY_MS__", &DRAFT_RETRY_MS.to_string())
 }
 
@@ -218,6 +230,41 @@ const PAGE_STATE_JS: &str = r#"
     else field[property] = value;
   }
 
+  // Whether the scroll handed over by a restore has stopped needing to be
+  // re-applied. True when there is none.
+  var scrollSettled = true;
+
+  // Holds the page at a restored scroll while it is still growing. A pixel
+  // offset only shows the same content once everything above it has its
+  // final height, which can be well after `load` on a page whose images
+  // arrive late. The height the page had when it was left says when that is.
+  // Settled once the page has loaded and stopped changing height, briefly if
+  // it is back to that height and for longer if not, or after a limit.
+  function holdScroll(x, y, expected) {
+    scrollSettled = false;
+    var started = Date.now();
+    var height = -1;
+    var steadySince = started;
+    function step() {
+      var now = Date.now();
+      var current = document.documentElement.scrollHeight;
+      if (current !== height) {
+        height = current;
+        steadySince = now;
+      }
+      if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y);
+      var loaded = document.readyState === "complete";
+      var grown = expected > 0 && current >= expected - 2;
+      var quiet = grown ? __SCROLL_QUIET_MS__ : __SCROLL_UNSURE_QUIET_MS__;
+      if ((loaded && now - steadySince >= quiet) || now - started >= __SCROLL_SETTLE_LIMIT_MS__) {
+        scrollSettled = true;
+        return;
+      }
+      setTimeout(step, 50);
+    }
+    step();
+  }
+
   var draftRestored = false;
   function restoreDraft(json) {
     if (draftRestored) return;
@@ -261,14 +308,16 @@ const PAGE_STATE_JS: &str = r#"
           mediaPaused: mediaPaused(),
           capturing: tracks.some(live),
           scroll: { x: window.scrollX, y: window.scrollY },
+          height: document.documentElement.scrollHeight,
           draft: draft(),
         };
       },
+      settled: function () {
+        return scrollSettled;
+      },
       restore: function (state) {
         if (new URL(state.url).origin !== location.origin) return;
-        if (state.scroll.x || state.scroll.y) {
-          whenLoaded(function () { window.scrollTo(state.scroll.x, state.scroll.y); }, __SCROLL_RETRY_MS__);
-        }
+        if (state.scroll.x || state.scroll.y) holdScroll(state.scroll.x, state.scroll.y, state.height || 0);
         if (state.draft) {
           whenLoaded(function () { restoreDraft(state.draft); }, __DRAFT_RETRY_MS__);
         }
@@ -287,6 +336,14 @@ pub fn page_state_drain_expression() -> String {
     format!(r#"typeof window.{STATE_READER} === "object" ? window.{STATE_READER}.read() : null"#)
 }
 
+/// Expression Rust evaluates to ask whether a restored scroll has settled.
+///
+/// Evaluates to `true` where the script never ran, since nothing there is
+/// being held.
+pub fn scroll_settled_expression() -> String {
+    format!(r#"typeof window.{STATE_READER} === "object" ? window.{STATE_READER}.settled() : true"#)
+}
+
 /// Reads what [`page_state_drain_expression`] evaluated to.
 ///
 /// @param json - The evaluation result, as JSON.
@@ -299,6 +356,7 @@ pub fn parse_page_state(json: &str) -> Option<PageState> {
 struct Restore<'a> {
     url: &'a str,
     scroll: Scroll,
+    height: Option<f64>,
     draft: Option<&'a str>,
 }
 
@@ -306,10 +364,17 @@ struct Restore<'a> {
 ///
 /// @param url - The URL they were read on; the page applies them only on the
 ///   same origin.
-pub fn restore_expression(url: &str, scroll: Scroll, draft: Option<&str>) -> String {
+/// @param height - The document's height when the scroll was read, if known.
+pub fn restore_expression(url: &str, scroll: Scroll, height: Option<f64>, draft: Option<&str>) -> String {
     // JSON is a JavaScript expression, so the values arrive as data, never as
     // code, whatever the page put in its draft.
-    let state = serde_json::to_string(&Restore { url, scroll, draft }).unwrap_or_else(|_| "null".into());
+    let state = serde_json::to_string(&Restore {
+        url,
+        scroll,
+        height,
+        draft,
+    })
+    .unwrap_or_else(|_| "null".into());
     format!(r#"typeof window.{STATE_READER} === "object" && {state} && window.{STATE_READER}.restore({state})"#)
 }
 
@@ -423,7 +488,9 @@ mod tests {
         for placeholder in [
             "__READER__",
             "__MEDIA_MIN_SECONDS__",
-            "__SCROLL_RETRY_MS__",
+            "__SCROLL_QUIET_MS__",
+            "__SCROLL_UNSURE_QUIET_MS__",
+            "__SCROLL_SETTLE_LIMIT_MS__",
             "__DRAFT_RETRY_MS__",
         ] {
             assert!(!script.contains(placeholder), "{placeholder} was left in the script");
@@ -453,7 +520,7 @@ mod tests {
 
     #[test]
     fn a_restore_carries_a_draft_as_data_not_code() {
-        let expression = restore_expression("https://a.test/", Scroll::default(), Some(r#"");alert(1);(""#));
+        let expression = restore_expression("https://a.test/", Scroll::default(), None, Some(r#"");alert(1);(""#));
 
         assert!(expression.contains(r#"\");alert(1);(\""#));
     }
