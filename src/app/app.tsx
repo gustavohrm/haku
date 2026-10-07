@@ -3,6 +3,7 @@ import { applyTheme, isThemePreference } from "@app/theme";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
 import { TabStrip } from "@features/tabs/tab-strip";
 import { Toolbar } from "@features/toolbar/toolbar";
+import { PreviewCover, usePreviewCover } from "@features/viewport/preview-cover";
 import { useChromeLayout } from "@features/viewport/use-chrome-layout";
 import { WindowControls } from "@features/window-controls/window-controls";
 import { useActiveTab, useSettings } from "@ipc/hooks";
@@ -16,10 +17,12 @@ export function App() {
   const internal = tab?.presence.status === "internal";
   const activeUrl = tab?.history.entries[tab.history.index]?.url ?? "";
   const internalPage = internal ? renderInternal(activeUrl) : null;
+  const cover = usePreviewCover(tab);
 
-  // An internal page is drawn by the chrome itself, so nothing should show
-  // through and the chrome stays solid over the whole surface.
-  useChromeLayout(viewportRef, internal);
+  // An internal page is drawn by the chrome itself, and so is the cover over a
+  // reloading page, so nothing should show through and the chrome stays solid
+  // over the whole surface.
+  useChromeLayout(viewportRef, internal || cover !== null);
   usePageDialog(tab);
 
   const themePreference = settings?.theme;
@@ -48,6 +51,7 @@ export function App() {
       */}
       <main ref={viewportRef} className="haku-viewport relative mx-1 mb-1 min-h-0 flex-1 overflow-hidden">
         {internalPage}
+        {cover !== null && <PreviewCover src={cover} />}
       </main>
     </div>
   );

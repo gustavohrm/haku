@@ -960,7 +960,11 @@ fn a_page_is_read_before_it_is_frozen() {
 
     let effects = browser.select_tab(ids[1], 0).unwrap();
 
-    let leave = Effect::Leave { slot, tab: ids[0] };
+    let leave = Effect::Leave {
+        slot,
+        tab: ids[0],
+        capture: true,
+    };
     assert!(position(&effects, &leave) < position(&effects, &Effect::Freeze { slot }));
 }
 
@@ -972,7 +976,11 @@ fn a_page_is_read_before_it_is_parked() {
 
     let effects = browser.select_tab(ids[1], 0).unwrap();
 
-    let leave = Effect::Leave { slot, tab: ids[0] };
+    let leave = Effect::Leave {
+        slot,
+        tab: ids[0],
+        capture: true,
+    };
     assert!(position(&effects, &leave) < position(&effects, &Effect::Blank { slot }));
 }
 
@@ -983,7 +991,11 @@ fn an_evicted_page_is_read_before_another_tab_takes_its_slot() {
 
     let (_, effects) = browser.open_tab("https://b.test", true);
 
-    let leave = Effect::Leave { slot, tab: ids[0] };
+    let leave = Effect::Leave {
+        slot,
+        tab: ids[0],
+        capture: true,
+    };
     let ensure = Effect::EnsureSlot {
         slot,
         url: "https://b.test".into(),
@@ -1463,4 +1475,95 @@ fn a_tab_that_falls_silent_is_timed_from_that_moment() {
     browser.tick(1_000 + GRACE_MS, Pressure::Normal, HashMap::new());
 
     assert!(slot_of(&browser, ids[0]).is_some());
+}
+
+// -- previews ---------------------------------------------------------------
+
+fn leaves(effects: &[Effect], id: TabId) -> Vec<&Effect> {
+    effects
+        .iter()
+        .filter(|effect| matches!(effect, Effect::Leave { tab, .. } if *tab == id))
+        .collect()
+}
+
+#[test]
+fn the_visible_page_is_captured_before_it_is_hidden() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.select_tab(ids[1], 0).unwrap();
+
+    let leave = Effect::Leave {
+        slot,
+        tab: ids[0],
+        capture: true,
+    };
+    assert!(position(&effects, &leave) < position(&effects, &Effect::Hide { slot }));
+    assert_eq!(
+        leaves(&effects, ids[0]).len(),
+        1,
+        "read once, not again as it is frozen"
+    );
+}
+
+#[test]
+fn a_background_page_is_read_without_a_capture() {
+    let mut browser = Browser::new(2);
+    let (first, _) = browser.open_tab("https://a.test", true);
+    browser.open_tab("https://b.test", true);
+
+    let (_, effects) = browser.open_tab("https://c.test", true);
+
+    assert_eq!(
+        leaves(&effects, first),
+        vec![&Effect::Leave {
+            slot: SlotId(0),
+            tab: first,
+            capture: false
+        }]
+    );
+}
+
+#[test]
+fn staying_on_the_same_tab_captures_nothing() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+
+    let effects = browser.navigate(ids[0], "https://a.test/next").unwrap();
+
+    assert!(leaves(&effects, ids[0]).is_empty());
+}
+
+#[test]
+fn a_tab_loading_into_a_slot_is_restoring_until_its_document_loads() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    assert!(browser.tab(ids[0]).unwrap().restoring);
+
+    assert!(!browser.report_loaded(slot, BLANK_URL), "the blank page is not it");
+    assert!(browser.tab(ids[0]).unwrap().restoring);
+
+    assert!(browser.report_loaded(slot, "https://a.test/"));
+    assert!(!browser.tab(ids[0]).unwrap().restoring);
+}
+
+#[test]
+fn navigating_a_loaded_tab_is_not_a_restore() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.report_loaded(slot, "https://a.test/");
+
+    browser.navigate(id, "https://a.test/next").unwrap();
+
+    assert!(!browser.tab(id).unwrap().restoring);
+}
+
+#[test]
+fn a_tab_that_loses_its_slot_stops_restoring() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
+    browser.select_tab(ids[0], 0).unwrap();
+
+    browser.select_tab(ids[1], 0).unwrap();
+
+    assert!(!browser.tab(ids[0]).unwrap().restoring);
 }

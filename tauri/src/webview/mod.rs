@@ -45,13 +45,22 @@ pub struct Viewport {
 /// the UI thread.
 pub type PageObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, SlotId, PageSignal) + Send + Sync>;
 
-/// Longest a page is waited on when it is read as it is left, which is
-/// also the most a tab switch can be held up by it.
+/// Longest a page is waited on when it is read and captured as it is left,
+/// which is also the most a tab switch can be held up by it.
 pub const LEAVE_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// What a page held, read as it was left or on a tick. `None` means it could
 /// not be read.
 pub type PageReading = (TabId, Option<PageState>);
+
+/// What a page held as it was left, and what it showed if it was captured.
+pub struct Departure {
+    pub tab: TabId,
+    /// Nothing when the page could not be read.
+    pub state: Option<PageState>,
+    /// A JPEG of the page, when a capture was asked for and succeeded.
+    pub preview: Option<Vec<u8>>,
+}
 
 /// Scroll and draft waiting for a slot's next document to load.
 struct PendingRestore {
@@ -88,12 +97,13 @@ pub fn chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri::Web
 
 /// Applies the effects [`crate::browser::Browser`] produced to real webviews.
 ///
-/// Reading a page that is being left waits for the page, up to
-/// [`LEAVE_TIMEOUT`], before the effect that leaves it is applied. Commands
-/// that apply effects run off the UI thread, so the wait never blocks it.
+/// Reading a page that is being left, and capturing it when asked, waits for
+/// the page, up to [`LEAVE_TIMEOUT`], before the effect that leaves it is
+/// applied. Commands that apply effects run off the UI thread, so the wait
+/// never blocks it.
 ///
-/// @returns What each page that was left held, for
-///   [`crate::browser::Browser::report_state`].
+/// @returns What each page that was left held and showed, for
+///   [`crate::browser::Browser::report_state`] and the preview store.
 ///
 /// # Errors
 /// Returns [`HakuError::WindowMissing`] when the main window is gone, and
@@ -103,8 +113,8 @@ pub fn apply<R: tauri::Runtime>(
     effects: &[Effect],
     viewport: Viewport,
     observer: &PageObserver<R>,
-) -> Result<Vec<PageReading>> {
-    let mut readings = Vec::new();
+) -> Result<Vec<Departure>> {
+    let mut departures = Vec::new();
     for effect in effects {
         match effect {
             Effect::EnsureSlot { slot, url } => {
@@ -134,7 +144,7 @@ pub fn apply<R: tauri::Runtime>(
                     let _ = platform::resume(&webview);
                 }
             }
-            Effect::Leave { slot, tab } => readings.push((*tab, read_page(app, *slot, LEAVE_TIMEOUT))),
+            Effect::Leave { slot, tab, capture } => departures.push(leave_page(app, *slot, *tab, *capture)),
             Effect::RestoreState {
                 slot,
                 url,
@@ -151,7 +161,24 @@ pub fn apply<R: tauri::Runtime>(
             Effect::AnswerDialog { id, answer } => platform::answer_dialog(app, *id, answer.clone())?,
         }
     }
-    Ok(readings)
+    Ok(departures)
+}
+
+fn leave_page<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, tab: TabId, capture: bool) -> Departure {
+    let Some(webview) = app.get_webview(&slot.label()) else {
+        return Departure {
+            tab,
+            state: None,
+            preview: None,
+        };
+    };
+    let (json, preview) =
+        platform::leave_page(&webview, &inject::page_state_drain_expression(), capture, LEAVE_TIMEOUT);
+    Departure {
+        tab,
+        state: json.as_deref().and_then(inject::parse_page_state),
+        preview,
+    }
 }
 
 /// Reads what a slot's page holds, waiting at most `timeout`.
@@ -231,9 +258,11 @@ fn ensure_slot<R: tauri::Runtime>(
     let sink = {
         let observer = observer.clone();
         let app = app.clone();
-        Arc::new(move |signal| match signal {
-            PageSignal::Loaded { url } => restore_pending(&app, slot, &url),
-            signal => observer(&app, slot, signal),
+        Arc::new(move |signal| {
+            if let PageSignal::Loaded { url } = &signal {
+                restore_pending(&app, slot, url);
+            }
+            observer(&app, slot, signal);
         })
     };
     platform::observe_page(&webview, sink)?;

@@ -62,6 +62,14 @@ export const commands = {
 	 *  they are now.
 	 */
 	memoryReport: () => typedError<MemoryReport, HakuError>(__TAURI_INVOKE("memory_report")),
+	/**
+	 *  What a tab showed as it was last left, as a `data:` URL, to cover its page
+	 *  while it reloads. Nothing when no capture is held.
+	 * 
+	 *  A command rather than a protocol: a protocol would be reachable from
+	 *  content webviews, and a capture shows another tab's page.
+	 */
+	tabPreview: (id: TabId) => typedError<string | null, HakuError>(__TAURI_INVOKE("tab_preview", { id })),
 };
 
 /** Events */
@@ -342,6 +350,12 @@ export type Tab = {
 	 *  loaded since.
 	 */
 	relieved: boolean,
+	/**
+	 *  The tab's page is loading into a slot after the tab held none, and its
+	 *  document has not loaded yet. The interface covers the page meanwhile,
+	 *  so whatever the slot showed before is never seen.
+	 */
+	restoring: boolean,
 };
 
 export type TabId = number;

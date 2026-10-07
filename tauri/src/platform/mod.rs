@@ -121,6 +121,24 @@ pub fn evaluate<R: tauri::Runtime>(
     backend::evaluate(webview, expression, timeout)
 }
 
+/// Evaluates `expression` in a webview's page and, when `capture` is set,
+/// captures what the webview shows as a JPEG, waiting for both together for
+/// at most `timeout`.
+///
+/// A capture is only meaningful while the webview is visible. Blocks, so it
+/// must not be called on the UI thread, where both have to run.
+///
+/// @returns The evaluation's JSON result and the image, each nothing when it
+///   failed, did not finish in time, or was not asked for.
+pub fn leave_page<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    expression: &str,
+    capture: bool,
+    timeout: std::time::Duration,
+) -> (Option<String>, Option<Vec<u8>>) {
+    backend::leave_page(webview, expression, capture, timeout)
+}
+
 /// Releases a page paused on a dialog, with the given answer.
 ///
 /// Does nothing for a dialog that was already answered or whose webview is

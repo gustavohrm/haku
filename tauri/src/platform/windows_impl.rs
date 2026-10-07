@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::Manager;
 
@@ -23,29 +23,32 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2Deferral, ICoreWebView2Environment13, ICoreWebView2FrameInfo, ICoreWebView2FrameInfo2,
     ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2ProcessExtendedInfoCollection,
     ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2_19, ICoreWebView2_2, ICoreWebView2_20, ICoreWebView2_3,
-    ICoreWebView2_8, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
-    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, COREWEBVIEW2_NAVIGATION_KIND,
-    COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_PROCESS_KIND, COREWEBVIEW2_PROCESS_KIND_BROWSER,
-    COREWEBVIEW2_PROCESS_KIND_GPU, COREWEBVIEW2_PROCESS_KIND_RENDERER, COREWEBVIEW2_PROCESS_KIND_UTILITY,
-    COREWEBVIEW2_SCRIPT_DIALOG_KIND, COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD,
+    ICoreWebView2_8, COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    COREWEBVIEW2_NAVIGATION_KIND, COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_PROCESS_KIND,
+    COREWEBVIEW2_PROCESS_KIND_BROWSER, COREWEBVIEW2_PROCESS_KIND_GPU, COREWEBVIEW2_PROCESS_KIND_RENDERER,
+    COREWEBVIEW2_PROCESS_KIND_UTILITY, COREWEBVIEW2_SCRIPT_DIALOG_KIND, COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD,
     COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM, COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
 };
 use webview2_com::{
-    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, DOMContentLoadedEventHandler,
-    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
-    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler, NavigationStartingEventHandler,
-    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
+    take_pwstr, CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
+    DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
+    ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    NavigationStartingEventHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
+    TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR,
 };
+use windows::Win32::System::Com::{IStream, STREAM_SEEK_END, STREAM_SEEK_SET};
 use windows::Win32::System::ProcessStatus::{
     GetPerformanceInfo, GetProcessMemoryInfo, PERFORMANCE_INFORMATION, PROCESS_MEMORY_COUNTERS,
     PROCESS_MEMORY_COUNTERS_EX,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
@@ -166,6 +169,67 @@ pub fn evaluate<R: tauri::Runtime>(webview: &tauri::Webview<R>, expression: &str
         })
         .ok()?;
     receiver.recv_timeout(timeout).ok().flatten()
+}
+
+pub fn leave_page<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    expression: &str,
+    capture: bool,
+    timeout: Duration,
+) -> (Option<String>, Option<Vec<u8>>) {
+    let deadline = Instant::now() + timeout;
+    let (state_sender, state_receiver) = mpsc::channel();
+    let (image_sender, image_receiver) = mpsc::channel();
+    let expression = HSTRING::from(expression);
+    let dispatched = webview.with_webview(move |platform| {
+        let Ok(core) = (unsafe { platform.controller().CoreWebView2() }) else {
+            return;
+        };
+        let read = ExecuteScriptCompletedHandler::create(Box::new(move |status, result| {
+            let _ = state_sender.send(status.ok().map(|()| result));
+            Ok(())
+        }));
+        let _ = unsafe { core.ExecuteScript(&expression, &read) };
+
+        if !capture {
+            return;
+        }
+        let Some(stream) = (unsafe { SHCreateMemStream(None) }) else {
+            return;
+        };
+        let target = stream.clone();
+        let captured = CapturePreviewCompletedHandler::create(Box::new(move |status| {
+            let image = status.ok().and_then(|()| read_stream(&target));
+            let _ = image_sender.send(image);
+            Ok(())
+        }));
+        let _ = unsafe { core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, &stream, &captured) };
+    });
+    if dispatched.is_err() {
+        return (None, None);
+    }
+
+    let remaining = || deadline.saturating_duration_since(Instant::now());
+    let state = state_receiver.recv_timeout(remaining()).ok().flatten();
+    // A sender dropped without sending, as when no capture was asked for,
+    // ends this wait at once.
+    let image = image_receiver.recv_timeout(remaining()).ok().flatten();
+    (state, image)
+}
+
+/// The whole contents of an in-memory stream.
+fn read_stream(stream: &IStream) -> Option<Vec<u8>> {
+    let mut size = 0_u64;
+    unsafe { stream.Seek(0, STREAM_SEEK_END, Some(&mut size)) }.ok()?;
+    unsafe { stream.Seek(0, STREAM_SEEK_SET, None) }.ok()?;
+    let length = u32::try_from(size).ok()?;
+    let mut bytes = vec![0_u8; length as usize];
+    let mut read = 0_u32;
+    unsafe { stream.Read(bytes.as_mut_ptr().cast(), length, Some(&mut read)) }
+        .ok()
+        .ok()?;
+    bytes.truncate(read as usize);
+    Some(bytes)
 }
 
 pub fn memory_status() -> Option<MemoryStatus> {

@@ -67,6 +67,10 @@ pub struct Tab {
     /// Discarded to free memory while the system was short of it, and not
     /// loaded since.
     pub relieved: bool,
+    /// The tab's page is loading into a slot after the tab held none, and its
+    /// document has not loaded yet. The interface covers the page meanwhile,
+    /// so whatever the slot showed before is never seen.
+    pub restoring: bool,
     /// What the user typed into the page's forms, to put back when a
     /// discarded tab reloads. Never sent to the interface or written to disk.
     #[serde(skip)]
@@ -95,6 +99,7 @@ impl Tab {
             dialog: None,
             audible: false,
             relieved: false,
+            restoring: false,
             draft: None,
             page: PageRecord::default(),
         }
@@ -174,6 +179,7 @@ impl Tab {
     pub fn lose_page(&mut self) {
         self.presence = TabPresence::Discarded;
         self.audible = false;
+        self.restoring = false;
     }
 
     /// Reclassifies the tab after its URL changed, so navigating between an

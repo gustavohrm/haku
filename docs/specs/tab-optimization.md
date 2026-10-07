@@ -1,6 +1,6 @@
 ---
-status: APPROVED
-last_updated: 2026-10-06
+status: IMPLEMENTED
+last_updated: 2026-10-07
 scope: Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a discarded tab gets back when it reloads.
 ---
 
@@ -228,7 +228,9 @@ Unchanged: `IsDocumentPlayingAudioChanged`.
 
 ## Leaving a page
 
-A page is read, and captured if it was visible, **before** it is frozen, hidden behind another tab's navigation, parked, or destroyed by shrinking the pool. `Browser` emits `Effect::Leave { slot, tab, capture }` ahead of the `Freeze`, `Blank`, `EnsureSlot` or `Destroy` that follows. Until [previews](#previews) are built, `Leave` carries no `capture`.
+A page is read, and captured if it was visible, **before** it is frozen, hidden behind another tab's navigation, parked, or destroyed by shrinking the pool. `Browser` emits `Effect::Leave { slot, tab, capture }` ahead of the `Freeze`, `Blank`, `EnsureSlot` or `Destroy` that follows.
+
+`capture` is set for the tab that was visible, and only for it. `Browser` remembers which slot it last showed and for which tab; when that tab is no longer the visible one and still has its page running, the reconciliation emits its `Leave` first, before any `Hide`, `Freeze` or navigation, since a page can only be captured while it is on screen. The same pass does not read it again.
 
 `webview/` applies it by evaluating the drain expression and, when `capture` is set, calling `CapturePreview` as JPEG, then waiting for both up to `LEAVE_TIMEOUT` before applying the next effect. Commands that drive webviews are already `async`, so the wait is off the main thread. On timeout the next effect proceeds and the tab keeps the state from its last tick.
 
@@ -255,11 +257,13 @@ When `bind` navigates a slot for a tab with either, it emits `Effect::RestoreSta
 
 The capture taken by `Leave` is held in `AppState`, keyed by tab, as JPEG bytes. At most `PREVIEW_LIMIT` are kept, least recently shown dropped first, and a tab's capture is dropped when it closes. Captures are never written to disk.
 
-`bind` sets `Tab::restoring` when it navigates a slot for a discarded tab, and `Browser::report_loaded(slot)` clears it on `DOMContentLoaded`. While the active tab is restoring, the viewport draws a cover over the page: the tab's capture, fetched with a `tab_preview` command, or the plain surface colour when there is none. The cover is removed when `restoring` clears or after `COVER_TIMEOUT`, whichever is first.
+`bind` sets `Tab::restoring` when it navigates a slot for a tab that held none: a discarded tab, including a new one, which starts discarded. `Browser::report_loaded(slot, url)` clears it on `DOMContentLoaded`, ignoring `about:blank`, which a slot shows when it is created or parked. While the active tab is restoring, the viewport draws a cover over the page: the tab's capture, fetched with a `tab_preview` command, or the plain surface colour when there is none. The cover is removed when `restoring` clears or after `COVER_TIMEOUT`, whichever is first.
 
-The cover is what removes the flash of the slot's previous page. It is drawn by the chrome, opaque and hard-edged as [Chrome layering](chrome-layering.md) requires, and it is **not** registered with `useOverlay`: it takes no input, and clicks falling through to the loading page are harmless.
+The cover is what removes the flash of the slot's previous page. It is drawn by the chrome, opaque and hard-edged as [Chrome layering](chrome-layering.md) requires. The chrome can only be seen where its native region includes it, and that region is also where it takes input, so while the cover shows the chrome is kept solid over the viewport exactly as it is for an internal page (`useChromeLayout`'s `covered`). Clicks on a page that is still loading therefore land on the cover and do nothing. An earlier version of this section said the cover would take no input; that cannot be had without the cover being invisible.
 
-`tab_preview` is a command, not a custom protocol, because a protocol would be reachable from content webviews and a capture shows another tab's page.
+The capture is scaled to the viewport's width and anchored at its top-left, as the page was.
+
+`tab_preview` is a command, not a custom protocol, because a protocol would be reachable from content webviews and a capture shows another tab's page. It returns the capture as a `data:` URL, which the cover's `<img>` shows directly. Captures of tabs that no longer exist are dropped after every change.
 
 Navigating within a live tab shows no cover; that is an ordinary page load.
 
@@ -295,7 +299,7 @@ Each step is a change that can ship on its own, and each leaves the documents ag
 2. **Must run and eviction.** _Built._ A tab playing audio reserves a slot, and `Browser` names the eviction victim. Capture and loss are not known yet, so only audio counts as must-run and the order is recency alone.
 3. **Page state and restore.** _Built._ `page_state_script`, `Effect::Leave` without capture, `report_state`, scroll and drafts in `Tab`, `Effect::RestoreState`. Capture joins must-run. Loss appears on `haku://memory` before anything acts on it.
 4. **The rule.** _Built._ Smart discarding as specified, the budget, pressure levels acting, the `relieved` marker, kept sites, the new settings and presets.
-5. **Previews.** Capture in `Leave`, the preview store, `restoring` and the cover.
+5. **Previews.** _Built._ Capture in `Leave`, the preview store, `restoring` and the cover.
 
 Step 4 must not land before step 3: eager discarding without cross-slot restore loses scroll and drafts on most tab switches.
 
@@ -321,12 +325,12 @@ The rule is pure and is tested in `browser_tests.rs` with supplied memory sample
 
 Facts this design assumes and that have not been checked against the WebView2 runtime Haku ships on. Each is checked at the start of the step that needs it, and each has a fallback that keeps the design intact.
 
-| Assumption                                                                                                                                                                         | Step | If false                                                                                    |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------- |
-| **Verified 2026-10-06.** A slot webview's main frame id can be read and matches `FrameInfo::FrameId`                                                                               | 1    | Attribute by process: read each webview's renderer process id through the DevTools protocol |
-| **Verified 2026-10-06.** `NavigationStarting` exposes a `Content-Type` request header for a form submission                                                                        | 3    | Drop the signal; such tabs are judged by the rest                                           |
-| `ExecuteScript` (**verified 2026-10-06**, 1–26 ms on local test pages) and `CapturePreview` complete on a webview that is still visible within `LEAVE_TIMEOUT` on an ordinary page | 3, 5 | Raise the timeout, or capture on the tick as well as on leaving                             |
-| `DOMContentLoaded` is late enough that removing the cover does not show a blank page                                                                                               | 5    | Remove the cover on `NavigationCompleted`                                                   |
+| Assumption                                                                                                                                                                                                                                                                                            | Step | If false                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------- |
+| **Verified 2026-10-06.** A slot webview's main frame id can be read and matches `FrameInfo::FrameId`                                                                                                                                                                                                  | 1    | Attribute by process: read each webview's renderer process id through the DevTools protocol |
+| **Verified 2026-10-06.** `NavigationStarting` exposes a `Content-Type` request header for a form submission                                                                                                                                                                                           | 3    | Drop the signal; such tabs are judged by the rest                                           |
+| `ExecuteScript` (**verified 2026-10-06**, 1–26 ms on local test pages) and `CapturePreview` (**verified 2026-10-07**: read and capture together in 50–62 ms, about 22 KB of JPEG for a full-window local page) complete on a webview that is still visible within `LEAVE_TIMEOUT` on an ordinary page | 3, 5 | Raise the timeout, or capture on the tick as well as on leaving                             |
+| `DOMContentLoaded` is late enough that removing the cover does not show a blank page. **Not yet observed at the moment the cover comes off**: a dev build showed the cover over a slot still holding the previous page, and the new page after it, but not the frame between                          | 5    | Remove the cover on `NavigationCompleted`                                                   |
 
 ## Known limits
 
@@ -336,6 +340,8 @@ Facts this design assumes and that have not been checked against the WebView2 ru
 - **`beforeunload` listeners added through `EventTarget.prototype` directly are not counted.**
 - **A frozen messenger receives nothing.** Keeping a page is not keeping it running; _Keep loaded_ is.
 - **A preview shows the page as it was left**, which may differ from what the reload renders.
+- **The cover takes clicks** while a tab is restoring, for up to `COVER_TIMEOUT`.
+- **A page evicted while it was still loading** can fire `DOMContentLoaded` after its slot was handed to another tab, before that tab's navigation commits, and so lift the new tab's cover early. The slot then shows the evicted page until the new one commits.
 
 ## Out of scope
 

@@ -34,8 +34,10 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_System_Com",
   "Win32_System_ProcessStatus",
   "Win32_System_Threading",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 webview2-com = "0.38"

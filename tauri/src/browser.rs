@@ -62,6 +62,10 @@ pub enum Effect {
     Leave {
         slot: SlotId,
         tab: TabId,
+        /// Also capture what the page shows, as the preview its tab is
+        /// covered with while it reloads. Set only while the page is still
+        /// visible, which is the only time it can be captured.
+        capture: bool,
     },
     /// Put a reloading tab's scroll and draft back once its document has
     /// loaded. Follows the [`Effect::EnsureSlot`] that reloads it.
@@ -155,6 +159,13 @@ pub struct Browser {
     /// The latest time any caller has supplied, for mutations that supply
     /// none. Grace is judged against it.
     clock: u64,
+    /// The slot last shown and the tab it was shown for. When that tab stops
+    /// being the visible one, its page is read and captured before anything
+    /// else happens to it.
+    shown: Option<(SlotId, TabId)>,
+    /// The tab read by the current reconciliation as it stopped being
+    /// visible, so it is not read a second time in the same pass.
+    just_left: Option<TabId>,
 }
 
 impl Browser {
@@ -175,6 +186,8 @@ impl Browser {
             pressure: Pressure::Normal,
             memory: HashMap::new(),
             clock: 0,
+            shown: None,
+            just_left: None,
         }
     }
 
@@ -676,6 +689,27 @@ impl Browser {
         }
     }
 
+    /// Records that a slot's document has loaded, which ends its tab's
+    /// restore. The blank page a slot is created or parked on is not that
+    /// document.
+    ///
+    /// @returns Whether a tab stopped restoring, which the interface shows.
+    pub fn report_loaded(&mut self, slot: SlotId, url: &str) -> bool {
+        if url == BLANK_URL {
+            return false;
+        }
+        let Some(id) = self.occupant_of(slot) else {
+            return false;
+        };
+        match self.tab_mut(id) {
+            Ok(tab) if tab.restoring => {
+                tab.restoring = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The running pages worth reading on a tick: the visible tab's and every
     /// background tab's that is not frozen. A frozen page cannot change.
     pub fn running_pages(&self) -> Vec<(SlotId, TabId)> {
@@ -828,8 +862,10 @@ impl Browser {
     /// Every mutation ends here rather than emitting effects itself, so there is
     /// exactly one description of what "correct" looks like.
     fn realize(&mut self) -> Vec<Effect> {
-        let mut effects = Vec::new();
         let active = self.active;
+        // Before anything hides it or takes its slot: a page can only be
+        // captured while it is still on screen.
+        let mut effects: Vec<Effect> = self.leave_shown().into_iter().collect();
 
         if let Some(active) = active {
             effects.extend(self.bind(active));
@@ -847,6 +883,7 @@ impl Browser {
         }
 
         let active_slot = active.and_then(|id| self.tab(id).ok()).and_then(Tab::slot);
+        self.shown = active_slot.zip(active);
         for slot in self.pool.slots().iter().map(|slot| slot.id).collect::<Vec<_>>() {
             if Some(slot) == active_slot {
                 effects.push(Effect::Show { slot });
@@ -857,7 +894,24 @@ impl Browser {
 
         // After hiding: a webview can only be frozen while it is hidden.
         effects.extend(self.settle_background());
+        self.just_left = None;
         effects
+    }
+
+    /// Reads and captures the page last shown, if its tab is no longer the
+    /// visible one and still has it running. A tab that closed or moved to an
+    /// internal page has no page left to read.
+    fn leave_shown(&mut self) -> Option<Effect> {
+        let (slot, tab) = self.shown?;
+        if Some(tab) == self.active || self.tab(tab).ok()?.presence != (TabPresence::Live { slot }) {
+            return None;
+        }
+        self.just_left = Some(tab);
+        Some(Effect::Leave {
+            slot,
+            tab,
+            capture: true,
+        })
     }
 
     /// Applies the discard and freeze policies to every background tab, then
@@ -993,19 +1047,30 @@ impl Browser {
     }
 
     fn freeze_tab(&mut self, id: TabId) -> Vec<Effect> {
-        let Ok(tab) = self.tab_mut(id) else { return Vec::new() };
-        let TabPresence::Live { slot } = tab.presence else {
+        let Ok(TabPresence::Live { slot }) = self.tab(id).map(|tab| tab.presence) else {
             return Vec::new();
         };
-        tab.presence = TabPresence::Frozen { slot };
-        vec![Effect::Leave { slot, tab: id }, Effect::Freeze { slot }]
+        let mut effects: Vec<Effect> = self.leave(id).into_iter().collect();
+        if let Ok(tab) = self.tab_mut(id) {
+            tab.presence = TabPresence::Frozen { slot };
+        }
+        effects.push(Effect::Freeze { slot });
+        effects
     }
 
     /// Reads a running page before it is left. A frozen page was read when it
-    /// was frozen, and cannot have changed since.
+    /// was frozen, and cannot have changed since, and a page just read as it
+    /// stopped being visible is not read again.
     fn leave(&self, id: TabId) -> Option<Effect> {
+        if self.just_left == Some(id) {
+            return None;
+        }
         match self.tab(id).ok()?.presence {
-            TabPresence::Live { slot } => Some(Effect::Leave { slot, tab: id }),
+            TabPresence::Live { slot } => Some(Effect::Leave {
+                slot,
+                tab: id,
+                capture: false,
+            }),
             _ => None,
         }
     }
@@ -1060,6 +1125,7 @@ impl Browser {
         let url = tab.url().to_string();
         let scroll = tab.scroll;
         let draft = tab.draft.clone();
+        let had_slot = tab.slot().is_some();
         let effective = self.effective_capacity();
         let victim = self.victim();
 
@@ -1095,6 +1161,11 @@ impl Browser {
             self.slot_urls.insert(slot, url.clone());
             self.awaiting.insert(slot);
             effects.push(Effect::EnsureSlot { slot, url: url.clone() });
+            if !had_slot {
+                if let Ok(tab) = self.tab_mut(id) {
+                    tab.restoring = true;
+                }
+            }
             // Whatever slot the tab lands in, it gets back where it was.
             if scroll != Scroll::default() || draft.is_some() {
                 effects.push(Effect::RestoreState {

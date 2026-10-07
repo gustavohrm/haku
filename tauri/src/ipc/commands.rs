@@ -27,12 +27,12 @@ use tauri_specta::Event;
 use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId, Preset, Pressure, SlotId, TabId};
+use crate::model::{jpeg_data_url, DialogAnswer, DialogId, Preset, Pressure, SlotId, TabId};
 use crate::platform::{self, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
-use crate::webview::{self, PageObserver, PageReading, CHROME_LABEL};
+use crate::webview::{self, Departure, PageObserver, PageReading, CHROME_LABEL};
 
 use super::events::{MemoryChanged, SettingsChanged, StateChanged};
 
@@ -81,8 +81,20 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     browser.report_navigation(slot, form);
                 }
             }
-            // Handled by the webview module, which holds what is restored.
-            PageSignal::Loaded { .. } => {}
+            // The webview module has already handed the document its
+            // restore. Recorded on this thread, as a commit is, so the cover
+            // comes off as soon as the document exists.
+            PageSignal::Loaded { url } => {
+                let state = app.state::<AppState>();
+                let loaded = state
+                    .browser
+                    .write()
+                    .ok()
+                    .and_then(|mut browser| browser.report_loaded(slot, &url).then(|| browser.state()));
+                if let Some(snapshot) = loaded {
+                    let _ = StateChanged(snapshot).emit(app);
+                }
+            }
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -236,7 +248,7 @@ fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
 
 /// Applies effects to real webviews and tells the interface what changed.
 fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<BrowserState> {
-    let mut readings = webview::apply(app, effects, state.viewport(), &page_observer())?;
+    let mut readings = keep_previews(state, webview::apply(app, effects, state.viewport(), &page_observer())?);
     // A page read as it was left may turn out to be capturing, which changes
     // what should happen to it. Bounded, though a reading only ever leads to
     // freezing or resuming one tab.
@@ -245,7 +257,10 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
             break;
         }
         let effects = report_readings(state, readings)?;
-        readings = webview::apply(app, &effects, state.viewport(), &page_observer())?;
+        readings = keep_previews(
+            state,
+            webview::apply(app, &effects, state.viewport(), &page_observer())?,
+        );
     }
 
     let snapshot = {
@@ -255,10 +270,31 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
             .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
         browser.state()
     };
+    // A closed tab's capture shows a page nobody can return to.
+    if let Ok(mut previews) = state.previews.lock() {
+        previews.retain(|id| snapshot.tabs.iter().any(|tab| tab.id == id));
+    }
 
     StateChanged(snapshot.clone()).emit(app).map_err(HakuError::from)?;
     let _ = state.save_session();
     Ok(snapshot)
+}
+
+/// Stores the captures taken as pages were left, and passes on what each
+/// page held.
+fn keep_previews(state: &AppState, departures: Vec<Departure>) -> Vec<PageReading> {
+    let Ok(mut previews) = state.previews.lock() else {
+        return departures.into_iter().map(|left| (left.tab, left.state)).collect();
+    };
+    departures
+        .into_iter()
+        .map(|left| {
+            if let Some(jpeg) = left.preview {
+                previews.insert(left.tab, jpeg);
+            }
+            (left.tab, left.state)
+        })
+        .collect()
 }
 
 /// More rounds of reading than one tab switch can cause.
@@ -624,6 +660,22 @@ fn record_visit(state: &AppState, report: &PageReport) {
 pub fn memory_report(webview: tauri::Webview, state: State<'_, AppState>) -> Result<MemoryReport> {
     ensure_chrome(&webview)?;
     report_memory(&state)
+}
+
+/// What a tab showed as it was last left, as a `data:` URL, to cover its page
+/// while it reloads. Nothing when no capture is held.
+///
+/// A command rather than a protocol: a protocol would be reachable from
+/// content webviews, and a capture shows another tab's page.
+#[tauri::command]
+#[specta::specta]
+pub fn tab_preview(webview: tauri::Webview, state: State<'_, AppState>, id: TabId) -> Result<Option<String>> {
+    ensure_chrome(&webview)?;
+    let previews = state
+        .previews
+        .lock()
+        .map_err(|_| HakuError::Storage("preview lock poisoned".into()))?;
+    Ok(previews.get(id).map(jpeg_data_url))
 }
 
 #[tauri::command]

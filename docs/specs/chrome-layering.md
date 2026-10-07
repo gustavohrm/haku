@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-02
+last_updated: 2026-10-07
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -59,6 +59,8 @@ useOverlay(ref, isOpen);
 ```
 
 `useOverlay` measures the element when it opens, as it resizes, and again when a transition or animation on it ends: a transform is not a resize, so a tooltip scaling up would otherwise stay registered at its starting size. While it is still animating, the part of it beyond what was measured is hidden under the page.
+
+A cover over the whole viewport needs no overlay of its own. `useChromeLayout` takes a `covered` flag that keeps the chrome solid over the viewport, which internal pages use, and so does the preview over a reloading page ([Tab optimization § Previews](tab-optimization.md#previews)).
 
 Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its own and registers each toast stack and open dialog in it as they appear, resize and animate. Show notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
 
