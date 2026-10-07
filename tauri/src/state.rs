@@ -1,13 +1,14 @@
+use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::browser::Browser;
+use crate::browser::{Browser, Position};
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
-use crate::model::{Loss, LossSignal, MemoryStatus, PageRecord, Pressure, Slot, SlotId, Tab, TabId};
+use crate::model::{Loss, LossSignal, MemoryStatus, Pressure, SlotId, TabId};
 use crate::platform::memory::{Attribution, UnattributedProcess};
 use crate::storage::{HistoryDb, Paths, Session, Settings};
 use crate::webview::Viewport;
@@ -43,28 +44,42 @@ impl MemoryReading {
         }
     }
 
+    /// Each slot's measured memory, as the browser's rule weighs it.
+    pub fn slot_bytes(&self) -> HashMap<SlotId, u64> {
+        self.attribution.slots.clone()
+    }
+
     /// The reading laid out against the pool's slots and their tabs as they
     /// are now.
-    pub fn report(&self, slots: &[Slot], tabs: &[Tab]) -> MemoryReport {
+    pub fn report(&self, browser: &Browser) -> MemoryReport {
+        let slots: Vec<SlotMemory> = browser
+            .slots()
+            .iter()
+            .map(|slot| {
+                let signals = slot.occupant.map(|tab| browser.loss_signals(tab));
+                SlotMemory {
+                    slot: slot.id,
+                    tab: slot.occupant,
+                    position: slot.occupant.and_then(|tab| browser.position(tab)),
+                    bytes: self.attribution.slots.get(&slot.id).copied(),
+                    loss: signals
+                        .as_ref()
+                        .map(|signals| signals.iter().map(|signal| signal.level()).max().unwrap_or_default()),
+                    signals: signals.unwrap_or_default(),
+                }
+            })
+            .collect();
+        let kept = slots
+            .iter()
+            .filter(|slot| slot.position == Some(Position::Kept))
+            .filter_map(|slot| slot.bytes)
+            .sum();
         MemoryReport {
             pressure: self.pressure,
             headroom: self.headroom,
-            slots: slots
-                .iter()
-                .map(|slot| {
-                    let page = slot
-                        .occupant
-                        .and_then(|occupant| tabs.iter().find(|tab| tab.id == occupant))
-                        .map(|tab| &tab.page);
-                    SlotMemory {
-                        slot: slot.id,
-                        tab: slot.occupant,
-                        bytes: self.attribution.slots.get(&slot.id).copied(),
-                        loss: page.map(PageRecord::loss),
-                        signals: page.map(PageRecord::signals).unwrap_or_default(),
-                    }
-                })
-                .collect(),
+            budget: browser.budget(),
+            kept,
+            slots,
             unattributed: self.attribution.unattributed.clone(),
         }
     }
@@ -77,6 +92,12 @@ pub struct MemoryReport {
     pub pressure: Pressure,
     /// The scarcer of free physical memory and free commit, from 0 to 1.
     pub headroom: Option<f64>,
+    /// What kept tabs may hold together, in bytes.
+    #[specta(type = specta_typescript::Number)]
+    pub budget: u64,
+    /// What kept tabs hold now, in bytes, as far as it was measured.
+    #[specta(type = specta_typescript::Number)]
+    pub kept: u64,
     pub slots: Vec<SlotMemory>,
     pub unattributed: Vec<UnattributedProcess>,
 }
@@ -87,6 +108,8 @@ pub struct SlotMemory {
     pub slot: SlotId,
     /// Nothing while the slot is parked.
     pub tab: Option<TabId>,
+    /// Why the tab holds the slot. Nothing while the slot is parked.
+    pub position: Option<Position>,
     /// Commit charge in bytes, or nothing when the slot has not been measured.
     #[specta(type = Option<specta_typescript::Number>)]
     pub bytes: Option<u64>,
@@ -217,27 +240,30 @@ mod tests {
 
     #[test]
     fn the_report_follows_the_slots_as_they_are_now() {
-        let reading = MemoryReading::default().next(None, Some(attribution(SlotId(0), 42)));
-        let slots = [
-            Slot {
-                id: SlotId(0),
-                occupant: Some(TabId(3)),
-                used_at: 0,
-            },
-            Slot {
-                id: SlotId(1),
-                occupant: None,
-                used_at: 0,
-            },
-        ];
-        let mut tab = Tab::new(TabId(3), "https://a.test/");
-        tab.page.unreadable = true;
-        let report = reading.report(&slots, &[tab]);
-        assert_eq!(report.slots[0].tab, Some(TabId(3)));
+        let mut browser = Browser::new(2).with_keeping(1024, vec!["b.test".into()]);
+        let (first, _) = browser.open_tab("https://b.test/", true);
+        browser.open_tab("https://a.test/", true);
+        browser.report_state(first, None);
+        let reading = MemoryReading::default().next(
+            None,
+            Some(Attribution {
+                slots: [(SlotId(0), 42), (SlotId(1), 7)].into(),
+                unattributed: Vec::new(),
+            }),
+        );
+
+        let report = reading.report(&browser);
+
+        assert_eq!(report.slots[0].tab, Some(first));
+        assert_eq!(report.slots[0].position, Some(Position::Kept));
         assert_eq!(report.slots[0].bytes, Some(42));
-        assert_eq!(report.slots[0].loss, Some(Loss::State));
-        assert_eq!(report.slots[0].signals, vec![LossSignal::Unreadable]);
-        assert_eq!(report.slots[1].bytes, None);
-        assert_eq!(report.slots[1].loss, None);
+        assert_eq!(report.slots[0].loss, Some(Loss::Work));
+        assert_eq!(
+            report.slots[0].signals,
+            vec![LossSignal::KeptSite, LossSignal::Unreadable]
+        );
+        assert_eq!(report.slots[1].position, Some(Position::Visible));
+        assert_eq!(report.budget, 1024);
+        assert_eq!(report.kept, 42, "only kept tabs count against the budget");
     }
 }

@@ -16,14 +16,14 @@ The price is that reloading becomes the common way a tab comes back, so the seco
 
 [Webview pool](webview-pool.md) describes the code as it is. This document replaces these parts of it, and each is rewritten there in the change that implements it, not before:
 
-| Webview pool section                 | Replaced by                                                       |
-| ------------------------------------ | ----------------------------------------------------------------- |
-| Capacity (rewritten)                 | [Effective capacity](#effective-capacity)                         |
-| Eviction (rewritten)                 | [Eviction](#eviction)                                             |
-| Optimization › Presets               | [Settings and presets](#settings-and-presets)                     |
-| Optimization › Policy, smart discard | [The rule](#the-rule)                                             |
-| Optimization › Signals (low memory)  | [Memory pressure](#memory-pressure)                               |
-| Scroll, Form contents (rewritten)    | [What a discarded tab gets back](#what-a-discarded-tab-gets-back) |
+| Webview pool section               | Replaced by                                                       |
+| ---------------------------------- | ----------------------------------------------------------------- |
+| Capacity (rewritten)               | [Effective capacity](#effective-capacity)                         |
+| Eviction (rewritten)               | [Eviction](#eviction)                                             |
+| Optimization › Presets (rewritten) | [Settings and presets](#settings-and-presets)                     |
+| Optimization › Policy (rewritten)  | [The rule](#the-rule)                                             |
+| Optimization › Signals (rewritten) | [Memory pressure](#memory-pressure)                               |
+| Scroll, Form contents (rewritten)  | [What a discarded tab gets back](#what-a-discarded-tab-gets-back) |
 
 Everything else there stands: the four states, what discarding is, freezing, parking on `about:blank`, fixed tabs, service workers, session restore. A tab opened in the background still takes no webview until it is first shown.
 
@@ -71,6 +71,8 @@ An open WebSocket is deliberately not a signal. Analytics, chat widgets and live
 
 A tab left less than `GRACE` ago is kept whatever its loss, so that flipping back to the tab just left is instant. Grace is the only concession made to speed, and it does not apply under pressure.
 
+A tab is timed from when it was left, or from when it fell silent if that is later. A tab that has never been timed, such as one left before the first tick, is timed from the next tick.
+
 ### The budget
 
 Kept tabs together may hold at most the **background memory** setting, measured as described in [Slot memory](#slot-memory). A tab whose memory is unknown counts as zero, so on a platform without measurement only the slot count limits kept tabs.
@@ -84,7 +86,7 @@ With _Discard: smart_ and normal pressure, in order:
 1. In grace: keep.
 2. Loss is None: discard.
 3. Loss is Work: keep.
-4. Loss is State: keep while the total memory of all kept tabs stays within the budget, taking the most recently shown first. Discard the rest.
+4. Loss is State: keep while the total memory of all kept tabs stays within the budget, taking the most recently shown first. Discard the rest: once one does not fit, no less recent State tab is kept, even a smaller one.
 
 Tabs kept by steps 1 and 3 count against the budget before step 4 spends what is left, but are not themselves discarded for exceeding it.
 
@@ -143,9 +145,7 @@ One thread replaces `relieve_memory_periodically`. Every `TICK` (every `TICK_PRE
 3. reads the [page state](#page-state) of every running background tab, which is how the end of a capture is noticed;
 4. calls `Browser::tick(now, pressure, samples)`, which re-times the visible tab and applies the rule.
 
-Steps 1 to 3 are built: until [the rule](#the-rule) is, the tick ends by running `Browser::relieve` as the 30-second timer did, judging low memory by `LowMemoryResourceNotification` as before.
-
-Pressure is also read when a tab is selected or opened, before it takes a slot, because a burst of tab switches is exactly when memory runs out faster than a timer notices.
+Pressure is also read when a tab is selected or opened, before it takes a slot, because a burst of tab switches is exactly when memory runs out faster than a timer notices. That reading takes only the system figures, not slot memory, so the rule then weighs the slot memory of the last tick.
 
 A pass that changes no tab writes nothing and emits no `StateChanged`, as now. Every pass emits `MemoryChanged` with the [memory report](#hakumemory), whose figures move on every tick.
 
@@ -178,6 +178,8 @@ Performance no longer means _Discard: never_. That combination is still availabl
 The site menu gains a second option under _Keep loaded_: **Don't unload this site**. It adds or removes the tab's host in `kept_sites`. A tab on a listed host has loss Work, whatever the page reports.
 
 It is the remedy for a page whose loss Haku cannot see. It differs from _Keep loaded_ in two ways: it applies to every tab on the host, now and later, and it keeps the page without keeping it running.
+
+A host is the URL's host name, lowercased and without a port, as `URL.hostname` gives it in the interface and `model::host_of` in Rust. The site menu writes the list through `set_settings`, like any other setting, so the option needs no command of its own. `haku://memory` names it as the signal _kept site_.
 
 ## Signals
 
@@ -265,7 +267,7 @@ Navigating within a live tab shows no cover; that is an ordinary page load.
 
 An internal page listing, per slot: the tab, its state, its position and loss level with the signals behind it, and its memory. Above the list: the pressure level and headroom, the budget and how much of it is used, and the unattributed processes.
 
-It exists so the constants below can be tuned against real pages, and so a user can see why a tab was or was not kept. It reads a `memory_report` command and refreshes on the tick's event. Until loss and the budget are built, it shows each slot's tab, state and memory, and above the list the pressure level, the headroom and the totals.
+It exists so the constants below can be tuned against real pages, and so a user can see why a tab was or was not kept. It reads a `memory_report` command and refreshes on the tick's event.
 
 ## Constants
 
@@ -292,7 +294,7 @@ Each step is a change that can ship on its own, and each leaves the documents ag
 1. **Measure.** _Built._ `platform::memory_status`, `platform::slot_memory`, the pressure level, the tick replacing the 30-second timer with unchanged discarding behaviour, and `haku://memory`.
 2. **Must run and eviction.** _Built._ A tab playing audio reserves a slot, and `Browser` names the eviction victim. Capture and loss are not known yet, so only audio counts as must-run and the order is recency alone.
 3. **Page state and restore.** _Built._ `page_state_script`, `Effect::Leave` without capture, `report_state`, scroll and drafts in `Tab`, `Effect::RestoreState`. Capture joins must-run. Loss appears on `haku://memory` before anything acts on it.
-4. **The rule.** Smart discarding as specified, the budget, pressure levels acting, the `relieved` marker, kept sites, the new settings and presets.
+4. **The rule.** _Built._ Smart discarding as specified, the budget, pressure levels acting, the `relieved` marker, kept sites, the new settings and presets.
 5. **Previews.** Capture in `Leave`, the preview store, `restoring` and the cover.
 
 Step 4 must not land before step 3: eager discarding without cross-slot restore loses scroll and drafts on most tab switches.

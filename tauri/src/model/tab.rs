@@ -3,7 +3,7 @@ use specta::Type;
 
 use super::dialog::PageDialog;
 use super::history::{History, Visit};
-use super::page_state::{PageRecord, PageState, DRAFT_LIMIT};
+use super::page_state::{Loss, LossSignal, PageRecord, PageState, DRAFT_LIMIT};
 use super::pool::SlotId;
 
 /// Scheme used by pages Haku renders itself, inside the chrome webview.
@@ -64,6 +64,9 @@ pub struct Tab {
     pub dialog: Option<PageDialog>,
     /// The page is playing audio, which a smart policy will not interrupt.
     pub audible: bool,
+    /// Discarded to free memory while the system was short of it, and not
+    /// loaded since.
+    pub relieved: bool,
     /// What the user typed into the page's forms, to put back when a
     /// discarded tab reloads. Never sent to the interface or written to disk.
     #[serde(skip)]
@@ -91,6 +94,7 @@ impl Tab {
             active_at: 0,
             dialog: None,
             audible: false,
+            relieved: false,
             draft: None,
             page: PageRecord::default(),
         }
@@ -130,6 +134,26 @@ impl Tab {
 
     pub fn url(&self) -> &str {
         &self.history.current().url
+    }
+
+    /// The reasons discarding the tab would cost something.
+    ///
+    /// @param kept_sites - Hosts the user asked not to unload, whose tabs are
+    ///   treated as holding work whatever the page reports.
+    pub fn loss_signals(&self, kept_sites: &[String]) -> Vec<LossSignal> {
+        let kept = host_of(self.url()).is_some_and(|host| kept_sites.contains(&host));
+        let mut signals: Vec<LossSignal> = kept.then_some(LossSignal::KeptSite).into_iter().collect();
+        signals.extend(self.page.signals());
+        signals
+    }
+
+    /// What discarding the tab would cost: the highest level of its signals.
+    pub fn loss(&self, kept_sites: &[String]) -> Loss {
+        self.loss_signals(kept_sites)
+            .into_iter()
+            .map(LossSignal::level)
+            .max()
+            .unwrap_or_default()
     }
 
     pub fn is_internal(&self) -> bool {
@@ -172,6 +196,22 @@ impl Tab {
 
 pub fn is_internal(url: &str) -> bool {
     url.starts_with(INTERNAL_SCHEME)
+}
+
+/// A web page's host name, lowercased and without a port or credentials, as
+/// kept sites are listed and as the interface's `URL.hostname` gives it, an
+/// IPv6 address keeping its brackets. Nothing for anything but an `http` or
+/// `https` URL.
+pub fn host_of(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?;
+    // A bracketed IPv6 address keeps its colons; anything else loses its port.
+    let host = match host.find(']') {
+        Some(end) if host.starts_with('[') => &host[..=end],
+        _ => host.split(':').next()?,
+    };
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
 }
 
 #[cfg(test)]
@@ -219,6 +259,29 @@ mod tests {
         tab.reclassify();
 
         assert_eq!(tab.scroll, Scroll::default());
+    }
+
+    #[test]
+    fn a_host_is_read_without_port_credentials_or_case() {
+        assert_eq!(
+            host_of("https://Mail.Example.com/inbox"),
+            Some("mail.example.com".into())
+        );
+        assert_eq!(host_of("http://user:pw@a.test:8080/?q=1"), Some("a.test".into()));
+        assert_eq!(host_of("http://[::1]:8765/"), Some("[::1]".into()));
+        assert_eq!(host_of("https://a.test#top"), Some("a.test".into()));
+        assert_eq!(host_of("haku://settings"), None);
+        assert_eq!(host_of("about:blank"), None);
+    }
+
+    #[test]
+    fn a_tab_on_a_kept_site_would_lose_work_whatever_the_page_reports() {
+        let tab = Tab::new(TabId(1), "https://mail.example.com/inbox");
+        let kept = vec!["mail.example.com".to_string()];
+
+        assert_eq!(tab.loss(&kept), Loss::Work);
+        assert_eq!(tab.loss_signals(&kept), vec![LossSignal::KeptSite]);
+        assert_eq!(tab.loss(&[]), Loss::None);
     }
 
     #[test]

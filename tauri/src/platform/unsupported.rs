@@ -44,14 +44,6 @@ pub fn resume<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<()> {
     Err(unsupported("resuming frozen pages"))
 }
 
-pub fn total_memory() -> Option<u64> {
-    None
-}
-
-pub fn memory_is_low() -> bool {
-    false
-}
-
 pub fn evaluate<R: tauri::Runtime>(
     _webview: &tauri::Webview<R>,
     _expression: &str,

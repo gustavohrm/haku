@@ -37,18 +37,14 @@ use webview2_com::{
     ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
+use windows::Win32::Foundation::{CloseHandle, HWND};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR,
-};
-use windows::Win32::System::Memory::{
-    CreateMemoryResourceNotification, LowMemoryResourceNotification, QueryMemoryResourceNotification,
 };
 use windows::Win32::System::ProcessStatus::{
     GetPerformanceInfo, GetProcessMemoryInfo, PERFORMANCE_INFORMATION, PROCESS_MEMORY_COUNTERS,
     PROCESS_MEMORY_COUNTERS_EX,
 };
-use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
@@ -150,31 +146,6 @@ pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
         set_memory_target(core, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
         core.cast::<ICoreWebView2_3>()?.Resume()
     })
-}
-
-pub fn total_memory() -> Option<u64> {
-    let mut status = MEMORYSTATUSEX {
-        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
-        ..Default::default()
-    };
-    unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
-    Some(status.ullTotalPhys)
-}
-
-pub fn memory_is_low() -> bool {
-    // Created once and kept for the life of the process. Stored as an integer
-    // because a raw handle is not shareable between threads, though the
-    // notification object behind it is.
-    static NOTIFICATION: std::sync::OnceLock<Option<isize>> = std::sync::OnceLock::new();
-    let handle = NOTIFICATION.get_or_init(|| {
-        unsafe { CreateMemoryResourceNotification(LowMemoryResourceNotification) }
-            .ok()
-            .map(|handle| handle.0 as isize)
-    });
-    let Some(handle) = *handle else { return false };
-
-    let mut low = BOOL::default();
-    unsafe { QueryMemoryResourceNotification(HANDLE(handle as *mut _), &mut low) }.is_ok() && low.as_bool()
 }
 
 pub fn evaluate<R: tauri::Runtime>(webview: &tauri::Webview<R>, expression: &str, timeout: Duration) -> Option<String> {

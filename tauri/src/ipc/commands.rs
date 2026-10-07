@@ -103,8 +103,8 @@ const TICK: Duration = Duration::from_secs(5);
 /// a slower timer would notice.
 const TICK_PRESSED: Duration = Duration::from_secs(1);
 
-/// Measures memory and runs smart discarding for as long as the application
-/// does.
+/// Measures memory, reads running pages and applies the rule for as long as
+/// the application does.
 ///
 /// A thread of its own rather than an interface timer: low memory is a reason
 /// to act whether or not anyone is looking at the window.
@@ -122,13 +122,17 @@ pub fn tick_periodically(app: tauri::AppHandle) {
             };
 
             let readings = read_running_pages(&app, &state);
+            let memory = match state.memory.read() {
+                Ok(memory) => memory.slot_bytes(),
+                Err(_) => continue,
+            };
             let effects = match state.browser.write() {
                 Ok(mut browser) => {
                     let mut effects: Vec<Effect> = readings
                         .into_iter()
                         .flat_map(|(tab, reading)| browser.report_state(tab, reading))
                         .collect();
-                    effects.extend(browser.relieve(now_ms(), platform::memory_is_low()));
+                    effects.extend(browser.tick(now_ms(), pressure, memory));
                     effects
                 }
                 Err(_) => continue,
@@ -169,6 +173,17 @@ fn measure_memory(app: &tauri::AppHandle, state: &AppState) -> Pressure {
     memory.pressure
 }
 
+/// Reads the pressure level again without measuring slots, which is cheap
+/// enough to do before every tab switch.
+fn read_pressure(state: &AppState) -> Pressure {
+    let status = platform::memory_status();
+    let Ok(mut memory) = state.memory.write() else {
+        return Pressure::Normal;
+    };
+    *memory = memory.next(status, None);
+    memory.pressure
+}
+
 fn report_memory(state: &AppState) -> Result<MemoryReport> {
     let memory = state
         .memory
@@ -178,7 +193,7 @@ fn report_memory(state: &AppState) -> Result<MemoryReport> {
         .browser
         .read()
         .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-    Ok(memory.report(browser.slots(), browser.tabs()))
+    Ok(memory.report(&browser))
 }
 
 fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Commit], title: Option<String>) {
@@ -333,8 +348,7 @@ pub async fn set_settings(
 
 /// Replaces the optimization settings with a preset's values.
 ///
-/// Resolved here rather than in the interface because the slot count depends
-/// on the machine's memory, which only Rust can read.
+/// Resolved here so the preset values have one definition, in Rust.
 #[tauri::command]
 #[specta::specta]
 pub async fn apply_preset(
@@ -349,7 +363,7 @@ pub async fn apply_preset(
             .settings
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        current.clone().with_preset(preset, platform::total_memory())
+        current.clone().with_preset(preset)
     };
     store_settings(&app, &state, settings)
 }
@@ -363,7 +377,7 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
         .settings
         .read()
         .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-    Ok(settings.preset(platform::total_memory()))
+    Ok(settings.preset())
 }
 
 fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
@@ -379,7 +393,9 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
     state.save_settings()?;
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
+    let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
     mutate(app, state, |browser| {
+        browser.set_keeping(budget, kept_sites);
         Ok(browser.set_optimization(capacity, freeze, discard))
     })?;
 
@@ -414,7 +430,9 @@ pub async fn open_tab(
         }
     };
 
+    let pressure = read_pressure(&state);
     mutate(&app, &state, |browser| {
+        browser.set_pressure(pressure);
         let (_, effects) = browser.open_tab(target, activate);
         Ok(effects)
     })
@@ -448,7 +466,11 @@ pub async fn select_tab(
     id: TabId,
 ) -> Result<BrowserState> {
     ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| browser.select_tab(id, now_ms()))
+    let pressure = read_pressure(&state);
+    mutate(&app, &state, |browser| {
+        browser.set_pressure(pressure);
+        browser.select_tab(id, now_ms())
+    })
 }
 
 /// Navigates a tab to whatever the user typed.

@@ -27,66 +27,48 @@ pub enum Preset {
     /// One page loaded at a time: every background tab is discarded.
     SaveMemory,
     Balanced,
-    /// Background tabs stay loaded, frozen, until every slot is taken.
+    /// More background tabs kept, and more memory for them.
     Performance,
 }
 
-/// The values a preset sets. Slots and freezing are meaningless when every
-/// background tab is discarded, so [`Preset::SaveMemory`] leaves them alone.
+/// The values a preset sets. Slots, the budget and freezing are meaningless
+/// when every background tab is discarded, so [`Preset::SaveMemory`] leaves
+/// them alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PresetValues {
     pub slots: Option<usize>,
+    pub kept_memory_mb: Option<u32>,
     pub freeze: Option<Policy>,
     pub discard: Policy,
 }
 
-const GIB: u64 = 1024 * 1024 * 1024;
-
-/// Slot counts by installed memory, as (memory below, balanced, performance).
-///
-/// A starting point rather than a measurement: a typical page costs a few
-/// hundred megabytes, and the operating system and other programs need most of
-/// a small machine's memory.
-const SLOT_TIERS: &[(u64, usize, usize)] = &[(12 * GIB, 1, 2), (24 * GIB, 2, 4)];
-const LARGEST_TIER: (usize, usize) = (3, 6);
-
 impl Preset {
     pub const ALL: [Preset; 3] = [Preset::SaveMemory, Preset::Balanced, Preset::Performance];
 
-    /// @param total_memory - Installed memory in bytes, when it is known.
-    pub fn values(self, total_memory: Option<u64>) -> PresetValues {
+    /// The same on every machine: what kept tabs may hold is an absolute
+    /// amount, not a share of what is installed.
+    pub fn values(self) -> PresetValues {
         match self {
             Preset::SaveMemory => PresetValues {
                 slots: None,
+                kept_memory_mb: None,
                 freeze: None,
                 discard: Policy::Always,
             },
             Preset::Balanced => PresetValues {
-                slots: Some(slots_for(total_memory).0),
+                slots: Some(2),
+                kept_memory_mb: Some(512),
                 freeze: Some(Policy::Smart),
                 discard: Policy::Smart,
             },
             Preset::Performance => PresetValues {
-                slots: Some(slots_for(total_memory).1),
+                slots: Some(4),
+                kept_memory_mb: Some(1536),
                 freeze: Some(Policy::Smart),
-                discard: Policy::Never,
+                discard: Policy::Smart,
             },
         }
     }
-}
-
-/// Balanced and performance slot counts for a machine.
-///
-/// Unknown memory gets the smallest tier, which errs towards using less.
-fn slots_for(total_memory: Option<u64>) -> (usize, usize) {
-    let Some(total) = total_memory else {
-        let (_, balanced, performance) = SLOT_TIERS[0];
-        return (balanced, performance);
-    };
-    SLOT_TIERS
-        .iter()
-        .find(|(below, _, _)| total < *below)
-        .map_or(LARGEST_TIER, |&(_, balanced, performance)| (balanced, performance))
 }
 
 #[cfg(test)]
@@ -94,29 +76,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_machine_with_little_memory_keeps_one_page_loaded_when_balanced() {
-        assert_eq!(Preset::Balanced.values(Some(8 * GIB)).slots, Some(1));
-    }
-
-    #[test]
-    fn more_memory_allows_more_slots() {
-        assert_eq!(Preset::Balanced.values(Some(16 * GIB)).slots, Some(2));
-        assert_eq!(Preset::Balanced.values(Some(64 * GIB)).slots, Some(3));
-        assert_eq!(Preset::Performance.values(Some(64 * GIB)).slots, Some(6));
-    }
-
-    #[test]
-    fn unknown_memory_is_treated_as_the_smallest_machine() {
-        assert_eq!(Preset::Balanced.values(None).slots, Some(1));
+    fn performance_keeps_more_than_balanced_and_still_discards_smartly() {
+        let balanced = Preset::Balanced.values();
+        let performance = Preset::Performance.values();
+        assert!(performance.slots > balanced.slots);
+        assert!(performance.kept_memory_mb > balanced.kept_memory_mb);
+        assert_eq!(performance.discard, Policy::Smart);
     }
 
     #[test]
     fn saving_memory_discards_everything_and_leaves_the_rest_alone() {
-        let values = Preset::SaveMemory.values(Some(64 * GIB));
         assert_eq!(
-            values,
+            Preset::SaveMemory.values(),
             PresetValues {
                 slots: None,
+                kept_memory_mb: None,
                 freeze: None,
                 discard: Policy::Always
             }

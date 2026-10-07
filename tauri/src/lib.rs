@@ -54,19 +54,20 @@ pub fn run() {
             let root = app.path().app_data_dir().expect("no application data directory");
             let paths = Paths::under(&root);
 
-            // A first launch starts balanced for this machine rather than on
-            // fixed defaults, since the right pool size depends on its memory.
+            // A first launch starts on the Balanced preset rather than on the
+            // bare defaults, which keep a single page loaded.
             let first_launch = !paths.settings.exists();
             let mut settings: Settings = storage::read_json::<Settings>(&paths.settings).sanitized();
             if first_launch {
-                settings = settings.with_preset(Preset::Balanced, platform::total_memory());
+                settings = settings.with_preset(Preset::Balanced);
             }
             let session: Session = storage::read_json(&paths.session);
             let history = HistoryDb::open(&paths.history).expect("could not open the history database");
 
             let browser = session
                 .restore(settings.pool_capacity(), &settings.home_url)
-                .with_policies(settings.freeze_tabs, settings.discard_tabs);
+                .with_policies(settings.freeze_tabs, settings.discard_tabs)
+                .with_keeping(settings.kept_memory_bytes(), settings.kept_sites.clone());
             app.manage(AppState::new(browser, settings, history, paths));
             if first_launch {
                 let _ = app.state::<AppState>().save_settings();
