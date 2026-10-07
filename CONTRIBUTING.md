@@ -69,9 +69,9 @@ Opening an issue is outward-facing. An agent drafts it and asks before filing, a
 
 Work happens on a branch. Do not commit to `main`.
 
-`main` is the branch CI verifies on every push, so a commit that lands there directly is one nobody reviewed. A pre-push hook refuses to push to it.
+`main` is the branch CI verifies on every push, so a commit that lands there directly is one nobody reviewed. A pre-push hook refuses to push to it, and GitHub's branch protection refuses it too, for admins as well ([CI](docs/ci.md#branch-protection)).
 
-The exception is real but narrow: it takes an explicit request from a maintainer, in the moment, for that specific commit. An agent must ask and be told yes. Neither a general instruction to "just fix it" nor a previous approval carries over to the next commit.
+The exception is real but narrow: it takes an explicit request from a maintainer, in the moment, for that specific commit. Because protection is enforced for admins, the exception means lifting it for that push and restoring it straight after. An agent must ask and be told yes. Neither a general instruction to "just fix it" nor a previous approval carries over to the next commit.
 
 Name the branch `<type>/<slug>`, where `<type>` is the [commit type](#type) of the work and `<slug>` is kebab-case. A version in the slug keeps its dots.
 

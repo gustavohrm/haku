@@ -76,7 +76,18 @@ gh api repos/actions/checkout/commits/v5.1.0 --jq .sha
 
 ## Branch protection
 
-The workflow reports; it does not block on its own. Requiring the `Web` and `Rust` checks before a merge into `main` is a repository setting on GitHub, not something a file here can enforce. It is recorded here so the intended configuration is reviewable even though the setting is not.
+The workflow reports; it does not block on its own. What blocks is `main`'s branch protection on GitHub, a repository setting no file here can enforce. It is recorded here so the configuration is reviewable even though the setting is not:
+
+| Setting                | Value                                                          |
+| ---------------------- | -------------------------------------------------------------- |
+| Required status checks | `Web` and `Rust`, both from the GitHub Actions app             |
+| Pull request required  | Yes, with no approving review, since one person maintains Haku |
+| Enforced for admins    | Yes                                                            |
+| Force pushes, deletion | Refused                                                        |
+
+The checks are bound to the GitHub Actions app so no other integration can report a passing check under their names. Up-to-date branches are not required: Haku has one contributor, and rebasing every branch before each merge would buy little.
+
+Admin enforcement is what makes the rest hold. Without it, the owner's direct push to `main` is refused only by the `pre-push` hook, which `--no-verify` skips and which git for Windows lets through when the hook is killed by a signal (`.githooks/AGENTS.md`). With it, GitHub refuses the push too. The cost is that the narrow exception in `CONTRIBUTING.md` for a direct commit to `main` now means lifting the protection for that push and restoring it straight after.
 
 ## Not covered yet
 

@@ -97,7 +97,7 @@ Three hooks live in `.githooks/`, wired by `core.hooksPath`, which the `prepare`
 
 `pre-push` reads the destination ref rather than the current branch, so it holds for a push from `main`, for an explicit refspec targeting it, and for a `--delete`. It checks the branch name because the name is often not a choice anyone made: an agent harness creates `claude/...` or `codex/...` before the agent has read a file. Deleting a remote branch passes whatever it is called, and tags are not checked.
 
-Each hook ignores SIGPIPE. When the caller pipes git through something that closes early, such as `head`, a hook writing its error message is killed by the signal, and git for Windows lets the commit through a hook killed that way. Ignoring the signal leaves the hook's own verdict in charge of its exit status.
+Each hook ignores SIGPIPE. Git for Windows counts a hook killed by any signal as passed, and when the caller pipes git through something that closes early, such as `head`, a hook writing its rejection is killed by SIGPIPE mid-message. Ignoring the signal leaves the hook's own verdict in charge of its exit status. It covers that case only; `.githooks/AGENTS.md` records the rest. The cost is that tools a hook runs inherit the ignored signal, so with output piped that way a passing hook can fail on a write error. Failing closed is the safer direction.
 
 `--no-verify` bypasses them: on `git commit` for the first two, on `git push` for the last. It is for the change that genuinely has to land unfixed, and using it is worth saying out loud.
 
