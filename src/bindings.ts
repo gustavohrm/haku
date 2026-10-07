@@ -20,15 +20,14 @@ export const commands = {
 	/**
 	 *  Replaces the optimization settings with a preset's values.
 	 * 
-	 *  Resolved here rather than in the interface because the slot count depends
-	 *  on the machine's memory, which only Rust can read.
+	 *  Resolved here so the preset values have one definition, in Rust.
 	 */
 	applyPreset: (preset: Preset) => typedError<Settings, HakuError>(__TAURI_INVOKE("apply_preset", { preset })),
 	/**  The preset the current settings match, or nothing when they were customised. */
 	currentPreset: () => typedError<
 /**  One page loaded at a time: every background tab is discarded. */
 "saveMemory" | "balanced" | 
-/**  Background tabs stay loaded, frozen, until every slot is taken. */
+/**  More background tabs kept, and more memory for them. */
 "performance" | null, HakuError>(__TAURI_INVOKE("current_preset")),
 	openTab: (url: string | null, activate: boolean) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate })),
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
@@ -168,7 +167,9 @@ export type Loss =
 "work";
 
 /**  A reason behind a tab's [`Loss`]. */
-export type LossSignal = "unsaved" | "unloadArmed" | "formResult" | "interactions" | "mediaPaused" | "unreadable";
+export type LossSignal = 
+/**  The tab's host is one the user asked Haku not to unload. */
+"keptSite" | "unsaved" | "unloadArmed" | "formResult" | "interactions" | "mediaPaused" | "unreadable";
 
 /**
  *  Emitted on every tick with what memory looks like now.
@@ -183,6 +184,10 @@ export type MemoryReport = {
 	pressure: Pressure,
 	/**  The scarcer of free physical memory and free commit, from 0 to 1. */
 	headroom: number | null,
+	/**  What kept tabs may hold together, in bytes. */
+	budget: number,
+	/**  What kept tabs hold now, in bytes, as far as it was measured. */
+	kept: number,
 	slots: SlotMemory[],
 	unattributed: UnattributedProcess[],
 };
@@ -224,11 +229,18 @@ export type Policy = "never" |
  */
 "always";
 
+/**  Why a tab holding a slot holds it. */
+export type Position = "visible" | 
+/**  Fixed, playing audio or capturing. */
+"mustRun" | 
+/**  Kept in the background for what discarding it would lose, or for now. */
+"kept";
+
 /**  A named bundle of optimization settings. */
 export type Preset = 
 /**  One page loaded at a time: every background tab is discarded. */
 "saveMemory" | "balanced" | 
-/**  Background tabs stay loaded, frozen, until every slot is taken. */
+/**  More background tabs kept, and more memory for them. */
 "performance";
 
 export type Pressure = "normal" | "tight" | "critical";
@@ -254,10 +266,20 @@ export type Settings = {
 	 *  while every background tab is discarded.
 	 */
 	webviewCapacity: number,
+	/**
+	 *  The most memory background tabs kept for what they would lose may
+	 *  hold together, in megabytes.
+	 */
+	keptMemoryMb: number,
 	/**  Whether background tabs still holding a webview are paused. */
 	freezeTabs: Policy,
 	/**  Whether Haku discards background tabs before it has to. */
 	discardTabs: Policy,
+	/**
+	 *  Hosts whose tabs are kept as if they held unsaved work, whatever the
+	 *  page reports.
+	 */
+	keptSites: string[],
 	/**  `system`, `light` or `dark`. */
 	theme: string,
 	/**  BCP-47 language tag the interface is shown in. */
@@ -274,6 +296,8 @@ export type SlotMemory = {
 	slot: SlotId,
 	/**  Nothing while the slot is parked. */
 	tab: TabId | null,
+	/**  Why the tab holds the slot. Nothing while the slot is parked. */
+	position: Position | null,
 	/**  Commit charge in bytes, or nothing when the slot has not been measured. */
 	bytes: number | null,
 	/**  What discarding the tab would cost. Nothing while the slot is parked. */
@@ -313,6 +337,11 @@ export type Tab = {
 	dialog: PageDialog | null,
 	/**  The page is playing audio, which a smart policy will not interrupt. */
 	audible: boolean,
+	/**
+	 *  Discarded to free memory while the system was short of it, and not
+	 *  loaded since.
+	 */
+	relieved: boolean,
 };
 
 export type TabId = number;

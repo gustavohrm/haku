@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -5,8 +6,8 @@ use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog, PageState, Policy,
-    Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
+    is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, Loss, LossSignal, NavigationKind, PageDialog,
+    PageState, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -15,13 +16,9 @@ use crate::model::{
 /// is far cheaper than destroying and recreating one on every tab switch.
 pub const BLANK_URL: &str = "about:blank";
 
-/// A background tab shown within this long is likely to be shown again, so
-/// smart discarding spares it even when memory is low.
-pub const RECENTLY_SHOWN_MS: u64 = 5 * 60_000;
-
-/// A background tab not shown for this long is discarded by smart discarding
-/// whatever the memory situation.
-pub const LONG_UNSHOWN_MS: u64 = 30 * 60_000;
+/// A tab left less than this long ago is kept whatever it would lose, so
+/// flipping back to the tab just left is instant. Not honoured under pressure.
+pub const GRACE_MS: u64 = 60_000;
 
 /// A side effect the runtime must apply to a real webview.
 ///
@@ -103,6 +100,17 @@ pub struct PageReport {
     pub visited: bool,
 }
 
+/// Why a tab holding a slot holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Position {
+    Visible,
+    /// Fixed, playing audio or capturing.
+    MustRun,
+    /// Kept in the background for what discarding it would lose, or for now.
+    Kept,
+}
+
 /// The projection of browser state the frontend renders.
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -136,6 +144,17 @@ pub struct Browser {
     next_id: u64,
     freeze: Policy,
     discard: Policy,
+    /// The most memory kept tabs may hold together, in bytes.
+    budget: u64,
+    /// Hosts whose tabs are treated as holding work.
+    kept_sites: Vec<String>,
+    pressure: Pressure,
+    /// Each slot's last measured memory, in bytes. A slot missing here is
+    /// unmeasured and counts as holding nothing.
+    memory: HashMap<SlotId, u64>,
+    /// The latest time any caller has supplied, for mutations that supply
+    /// none. Grace is judged against it.
+    clock: u64,
 }
 
 impl Browser {
@@ -151,6 +170,11 @@ impl Browser {
             // Nothing is frozen or discarded early until settings say so.
             freeze: Policy::Never,
             discard: Policy::Never,
+            budget: 0,
+            kept_sites: Vec::new(),
+            pressure: Pressure::Normal,
+            memory: HashMap::new(),
+            clock: 0,
         }
     }
 
@@ -159,6 +183,15 @@ impl Browser {
     pub fn with_policies(mut self, freeze: Policy, discard: Policy) -> Self {
         self.freeze = freeze;
         self.discard = discard;
+        self
+    }
+
+    /// Sets what smart discarding keeps, without touching any webview.
+    ///
+    /// @param budget - The most memory kept tabs may hold together, in bytes.
+    /// @param kept_sites - Hosts whose tabs are treated as holding work.
+    pub fn with_keeping(mut self, budget: u64, kept_sites: Vec<String>) -> Self {
+        self.set_keeping(budget, kept_sites);
         self
     }
 
@@ -235,6 +268,51 @@ impl Browser {
         Ok(&self.tabs[index])
     }
 
+    pub fn budget(&self) -> u64 {
+        self.budget
+    }
+
+    /// The reasons discarding a tab would cost something, kept sites included.
+    pub fn loss_signals(&self, id: TabId) -> Vec<LossSignal> {
+        self.tab(id)
+            .map(|tab| tab.loss_signals(&self.kept_sites))
+            .unwrap_or_default()
+    }
+
+    fn loss(&self, tab: &Tab) -> Loss {
+        tab.loss(&self.kept_sites)
+    }
+
+    /// Why a tab holds a slot, or nothing when it holds none.
+    pub fn position(&self, id: TabId) -> Option<Position> {
+        let tab = self.tab(id).ok()?;
+        tab.slot()?;
+        Some(if Some(id) == self.active {
+            Position::Visible
+        } else if self.must_run(tab) {
+            Position::MustRun
+        } else {
+            Position::Kept
+        })
+    }
+
+    /// Advances the clock to `now`, which never runs backwards.
+    fn advance(&mut self, now: u64) {
+        self.clock = self.clock.max(now);
+    }
+
+    /// Makes a tab the visible one, timing the tab it replaces from now: a tab
+    /// is in grace from when it was left.
+    fn activate(&mut self, id: TabId) {
+        let clock = self.clock;
+        if let Some(previous) = self.active.filter(|&previous| previous != id) {
+            if let Ok(tab) = self.tab_mut(previous) {
+                tab.active_at = tab.active_at.max(clock);
+            }
+        }
+        self.active = Some(id);
+    }
+
     /// Drops what the browser remembered about a slot it has let go of.
     fn forget_slot(&mut self, slot: SlotId) {
         self.slot_urls.remove(&slot);
@@ -284,14 +362,18 @@ impl Browser {
     }
 
     /// The tab to give up its slot when the pool is full: the unprotected
-    /// occupant shown least recently.
+    /// occupant that would lose least, and among equals the one shown least
+    /// recently. A tab holding work is taken only when nothing else can be.
     fn victim(&self) -> Option<TabId> {
         self.pool
             .slots()
             .iter()
             .filter_map(|slot| slot.occupant.map(|occupant| (occupant, slot.used_at)))
             .filter(|&(occupant, _)| !self.is_protected(occupant))
-            .min_by_key(|&(_, used_at)| used_at)
+            .min_by_key(|&(occupant, used_at)| {
+                let loss = self.tab(occupant).map(|tab| self.loss(tab)).unwrap_or_default();
+                (loss, used_at)
+            })
             .map(|(occupant, _)| occupant)
     }
 
@@ -318,7 +400,7 @@ impl Browser {
         self.navigated.insert(id);
 
         if activate || self.active.is_none() {
-            self.active = Some(id);
+            self.activate(id);
         }
         (id, self.realize())
     }
@@ -355,7 +437,8 @@ impl Browser {
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn select_tab(&mut self, id: TabId, now: u64) -> Result<Vec<Effect>> {
         self.index_of(id)?;
-        self.active = Some(id);
+        self.advance(now);
+        self.activate(id);
         self.pool.touch(id);
         // Viewing a tab is the activity signal available without giving remote
         // pages a channel back into the application.
@@ -466,6 +549,23 @@ impl Browser {
         self.set_capacity(capacity)
     }
 
+    /// Sets what smart discarding keeps. Takes effect on the next change or
+    /// tick, so it is set before [`Browser::set_optimization`].
+    ///
+    /// @param budget - The most memory kept tabs may hold together, in bytes.
+    /// @param kept_sites - Hosts whose tabs are treated as holding work.
+    pub fn set_keeping(&mut self, budget: u64, kept_sites: Vec<String>) {
+        self.budget = budget;
+        self.kept_sites = kept_sites;
+    }
+
+    /// Records how short of memory the machine is, read as a tab is selected
+    /// or opened: a burst of tab switches is when memory runs out faster than
+    /// the tick notices.
+    pub fn set_pressure(&mut self, pressure: Pressure) {
+        self.pressure = pressure;
+    }
+
     pub fn set_capacity(&mut self, capacity: usize) -> Vec<Effect> {
         self.pool.set_capacity(capacity);
 
@@ -499,34 +599,26 @@ impl Browser {
         self.realize()
     }
 
-    /// Discards background tabs that smart discarding judges worth freeing.
+    /// Takes the tick's reading and applies the rule to every background tab;
+    /// see [`Browser::smart_discards`].
     ///
-    /// Driven on a timer, so this is also where the visible tab is timed: a
-    /// tab is stamped when it is selected and on every pass while it stays in
-    /// view. A tab never stamped is timed from the first pass that sees it.
+    /// This is also where the visible tab is timed: a tab is stamped when it
+    /// is selected, when it is left, and on every tick while it stays in view.
+    /// A tab never stamped is timed from the first tick that sees it.
     ///
-    /// @param low_memory - Whether the system reports memory running low.
-    pub fn relieve(&mut self, now: u64, low_memory: bool) -> Vec<Effect> {
+    /// @param memory - Each slot's memory in bytes; a slot missing is unmeasured.
+    /// @returns Nothing when no tab changed, which most ticks are.
+    pub fn tick(&mut self, now: u64, pressure: Pressure, memory: HashMap<SlotId, u64>) -> Vec<Effect> {
+        self.advance(now);
         let active = self.active;
         for tab in &mut self.tabs {
             if Some(tab.id) == active || tab.active_at == 0 {
                 tab.active_at = now;
             }
         }
-        if self.discard != Policy::Smart {
-            return Vec::new();
-        }
-
-        let stale: Vec<TabId> = self
-            .background()
-            .into_iter()
-            .filter(|&id| {
-                let Ok(tab) = self.tab(id) else { return false };
-                let unshown = now.saturating_sub(tab.active_at);
-                !self.must_run(tab) && (unshown >= LONG_UNSHOWN_MS || (low_memory && unshown >= RECENTLY_SHOWN_MS))
-            })
-            .collect();
-        stale.into_iter().flat_map(|id| self.discard_tab(id)).collect()
+        self.pressure = pressure;
+        self.memory = memory;
+        self.settle_background()
     }
 
     // -- reports from the page -------------------------------------------
@@ -539,6 +631,7 @@ impl Browser {
     /// A background tab that falls silent becomes an ordinary background tab,
     /// timed from `now` rather than from when it was last shown.
     pub fn report_audio(&mut self, slot: SlotId, playing: bool, now: u64) -> Vec<Effect> {
+        self.advance(now);
         let Some(id) = self.occupant_of(slot) else {
             return Vec::new();
         };
@@ -558,8 +651,8 @@ impl Browser {
     ///
     /// Keyed by tab rather than slot: by the time a reading completes, the
     /// slot may belong to another tab. A tab that started or stopped capturing
-    /// may have to keep running, or may now be frozen; nothing else in a
-    /// reading changes what webviews should do.
+    /// may have to keep running, or may now be frozen. A change in what the
+    /// tab would lose is acted on at the next change or tick, not here.
     ///
     /// @param state - The reading, or nothing when the page could not be read.
     pub fn report_state(&mut self, id: TabId, state: Option<PageState>) -> Vec<Effect> {
@@ -763,10 +856,109 @@ impl Browser {
         }
 
         // After hiding: a webview can only be frozen while it is hidden.
-        for id in self.background() {
-            effects.extend(self.settle(id));
-        }
+        effects.extend(self.settle_background());
         effects
+    }
+
+    /// Applies the discard and freeze policies to every background tab, then
+    /// lets go of parked webviews beyond the spare.
+    fn settle_background(&mut self) -> Vec<Effect> {
+        let background = self.background();
+        let discards = if self.discard == Policy::Smart {
+            self.smart_discards(&background)
+        } else {
+            HashSet::new()
+        };
+        let relieving = self.pressure != Pressure::Normal;
+
+        let mut effects = Vec::new();
+        for id in background {
+            if discards.contains(&id) {
+                effects.extend(self.discard_tab(id));
+                if let Ok(tab) = self.tab_mut(id) {
+                    tab.relieved = relieving;
+                }
+            } else {
+                effects.extend(self.settle(id));
+            }
+        }
+        effects.extend(self.trim_parked());
+        effects
+    }
+
+    /// The background tabs smart discarding gives up, by what each would lose,
+    /// how recently it was left, the budget and the pressure level.
+    ///
+    /// At normal pressure a tab in grace is kept, one that would lose nothing
+    /// is discarded, one holding work is kept, and those that would lose state
+    /// are kept most recently shown first while all kept tabs fit the budget.
+    /// Tight pressure ends grace and discards state; critical pressure
+    /// discards work too. Must-run tabs and tabs paused on a dialog are never
+    /// candidates.
+    fn smart_discards(&self, background: &[TabId]) -> HashSet<TabId> {
+        let mut discards = HashSet::new();
+        let mut spent: u64 = 0;
+        let mut contested: Vec<(TabId, u64, u64)> = Vec::new();
+
+        for &id in background {
+            let Ok(tab) = self.tab(id) else { continue };
+            if self.must_run(tab) || tab.dialog.is_some() {
+                continue;
+            }
+            let bytes = tab.slot().and_then(|slot| self.memory.get(&slot)).copied().unwrap_or(0);
+            let loss = self.loss(tab);
+            let in_grace = tab.active_at == 0 || self.clock.saturating_sub(tab.active_at) < GRACE_MS;
+
+            let kept = match self.pressure {
+                Pressure::Normal => in_grace || loss == Loss::Work,
+                Pressure::Tight => loss == Loss::Work,
+                Pressure::Critical => false,
+            };
+            if kept {
+                // Counted against the budget, but not discarded for exceeding it.
+                spent = spent.saturating_add(bytes);
+            } else if self.pressure == Pressure::Normal && loss == Loss::State {
+                contested.push((id, tab.active_at, bytes));
+            } else {
+                discards.insert(id);
+            }
+        }
+
+        // Most recently shown first; once one does not fit, the rest go too.
+        contested.sort_by_key(|&(_, active_at, _)| Reverse(active_at));
+        let mut within = true;
+        for (id, _, bytes) in contested {
+            within = within && spent.saturating_add(bytes) <= self.budget;
+            if within {
+                spent += bytes;
+            } else {
+                discards.insert(id);
+            }
+        }
+        discards
+    }
+
+    /// Destroys parked webviews beyond one warm spare, or all of them under
+    /// pressure. A spare saves creating a webview on the next reload; more
+    /// than one only holds memory.
+    fn trim_parked(&mut self) -> Vec<Effect> {
+        let spare = usize::from(self.pressure == Pressure::Normal);
+        let parked: Vec<SlotId> = self
+            .pool
+            .slots()
+            .iter()
+            .filter(|slot| slot.occupant.is_none())
+            .map(|slot| slot.id)
+            .skip(spare)
+            .collect();
+        parked
+            .into_iter()
+            .filter_map(|slot| {
+                self.pool.remove(slot)?;
+                self.forget_slot(slot);
+                Some(Effect::Destroy { slot })
+            })
+            .collect()
     }
 
     /// Tabs holding a slot that the optimization policies may act on: neither
@@ -779,12 +971,11 @@ impl Browser {
             .collect()
     }
 
-    /// Applies the freeze and discard policies to one background tab.
+    /// Applies the freeze and discard policies to one background tab that smart
+    /// discarding keeps.
     ///
     /// A tab that must run is left running; see [`Browser::must_run`] for why
-    /// that does not hold under an _always_ policy. Smart discarding is not
-    /// decided here but in [`Browser::relieve`], because it depends on time
-    /// and memory rather than on what just changed.
+    /// that does not hold under an _always_ policy.
     fn settle(&mut self, id: TabId) -> Vec<Effect> {
         let Ok(tab) = self.tab(id) else { return Vec::new() };
         let keep_running = self.must_run(tab);
@@ -897,6 +1088,7 @@ impl Browser {
                 effects.push(Effect::Resume { slot });
             }
             tab.presence = TabPresence::Live { slot };
+            tab.relieved = false;
         }
 
         if self.slot_urls.get(&slot) != Some(&url) {

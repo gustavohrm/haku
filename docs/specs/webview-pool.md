@@ -52,73 +52,67 @@ A background tab must run while it is **fixed**, or while it is **playing audio*
 When a tab needs a slot and none is free:
 
 1. If the pool may still grow, it grows.
-2. Otherwise `Browser` names a victim: the occupant that is not protected and was **shown least recently**. Its slot is taken and it is discarded. `WebviewPool` takes whichever tab it is given, so the choice stays with the code that knows why a tab matters.
+2. Otherwise `Browser` names a victim: the occupant that is not protected and would **lose least** if discarded ([Tab optimization § Loss](tab-optimization.md#loss)), and among equals was **shown least recently**. Its slot is taken and it is discarded. `WebviewPool` takes whichever tab it is given, so the choice stays with the code that knows why a tab matters. A tab holding work is therefore taken only when every other occupant is protected.
 3. If every resident is protected, the request fails with `NoSlotAvailable` and the tab stays discarded.
 
 Protected tabs are the active tab and every tab that must run.
 
-Eviction navigates the slot to `about:blank` rather than destroying the webview. That frees the page while keeping the slot warm, which is far cheaper than recreating a webview on every tab switch. Webviews are only destroyed when capacity shrinks.
+Eviction navigates the slot to `about:blank` rather than destroying the webview. That frees the page while keeping the slot warm, which is far cheaper than recreating a webview on every tab switch. Webviews are destroyed when capacity shrinks, and a parked webview beyond one warm spare is destroyed as soon as it is parked; under [memory pressure](tab-optimization.md#memory-pressure) no spare is kept.
 
 Eviction happens whatever the optimization settings say. _Discard: never_ means Haku never discards on its own initiative, not that a tab is never reloaded.
 
 ## Optimization
 
-The **Optimization** section of settings holds three values:
+The **Optimization** section of settings holds four values, and the site menu a fifth:
 
-| Setting                 | Values               | Meaning                                                   |
-| ----------------------- | -------------------- | --------------------------------------------------------- |
-| Loaded tabs             | a number             | The configured capacity.                                  |
-| Freeze background tabs  | never, smart, always | Whether a background tab still in a slot is frozen.       |
-| Discard background tabs | never, smart, always | Whether Haku discards a background tab on its own accord. |
+| Setting                 | Values               | Meaning                                                                        |
+| ----------------------- | -------------------- | ------------------------------------------------------------------------------ |
+| Loaded tabs             | a number             | The configured capacity.                                                       |
+| Background memory       | megabytes            | The [budget](tab-optimization.md#the-budget) for kept tabs (`kept_memory_mb`). |
+| Freeze background tabs  | never, smart, always | Whether a background tab still in a slot is frozen.                            |
+| Discard background tabs | never, smart, always | Whether Haku discards a background tab on its own accord.                      |
+| Kept sites              | a list of hosts      | [Don't unload this site](tab-optimization.md#kept-sites), from the site menu.  |
 
-_Discard: always_ makes the other two meaningless, so it disables both, each with a tooltip saying why. The tooltip hangs off a wrapping element, because a disabled control receives no pointer events.
+_Discard: always_ makes the first three meaningless, so it disables them, each with a tooltip saying why. The tooltip hangs off a wrapping element, because a disabled control receives no pointer events.
 
 ### Presets
 
 A preset fills the three values. Which preset is in effect is derived, never stored (`Settings::preset`), so changing any value shows _Custom_ rather than naming values that are not in effect.
 
-| Preset      | Loaded tabs                | Freeze    | Discard |
-| ----------- | -------------------------- | --------- | ------- |
-| Save memory | unchanged                  | unchanged | always  |
-| Balanced    | from total RAM             | smart     | smart   |
-| Performance | from total RAM, set higher | smart     | never   |
+| Preset      | Loaded tabs | Background memory | Freeze    | Discard |
+| ----------- | ----------- | ----------------- | --------- | ------- |
+| Save memory | unchanged   | unchanged         | unchanged | always  |
+| Balanced    | 2           | 512 MB            | smart     | smart   |
+| Performance | 4           | 1536 MB           | smart     | smart   |
 
-| Installed memory | Balanced | Performance |
-| ---------------- | -------- | ----------- |
-| Under 12 GB      | 1        | 2           |
-| 12 to 24 GB      | 2        | 4           |
-| 24 GB and more   | 3        | 6           |
+The values are the same on every machine: what kept tabs hold is an absolute amount, not a share of installed memory, and they are a starting point, not a measurement. The pool is never grown with free memory, because a pool that follows other programs' memory use reloads pages for reasons the user cannot see; [memory pressure](tab-optimization.md#memory-pressure) only ever shrinks what is kept. A first launch applies Balanced. Settings saved under the earlier Performance preset, which never discarded, keep their values and show as Custom.
 
-These counts are a starting point, not a measurement. Total RAM chooses them only when a preset is applied; the pool is never resized with free memory, because a pool that follows other programs' memory use reloads pages for reasons the user cannot see. A first launch applies Balanced.
-
-Presets live in Rust (`model::optimization`), since only Rust can read the machine's memory.
+Presets live in Rust (`model::optimization`), so their values have one definition.
 
 ### Policy
 
 Visible tabs and fixed tabs are exempt from all of it. Every other tab holding a slot is settled whenever anything changes (`Browser::settle`), after the pool's slots are shown and hidden:
 
 1. **Discard: always** — discard it.
-2. **Freeze: never** — leave it running, resuming it if it was frozen.
-3. It [must run](#must-run) — leave it running.
-4. It has a **dialog open** — leave it; the page is already paused on it.
-5. Otherwise — freeze it.
+2. **Discard: smart**, and [the rule](tab-optimization.md#the-rule) gives it up — discard it. A tab that must run or has a dialog open is never given up.
+3. **Freeze: never** — leave it running, resuming it if it was frozen.
+4. It [must run](#must-run) — leave it running.
+5. It has a **dialog open** — leave it; the page is already paused on it.
+6. Otherwise — freeze it.
 
 **Always means always.** A tab playing music is frozen or discarded like any other; keeping it loaded is how a user keeps it running.
 
-**Smart discarding** depends on time and memory rather than on what just changed, so it runs on the [tick](tab-optimization.md#the-tick) (`Browser::relieve`), every 5 seconds or every second under [memory pressure](tab-optimization.md#memory-pressure), in Rust, because low memory is a reason to act whether or not anyone is looking at the window. It discards a background tab that need not [run](#must-run) and either:
+**Smart discarding** is [the rule](tab-optimization.md#the-rule): a tab is kept for a minute after it is left, then only for what discarding it would lose, within the background memory budget, and less of it under [memory pressure](tab-optimization.md#memory-pressure). It depends on time and memory as well as on what just changed, so it is applied both on every change and on the [tick](tab-optimization.md#the-tick) (`Browser::tick`), in Rust, because memory running out is a reason to act whether or not anyone is looking at the window. A tick that changes no tab writes nothing and emits no `StateChanged`.
 
-- has not been shown for 30 minutes, or
-- has not been shown for 5 minutes while Windows reports low memory.
-
-A tab is timed from when it was last selected, or from when it fell silent if that is later, and the visible tab is re-timed on every pass. A pass that discards nothing writes nothing and emits no event.
+A tab discarded while memory is short carries a marker in the tab strip until it is loaded again, so a reload is never unexplained.
 
 ### Signals
 
 Pages report nothing; everything is observed from Rust, through `platform/`:
 
 - **Playing audio** — WebView2's `IsDocumentPlayingAudioChanged`. Older runtimes without it treat every page as silent.
-- **Low memory** — `QueryMemoryResourceNotification` on a `LowMemoryResourceNotification`: the system's own judgement, which accounts for everything else running on the machine.
-- **Total memory** — `GlobalMemoryStatusEx`.
+- **Memory pressure** and **slot memory** — read on the tick; see [Tab optimization § Memory pressure](tab-optimization.md#memory-pressure) and [§ Slot memory](tab-optimization.md#slot-memory).
+- **Page state** — what a page would lose, read by script; see [Tab optimization § Page state](tab-optimization.md#page-state).
 
 ### Freezing
 
@@ -153,6 +147,8 @@ Keeping a tab loaded is the user saying it must stay resident and running. It ra
 It is set from the **site menu**, which the address field's leading icon opens, alongside a warning that the tab stays in memory whatever the optimization settings say. It is not on the tab itself, so overriding the pool takes a deliberate step. A fixed tab carries a marker in the tab strip.
 
 The menu hangs over page content, so it registers with `useOverlay`. It is opaque, with no shadow, because the input mask cannot show either over the page; its rounded corners are cut into the mask from its own style. Its text starts directly under the lock glyph that opens it. It closes when the chrome loses focus: a click on the page never reaches the chrome.
+
+Below it, **Don't unload this site** adds or removes the page's host in [kept sites](tab-optimization.md#kept-sites). It overrides nothing but discarding, so it carries a plain explanation under the switch rather than a warning.
 
 The warning is a tooltip on an icon beside the option. Its bubble can reach past the menu's rectangle, so its open state is tracked in code rather than left to CSS, and it registers as an overlay of its own while it shows.
 

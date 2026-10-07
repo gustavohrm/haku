@@ -16,7 +16,8 @@ interface TabItemProps {
  * Close stays out of the way until it matters: it shows on the active tab and
  * on hover. A tab kept loaded carries a marker, so a tab holding a webview of
  * its own is recognisable at a glance; keeping it loaded is set from the site
- * menu, not here.
+ * menu, not here. So does a tab unloaded to free memory, which would otherwise
+ * reload for no reason the user can see.
  */
 export function TabItem({ tab, active }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
@@ -51,6 +52,13 @@ export function TabItem({ tab, active }: TabItemProps) {
           <span className="truncate">{title}</span>
         </button>
 
+        {tab.relieved && (
+          <i
+            className="ic-memory-stick ic-xs text-text-secondary shrink-0"
+            title={t("tabs.relieved")}
+            aria-label={t("tabs.relieved")}
+          />
+        )}
         {tab.fixed && (
           <i
             className="ic-pin ic-xs text-text-secondary shrink-0"

@@ -12,4 +12,4 @@ pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};
 pub use pool::{Acquired, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
-pub use tab::{is_internal, Scroll, Tab, TabId, TabPresence};
+pub use tab::{host_of, is_internal, Scroll, Tab, TabId, TabPresence};

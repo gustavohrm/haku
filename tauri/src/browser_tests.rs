@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::page_state::INTERACTION_THRESHOLD;
 use crate::model::Loss;
 
 const SEARCH: &str = "https://duckduckgo.com/?q=";
@@ -829,57 +830,6 @@ fn closing_a_frozen_tab_resumes_its_slot_before_parking_it() {
     assert!(position(&effects, &Effect::Resume { slot }) < position(&effects, &Effect::Blank { slot }));
 }
 
-#[test]
-fn smart_discarding_frees_a_tab_left_unshown_for_long() {
-    let (mut browser, ids) = optimized(Policy::Smart, Policy::Smart);
-    browser.relieve(1_000, false);
-
-    let effects = browser.relieve(1_000 + LONG_UNSHOWN_MS, false);
-
-    assert_eq!(presence(&browser, ids[0]), TabPresence::Discarded);
-    assert!(effects.iter().any(|effect| matches!(effect, Effect::Blank { .. })));
-    assert!(
-        matches!(presence(&browser, ids[2]), TabPresence::Live { .. }),
-        "the visible tab stays"
-    );
-}
-
-#[test]
-fn low_memory_frees_tabs_not_shown_recently_but_spares_recent_ones() {
-    let (mut browser, ids) = optimized(Policy::Smart, Policy::Smart);
-    browser.relieve(1_000, false);
-    browser.select_tab(ids[1], 1_000 + RECENTLY_SHOWN_MS).unwrap();
-    browser.select_tab(ids[2], 1_000 + RECENTLY_SHOWN_MS).unwrap();
-
-    browser.relieve(1_000 + RECENTLY_SHOWN_MS + 1, true);
-
-    assert_eq!(presence(&browser, ids[0]), TabPresence::Discarded);
-    assert!(matches!(presence(&browser, ids[1]), TabPresence::Frozen { .. }));
-}
-
-#[test]
-fn smart_discarding_spares_a_tab_playing_audio() {
-    let (mut browser, ids) = optimized(Policy::Smart, Policy::Smart);
-    let slot = slot_of(&browser, ids[0]).unwrap();
-    browser.report_audio(slot, true, 0);
-    browser.relieve(1_000, false);
-
-    browser.relieve(1_000 + LONG_UNSHOWN_MS, true);
-
-    assert!(slot_of(&browser, ids[0]).is_some());
-}
-
-#[test]
-fn discarding_never_leaves_old_tabs_loaded_even_when_memory_is_low() {
-    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
-    browser.relieve(1_000, false);
-
-    let effects = browser.relieve(1_000 + LONG_UNSHOWN_MS, true);
-
-    assert!(effects.is_empty());
-    assert!(slot_of(&browser, ids[0]).is_some());
-}
-
 /// A one-slot browser whose first tab plays audio while the second is shown.
 fn music_in_background(freeze: Policy, discard: Policy) -> (Browser, Vec<TabId>, SlotId) {
     let mut browser = Browser::new(1).with_policies(freeze, discard);
@@ -932,33 +882,6 @@ fn discarding_always_does_not_honour_audio() {
 fn a_discarded_tab_no_longer_counts_as_playing() {
     let (browser, ids, _) = music_in_background(Policy::Smart, Policy::Always);
     assert!(!browser.tab(ids[0]).unwrap().audible);
-}
-
-#[test]
-fn smart_discarding_frees_an_audible_tab_when_freezing_always() {
-    let mut browser = Browser::new(3).with_policies(Policy::Always, Policy::Smart);
-    let (music, _) = browser.open_tab("https://music.test", true);
-    let slot = slot_of(&browser, music).unwrap();
-    browser.report_audio(slot, true, 0);
-    browser.open_tab("https://b.test", true);
-    browser.relieve(1_000, false);
-
-    browser.relieve(1_000 + LONG_UNSHOWN_MS, false);
-
-    assert_eq!(presence(&browser, music), TabPresence::Discarded);
-}
-
-#[test]
-fn a_tab_that_falls_silent_is_timed_from_that_moment() {
-    let (mut browser, ids) = optimized(Policy::Never, Policy::Smart);
-    let slot = slot_of(&browser, ids[0]).unwrap();
-    browser.report_audio(slot, true, 0);
-    browser.relieve(1_000, false);
-    browser.report_audio(slot, false, LONG_UNSHOWN_MS);
-
-    browser.relieve(1_000 + LONG_UNSHOWN_MS, false);
-
-    assert!(slot_of(&browser, ids[0]).is_some());
 }
 
 #[test]
@@ -1245,4 +1168,299 @@ fn a_reading_that_changes_nothing_produces_no_effects() {
     let effects = browser.report_state(id, Some(scrolled("https://a.test", 10.0, None)));
 
     assert!(effects.is_empty());
+}
+
+// -- the rule ---------------------------------------------------------------
+
+const MB: u64 = 1024 * 1024;
+
+/// Four tabs in a four-slot pool under smart discarding. The first three were
+/// left in order, the fourth is visible, and none has been read yet.
+fn smart(budget: u64) -> (Browser, Vec<TabId>) {
+    let mut browser = Browser::new(4)
+        .with_policies(Policy::Smart, Policy::Smart)
+        .with_keeping(budget, Vec::new());
+    let ids: Vec<TabId> = ["https://a.test", "https://b.test", "https://c.test", "https://d.test"]
+        .iter()
+        .map(|url| browser.open_tab(*url, true).0)
+        .collect();
+    for (offset, id) in ids.iter().enumerate() {
+        browser.select_tab(*id, 1_000 + offset as u64).unwrap();
+    }
+    (browser, ids)
+}
+
+/// When the last background tab of [`smart`] was left.
+const LEFT: u64 = 1_003;
+
+fn holding(url: &str, loss: Loss) -> PageState {
+    match loss {
+        Loss::None => reading(url),
+        Loss::State => PageState {
+            interactions: INTERACTION_THRESHOLD,
+            ..reading(url)
+        },
+        Loss::Work => PageState {
+            unsaved: true,
+            ..reading(url)
+        },
+    }
+}
+
+/// Records what each tab would lose.
+fn set_losses(browser: &mut Browser, ids: &[TabId], losses: &[Loss]) {
+    for (id, loss) in ids.iter().zip(losses) {
+        let url = browser.tab(*id).unwrap().url().to_string();
+        browser.report_state(*id, Some(holding(&url, *loss)));
+    }
+}
+
+/// The same measured memory for every slot.
+fn every_slot(browser: &Browser, bytes: u64) -> HashMap<SlotId, u64> {
+    browser.slot_ids().into_iter().map(|slot| (slot, bytes)).collect()
+}
+
+fn discarded(browser: &Browser, id: TabId) -> bool {
+    presence(browser, id) == TabPresence::Discarded
+}
+
+#[test]
+fn a_tab_with_nothing_to_lose_is_discarded_once_grace_ends_and_not_before() {
+    let (mut browser, ids) = smart(0);
+    let slot = slot_of(&browser, ids[2]).unwrap();
+
+    browser.tick(LEFT + GRACE_MS - 1, Pressure::Normal, HashMap::new());
+    assert!(!discarded(&browser, ids[2]), "still in grace");
+
+    let effects = browser.tick(LEFT + GRACE_MS, Pressure::Normal, HashMap::new());
+    assert!(discarded(&browser, ids[2]));
+    // Frozen while in grace, so it was read then and is not read again.
+    assert!(position(&effects, &Effect::Resume { slot }) < position(&effects, &Effect::Blank { slot }));
+    assert!(!discarded(&browser, ids[3]), "the visible tab stays");
+}
+
+#[test]
+fn a_tab_in_grace_is_kept_frozen() {
+    let (browser, ids) = smart(0);
+    assert!(matches!(presence(&browser, ids[2]), TabPresence::Frozen { .. }));
+}
+
+#[test]
+fn a_work_tab_is_kept_past_the_budget_and_a_state_tab_is_not() {
+    let (mut browser, ids) = smart(50 * MB);
+    set_losses(&mut browser, &ids, &[Loss::Work, Loss::State, Loss::None]);
+
+    let memory = every_slot(&browser, 100 * MB);
+    browser.tick(LEFT + GRACE_MS, Pressure::Normal, memory);
+
+    assert!(!discarded(&browser, ids[0]), "work is kept");
+    assert!(discarded(&browser, ids[1]), "state does not fit");
+    assert!(discarded(&browser, ids[2]), "nothing to lose");
+}
+
+#[test]
+fn state_tabs_are_kept_most_recent_first_until_the_budget_is_spent() {
+    let (mut browser, ids) = smart(250 * MB);
+    set_losses(&mut browser, &ids, &[Loss::State, Loss::State, Loss::State]);
+
+    let memory = every_slot(&browser, 100 * MB);
+    browser.tick(LEFT + GRACE_MS, Pressure::Normal, memory);
+
+    assert!(discarded(&browser, ids[0]), "the least recent goes");
+    assert!(!discarded(&browser, ids[1]));
+    assert!(!discarded(&browser, ids[2]));
+}
+
+#[test]
+fn tabs_kept_outright_spend_the_budget_first() {
+    let (mut browser, ids) = smart(150 * MB);
+    set_losses(&mut browser, &ids, &[Loss::State, Loss::Work, Loss::None]);
+
+    let memory = every_slot(&browser, 100 * MB);
+    browser.tick(LEFT + GRACE_MS, Pressure::Normal, memory);
+
+    assert!(!discarded(&browser, ids[1]));
+    assert!(discarded(&browser, ids[0]), "the work tab left no room");
+}
+
+#[test]
+fn unmeasured_tabs_cost_nothing_against_the_budget() {
+    let (mut browser, ids) = smart(0);
+    set_losses(&mut browser, &ids, &[Loss::State, Loss::State, Loss::State]);
+
+    browser.tick(LEFT + GRACE_MS, Pressure::Normal, HashMap::new());
+
+    assert!(ids[..3].iter().all(|id| !discarded(&browser, *id)));
+}
+
+#[test]
+fn a_tab_on_a_kept_site_is_kept_like_work() {
+    let (mut browser, ids) = smart(0);
+    browser.set_keeping(0, vec!["a.test".into()]);
+
+    let memory = every_slot(&browser, 100 * MB);
+    browser.tick(LEFT + GRACE_MS, Pressure::Normal, memory);
+
+    assert!(!discarded(&browser, ids[0]));
+    assert!(discarded(&browser, ids[1]));
+}
+
+#[test]
+fn a_tab_paused_on_a_dialog_is_left_alone() {
+    let (mut browser, ids) = smart(0);
+    browser.open_dialog(slot_of(&browser, ids[0]).unwrap(), dialog(1, DialogKind::Alert));
+
+    browser.tick(LEFT + GRACE_MS, Pressure::Critical, HashMap::new());
+
+    assert!(!discarded(&browser, ids[0]));
+}
+
+#[test]
+fn a_tick_that_changes_nothing_produces_no_effects() {
+    let (mut browser, _) = smart(0);
+    assert!(browser.tick(LEFT + 1, Pressure::Normal, HashMap::new()).is_empty());
+}
+
+#[test]
+fn tight_pressure_discards_state_inside_grace_but_keeps_work() {
+    let (mut browser, ids) = smart(u64::MAX);
+    set_losses(&mut browser, &ids, &[Loss::Work, Loss::State, Loss::None]);
+
+    browser.tick(LEFT + 1, Pressure::Tight, HashMap::new());
+
+    assert!(!discarded(&browser, ids[0]));
+    assert!(discarded(&browser, ids[1]));
+    assert!(discarded(&browser, ids[2]));
+    assert!(!discarded(&browser, ids[3]), "the visible tab stays");
+}
+
+#[test]
+fn critical_pressure_discards_work_too_but_never_a_visible_or_must_run_tab() {
+    let (mut browser, ids) = smart(u64::MAX);
+    set_losses(&mut browser, &ids, &[Loss::Work, Loss::None, Loss::None]);
+    browser.report_audio(slot_of(&browser, ids[1]).unwrap(), true, LEFT);
+
+    browser.tick(LEFT + 1, Pressure::Critical, HashMap::new());
+
+    assert!(discarded(&browser, ids[0]));
+    assert!(!discarded(&browser, ids[1]), "music keeps playing");
+    assert!(!discarded(&browser, ids[3]));
+}
+
+#[test]
+fn discarding_never_discards_nothing_even_at_critical() {
+    let (mut browser, ids) = optimized(Policy::Smart, Policy::Never);
+
+    let effects = browser.tick(GRACE_MS * 10, Pressure::Critical, HashMap::new());
+
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Blank { .. } | Effect::Destroy { .. })));
+    assert!(slot_of(&browser, ids[0]).is_some());
+}
+
+#[test]
+fn pressure_read_on_a_tab_switch_acts_at_once() {
+    let (mut browser, ids) = smart(u64::MAX);
+
+    browser.set_pressure(Pressure::Tight);
+    browser.select_tab(ids[0], LEFT + 1).unwrap();
+
+    assert!(discarded(&browser, ids[3]), "the tab just left has no grace");
+}
+
+#[test]
+fn a_tab_discarded_under_pressure_is_marked_until_it_is_loaded_again() {
+    let (mut browser, ids) = smart(u64::MAX);
+
+    browser.tick(LEFT + 1, Pressure::Tight, HashMap::new());
+    assert!(browser.tab(ids[0]).unwrap().relieved);
+
+    browser.select_tab(ids[0], LEFT + 2).unwrap();
+    assert!(!browser.tab(ids[0]).unwrap().relieved);
+}
+
+#[test]
+fn a_tab_discarded_at_normal_pressure_is_not_marked() {
+    let (mut browser, ids) = smart(0);
+    browser.tick(LEFT + GRACE_MS, Pressure::Normal, HashMap::new());
+    assert!(discarded(&browser, ids[0]));
+    assert!(!browser.tab(ids[0]).unwrap().relieved);
+}
+
+#[test]
+fn one_parked_webview_is_kept_as_a_spare_at_normal_pressure() {
+    let (mut browser, _) = smart(0);
+
+    let effects = browser.tick(LEFT + GRACE_MS, Pressure::Normal, HashMap::new());
+
+    let destroyed = effects
+        .iter()
+        .filter(|effect| matches!(effect, Effect::Destroy { .. }))
+        .count();
+    assert_eq!(destroyed, 2, "three tabs were discarded and one slot is kept");
+    assert_eq!(browser.slots().len(), 2);
+}
+
+#[test]
+fn no_parked_webview_is_kept_under_pressure() {
+    let (mut browser, _) = smart(0);
+    browser.tick(LEFT + GRACE_MS, Pressure::Normal, HashMap::new());
+
+    browser.tick(LEFT + GRACE_MS + 1, Pressure::Tight, HashMap::new());
+
+    assert_eq!(browser.slots().len(), 1, "only the visible tab's");
+}
+
+#[test]
+fn eviction_takes_the_lowest_loss_before_the_least_recent() {
+    let mut browser = Browser::new(3);
+    let (a, _) = browser.open_tab("https://a.test", true);
+    let (b, _) = browser.open_tab("https://b.test", true);
+    browser.open_tab("https://c.test", true);
+    browser.report_state(a, Some(holding("https://a.test", Loss::Work)));
+
+    browser.open_tab("https://d.test", true);
+
+    assert!(!discarded(&browser, a), "the older tab holds work");
+    assert!(discarded(&browser, b));
+}
+
+#[test]
+fn a_work_tab_is_evicted_when_nothing_else_can_be() {
+    let mut browser = Browser::new(1);
+    let (a, _) = browser.open_tab("https://a.test", true);
+    browser.report_state(a, Some(holding("https://a.test", Loss::Work)));
+
+    let (b, _) = browser.open_tab("https://b.test", true);
+
+    assert!(discarded(&browser, a));
+    assert!(slot_of(&browser, b).is_some());
+}
+
+#[test]
+fn freezing_always_lets_smart_discarding_take_an_audible_tab() {
+    let mut browser = Browser::new(3).with_policies(Policy::Always, Policy::Smart);
+    let (music, _) = browser.open_tab("https://music.test", true);
+    let slot = slot_of(&browser, music).unwrap();
+    browser.report_audio(slot, true, 0);
+    browser.open_tab("https://b.test", true);
+    browser.tick(1_000, Pressure::Normal, HashMap::new());
+
+    browser.tick(1_000 + GRACE_MS, Pressure::Normal, HashMap::new());
+
+    assert_eq!(presence(&browser, music), TabPresence::Discarded);
+}
+
+#[test]
+fn a_tab_that_falls_silent_is_timed_from_that_moment() {
+    let (mut browser, ids) = optimized(Policy::Never, Policy::Smart);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_audio(slot, true, 0);
+    browser.tick(1_000, Pressure::Normal, HashMap::new());
+    browser.report_audio(slot, false, 1_000 + GRACE_MS);
+
+    browser.tick(1_000 + GRACE_MS, Pressure::Normal, HashMap::new());
+
+    assert!(slot_of(&browser, ids[0]).is_some());
 }

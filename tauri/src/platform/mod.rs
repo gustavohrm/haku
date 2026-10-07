@@ -164,11 +164,6 @@ pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
     backend::resume(webview)
 }
 
-/// Installed physical memory in bytes, or nothing when it cannot be read.
-pub fn total_memory() -> Option<u64> {
-    backend::total_memory()
-}
-
 /// The system's physical memory and commit figures, or nothing when they
 /// cannot be read.
 pub fn memory_status() -> Option<MemoryStatus> {
@@ -198,14 +193,6 @@ pub fn slot_memory<R: tauri::Runtime>(
         .lock()
         .map_err(|_| HakuError::Storage("memory tracker lock poisoned".into()))?;
     Ok(tracker.attribute(&snapshot.frames, &snapshot.processes))
-}
-
-/// Whether the operating system reports physical memory running low.
-///
-/// The system's own judgement rather than a threshold of Haku's, so it accounts
-/// for everything else running on the machine. False when it cannot be read.
-pub fn memory_is_low() -> bool {
-    backend::memory_is_low()
 }
 
 /// Raises the chrome webview above every content webview in its window.

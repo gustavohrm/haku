@@ -4,6 +4,7 @@ import {
   type Loss,
   type LossSignal,
   type MemoryReport,
+  type Position,
   type Pressure,
   type ProcessKind,
   type SlotMemory,
@@ -29,7 +30,14 @@ const LOSS_LABELS: Record<Loss, TranslationKey> = {
   work: "memory.loss.work",
 };
 
+const POSITION_LABELS: Record<Position, TranslationKey> = {
+  visible: "memory.position.visible",
+  mustRun: "memory.position.mustRun",
+  kept: "memory.position.kept",
+};
+
 const SIGNAL_LABELS: Record<LossSignal, TranslationKey> = {
+  keptSite: "memory.signal.keptSite",
   unsaved: "memory.signal.unsaved",
   unloadArmed: "memory.signal.unloadArmed",
   formResult: "memory.signal.formResult",
@@ -67,6 +75,10 @@ export function MemoryPage() {
               <dd>{t(PRESSURE_LABELS[report.pressure])}</dd>
               <dt className="text-text-secondary">{t("memory.headroom")}</dt>
               <dd>{formatShare(report.headroom)}</dd>
+              <dt className="text-text-secondary">{t("memory.budget")}</dt>
+              <dd>
+                {formatBytes(report.kept)} / {formatBytes(report.budget)}
+              </dd>
               <dt className="text-text-secondary">{t("memory.slotsTotal")}</dt>
               <dd>{formatBytes(sumKnown(report.slots.map((slot) => slot.bytes)))}</dd>
               <dt className="text-text-secondary">{t("memory.unattributedTotal")}</dt>
@@ -82,6 +94,7 @@ export function MemoryPage() {
                   <th className="w-16 font-normal">{t("memory.slot")}</th>
                   <th className="font-normal">{t("memory.tab")}</th>
                   <th className="w-24 font-normal">{t("memory.state")}</th>
+                  <th className="w-24 font-normal">{t("memory.position")}</th>
                   <th className="w-48 font-normal">{t("memory.loss")}</th>
                   <th className="w-24 text-right font-normal">{t("memory.memory")}</th>
                 </tr>
@@ -94,6 +107,7 @@ export function MemoryPage() {
                       <td>{slot.slot}</td>
                       <td className="truncate">{tab ? tabLabel(tab) : "—"}</td>
                       <td>{t(stateLabel(tab))}</td>
+                      <td>{slot.position ? t(POSITION_LABELS[slot.position]) : "—"}</td>
                       <td className="truncate" title={lossLabel(slot)}>
                         {lossLabel(slot)}
                       </td>

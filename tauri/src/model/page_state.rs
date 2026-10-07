@@ -57,6 +57,8 @@ pub enum Loss {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum LossSignal {
+    /// The tab's host is one the user asked Haku not to unload.
+    KeptSite,
     Unsaved,
     UnloadArmed,
     FormResult,
@@ -68,7 +70,7 @@ pub enum LossSignal {
 impl LossSignal {
     pub fn level(self) -> Loss {
         match self {
-            Self::Unsaved | Self::UnloadArmed | Self::FormResult => Loss::Work,
+            Self::KeptSite | Self::Unsaved | Self::UnloadArmed | Self::FormResult => Loss::Work,
             Self::Interactions | Self::MediaPaused | Self::Unreadable => Loss::State,
         }
     }

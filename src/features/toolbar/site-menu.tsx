@@ -1,6 +1,7 @@
 import { type Tab } from "@bindings";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
+import { useSettings } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useEffect, useId, useRef, useState } from "react";
@@ -21,7 +22,8 @@ interface SiteMenuProps {
  *
  * Keeping a tab loaded lives here rather than on the tab itself: it overrides
  * the optimization settings, so it should take a deliberate step, with the
- * warning beside it.
+ * warning beside it. Keeping the site applies to every tab on its host, so it
+ * is stored in the settings rather than on the tab.
  */
 export function SiteMenu({ tab, url }: SiteMenuProps) {
   // Where the menu opens, or null while closed.
@@ -31,6 +33,19 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
   const menuRef = useRef<HTMLElement>(null);
   const menuId = useId();
   const switchId = useId();
+  const siteSwitchId = useId();
+  const siteHelpId = useId();
+  const settings = useSettings();
+  const host = hostnameOf(url);
+  const siteKept = host !== null && (settings?.keptSites.includes(host) ?? false);
+
+  const setSiteKept = (kept: boolean) => {
+    if (!settings || host === null) {
+      return;
+    }
+    const others = settings.keptSites.filter((site) => site !== host);
+    void commands.setSettings({ ...settings, keptSites: kept ? [...others, host] : others });
+  };
 
   // The menu hangs over the page, so it must be registered to be clickable.
   useOverlay(menuRef, open);
@@ -124,6 +139,26 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
                 onChange={(event) => void commands.setTabFixed(tab.id, event.target.checked)}
               />
             </div>
+
+            {host !== null && (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor={siteSwitchId}>{t("site.keepSite")}</label>
+                  <input
+                    id={siteSwitchId}
+                    type="checkbox"
+                    className="switch ml-auto"
+                    aria-describedby={siteHelpId}
+                    checked={siteKept}
+                    disabled={!settings}
+                    onChange={(event) => setSiteKept(event.target.checked)}
+                  />
+                </div>
+                <span id={siteHelpId} className="text-text-secondary text-sm">
+                  {t("site.keepSite.help")}
+                </span>
+              </div>
+            )}
           </section>,
           document.body,
         )}
@@ -169,6 +204,19 @@ function Warning({ message }: { message: string }) {
       </span>
     </span>
   );
+}
+
+/**
+ * A web page's host name as kept sites list it: lowercase, without a port.
+ * Nothing for a page that is not on the web.
+ */
+function hostnameOf(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.hostname || null : null;
+  } catch {
+    return null;
+  }
 }
 
 function hostOf(url: string): string {

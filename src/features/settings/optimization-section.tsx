@@ -7,6 +7,10 @@ import { DraftInput } from "./draft-input";
 
 const MAX_CAPACITY = 12;
 
+/** Bounds of the background memory budget, in megabytes. */
+const MIN_KEPT_MEMORY_MB = 0;
+const MAX_KEPT_MEMORY_MB = 16384;
+
 const PRESETS: Record<Preset, TranslationKey> = {
   saveMemory: "settings.preset.saveMemory",
   balanced: "settings.preset.balanced",
@@ -35,8 +39,8 @@ interface OptimizationSectionProps {
 /**
  * How far Haku goes to keep memory down.
  *
- * Which preset is in effect is asked of Rust rather than worked out here: the
- * slot counts depend on the machine's memory, and only Rust reads it.
+ * Which preset is in effect is asked of Rust rather than worked out here, so
+ * the preset values have one definition.
  */
 export function OptimizationSection({ settings, update }: OptimizationSectionProps) {
   const [preset, setPreset] = useState<Preset | null>(null);
@@ -55,8 +59,8 @@ export function OptimizationSection({ settings, update }: OptimizationSectionPro
     };
   }, [settings]);
 
-  // Discarding every background tab leaves nothing to freeze and nothing for
-  // extra slots to hold.
+  // Discarding every background tab leaves nothing to freeze, nothing for
+  // extra slots to hold and nothing to spend a budget on.
   const discardsEverything = settings.discardTabs === "always";
 
   return (
@@ -108,6 +112,32 @@ export function OptimizationSection({ settings, update }: OptimizationSectionPro
               }}
             />
             <span className="hint">{t("settings.capacity.help")}</span>
+          </label>
+        )}
+      </DisabledFor>
+
+      <DisabledFor reason={discardsEverything ? t("settings.disabledByDiscard") : null}>
+        {(describedBy) => (
+          <label className="field">
+            <span className="label">{t("settings.keptMemory")}</span>
+            <DraftInput
+              type="number"
+              min={MIN_KEPT_MEMORY_MB}
+              max={MAX_KEPT_MEMORY_MB}
+              disabled={discardsEverything}
+              aria-describedby={describedBy}
+              value={String(settings.keptMemoryMb)}
+              onCommit={async (next) => {
+                const value = Number.parseInt(next, 10);
+                if (!Number.isFinite(value)) {
+                  return null;
+                }
+                const keptMemoryMb = Math.min(Math.max(value, MIN_KEPT_MEMORY_MB), MAX_KEPT_MEMORY_MB);
+                const stored = await update({ keptMemoryMb });
+                return stored && String(stored.keptMemoryMb);
+              }}
+            />
+            <span className="hint">{t("settings.keptMemory.help")}</span>
           </label>
         )}
       </DisabledFor>

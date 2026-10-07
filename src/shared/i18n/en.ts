@@ -13,6 +13,7 @@ export const en = {
   "tabs.discarded": "Discarded — reloads when you open it",
   "tabs.frozen": "Frozen — resumes instantly when you open it",
   "tabs.fixed": "Kept loaded",
+  "tabs.relieved": "Unloaded to free memory — reloads when you open it",
 
   "toolbar.navigation": "Navigation",
   "toolbar.back": "Back",
@@ -29,6 +30,9 @@ export const en = {
   "site.keepLoaded": "Keep this tab loaded",
   "site.keepLoaded.warning":
     "Not recommended. This tab stays in memory and keeps running in the background, whatever the optimization settings say. Use it only for pages the automatic behavior does not suit.",
+  "site.keepSite": "Don't unload this site",
+  "site.keepSite.help":
+    "Tabs on this site stay in memory, paused, as if they held unsaved work. Use it for pages that lose something Haku cannot see when they reload.",
 
   "window.minimize": "Minimize",
   "window.maximize": "Maximize",
@@ -46,16 +50,19 @@ export const en = {
   "settings.preset.balanced": "Balanced",
   "settings.preset.performance": "Performance",
   "settings.preset.custom": "Custom",
-  "settings.preset.help": "Fills in the settings below. Balanced and Performance size them for this computer's memory.",
+  "settings.preset.help": "Fills in the settings below.",
   "settings.capacity": "Loaded tabs",
   "settings.capacity.help":
     "How many tabs can stay in memory at once, including the one you are viewing. Tabs you keep loaded add to this.",
+  "settings.keptMemory": "Background memory (MB)",
+  "settings.keptMemory.help":
+    "How much memory background tabs may hold when kept for what reloading them would lose, such as where you were in a page. Tabs with unsaved text are kept even beyond it.",
   "settings.freeze": "Freeze background tabs",
   "settings.freeze.help":
-    "A frozen tab is paused and gives back some memory. It opens again instantly, without reloading. Smart leaves tabs playing audio running.",
+    "A frozen tab is paused and gives back some memory. It opens again instantly, without reloading. Smart leaves tabs playing audio or using the camera, microphone or screen running.",
   "settings.discard": "Discard background tabs",
   "settings.discard.help":
-    "A discarded tab frees all its memory and reloads when you open it. Smart discards tabs you have not opened in a while, sooner when memory runs low. Never means Haku never discards on its own: a tab still reloads when every loaded tab is in use.",
+    "A discarded tab frees all its memory and reloads when you open it. Smart discards a tab a minute after you leave it unless reloading would lose something, and sooner when memory runs low. Never means Haku never discards on its own: a tab still reloads when every loaded tab is in use.",
   "settings.policy.never": "Never",
   "settings.policy.smart": "Smart",
   "settings.policy.always": "Always",
@@ -86,11 +93,17 @@ export const en = {
   "memory.state.live": "Running",
   "memory.state.frozen": "Frozen",
   "memory.state.parked": "Parked",
+  "memory.position": "Why loaded",
+  "memory.position.visible": "Visible",
+  "memory.position.mustRun": "Must run",
+  "memory.position.kept": "Kept",
+  "memory.budget": "Background memory used",
   "memory.memory": "Memory",
   "memory.loss": "Discarding loses",
   "memory.loss.none": "Nothing",
   "memory.loss.state": "State",
   "memory.loss.work": "Work",
+  "memory.signal.keptSite": "kept site",
   "memory.signal.unsaved": "unsaved text",
   "memory.signal.unloadArmed": "asks before leaving",
   "memory.signal.formResult": "form result",
