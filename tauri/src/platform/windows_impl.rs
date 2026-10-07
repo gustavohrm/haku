@@ -20,37 +20,46 @@ use tauri::Manager;
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Controller,
-    ICoreWebView2Deferral, ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2ScriptDialogOpeningEventArgs,
-    ICoreWebView2_19, ICoreWebView2_3, ICoreWebView2_8, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
-    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
-    COREWEBVIEW2_NAVIGATION_KIND, COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_SCRIPT_DIALOG_KIND,
-    COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD, COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM,
-    COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
+    ICoreWebView2Deferral, ICoreWebView2Environment13, ICoreWebView2FrameInfo, ICoreWebView2FrameInfo2,
+    ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2ProcessExtendedInfoCollection,
+    ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2_19, ICoreWebView2_2, ICoreWebView2_20, ICoreWebView2_3,
+    ICoreWebView2_8, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, COREWEBVIEW2_NAVIGATION_KIND,
+    COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_PROCESS_KIND, COREWEBVIEW2_PROCESS_KIND_BROWSER,
+    COREWEBVIEW2_PROCESS_KIND_GPU, COREWEBVIEW2_PROCESS_KIND_RENDERER, COREWEBVIEW2_PROCESS_KIND_UTILITY,
+    COREWEBVIEW2_SCRIPT_DIALOG_KIND, COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD,
+    COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM, COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
 };
 use webview2_com::{
     take_pwstr, CallDevToolsProtocolMethodCompletedHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
-    NavigationStartingEventHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
-    TrySuspendCompletedHandler,
+    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler,
+    IsDocumentPlayingAudioChangedEventHandler, NavigationStartingEventHandler, ScriptDialogOpeningEventHandler,
+    SourceChangedEventHandler, TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
-use windows::Win32::Foundation::{HANDLE, HWND};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR,
 };
 use windows::Win32::System::Memory::{
     CreateMemoryResourceNotification, LowMemoryResourceNotification, QueryMemoryResourceNotification,
 };
+use windows::Win32::System::ProcessStatus::{
+    GetPerformanceInfo, GetProcessMemoryInfo, PERFORMANCE_INFORMATION, PROCESS_MEMORY_COUNTERS,
+    PROCESS_MEMORY_COUNTERS_EX,
+};
 use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
 
+use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
 use super::{PageSignal, PageSink, PhysicalRect, RoundedRect};
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
-use crate::model::{Commit, DialogAnswer, DialogId, DialogKind, NavigationKind, PageDialog};
+use crate::model::{Commit, DialogAnswer, DialogId, DialogKind, MemoryStatus, NavigationKind, PageDialog, SlotId};
 use crate::webview::inject;
 
 /// How long to wait for the main thread to run a native operation.
@@ -166,6 +175,190 @@ pub fn memory_is_low() -> bool {
 
     let mut low = BOOL::default();
     unsafe { QueryMemoryResourceNotification(HANDLE(handle as *mut _), &mut low) }.is_ok() && low.as_bool()
+}
+
+pub fn memory_status() -> Option<MemoryStatus> {
+    let mut info = PERFORMANCE_INFORMATION {
+        cb: size_of::<PERFORMANCE_INFORMATION>() as u32,
+        ..Default::default()
+    };
+    unsafe { GetPerformanceInfo(&mut info, info.cb) }.ok()?;
+    // Every figure is in pages.
+    let bytes = |pages: usize| pages as u64 * info.PageSize as u64;
+    Some(MemoryStatus {
+        total_physical: bytes(info.PhysicalTotal),
+        available_physical: bytes(info.PhysicalAvailable),
+        commit_limit: bytes(info.CommitLimit),
+        commit_total: bytes(info.CommitTotal),
+    })
+}
+
+pub fn engine_processes<R: tauri::Runtime>(
+    chrome: &tauri::Webview<R>,
+    slots: &[(SlotId, tauri::Webview<R>)],
+) -> Result<EngineSnapshot> {
+    let frames = slots
+        .iter()
+        .map(|(slot, webview)| (*slot, main_frame_id(webview)))
+        .collect();
+
+    let (sender, receiver) = mpsc::channel();
+    chrome
+        .with_webview(move |platform| {
+            let requested = unsafe { request_process_infos(&platform.controller(), sender.clone()) };
+            if let Err(error) = requested {
+                let _ = sender.send(Err(error));
+            }
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+    let listed = receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+
+    // Read here rather than in the completion handler, which runs on the UI
+    // thread.
+    let processes = listed
+        .into_iter()
+        .map(|(pid, kind, main_frames)| ProcessSample {
+            pid,
+            kind,
+            private_bytes: private_bytes(pid).unwrap_or(0),
+            main_frames,
+        })
+        .collect();
+    Ok(EngineSnapshot { frames, processes })
+}
+
+/// The id of a webview's main frame, as the engine lists it per process.
+/// Nothing when the runtime predates it or the webview cannot be reached.
+fn main_frame_id<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Option<u32> {
+    let (sender, receiver) = mpsc::channel();
+    webview
+        .with_webview(move |platform| {
+            let id = unsafe {
+                platform
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|core| core.cast::<ICoreWebView2_20>())
+                    .and_then(|core| {
+                        let mut id = 0u32;
+                        core.FrameId(&mut id).map(|()| id)
+                    })
+            };
+            let _ = sender.send(id.ok());
+        })
+        .ok()?;
+    receiver.recv_timeout(DISPATCH_TIMEOUT).ok().flatten()
+}
+
+/// A process id, its kind, and the main frames of the frames it hosts.
+type ListedProcess = (u32, ProcessKind, Vec<u32>);
+
+unsafe fn request_process_infos(
+    controller: &ICoreWebView2Controller,
+    sender: mpsc::Sender<windows::core::Result<Vec<ListedProcess>>>,
+) -> windows::core::Result<()> {
+    let environment = controller
+        .CoreWebView2()?
+        .cast::<ICoreWebView2_2>()?
+        .Environment()?
+        .cast::<ICoreWebView2Environment13>()?;
+    let handler = GetProcessExtendedInfosCompletedHandler::create(Box::new(move |status, infos| {
+        let listed = status.and_then(|()| match infos {
+            Some(infos) => read_process_infos(&infos),
+            None => Ok(Vec::new()),
+        });
+        let _ = sender.send(listed);
+        Ok(())
+    }));
+    environment.GetProcessExtendedInfos(&handler)
+}
+
+unsafe fn read_process_infos(
+    infos: &ICoreWebView2ProcessExtendedInfoCollection,
+) -> windows::core::Result<Vec<ListedProcess>> {
+    let mut count = 0u32;
+    infos.Count(&mut count)?;
+    let mut listed = Vec::with_capacity(count as usize);
+    for index in 0..count {
+        let info = infos.GetValueAtIndex(index)?;
+        let process = info.ProcessInfo()?;
+        let mut pid = 0i32;
+        process.ProcessId(&mut pid)?;
+        let mut kind = COREWEBVIEW2_PROCESS_KIND::default();
+        process.Kind(&mut kind)?;
+
+        let mut main_frames = Vec::new();
+        // The iterator does not keep its collection alive: iterating after the
+        // collection is released crashes the process.
+        let collection = info.AssociatedFrameInfos()?;
+        let frames = collection.GetIterator()?;
+        let mut has_current = BOOL::default();
+        frames.HasCurrent(&mut has_current)?;
+        while has_current.as_bool() {
+            if let Some(id) = main_frame_of(&frames.GetCurrent()?) {
+                if !main_frames.contains(&id) {
+                    main_frames.push(id);
+                }
+            }
+            frames.MoveNext(&mut has_current)?;
+        }
+        listed.push((pid as u32, process_kind(kind), main_frames));
+    }
+    Ok(listed)
+}
+
+/// Deeper than any page nests frames in practice.
+const MAX_FRAME_DEPTH: usize = 64;
+
+/// Follows a frame up to the main frame of its page.
+unsafe fn main_frame_of(frame: &ICoreWebView2FrameInfo) -> Option<u32> {
+    let mut frame = frame.cast::<ICoreWebView2FrameInfo2>().ok()?;
+    // The main frame's parent reads as an error. Bounded so a malformed chain
+    // cannot spin.
+    for _ in 0..MAX_FRAME_DEPTH {
+        match frame
+            .ParentFrameInfo()
+            .and_then(|parent| parent.cast::<ICoreWebView2FrameInfo2>())
+        {
+            Ok(parent) => frame = parent,
+            Err(_) => {
+                let mut id = 0u32;
+                return frame.FrameId(&mut id).ok().map(|()| id);
+            }
+        }
+    }
+    None
+}
+
+fn process_kind(kind: COREWEBVIEW2_PROCESS_KIND) -> ProcessKind {
+    match kind {
+        COREWEBVIEW2_PROCESS_KIND_BROWSER => ProcessKind::Browser,
+        COREWEBVIEW2_PROCESS_KIND_RENDERER => ProcessKind::Renderer,
+        COREWEBVIEW2_PROCESS_KIND_GPU => ProcessKind::Gpu,
+        COREWEBVIEW2_PROCESS_KIND_UTILITY => ProcessKind::Utility,
+        _ => ProcessKind::Other,
+    }
+}
+
+/// A process's commit charge, in bytes.
+fn private_bytes(pid: u32) -> Option<u64> {
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+        cb: size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let read = GetProcessMemoryInfo(
+            process,
+            (&raw mut counters).cast::<PROCESS_MEMORY_COUNTERS>(),
+            counters.cb,
+        );
+        let _ = CloseHandle(process);
+        read.ok()?;
+    }
+    Some(counters.PrivateUsage as u64)
 }
 
 pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {

@@ -37,7 +37,7 @@ haku/
    ├─ webview/                applies Effects to real webviews; scripts injected into pages
    ├─ chrome/                 viewport + overlay geometry → native input mask
    ├─ platform/               native operations Tauri does not expose: layering, page observation,
-   │                          dialogs (Windows only)
+   │                          dialogs, memory measurement (Windows only)
    ├─ storage/                settings + session (JSON), history (SQLite)
    ├─ ipc/                    commands, events, binding export
    ├─ error.rs · state.rs · lib.rs
