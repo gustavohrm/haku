@@ -1,6 +1,6 @@
 pub mod inject;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -74,6 +74,25 @@ struct PendingRestore {
 /// restore never lands on another tab's page.
 static PENDING_RESTORES: LazyLock<Mutex<HashMap<SlotId, PendingRestore>>> = LazyLock::new(Mutex::default);
 
+/// Slots whose document was handed a scroll to restore, until it finishes
+/// loading. The page scrolls on `load` and again [`inject::SCROLL_RETRY_MS`]
+/// later, so the end of its load is held back by that much, keeping the cover
+/// over the page until it is where it was.
+static SCROLLING: LazyLock<Mutex<HashSet<SlotId>>> = LazyLock::new(Mutex::default);
+
+/// A margin past the page's last scroll attempt, for it to be painted.
+const SCROLL_SETTLE: Duration = Duration::from_millis(inject::SCROLL_RETRY_MS as u64 + 50);
+
+fn set_scrolling(slot: SlotId, scrolling: bool) -> bool {
+    SCROLLING.lock().is_ok_and(|mut slots| {
+        if scrolling {
+            slots.insert(slot)
+        } else {
+            slots.remove(&slot)
+        }
+    })
+}
+
 fn set_pending(slot: SlotId, restore: Option<PendingRestore>) {
     if let Ok(mut pending) = PENDING_RESTORES.lock() {
         match restore {
@@ -119,14 +138,17 @@ pub fn apply<R: tauri::Runtime>(
         match effect {
             Effect::EnsureSlot { slot, url } => {
                 set_pending(*slot, None);
+                set_scrolling(*slot, false);
                 ensure_slot(app, *slot, url, viewport, observer)?;
             }
             Effect::Blank { slot } => {
                 set_pending(*slot, None);
+                set_scrolling(*slot, false);
                 navigate(app, *slot, BLANK_URL)?;
             }
             Effect::Destroy { slot } => {
                 set_pending(*slot, None);
+                set_scrolling(*slot, false);
                 destroy(app, *slot)?;
             }
             Effect::Show { slot } => set_visible(app, *slot, true)?,
@@ -208,6 +230,9 @@ fn restore_pending<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, u
     else {
         return;
     };
+    if restore.scroll != Scroll::default() {
+        set_scrolling(slot, true);
+    }
     if let Some(webview) = app.get_webview(&slot.label()) {
         let _ = webview.eval(inject::restore_expression(
             &restore.url,
@@ -258,11 +283,19 @@ fn ensure_slot<R: tauri::Runtime>(
     let sink = {
         let observer = observer.clone();
         let app = app.clone();
-        Arc::new(move |signal| {
-            if let PageSignal::Loaded { url } = &signal {
-                restore_pending(&app, slot, url);
+        Arc::new(move |signal| match signal {
+            PageSignal::Loaded { url } => {
+                restore_pending(&app, slot, &url);
+                observer(&app, slot, PageSignal::Loaded { url });
             }
-            observer(&app, slot, signal);
+            PageSignal::Completed { url } if set_scrolling(slot, false) => {
+                let (app, observer) = (app.clone(), observer.clone());
+                std::thread::spawn(move || {
+                    std::thread::sleep(SCROLL_SETTLE);
+                    observer(&app, slot, PageSignal::Completed { url });
+                });
+            }
+            signal => observer(&app, slot, signal),
         })
     };
     platform::observe_page(&webview, sink)?;

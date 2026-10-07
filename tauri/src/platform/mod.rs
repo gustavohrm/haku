@@ -89,6 +89,10 @@ pub enum PageSignal {
     NavigationStarted { form: bool },
     /// The document reached `DOMContentLoaded`, on `url`.
     Loaded { url: String },
+    /// The navigation finished, after the document's `load`, on `url`. Not
+    /// sent for a navigation cancelled by the next one, which says nothing
+    /// about the page that replaced it.
+    Completed { url: String },
 }
 
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on

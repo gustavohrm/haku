@@ -23,7 +23,7 @@ const MEDIA_MIN_SECONDS: u32 = 60;
 
 /// How long after the first attempt scroll is restored again, for pages that
 /// lay out after their own scripts run.
-const SCROLL_RETRY_MS: u32 = 120;
+pub const SCROLL_RETRY_MS: u32 = 120;
 
 /// How long after the first attempt a draft is restored again, for pages that
 /// build their forms with script.

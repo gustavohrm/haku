@@ -81,10 +81,11 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     browser.report_navigation(slot, form);
                 }
             }
-            // The webview module has already handed the document its
-            // restore. Recorded on this thread, as a commit is, so the cover
-            // comes off as soon as the document exists.
-            PageSignal::Loaded { url } => {
+            // Handled by the webview module, which holds what is restored.
+            PageSignal::Loaded { .. } => {}
+            // The cover comes off once the page has loaded and, for a tab
+            // getting its scroll back, once it has scrolled.
+            PageSignal::Completed { url } => {
                 let state = app.state::<AppState>();
                 let loaded = state
                     .browser

@@ -28,14 +28,15 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_NAVIGATION_KIND, COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_PROCESS_KIND,
     COREWEBVIEW2_PROCESS_KIND_BROWSER, COREWEBVIEW2_PROCESS_KIND_GPU, COREWEBVIEW2_PROCESS_KIND_RENDERER,
     COREWEBVIEW2_PROCESS_KIND_UTILITY, COREWEBVIEW2_SCRIPT_DIALOG_KIND, COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD,
-    COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM, COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT,
+    COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM, COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT, COREWEBVIEW2_WEB_ERROR_STATUS,
+    COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
 };
 use webview2_com::{
     take_pwstr, CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
     DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
     ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
-    NavigationStartingEventHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
-    TrySuspendCompletedHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, ScriptDialogOpeningEventHandler,
+    SourceChangedEventHandler, TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND};
@@ -580,6 +581,29 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     };
     core.cast::<ICoreWebView2_2>()?
         .add_DOMContentLoaded(&on_loaded, &mut token)?;
+
+    // The page has laid out and run its `load` handlers, which is when a
+    // reloading tab's scroll goes back in and its cover can come off.
+    let on_completed = {
+        let sink = sink.clone();
+        NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+            let (Some(core), Some(args)) = (sender, args) else {
+                return Ok(());
+            };
+            let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
+            args.WebErrorStatus(&mut status)?;
+            if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
+                return Ok(());
+            }
+            let mut source = PWSTR::null();
+            core.Source(&mut source)?;
+            sink(PageSignal::Completed {
+                url: take_pwstr(source),
+            });
+            Ok(())
+        }))
+    };
+    core.add_NavigationCompleted(&on_completed, &mut token)?;
 
     // The webview's own dialogs are replaced by Haku's, which match the
     // interface and name the site asking. The page stays paused on a deferral
