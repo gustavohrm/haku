@@ -6,6 +6,8 @@
 //! Both reach their handles through the same `Webview::with_webview` hook the
 //! Windows backend uses.
 
+use std::path::Path;
+
 use super::memory::EngineSnapshot;
 use super::{PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
@@ -30,6 +32,22 @@ pub fn set_input_mask<R: tauri::Runtime>(
 
 pub fn observe_page<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: PageSink) -> Result<()> {
     Err(unsupported("observing page navigation"))
+}
+
+pub fn install_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _folder: &Path) -> Result<(String, String)> {
+    Err(unsupported("installing extensions"))
+}
+
+pub fn set_extension_enabled<R: tauri::Runtime>(
+    _chrome: &tauri::Webview<R>,
+    _id: String,
+    _enabled: bool,
+) -> Result<()> {
+    Err(unsupported("switching extensions"))
+}
+
+pub fn reveal_folder(_folder: &Path) -> Result<()> {
+    Err(unsupported("opening a folder"))
 }
 
 pub fn stop_idle_workers<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<()> {

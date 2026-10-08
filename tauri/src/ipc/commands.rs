@@ -27,14 +27,16 @@ use tauri_specta::Event;
 use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
-use crate::model::{jpeg_data_url, DialogAnswer, DialogId, Preset, Pressure, SlotId, TabId};
+use crate::model::{
+    jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Preset, Pressure, SlotId, TabId,
+};
 use crate::platform::{self, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
 use crate::webview::{self, Departure, PageObserver, PageReading, CHROME_LABEL};
 
-use super::events::{MemoryChanged, SettingsChanged, StateChanged};
+use super::events::{ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
 
 /// Rejects a command that only the interface may issue.
 ///
@@ -107,6 +109,114 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             }
         },
     )
+}
+
+/// Installs every extension in the extensions folder into the shared profile
+/// and switches each on or off as the settings say.
+///
+/// An extension whose folder was deleted is not uninstalled: the engine lists
+/// its own built-in extensions alongside the user's, with nothing to tell them
+/// apart, and refuses to remove those.
+///
+/// Runs once, at startup and off the UI thread: the engine has to be asked
+/// and waited on for each extension.
+///
+/// A failure is kept in [`Extensions::error`] for the settings page to show,
+/// since nothing is waiting on startup to report it.
+pub fn sync_extensions(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let extensions = install_extensions(app, &state).unwrap_or_else(|error| Extensions {
+        error: Some(error),
+        ..Extensions::default()
+    });
+    if let Ok(mut stored) = state.extensions.write() {
+        *stored = extensions.clone();
+    }
+    let _ = ExtensionsChanged(extensions).emit(app);
+}
+
+/// # Errors
+/// Fails when the chrome webview cannot be reached. A folder that does not
+/// install is reported in [`Extensions::failed`], and any other step that
+/// fails in [`Extensions::error`], without stopping the rest.
+fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extensions> {
+    let chrome = webview::chrome(app)?;
+    let mut problems = Vec::new();
+
+    let mut installed = Vec::new();
+    let mut failed = Vec::new();
+    let mut folders: Vec<std::path::PathBuf> = match std::fs::read_dir(&state.paths.extensions) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect(),
+        // No folder yet means no extensions.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            problems.push(HakuError::from(error));
+            Vec::new()
+        }
+    };
+    // The order the file system lists folders in is not stable.
+    folders.sort();
+    for folder in folders {
+        match platform::install_extension(&chrome, &folder) {
+            Ok((id, name)) => {
+                let manifest = std::fs::read_to_string(folder.join("manifest.json")).unwrap_or_default();
+                installed.push(Extension {
+                    popup: popup_url(&id, &manifest),
+                    id,
+                    name,
+                });
+            }
+            Err(_) => failed.push(folder.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+        }
+    }
+
+    let disabled = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
+        .disabled_extensions
+        .clone();
+    for extension in &installed {
+        let enabled = !disabled.contains(&extension.id);
+        if let Err(error) = platform::set_extension_enabled(&chrome, extension.id.clone(), enabled) {
+            problems.push(error);
+        }
+    }
+
+    Ok(Extensions {
+        installed,
+        failed,
+        error: problems.into_iter().next(),
+    })
+}
+
+/// Switches installed extensions on or off where the settings changed them.
+fn switch_extensions(app: &tauri::AppHandle, state: &AppState, before: &[String], after: &[String]) -> Result<()> {
+    let installed: Vec<String> = state
+        .extensions
+        .read()
+        .map_err(|_| HakuError::Storage("extensions lock poisoned".into()))?
+        .installed
+        .iter()
+        .map(|extension| extension.id.clone())
+        .collect();
+    let changed = installed
+        .into_iter()
+        .filter(|id| before.contains(id) != after.contains(id));
+    let mut chrome = None;
+    for id in changed {
+        let chrome = match &chrome {
+            Some(chrome) => chrome,
+            None => chrome.insert(webview::chrome(app)?),
+        };
+        let enabled = !after.contains(&id);
+        platform::set_extension_enabled(chrome, id, enabled)?;
+    }
+    Ok(())
 }
 
 /// How often the tick runs while memory is plentiful.
@@ -420,13 +530,13 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
 fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
     let settings = settings.sanitized();
 
-    {
+    let previous = {
         let mut current = state
             .settings
             .write()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        *current = settings.clone();
-    }
+        std::mem::replace(&mut *current, settings.clone())
+    };
     state.save_settings()?;
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
@@ -437,6 +547,10 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
     })?;
 
     SettingsChanged(settings.clone()).emit(app).map_err(HakuError::from)?;
+    // Last, so a switch the engine refuses is reported without leaving the
+    // interface showing other settings than the ones stored. The stored
+    // setting stands and is applied again at the next start.
+    switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
     Ok(settings)
 }
 
@@ -736,4 +850,27 @@ pub async fn open_tab_devtools(
         target.open_devtools();
     }
     Ok(())
+}
+
+/// The extensions the extensions folder installed.
+#[tauri::command]
+#[specta::specta]
+pub fn extensions(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Extensions> {
+    ensure_chrome(&webview)?;
+    let extensions = state
+        .extensions
+        .read()
+        .map_err(|_| HakuError::Storage("extensions lock poisoned".into()))?;
+    Ok(extensions.clone())
+}
+
+/// Opens the extensions folder, creating it first, so an unpacked extension
+/// can be dropped in.
+#[tauri::command]
+#[specta::specta]
+pub fn open_extensions_folder(webview: tauri::Webview, state: State<'_, AppState>) -> Result<()> {
+    ensure_chrome(&webview)?;
+    std::fs::create_dir_all(&state.paths.extensions)
+        .map_err(|error| HakuError::Storage(format!("{}: {error}", state.paths.extensions.display())))?;
+    platform::reveal_folder(&state.paths.extensions)
 }

@@ -1,4 +1,5 @@
 pub mod dialog;
+pub mod extension;
 pub mod history;
 pub mod optimization;
 pub mod page_state;
@@ -8,6 +9,7 @@ pub mod preview;
 pub mod tab;
 
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
+pub use extension::{popup_url, Extension, Extensions};
 pub use history::{Commit, History, NavigationKind, Visit};
 pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};

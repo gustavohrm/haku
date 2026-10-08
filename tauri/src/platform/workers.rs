@@ -36,7 +36,12 @@ struct Version {
     running_status: String,
     #[serde(default)]
     controlled_clients: Vec<String>,
+    #[serde(rename = "scriptURL", default)]
+    script_url: String,
 }
+
+/// Scheme of an extension's own pages and workers.
+const EXTENSION_SCHEME: &str = "chrome-extension://";
 
 /// Tracks which running workers no page is using.
 ///
@@ -61,7 +66,12 @@ impl WorkerTracker {
 
         let mut newly_idle = Vec::new();
         for version in updated.versions {
-            let idle = version.running_status == "running" && version.controlled_clients.is_empty();
+            // An extension's background worker never has a page, so it would
+            // always look idle; stopping it cuts its popup off mid-task. The
+            // engine already manages its lifetime.
+            let idle = version.running_status == "running"
+                && version.controlled_clients.is_empty()
+                && !version.script_url.starts_with(EXTENSION_SCHEME);
             if !idle {
                 self.idle.remove(&version.version_id);
             } else if !self.idle.contains_key(&version.version_id) {
@@ -96,11 +106,15 @@ mod tests {
     use super::*;
 
     fn event(version: &str, status: &str, clients: &[&str]) -> String {
+        event_at("https://a.test/sw.js", version, status, clients)
+    }
+
+    fn event_at(script: &str, version: &str, status: &str, clients: &[&str]) -> String {
         serde_json::json!({
             "versions": [{
                 "versionId": version,
                 "registrationId": "1",
-                "scriptURL": "https://a.test/sw.js",
+                "scriptURL": script,
                 "runningStatus": status,
                 "status": "activated",
                 "controlledClients": clients,
@@ -117,6 +131,14 @@ mod tests {
 
         assert_eq!(idle.len(), 1);
         assert!(tracker.confirm("0", idle[0].1));
+    }
+
+    #[test]
+    fn an_extension_worker_is_never_idle() {
+        let mut tracker = WorkerTracker::default();
+        let event = event_at("chrome-extension://abc/background.js", "7", "running", &[]);
+
+        assert!(tracker.update(&event).is_empty());
     }
 
     #[test]

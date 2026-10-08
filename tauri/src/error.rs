@@ -1,11 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// Every failure Haku exposes across the IPC boundary.
 ///
 /// The variants are deliberately coarse: the frontend decides what to show the
 /// user, and a stable, small set keeps the generated TypeScript union usable.
-#[derive(Debug, thiserror::Error, Serialize, Type)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", content = "message")]
 pub enum HakuError {
     #[error("tab not found: {0}")]

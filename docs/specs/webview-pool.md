@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-06
+last_updated: 2026-10-08
 scope: How tabs share a limited number of webviews.
 ---
 
@@ -131,6 +131,8 @@ The browser always has a tab. Closing the last one opens the home page in its pl
 A service worker outlives the page that started it, and it holds a renderer process while it runs. Chromium is meant to stop an idle worker after about 30 seconds, but a busy site's worker can keep itself alive far longer. Measured on a release build: after YouTube's tab was closed, its worker kept a 160 MB process running for more than two minutes, with no debugger attached. The same worker stayed alive after YouTube was evicted from the slot by another tab.
 
 Haku therefore stops any worker that has been running with no page using it for 15 seconds (`platform::workers`). The chrome webview watches the DevTools protocol's `ServiceWorker` events, since it shares the profile with every content webview. The grace period covers a worker legitimately running without a page: while it installs, and while it serves a navigation before the page exists. A stopped worker starts again when a page needs it.
+
+An extension's background worker is exempt. It never has a page, so it would always look idle, and stopping it disconnects the extension's popup mid-task: Bitwarden's login failed with "Attempting to use a disconnected port object" until it was exempted. Chromium manages extension workers' lifetime itself.
 
 | Release build, YouTube then TabNews opened and both closed | Before | After  |
 | ---------------------------------------------------------- | ------ | ------ |
