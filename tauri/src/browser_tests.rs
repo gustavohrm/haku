@@ -151,6 +151,93 @@ fn closing_the_only_tab_opens_a_new_one_in_its_place() {
 }
 
 #[test]
+fn reopening_a_closed_tab_puts_it_back_where_it_was_with_its_history() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test", "https://c.test"]);
+    browser.navigate(ids[1], "https://b.test/next").unwrap();
+    browser.close_tab(ids[1], HOME).unwrap();
+
+    let effects = browser.reopen_closed_tab();
+
+    let reopened = browser.tabs()[1].clone();
+    assert_eq!(reopened.url(), "https://b.test/next");
+    assert_eq!(reopened.history.entries().len(), 2);
+    assert_eq!(browser.active(), Some(reopened.id));
+    assert!(!ids.contains(&reopened.id), "a reopened tab gets a fresh id");
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::EnsureSlot { url, .. } if url == "https://b.test/next"
+    )));
+}
+
+#[test]
+fn closed_tabs_reopen_most_recent_first() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test", "https://c.test"]);
+    browser.close_tab(ids[0], HOME).unwrap();
+    browser.close_tab(ids[2], HOME).unwrap();
+
+    browser.reopen_closed_tab();
+    browser.reopen_closed_tab();
+
+    let urls: Vec<&str> = browser.tabs().iter().map(Tab::url).collect();
+    assert_eq!(urls, ["https://a.test", "https://b.test", "https://c.test"]);
+}
+
+#[test]
+fn only_the_most_recent_closed_tabs_are_remembered() {
+    let mut browser = Browser::new(1);
+    for index in 0..=CLOSED_LIMIT {
+        let (id, _) = browser.open_tab(format!("https://{index}.test"), true);
+        browser.close_tab(id, HOME).unwrap();
+    }
+
+    let mut reopened = 0;
+    while !browser.reopen_closed_tab().is_empty() {
+        reopened += 1;
+    }
+
+    assert_eq!(reopened, CLOSED_LIMIT);
+}
+
+#[test]
+fn an_untouched_new_tab_is_not_remembered_as_closed() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", HOME]);
+    browser.close_tab(ids[0], HOME).unwrap();
+    browser.close_tab(ids[1], HOME).unwrap();
+
+    browser.reopen_closed_tab();
+
+    assert_eq!(browser.tab(browser.active().unwrap()).unwrap().url(), "https://a.test");
+}
+
+#[test]
+fn reopening_with_nothing_closed_changes_nothing() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+
+    assert!(browser.reopen_closed_tab().is_empty());
+    assert_eq!(browser.tabs().len(), 1);
+    assert_eq!(browser.active(), Some(ids[0]));
+}
+
+#[test]
+fn picking_the_next_and_previous_tab_wraps_around() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test", "https://c.test"]);
+
+    assert_eq!(browser.pick(Pick::Next), Some(ids[0]));
+    browser.select_tab(ids[0], 0).unwrap();
+    assert_eq!(browser.pick(Pick::Previous), Some(ids[2]));
+    assert_eq!(browser.pick(Pick::Next), Some(ids[1]));
+}
+
+#[test]
+fn picking_by_position_ignores_tabs_that_do_not_exist() {
+    let (browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
+
+    assert_eq!(browser.pick(Pick::Nth(0)), Some(ids[0]));
+    assert_eq!(browser.pick(Pick::Nth(5)), None);
+    assert_eq!(browser.pick(Pick::Last), Some(ids[1]));
+}
+
+#[test]
 fn closing_an_unknown_tab_reports_it_rather_than_failing_silently() {
     let (mut browser, _) = browser_with(1, &["https://a.test"]);
     assert!(matches!(
