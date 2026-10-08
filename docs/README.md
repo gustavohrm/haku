@@ -41,5 +41,6 @@ Start with [Architecture](architecture.md).
 | [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.         |
 | [Shortcuts](specs/shortcuts.md)               | The keymap, native key handling, reopening closed tabs. |
 | [Extensions](specs/extensions.md)             | Installing unpacked extensions, switches, popups.       |
+| [New windows](specs/new-windows.md)           | Links and popups that open new windows, as tabs.        |
 | [Tests](specs/tests.md)                       | Test categories, locations, tooling, and coverage.      |
 | [Errors](specs/errors.md)                     | How failures are represented.                           |

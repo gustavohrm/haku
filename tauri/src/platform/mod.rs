@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
-use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, Shortcut, SlotId};
+use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, Shortcut, SlotId, WindowRequestId};
 
 use memory::{Attribution, SlotMemoryTracker};
 
@@ -97,6 +97,22 @@ pub enum PageSignal {
     /// sent for a navigation cancelled by the next one, which says nothing
     /// about the page that replaced it.
     Completed { url: String },
+    /// The page asked for a new window, by a link or by script. It waits until
+    /// [`adopt_window`] hands it a webview or [`refuse_window`] answers it, and
+    /// the engine opens no window of its own either way.
+    WindowRequested {
+        request: WindowRequestId,
+        url: String,
+        /// Asked for with a size or a position, as a popup is.
+        popup: bool,
+        /// Asked for with Ctrl held, as a link opened for later is.
+        background: bool,
+        /// Asked for in answer to the user, such as a click, rather than by
+        /// the page on its own.
+        gesture: bool,
+    },
+    /// A page opened by script asked to close its window.
+    CloseRequested,
 }
 
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on
@@ -175,6 +191,33 @@ pub fn leave_page<R: tauri::Runtime>(
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId, answer: DialogAnswer) -> Result<()> {
     backend::answer_dialog(app, id, answer)
+}
+
+/// Hands a webview that has loaded nothing to the page waiting on `request`,
+/// which loads the new window's page into it and stays connected to it
+/// through `window.opener`.
+///
+/// Must not be called on the UI thread, where the handing over runs.
+///
+/// @returns Whether the webview was handed over. It is not when the request
+///   was already answered or the engine refused the webview, and is then the
+///   caller's to load.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation,
+/// and [`HakuError::WindowMissing`] when the UI thread does not answer.
+pub fn adopt_window<R: tauri::Runtime>(webview: &tauri::Webview<R>, request: WindowRequestId) -> Result<bool> {
+    backend::adopt_window(webview, request)
+}
+
+/// Answers a page waiting on `request` without a webview, so the engine opens
+/// nothing. Does nothing for a request already answered. Safe to call from any
+/// thread, like [`answer_dialog`].
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn refuse_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>, request: WindowRequestId) -> Result<()> {
+    backend::refuse_window(app, request)
 }
 
 /// Installs the unpacked Chrome extension in `folder` into the profile every

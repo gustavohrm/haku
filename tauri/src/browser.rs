@@ -7,7 +7,7 @@ use specta::Type;
 use crate::error::{HakuError, Result};
 use crate::model::{
     is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, Loss, LossSignal, NavigationKind, PageDialog,
-    PageState, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
+    PageState, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool, WindowRequestId,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -85,6 +85,28 @@ pub enum Effect {
         id: DialogId,
         answer: DialogAnswer,
     },
+    /// Create the slot's webview, which does not exist yet, and hand it to the
+    /// page that asked for a new window instead of navigating it, so the two
+    /// stay connected through `window.opener`. Navigate it to `url` if the
+    /// request can no longer take it.
+    Adopt {
+        slot: SlotId,
+        request: WindowRequestId,
+        url: String,
+    },
+}
+
+/// How a page's request for a new window is opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opening {
+    /// As a tab that becomes the active one.
+    Foreground,
+    /// As a tab left for later, which loads when it is selected.
+    Background,
+    /// As the active tab, in a new webview handed back to the request, so the
+    /// page that opened it can still reach it. How a popup opens until Haku
+    /// opens real windows.
+    Connected(WindowRequestId),
 }
 
 /// How many closed tabs are remembered for reopening.
@@ -187,6 +209,15 @@ pub struct Browser {
     /// Recently closed tabs, the most recent last, with where each stood.
     /// Kept in memory only: they are not part of the session.
     closed: Vec<(usize, Tab)>,
+    /// The tab each page-opened tab was opened from, while both are open.
+    openers: HashMap<TabId, TabId>,
+    /// Connected tabs waiting, within the mutation that opened them, for a
+    /// webview to hand to their request.
+    adopting: HashMap<TabId, WindowRequestId>,
+    /// Open tabs connected to the page that opened them. Their openers keep
+    /// running while they are open: a sign-in popup reports back to the page
+    /// that opened it.
+    connected: HashSet<TabId>,
 }
 
 impl Browser {
@@ -210,6 +241,9 @@ impl Browser {
             shown: None,
             just_left: None,
             closed: Vec::new(),
+            openers: HashMap::new(),
+            adopting: HashMap::new(),
+            connected: HashSet::new(),
         }
     }
 
@@ -363,15 +397,23 @@ impl Browser {
         })
     }
 
-    /// Whether a tab must keep running in the background: it is fixed, or its
-    /// page is playing audio or capturing the camera, microphone or screen.
+    /// Whether a tab must keep running in the background: it is fixed, a tab
+    /// connected to it is still open, or its page is playing audio or
+    /// capturing the camera, microphone or screen.
     ///
     /// Audio and capture are not honoured under an _always_ policy. Always
-    /// means always, and fixing the tab is how a user exempts it.
+    /// means always, and fixing the tab is how a user exempts it. A connected
+    /// tab is: discarding its opener breaks the sign-in it is for.
     fn must_run(&self, tab: &Tab) -> bool {
         let honours_signals = self.freeze != Policy::Always && self.discard != Policy::Always;
         let signalled = tab.audible || tab.page.capturing();
-        tab.fixed || (honours_signals && signalled && tab.slot().is_some())
+        tab.fixed
+            || (tab.slot().is_some() && self.has_connected(tab.id))
+            || (honours_signals && signalled && tab.slot().is_some())
+    }
+
+    fn has_connected(&self, id: TabId) -> bool {
+        self.connected.iter().any(|tab| self.openers.get(tab) == Some(&id))
     }
 
     /// Slots that must exist whatever the configured capacity: one for the
@@ -440,7 +482,60 @@ impl Browser {
         (id, self.realize())
     }
 
-    /// Closes a tab, moving activation to its right-hand neighbour.
+    /// Opens the window a page in `opener` asked for in a tab instead, next to
+    /// the page's own, after any it opened before. Haku opens no windows yet.
+    ///
+    /// A connected tab gets a webview that has never loaded anything, as the
+    /// engine requires of one it hands to the page. When every slot is spoken
+    /// for, it gets none: no [`Effect::Adopt`] is returned, the request goes
+    /// unanswered by a webview, and the tab loads `url` like any other once
+    /// it gets a slot.
+    pub fn open_from(&mut self, opener: SlotId, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
+        let id = TabId(self.next_id);
+        self.next_id += 1;
+        let parent = self.occupant_of(opener);
+        let index = match parent.and_then(|parent| self.index_of(parent).ok()) {
+            Some(at) => {
+                let mut index = at + 1;
+                while self
+                    .tabs
+                    .get(index)
+                    .is_some_and(|tab| self.openers.get(&tab.id) == parent.as_ref())
+                {
+                    index += 1;
+                }
+                index
+            }
+            None => self.tabs.len(),
+        };
+        self.tabs.insert(index, Tab::new(id, url));
+        self.navigated.insert(id);
+        if let Some(parent) = parent {
+            self.openers.insert(id, parent);
+        }
+
+        match opening {
+            Opening::Foreground => self.activate(id),
+            Opening::Background if self.active.is_none() => self.activate(id),
+            Opening::Background => {}
+            Opening::Connected(request) => {
+                self.adopting.insert(id, request);
+                self.connected.insert(id);
+                self.activate(id);
+            }
+        }
+        let effects = self.realize();
+        self.adopting.remove(&id);
+        (id, effects)
+    }
+
+    /// The tab whose page is in `slot`, if any.
+    pub fn tab_in(&self, slot: SlotId) -> Option<TabId> {
+        self.occupant_of(slot)
+    }
+
+    /// Closes a tab, moving activation to its right-hand neighbour, or back to
+    /// the tab that opened it.
     ///
     /// The browser always keeps a tab: closing the last one opens `replacement`
     /// in its place, the page a new tab would show.
@@ -454,6 +549,11 @@ impl Browser {
         let closed = self.tabs.remove(index);
         self.navigated.remove(&id);
         self.remember_closed(index, closed);
+        // A page-opened tab, such as a sign-in popup, closing returns to the
+        // page that opened it.
+        let opener = self.openers.remove(&id).filter(|opener| self.index_of(*opener).is_ok());
+        self.openers.retain(|_, parent| *parent != id);
+        self.connected.remove(&id);
 
         if self.tabs.is_empty() {
             let (_, opened) = self.open_tab(replacement, true);
@@ -462,7 +562,7 @@ impl Browser {
         }
 
         if self.active == Some(id) {
-            self.active = self.tabs.get(index).or_else(|| self.tabs.last()).map(|tab| tab.id);
+            self.active = opener.or_else(|| self.tabs.get(index).or_else(|| self.tabs.last()).map(|tab| tab.id));
         }
 
         effects.extend(self.realize());
@@ -650,9 +750,16 @@ impl Browser {
 
     pub fn set_capacity(&mut self, capacity: usize) -> Vec<Effect> {
         self.pool.set_capacity(capacity);
+        let mut effects = self.trim();
+        effects.extend(self.realize());
+        effects
+    }
 
-        // Parked webviews go first, then the tabs eviction would pick, so
-        // shrinking never takes a visible or must-run tab's webview.
+    /// Destroys webviews until the pool is back within its capacity.
+    ///
+    /// Parked webviews go first, then the tabs eviction would pick, so
+    /// trimming never takes a visible or must-run tab's webview.
+    fn trim(&mut self) -> Vec<Effect> {
         let mut effects = Vec::new();
         while self.pool.slots().len() > self.effective_capacity() {
             let Some(removed) = self.surplus_slot().and_then(|slot| self.pool.remove(slot)) else {
@@ -668,7 +775,6 @@ impl Browser {
             self.forget_slot(removed.id);
             effects.push(Effect::Destroy { slot: removed.id });
         }
-        effects.extend(self.realize());
         effects
     }
 
@@ -1201,6 +1307,9 @@ impl Browser {
             .map(|state| state.height)
             .filter(|height| *height > 0.0);
         let had_slot = tab.slot().is_some();
+        if let Some(request) = self.adopting.get(&id).copied().filter(|_| !had_slot) {
+            return self.bind_new(id, request, url);
+        }
         let effective = self.effective_capacity();
         let victim = self.victim();
 
@@ -1252,6 +1361,32 @@ impl Browser {
                 });
             }
         }
+        effects
+    }
+
+    /// Binds a connected tab to a slot that has never held a webview, then trims
+    /// the pool back to capacity, as eviction would have.
+    fn bind_new(&mut self, id: TabId, request: WindowRequestId, url: String) -> Vec<Effect> {
+        let slot = self.pool.acquire_new(id);
+        if let Ok(tab) = self.tab_mut(id) {
+            tab.presence = TabPresence::Live { slot };
+            tab.relieved = false;
+        }
+        let mut effects = self.trim();
+        if self.pool.slots().len() > self.effective_capacity() {
+            // Every other webview is protected. The tab does without one
+            // rather than have the pool outgrow its capacity.
+            self.pool.remove(slot);
+            if let Ok(tab) = self.tab_mut(id) {
+                tab.lose_page();
+            }
+            return effects;
+        }
+        self.slot_urls.insert(slot, url.clone());
+        self.awaiting.insert(slot);
+        // Nothing was ever shown in a new webview, so nothing is covered
+        // while the page loads.
+        effects.push(Effect::Adopt { slot, request, url });
         effects
     }
 }

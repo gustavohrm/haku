@@ -164,6 +164,23 @@ impl WebviewPool {
         })
     }
 
+    /// Gives `tab` a slot of its own that has never held a webview, growing the
+    /// pool past its capacity if need be. The caller trims the pool back.
+    ///
+    /// For a webview handed to a page that asked for a new window: the engine
+    /// only accepts one that has never loaded anything, so neither a parked
+    /// webview nor an evicted tab's will do.
+    pub fn acquire_new(&mut self, tab: TabId) -> SlotId {
+        self.clock += 1;
+        let id = self.unused_id();
+        self.slots.push(Slot {
+            id,
+            occupant: Some(tab),
+            used_at: self.clock,
+        });
+        id
+    }
+
     /// The lowest id no slot uses. Slots can be removed from anywhere in the
     /// pool, so the next id is not simply the count.
     fn unused_id(&self) -> SlotId {
@@ -212,6 +229,19 @@ mod tests {
         assert_eq!(SlotId::from_label("main"), None);
         assert_eq!(SlotId::from_label("content-abc"), None);
         assert_eq!(SlotId::from_label("content-"), None);
+    }
+
+    #[test]
+    fn a_new_slot_is_never_a_free_one_and_may_exceed_capacity() {
+        let mut pool = WebviewPool::new(1);
+        pool.acquire(tab(1), 1, None).unwrap();
+        pool.release(tab(1));
+
+        let slot = pool.acquire_new(tab(2));
+
+        assert_ne!(slot, SlotId(0));
+        assert_eq!(pool.slots().len(), 2);
+        assert_eq!(pool.slot_of(tab(2)), Some(slot));
     }
 
     #[test]

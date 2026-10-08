@@ -11,7 +11,7 @@ use std::path::Path;
 use super::memory::EngineSnapshot;
 use super::{KeySink, PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId};
+use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId, WindowRequestId};
 
 fn unsupported(operation: &str) -> HakuError {
     HakuError::Unsupported(format!("{operation} is only implemented on Windows"))
@@ -100,4 +100,12 @@ pub fn answer_dialog<R: tauri::Runtime>(
     _answer: DialogAnswer,
 ) -> Result<()> {
     Err(unsupported("answering page dialogs"))
+}
+
+pub fn adopt_window<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _request: WindowRequestId) -> Result<bool> {
+    Err(unsupported("opening new windows"))
+}
+
+pub fn refuse_window<R: tauri::Runtime>(_app: &tauri::AppHandle<R>, _request: WindowRequestId) -> Result<()> {
+    Err(unsupported("opening new windows"))
 }

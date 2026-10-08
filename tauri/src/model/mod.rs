@@ -8,6 +8,7 @@ pub mod pool;
 pub mod pressure;
 pub mod preview;
 pub mod tab;
+pub mod window;
 
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
 pub use extension::{popup_url, Extension, Extensions};
@@ -19,3 +20,4 @@ pub use pool::{Acquired, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
 pub use preview::{jpeg_data_url, Previews};
 pub use tab::{host_of, is_internal, Scroll, Tab, TabId, TabPresence};
+pub use window::WindowRequestId;

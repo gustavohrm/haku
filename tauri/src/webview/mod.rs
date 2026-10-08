@@ -8,7 +8,7 @@ use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 use crate::browser::{Effect, BLANK_URL};
 use crate::error::{HakuError, Result};
-use crate::model::{PageState, Scroll, SlotId, TabId};
+use crate::model::{PageState, Scroll, SlotId, TabId, WindowRequestId};
 use crate::platform::{self, PageSignal};
 
 /// Label of the webview that renders Haku's own interface.
@@ -231,6 +231,11 @@ pub fn apply<R: tauri::Runtime>(
                 }),
             ),
             Effect::AnswerDialog { id, answer } => platform::answer_dialog(app, *id, answer.clone())?,
+            Effect::Adopt { slot, request, url } => {
+                set_pending(*slot, None);
+                renavigate(*slot);
+                adopt(app, *slot, *request, url, viewport, observer)?;
+            }
         }
     }
     Ok(departures)
@@ -301,10 +306,43 @@ fn ensure_slot<R: tauri::Runtime>(
     viewport: Viewport,
     observer: &PageObserver<R>,
 ) -> Result<()> {
+    if app.get_webview(&slot.label()).is_none() {
+        create_slot(app, slot, viewport, observer)?;
+    }
+    navigate(app, slot, url)
+}
+
+/// Creates the slot's webview and hands it to the page that asked for a new
+/// window, which then loads its page into it. Loads `url` itself when the
+/// request is no longer waiting.
+fn adopt<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    slot: SlotId,
+    request: WindowRequestId,
+    url: &str,
+    viewport: Viewport,
+    observer: &PageObserver<R>,
+) -> Result<()> {
     if app.get_webview(&slot.label()).is_some() {
+        // A webview that loaded anything cannot be handed over.
+        platform::refuse_window(app, request)?;
         return navigate(app, slot, url);
     }
+    let webview = create_slot(app, slot, viewport, observer)?;
+    if platform::adopt_window(&webview, request)? {
+        return Ok(());
+    }
+    navigate(app, slot, url)
+}
 
+/// Creates a slot's webview on a blank page, observed. It has loaded nothing,
+/// so it can still be handed to a page that asked for a new window.
+fn create_slot<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    slot: SlotId,
+    viewport: Viewport,
+    observer: &PageObserver<R>,
+) -> Result<tauri::Webview<R>> {
     let window = app
         .get_window(MAIN_WINDOW_LABEL)
         .ok_or_else(|| HakuError::WindowMissing(MAIN_WINDOW_LABEL.into()))?;
@@ -354,8 +392,7 @@ fn ensure_slot<R: tauri::Runtime>(
         })
     };
     platform::observe_page(&webview, sink)?;
-
-    navigate(app, slot, url)
+    Ok(webview)
 }
 
 fn navigate<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, url: &str) -> Result<()> {

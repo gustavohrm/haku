@@ -45,7 +45,7 @@ Lowering the configured capacity destroys surplus webviews immediately rather th
 
 ### Must run
 
-A background tab must run while it is **fixed**, or while it is **playing audio** and neither Freeze nor Discard is _always_. A must-run tab is protected from eviction, never frozen, and never discarded by smart discarding.
+A background tab must run while it is **fixed**, while a **tab connected to it** is still open, such as a sign-in popup ([New windows](new-windows.md#connected-tabs)), or while it is **playing audio** and neither Freeze nor Discard is _always_. A must-run tab is protected from eviction, never frozen, and never discarded by smart discarding.
 
 ## Eviction
 

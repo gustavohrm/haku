@@ -22,9 +22,9 @@ use tauri::Manager;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2, ICoreWebView2BrowserExtension, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler,
     ICoreWebView2Controller, ICoreWebView2Deferral, ICoreWebView2Environment13, ICoreWebView2FrameInfo,
-    ICoreWebView2FrameInfo2, ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2ProcessExtendedInfoCollection,
-    ICoreWebView2Profile7, ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2_13, ICoreWebView2_19,
-    ICoreWebView2_2, ICoreWebView2_20, ICoreWebView2_3, ICoreWebView2_8,
+    ICoreWebView2FrameInfo2, ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2NewWindowRequestedEventArgs,
+    ICoreWebView2ProcessExtendedInfoCollection, ICoreWebView2Profile7, ICoreWebView2ScriptDialogOpeningEventArgs,
+    ICoreWebView2_13, ICoreWebView2_19, ICoreWebView2_2, ICoreWebView2_20, ICoreWebView2_3, ICoreWebView2_8,
     COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
     COREWEBVIEW2_NAVIGATION_KIND, COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_PROCESS_KIND,
@@ -42,8 +42,9 @@ use webview2_com::{
     CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, DOMContentLoadedEventHandler,
     DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
     GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
-    NavigationCompletedEventHandler, NavigationStartingEventHandler, ProfileAddBrowserExtensionCompletedHandler,
-    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    ProfileAddBrowserExtensionCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
+    TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND};
@@ -57,8 +58,8 @@ use windows::Win32::System::ProcessStatus::{
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_F1, VK_F24, VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR,
-    VK_RIGHT, VK_SHIFT, VK_TAB, VK_Z,
+    GetAsyncKeyState, GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_F1, VK_F24, VK_LEFT, VK_MENU, VK_NEXT,
+    VK_PRIOR, VK_RIGHT, VK_SHIFT, VK_TAB, VK_Z,
 };
 use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -72,7 +73,7 @@ use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
 use crate::model::{
     shortcut_for, Chord, Commit, DialogAnswer, DialogId, DialogKind, Key, MemoryStatus, NavigationKind, PageDialog,
-    SlotId,
+    SlotId, WindowRequestId,
 };
 use crate::webview::inject;
 
@@ -82,6 +83,9 @@ const DISPATCH_TIMEOUT: Duration = Duration::from_secs(5);
 /// Source of dialog ids, unique for the life of the process.
 static NEXT_DIALOG: AtomicU64 = AtomicU64::new(1);
 
+/// Source of new-window request ids, unique for the life of the process.
+static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
+
 thread_local! {
     /// Dialogs pages are paused on, awaiting an answer.
     ///
@@ -89,6 +93,11 @@ thread_local! {
     /// thread: they are stored by the handler that runs there and taken back by
     /// the answer, which is dispatched there too.
     static PENDING_DIALOGS: RefCell<HashMap<DialogId, (ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2Deferral)>> =
+        RefCell::new(HashMap::new());
+
+    /// Pages waiting on a new window, held like dialogs, and for the same
+    /// reason on this thread.
+    static PENDING_WINDOWS: RefCell<HashMap<WindowRequestId, (ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2Deferral)>> =
         RefCell::new(HashMap::new());
 
     /// The chrome webview's DevTools session and what it has seen of the
@@ -716,6 +725,51 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     };
     core.add_ScriptDialogOpening(&on_dialog, &mut token)?;
 
+    // Haku opens no windows yet; every one a page asks for opens in a tab.
+    // wry has already marked the request handled, which on its own opens
+    // nothing; the page waits on a deferral until a webview is handed to it
+    // or it is refused.
+    let on_window = {
+        let sink = sink.clone();
+        NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut uri = PWSTR::null();
+            args.Uri(&mut uri)?;
+            let mut gesture = BOOL::default();
+            args.IsUserInitiated(&mut gesture)?;
+            let features = args.WindowFeatures()?;
+            let (mut sized, mut placed) = (BOOL::default(), BOOL::default());
+            features.HasSize(&mut sized)?;
+            features.HasPosition(&mut placed)?;
+            // The physical keys: the click happened in the engine's process,
+            // so this thread's own key state may not have seen it.
+            let held = |key: VIRTUAL_KEY| GetAsyncKeyState(i32::from(key.0)) < 0;
+            args.SetHandled(true)?;
+            let request = WindowRequestId(NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
+            let deferral = args.GetDeferral()?;
+            PENDING_WINDOWS.with(|pending| pending.borrow_mut().insert(request, (args, deferral)));
+            sink(PageSignal::WindowRequested {
+                request,
+                url: take_pwstr(uri),
+                popup: sized.as_bool() || placed.as_bool(),
+                // Ctrl+Shift opens a link in the foreground, as in Chrome.
+                background: held(VK_CONTROL) && !held(VK_SHIFT),
+                gesture: gesture.as_bool(),
+            });
+            Ok(())
+        }))
+    };
+    core.add_NewWindowRequested(&on_window, &mut token)?;
+
+    let on_close = {
+        let sink = sink.clone();
+        WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
+            sink(PageSignal::CloseRequested);
+            Ok(())
+        }))
+    };
+    core.add_WindowCloseRequested(&on_close, &mut token)?;
+
     // Whether a page is playing audio decides whether a smart policy leaves it
     // running in the background. Older runtimes lack the event, and a page is
     // then treated as silent.
@@ -859,6 +913,41 @@ pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId,
                 let _ = args.Accept();
             }
             let _ = deferral.Complete();
+        }
+    })?;
+    Ok(())
+}
+
+pub fn adopt_window<R: tauri::Runtime>(webview: &tauri::Webview<R>, request: WindowRequestId) -> Result<bool> {
+    let (sender, receiver) = mpsc::channel();
+    webview
+        .with_webview(move |platform| {
+            let Some((args, deferral)) = PENDING_WINDOWS.with(|pending| pending.borrow_mut().remove(&request)) else {
+                let _ = sender.send(false);
+                return;
+            };
+            let adopted = unsafe {
+                let adopted = platform
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|core| args.SetNewWindow(&core))
+                    .is_ok();
+                let _ = deferral.Complete();
+                adopted
+            };
+            let _ = sender.send(adopted);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))
+}
+
+pub fn refuse_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>, request: WindowRequestId) -> Result<()> {
+    app.run_on_main_thread(move || {
+        if let Some((_, deferral)) = PENDING_WINDOWS.with(|pending| pending.borrow_mut().remove(&request)) {
+            let _ = unsafe { deferral.Complete() };
         }
     })?;
     Ok(())

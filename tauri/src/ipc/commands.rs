@@ -24,11 +24,12 @@ use std::time::Duration;
 use tauri::{Manager, State};
 use tauri_specta::Event;
 
-use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport, Pick};
+use crate::browser::{resolve_target, BrowserState, Direction, Effect, Opening, PageReport, Pick};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Preset, Pressure, Shortcut, SlotId, TabId,
+    is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Preset, Pressure, Shortcut,
+    SlotId, TabId, WindowRequestId,
 };
 use crate::platform::{self, KeySink, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -99,6 +100,32 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 }
             }
             PageSignal::Shortcut(shortcut) => queue_shortcut(app, shortcut),
+            PageSignal::WindowRequested {
+                request,
+                url,
+                popup,
+                background,
+                gesture,
+            } => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if gesture {
+                        open_window(&app, slot, request, url, popup, background);
+                    }
+                    let _ = platform::refuse_window(&app, request);
+                });
+            }
+            PageSignal::CloseRequested => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let state = app.state::<AppState>();
+                    let Ok(home) = home_url(&state) else { return };
+                    let _ = mutate(&app, &state, |browser| match browser.tab_in(slot) {
+                        Some(id) => browser.close_tab(id, &home),
+                        None => Ok(Vec::new()),
+                    });
+                });
+            }
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -110,6 +137,43 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             }
         },
     )
+}
+
+/// Opens what the page in `slot` asked to open in a new window in a tab
+/// instead: Haku opens no windows yet.
+///
+/// A popup's tab is handed a new webview so the page can still reach it, and
+/// so is anything that is not an ordinary web address, such as a blank page
+/// the page writes into or a `blob:` URL, which only the engine can load on
+/// the page's behalf. A link to a web address opens as an ordinary tab. A page
+/// never opens one of Haku's own pages. The request is answered by the
+/// caller, if handing it a webview did not answer it.
+///
+/// As in other browsers, a page opens windows only in answer to the user:
+/// a request the page made on its own never reaches here.
+fn open_window(
+    app: &tauri::AppHandle,
+    slot: SlotId,
+    request: WindowRequestId,
+    url: String,
+    popup: bool,
+    background: bool,
+) {
+    if is_internal(&url) {
+        return;
+    }
+    let web = url.starts_with("https://") || url.starts_with("http://");
+    let opening = match (popup || !web, background) {
+        (true, _) => Opening::Connected(request),
+        (false, true) => Opening::Background,
+        (false, false) => Opening::Foreground,
+    };
+    let state = app.state::<AppState>();
+    let pressure = read_pressure(&state);
+    let _ = mutate(app, &state, |browser| {
+        browser.set_pressure(pressure);
+        Ok(browser.open_from(slot, url, opening).1)
+    });
 }
 
 /// Runs the shortcuts pressed while the interface has focus. Pages report
