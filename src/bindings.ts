@@ -81,6 +81,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
 	extensionsChanged: makeEvent<ExtensionsChanged>("extensions-changed"),
 	memoryChanged: makeEvent<MemoryChanged>("memory-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
@@ -88,6 +89,14 @@ export const events = {
 };
 
 /* Types */
+/**
+ *  Asks the interface to focus the address field, for the given tab.
+ * 
+ *  Sent by a shortcut. Carries the tab because a shortcut that opens a tab
+ *  sends it before the interface has rendered that tab.
+ */
+export type AddressFocusRequested = TabId;
+
 /**  The projection of browser state the frontend renders. */
 export type BrowserState = {
 	tabs: Tab[],

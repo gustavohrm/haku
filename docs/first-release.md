@@ -32,6 +32,8 @@ Split view is built on this. No other feature may assume there is exactly one pa
 
 ### Keyboard input while a page has focus
 
+**Implemented.** [Shortcuts](specs/shortcuts.md) has the keymap and how it is attached.
+
 When a content webview has focus, keys go to it, and the page has no channel into the application. Browser shortcuts are therefore intercepted **natively**: `platform/` handles the content webview's accelerator-key event (WebView2's `AcceleratorKeyPressed`) and hands the key to Rust.
 
 There is one keymap, in Rust. Keys pressed while the chrome has focus go through the same command path, so a shortcut behaves identically wherever focus is. Pages still get no IPC.

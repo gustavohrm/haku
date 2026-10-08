@@ -3,7 +3,7 @@ use specta::Type;
 use tauri_specta::Event;
 
 use crate::browser::BrowserState;
-use crate::model::Extensions;
+use crate::model::{Extensions, TabId};
 use crate::state::MemoryReport;
 use crate::storage::Settings;
 
@@ -24,6 +24,13 @@ pub struct SettingsChanged(pub Settings);
 /// the tabs mostly do not, and a tick that changes no tab writes nothing.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct MemoryChanged(pub MemoryReport);
+
+/// Asks the interface to focus the address field, for the given tab.
+///
+/// Sent by a shortcut. Carries the tab because a shortcut that opens a tab
+/// sends it before the interface has rendered that tab.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct AddressFocusRequested(pub TabId);
 
 /// Emitted once the extensions folder has been installed, which happens after
 /// the interface may already have asked for the list.

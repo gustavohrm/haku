@@ -87,6 +87,21 @@ pub enum Effect {
     },
 }
 
+/// How many closed tabs are remembered for reopening.
+pub const CLOSED_LIMIT: usize = 25;
+
+/// A tab chosen by its place in the tab strip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    /// The tab after the active one, wrapping to the first.
+    Next,
+    /// The tab before the active one, wrapping to the last.
+    Previous,
+    /// The tab at this position, counting from zero.
+    Nth(usize),
+    Last,
+}
+
 /// Which way a back or forward request moves through a tab's history.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
@@ -169,6 +184,9 @@ pub struct Browser {
     /// The tab read by the current reconciliation as it stopped being
     /// visible, so it is not read a second time in the same pass.
     just_left: Option<TabId>,
+    /// Recently closed tabs, the most recent last, with where each stood.
+    /// Kept in memory only: they are not part of the session.
+    closed: Vec<(usize, Tab)>,
 }
 
 impl Browser {
@@ -191,6 +209,7 @@ impl Browser {
             clock: 0,
             shown: None,
             just_left: None,
+            closed: Vec::new(),
         }
     }
 
@@ -432,8 +451,9 @@ impl Browser {
         let index = self.index_of(id)?;
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
         effects.extend(self.release_slot(id));
-        self.tabs.remove(index);
+        let closed = self.tabs.remove(index);
         self.navigated.remove(&id);
+        self.remember_closed(index, closed);
 
         if self.tabs.is_empty() {
             let (_, opened) = self.open_tab(replacement, true);
@@ -447,6 +467,52 @@ impl Browser {
 
         effects.extend(self.realize());
         Ok(effects)
+    }
+
+    /// Reopens the most recently closed tab where it stood, with its history,
+    /// and makes it active. Does nothing when no closed tab is remembered.
+    pub fn reopen_closed_tab(&mut self) -> Vec<Effect> {
+        let Some((index, mut tab)) = self.closed.pop() else {
+            return Vec::new();
+        };
+        tab.id = TabId(self.next_id);
+        self.next_id += 1;
+        let id = tab.id;
+        self.tabs.insert(index.min(self.tabs.len()), tab);
+        self.activate(id);
+        self.realize()
+    }
+
+    /// Keeps a closed tab for reopening, as a discarded page that reloads into
+    /// whichever slot it gets, with its scroll and draft.
+    ///
+    /// A tab that never left an internal page, such as a new tab opened and
+    /// closed again, holds nothing worth reopening.
+    fn remember_closed(&mut self, index: usize, mut tab: Tab) {
+        if tab.history.entries().len() == 1 && tab.is_internal() {
+            return;
+        }
+        tab.lose_page();
+        tab.reclassify();
+        tab.dialog = None;
+        tab.relieved = false;
+        self.closed.push((index, tab));
+        if self.closed.len() > CLOSED_LIMIT {
+            self.closed.remove(0);
+        }
+    }
+
+    /// The tab a pick lands on, if there is one.
+    pub fn pick(&self, pick: Pick) -> Option<TabId> {
+        let count = self.tabs.len();
+        let active = self.active.and_then(|id| self.index_of(id).ok());
+        let index = match pick {
+            Pick::Next => (active? + 1) % count,
+            Pick::Previous => (active? + count - 1) % count,
+            Pick::Nth(index) => index,
+            Pick::Last => count.checked_sub(1)?,
+        };
+        self.tabs.get(index).map(|tab| tab.id)
     }
 
     /// # Errors

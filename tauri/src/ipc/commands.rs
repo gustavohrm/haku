@@ -18,25 +18,25 @@
 //! not. What a page is showing is observed from Rust instead, through
 //! [`page_observer`].
 
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, OnceLock};
 use std::time::Duration;
 
 use tauri::{Manager, State};
 use tauri_specta::Event;
 
-use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport};
+use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport, Pick};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Preset, Pressure, SlotId, TabId,
+    jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Preset, Pressure, Shortcut, SlotId, TabId,
 };
-use crate::platform::{self, PageSignal};
+use crate::platform::{self, KeySink, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::Settings;
 use crate::webview::{self, Departure, PageObserver, PageReading, CHROME_LABEL};
 
-use super::events::{ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
+use super::events::{AddressFocusRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
 
 /// Rejects a command that only the interface may issue.
 ///
@@ -98,6 +98,7 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     let _ = StateChanged(snapshot).emit(app);
                 }
             }
+            PageSignal::Shortcut(shortcut) => queue_shortcut(app, shortcut),
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -109,6 +110,110 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             }
         },
     )
+}
+
+/// Runs the shortcuts pressed while the interface has focus. Pages report
+/// theirs through [`page_observer`], so both reach [`run_shortcut`].
+pub fn shortcut_sink(app: tauri::AppHandle) -> KeySink {
+    Arc::new(move |shortcut| queue_shortcut(&app, shortcut))
+}
+
+/// Runs shortcuts one at a time, in the order they were pressed.
+///
+/// A shortcut changes the browser and then applies the change to webviews,
+/// and only the first half holds the browser's lock. Run side by side, two
+/// quick Ctrl+Tabs could show their pages in the opposite order to the one
+/// the browser recorded, leaving the selected tab showing another's page.
+fn queue_shortcut(app: &tauri::AppHandle, shortcut: Shortcut) {
+    static QUEUE: OnceLock<mpsc::Sender<Shortcut>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            for shortcut in receiver {
+                run_shortcut(&app, shortcut);
+            }
+        });
+        sender
+    });
+    let _ = queue.send(shortcut);
+}
+
+/// Does what a shortcut asks, to the active tab.
+///
+/// Off the UI thread, like a command: most shortcuts drive webviews. A failure
+/// has nowhere to be shown, since no command call is waiting on it, and leaves
+/// the browser as it was.
+fn run_shortcut(app: &tauri::AppHandle, shortcut: Shortcut) {
+    let state = app.state::<AppState>();
+    let Some(active) = state.browser.read().ok().and_then(|browser| browser.active()) else {
+        return;
+    };
+    let select = |pick: Pick| {
+        let pressure = read_pressure(&state);
+        mutate(app, &state, |browser| {
+            browser.set_pressure(pressure);
+            match browser.pick(pick) {
+                Some(id) => browser.select_tab(id, now_ms()),
+                None => Ok(Vec::new()),
+            }
+        })
+        .map(drop)
+    };
+    let change = |change: &dyn Fn(&mut crate::browser::Browser) -> Result<Vec<Effect>>| {
+        mutate(app, &state, |browser| change(browser)).map(drop)
+    };
+
+    let _ = match shortcut {
+        Shortcut::NewTab => home_url(&state).and_then(|home| {
+            let pressure = read_pressure(&state);
+            let mut opened = None;
+            mutate(app, &state, |browser| {
+                browser.set_pressure(pressure);
+                let (id, effects) = browser.open_tab(home, true);
+                opened = Some(id);
+                Ok(effects)
+            })?;
+            // As in every browser, a new tab starts in the address field.
+            opened.map_or(Ok(()), |id| focus_address(app, id))
+        }),
+        Shortcut::CloseTab => home_url(&state).and_then(|home| change(&|browser| browser.close_tab(active, &home))),
+        Shortcut::ReopenClosedTab => change(&|browser| Ok(browser.reopen_closed_tab())),
+        Shortcut::NextTab => select(Pick::Next),
+        Shortcut::PreviousTab => select(Pick::Previous),
+        Shortcut::NthTab(index) => select(Pick::Nth(index)),
+        Shortcut::LastTab => select(Pick::Last),
+        Shortcut::FocusAddress => focus_address(app, active),
+        Shortcut::Reload => change(&|browser| browser.reload(active)),
+        Shortcut::Back => change(&|browser| browser.go_back(active)),
+        Shortcut::Forward => change(&|browser| browser.go_forward(active)),
+        Shortcut::DevTools => {
+            let slot = state
+                .browser
+                .read()
+                .ok()
+                .and_then(|browser| browser.tab(active).ok()?.slot());
+            if let Some(target) = slot.and_then(|slot| app.get_webview(&slot.label())) {
+                target.open_devtools();
+            }
+            Ok(())
+        }
+    };
+}
+
+/// Moves keyboard focus to the interface and asks it to focus the address
+/// field for `tab`, which may not have rendered yet.
+fn focus_address(app: &tauri::AppHandle, tab: TabId) -> Result<()> {
+    webview::chrome(app)?.set_focus()?;
+    AddressFocusRequested(tab).emit(app).map_err(HakuError::from)
+}
+
+fn home_url(state: &AppState) -> Result<String> {
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+    Ok(settings.home_url.clone())
 }
 
 /// Installs every extension in the extensions folder into the shared profile

@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
@@ -33,13 +33,17 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM, COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT, COREWEBVIEW2_WEB_ERROR_STATUS,
     COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
 };
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+    COREWEBVIEW2_PHYSICAL_KEY_STATUS,
+};
 use webview2_com::{
-    take_pwstr, BrowserExtensionEnableCompletedHandler, CallDevToolsProtocolMethodCompletedHandler,
-    CapturePreviewCompletedHandler, DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler,
-    IsDocumentPlayingAudioChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    ProfileAddBrowserExtensionCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
-    TrySuspendCompletedHandler,
+    take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
+    CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, DOMContentLoadedEventHandler,
+    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
+    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, ProfileAddBrowserExtensionCompletedHandler,
+    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND};
@@ -52,6 +56,10 @@ use windows::Win32::System::ProcessStatus::{
     PROCESS_MEMORY_COUNTERS_EX,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_F1, VK_F24, VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR,
+    VK_RIGHT, VK_SHIFT, VK_TAB, VK_Z,
+};
 use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
@@ -59,10 +67,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
-use super::{PageSignal, PageSink, PhysicalRect, RoundedRect};
+use super::{KeySink, PageSignal, PageSink, PhysicalRect, RoundedRect};
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
-use crate::model::{Commit, DialogAnswer, DialogId, DialogKind, MemoryStatus, NavigationKind, PageDialog, SlotId};
+use crate::model::{
+    shortcut_for, Chord, Commit, DialogAnswer, DialogId, DialogKind, Key, MemoryStatus, NavigationKind, PageDialog,
+    SlotId,
+};
 use crate::webview::inject;
 
 /// How long to wait for the main thread to run a native operation.
@@ -495,6 +506,77 @@ pub fn set_input_mask<R: tauri::Runtime>(
     })
 }
 
+pub fn intercept_keys<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: KeySink) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+
+    webview
+        .with_webview(move |platform| {
+            let outcome = unsafe { attach_key_handler(&platform.controller(), sink) }
+                .map_err(|error| HakuError::WindowMissing(error.to_string()));
+            let _ = sender.send(outcome);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+}
+
+unsafe fn attach_key_handler(controller: &ICoreWebView2Controller, sink: KeySink) -> windows::core::Result<()> {
+    let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
+        let Some(args) = args else { return Ok(()) };
+        let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
+        args.KeyEventKind(&mut kind)?;
+        // Alt combinations arrive as system keys.
+        if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN {
+            return Ok(());
+        }
+        let mut code = 0u32;
+        args.VirtualKey(&mut code)?;
+        let Some(key) = key_of(VIRTUAL_KEY(code as u16)) else {
+            return Ok(());
+        };
+        let held = |key: VIRTUAL_KEY| GetKeyState(i32::from(key.0)) < 0;
+        let chord = Chord {
+            key,
+            ctrl: held(VK_CONTROL),
+            shift: held(VK_SHIFT),
+            alt: held(VK_MENU),
+        };
+        let Some(shortcut) = shortcut_for(chord) else {
+            return Ok(());
+        };
+        // Kept from the page and from the engine's own handling of the key.
+        args.SetHandled(true)?;
+        // A held key repeats. Acting on every repeat would open a tab per
+        // repeat of Ctrl+T, so only the first press counts.
+        let mut status = COREWEBVIEW2_PHYSICAL_KEY_STATUS::default();
+        args.PhysicalKeyStatus(&mut status)?;
+        if !status.WasKeyDown.as_bool() {
+            sink(shortcut);
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    controller.add_AcceleratorKeyPressed(&handler, &mut token)
+}
+
+/// The keymap's name for a virtual key, for the keys shortcuts use.
+fn key_of(code: VIRTUAL_KEY) -> Option<Key> {
+    let key = match code {
+        code if (VK_A.0..=VK_Z.0).contains(&code.0) => Key::Letter(char::from(code.0 as u8)),
+        code if (VK_0.0..=VK_9.0).contains(&code.0) => Key::Digit((code.0 - VK_0.0) as u8),
+        code if (VK_F1.0..=VK_F24.0).contains(&code.0) => Key::Function((code.0 - VK_F1.0 + 1) as u8),
+        VK_TAB => Key::Tab,
+        VK_LEFT => Key::Left,
+        VK_RIGHT => Key::Right,
+        VK_PRIOR => Key::PageUp,
+        VK_NEXT => Key::PageDown,
+        _ => return None,
+    };
+    Some(key)
+}
+
 pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
 
@@ -513,6 +595,11 @@ pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSi
 
 unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink) -> windows::core::Result<()> {
     let core = controller.CoreWebView2()?;
+    let keys = sink.clone();
+    attach_key_handler(
+        controller,
+        Arc::new(move |shortcut| keys(PageSignal::Shortcut(shortcut))),
+    )?;
     // Handlers stay registered for the webview's whole life, so the tokens that
     // would unregister them are never needed.
     let mut token = 0i64;
