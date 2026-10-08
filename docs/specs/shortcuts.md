@@ -42,8 +42,10 @@ Focusing the address field from a page first moves keyboard focus to the chrome 
 
 ## Reopening closed tabs
 
-Closing a tab remembers it, with its position, its whole back and forward history, its scroll and the form contents Rust holds for it ([Tab optimization](tab-optimization.md)). Ctrl+Shift+T reopens the most recent one at its old position, under a new id, discarded, so it loads into whatever slot it gets and its scroll and drafts are put back as for any discarded tab.
+Closing a tab remembers it, with its position, its whole back and forward history, its scroll and the form contents Rust holds for it ([Tab optimization](tab-optimization.md)). Ctrl+Shift+T reopens the most recent one under a new id. A web page comes back discarded, so it loads into whatever slot it gets and its scroll and drafts are put back as for any discarded tab; an internal page is drawn by the chrome again.
 
-- The last **25** closed tabs are remembered (`CLOSED_LIMIT`). Each costs only its history, so the limit is about what is useful, not memory.
+The position is the index the tab had when it closed, clamped to the strip as it is now. That is exact when nothing else changed in between; after other tabs were opened or closed, the tab lands near where it was rather than exactly there.
+
+- The last **25** closed tabs are remembered (`CLOSED_LIMIT`). Each holds no webview, only Rust's record of the tab: its history, scroll, drafts and page reading. That is small, so the limit is about what is useful, not memory.
 - They are kept **in memory only**, not in the session. Reopening across a restart would make the session format carry them; nothing asked for it yet.
 - A tab that never left an internal page, such as a new tab opened and closed again, is not remembered. Reopening it would bring back nothing, and it would shadow the tab the user meant.
