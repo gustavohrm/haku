@@ -11,17 +11,7 @@
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Haku",
-        "maximized": true,
-        "minHeight": 480,
-        "minWidth": 640,
-        "decorations": false,
-        "browserExtensionsEnabled": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

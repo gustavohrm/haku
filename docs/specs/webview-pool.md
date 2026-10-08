@@ -34,10 +34,10 @@ A tab is in exactly one of four states:
 ## Capacity
 
 ```
-effective_capacity = max(configured_capacity, 1 + fixed_count + must_run_count)
+effective_capacity = max(configured_capacity, visible_count + fixed_count + must_run_count)
 ```
 
-The active tab, every fixed tab, and every other background tab that [must run](#must-run) reserve a slot, so **pinning tabs can never leave the active tab without a webview**, and music survives a tab switch at a configured capacity of 1. Pinning is never refused; the pool grows to accommodate it. A reservation lasts as long as its reason: a tab that falls silent stops counting.
+Each window's active tab, every fixed tab, and every other background tab that [must run](#must-run) reserve a slot, so **pinning tabs can never leave an active tab without a webview**, a second window never takes the first one's page, and music survives a tab switch at a configured capacity of 1. Pinning is never refused; the pool grows to accommodate it. A reservation lasts as long as its reason: a tab that falls silent stops counting.
 
 While every background tab is discarded, the configured capacity is treated as 1 (`Settings::pool_capacity`): there is nothing for extra slots to hold, and parked webviews would only cost memory. The user's number is kept for when they change their mind.
 
@@ -45,7 +45,7 @@ Lowering the configured capacity destroys surplus webviews immediately rather th
 
 ### Must run
 
-A background tab must run while it is **fixed**, while a **tab connected to it** is still open, such as a sign-in popup ([New windows](new-windows.md#connected-tabs)), or while it is **playing audio** and neither Freeze nor Discard is _always_. A must-run tab is protected from eviction, never frozen, and never discarded by smart discarding.
+A background tab must run while it is **fixed**, while a **tab connected to it** is still open, such as a sign-in popup ([Windows and popups](new-windows.md#connected-pages)), or while it is **playing audio** and neither Freeze nor Discard is _always_. A must-run tab is protected from eviction, never frozen, and never discarded by smart discarding.
 
 ## Eviction
 
@@ -55,7 +55,7 @@ When a tab needs a slot and none is free:
 2. Otherwise `Browser` names a victim: the occupant that is not protected and would **lose least** if discarded ([Tab optimization § Loss](tab-optimization.md#loss)), and among equals was **shown least recently**. Its slot is taken and it is discarded. `WebviewPool` takes whichever tab it is given, so the choice stays with the code that knows why a tab matters. A tab holding work is therefore taken only when every other occupant is protected.
 3. If every resident is protected, the request fails with `NoSlotAvailable` and the tab stays discarded.
 
-Protected tabs are the active tab and every tab that must run.
+Protected tabs are each window's active tab and every tab that must run.
 
 Eviction navigates the slot to `about:blank` rather than destroying the webview. That frees the page while keeping the slot warm, which is far cheaper than recreating a webview on every tab switch. Webviews are destroyed when capacity shrinks, and a parked webview beyond one warm spare is destroyed as soon as it is parked; under [memory pressure](tab-optimization.md#memory-pressure) no spare is kept.
 

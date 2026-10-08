@@ -7,7 +7,8 @@ use specta::Type;
 use crate::error::{HakuError, Result};
 use crate::model::{
     is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, Loss, LossSignal, NavigationKind, PageDialog,
-    PageState, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool, WindowRequestId,
+    PageState, Placement, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
+    WindowId, WindowKind, WindowRequestId,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -27,10 +28,13 @@ pub const GRACE_MS: u64 = 60_000;
 /// window, a webview, or an event loop.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
-    /// Create the slot's webview if it does not exist, otherwise navigate it.
+    /// Create the slot's webview in `window` if it does not exist, otherwise
+    /// navigate it. An existing webview is already where it belongs: a
+    /// [`Effect::Move`] precedes this when it is not.
     EnsureSlot {
         slot: SlotId,
         url: String,
+        window: WindowId,
     },
     /// Park the slot on [`BLANK_URL`] to release the page it was holding.
     Blank {
@@ -93,20 +97,51 @@ pub enum Effect {
         slot: SlotId,
         request: WindowRequestId,
         url: String,
+        window: WindowId,
+    },
+    /// Move the slot's webview into another window, for a tab there. Precedes
+    /// anything else done to the slot for that tab.
+    Move {
+        slot: SlotId,
+        window: WindowId,
+    },
+    /// Open a native window, with its chrome. Precedes every effect that puts
+    /// a webview in it.
+    OpenWindow {
+        window: WindowId,
+        kind: WindowKind,
+        placement: Placement,
+    },
+    /// Close a native window. Every webview that was in it has been destroyed
+    /// or moved out by the effects before this.
+    CloseWindow {
+        window: WindowId,
+    },
+    /// Bring a window to the front, when something the user did in another
+    /// one opened a tab in it.
+    FocusWindow {
+        window: WindowId,
     },
 }
 
 /// How a page's request for a new window is opened.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Opening {
     /// As a tab that becomes the active one.
     Foreground,
     /// As a tab left for later, which loads when it is selected.
     Background,
     /// As the active tab, in a new webview handed back to the request, so the
-    /// page that opened it can still reach it. How a popup opens until Haku
-    /// opens real windows.
+    /// page that opened it can still reach it.
     Connected(WindowRequestId),
+    /// As the only tab of a new browser window.
+    Window,
+    /// In a popup window of its own, connected to the page as
+    /// [`Opening::Connected`] is.
+    Popup {
+        request: WindowRequestId,
+        placement: Placement,
+    },
 }
 
 /// How many closed tabs are remembered for reopening.
@@ -155,10 +190,12 @@ pub enum Position {
     Kept,
 }
 
-/// The projection of browser state the frontend renders.
+/// The projection of browser state one window's interface renders.
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserState {
+    pub kind: WindowKind,
+    /// The window's tabs, in order.
     pub tabs: Vec<Tab>,
     pub active: Option<TabId>,
     /// Exported as a JavaScript number: every value here is a counter, a
@@ -166,14 +203,36 @@ pub struct BrowserState {
     /// double represents exactly.
     #[specta(type = specta_typescript::Number)]
     pub capacity: usize,
+    /// Tabs holding a webview, across every window: the pool is shared.
     #[specta(type = specta_typescript::Number)]
     pub live_count: usize,
 }
 
-pub struct Browser {
-    tabs: Vec<Tab>,
+/// One browser window, and the tab it shows.
+struct Window {
+    id: WindowId,
+    kind: WindowKind,
     active: Option<TabId>,
+}
+
+/// A window's tabs as they are remembered, for [`Browser::restored`]: each
+/// tab's URL and whether it is fixed, and the index of the active one.
+pub type RestoredWindow = (Vec<(String, bool)>, Option<usize>);
+
+pub struct Browser {
+    /// Every window's tabs, in one list. A window's tabs are the ones it
+    /// holds, in the order they appear here.
+    tabs: Vec<Tab>,
+    /// The window each tab belongs to.
+    homes: HashMap<TabId, WindowId>,
+    /// Open windows, the one used most recently last. There is always a
+    /// normal one: closing the last is quitting, which is the caller's to do.
+    windows: Vec<Window>,
+    next_window: u64,
     pool: WebviewPool,
+    /// The window each slot's webview is in. A webview stays where it is when
+    /// it is parked, and moves when a tab in another window takes it.
+    slot_windows: HashMap<SlotId, WindowId>,
     /// What each slot most recently loaded, so a redundant navigation is not
     /// emitted when a tab returns to a slot it never left.
     slot_urls: HashMap<SlotId, String>,
@@ -199,16 +258,16 @@ pub struct Browser {
     /// The latest time any caller has supplied, for mutations that supply
     /// none. Grace is judged against it.
     clock: u64,
-    /// The slot last shown and the tab it was shown for. When that tab stops
-    /// being the visible one, its page is read and captured before anything
+    /// The slots last shown and the tab each was shown for. When such a tab
+    /// stops being visible, its page is read and captured before anything
     /// else happens to it.
-    shown: Option<(SlotId, TabId)>,
-    /// The tab read by the current reconciliation as it stopped being
-    /// visible, so it is not read a second time in the same pass.
-    just_left: Option<TabId>,
-    /// Recently closed tabs, the most recent last, with where each stood.
-    /// Kept in memory only: they are not part of the session.
-    closed: Vec<(usize, Tab)>,
+    shown: Vec<(SlotId, TabId)>,
+    /// The tabs read by the current reconciliation as they stopped being
+    /// visible, so they are not read a second time in the same pass.
+    just_left: HashSet<TabId>,
+    /// Recently closed tabs, the most recent last, with the window and place
+    /// each stood in. Kept in memory only: they are not part of the session.
+    closed: Vec<(WindowId, usize, Tab)>,
     /// The tab each page-opened tab was opened from, while both are open.
     openers: HashMap<TabId, TabId>,
     /// Connected tabs waiting, within the mutation that opened them, for a
@@ -222,11 +281,19 @@ pub struct Browser {
 }
 
 impl Browser {
+    /// A browser with one empty normal window.
     pub fn new(capacity: usize) -> Self {
         Self {
             tabs: Vec::new(),
-            active: None,
+            homes: HashMap::new(),
+            windows: vec![Window {
+                id: WindowId(1),
+                kind: WindowKind::Normal,
+                active: None,
+            }],
+            next_window: 2,
             pool: WebviewPool::new(capacity),
+            slot_windows: HashMap::new(),
             slot_urls: HashMap::new(),
             awaiting: HashSet::new(),
             navigated: HashSet::new(),
@@ -239,8 +306,8 @@ impl Browser {
             pressure: Pressure::Normal,
             memory: HashMap::new(),
             clock: 0,
-            shown: None,
-            just_left: None,
+            shown: Vec::new(),
+            just_left: HashSet::new(),
             closed: Vec::new(),
             openers: HashMap::new(),
             adopting: HashMap::new(),
@@ -272,39 +339,161 @@ impl Browser {
     /// there are none and nowhere to put them. A browser built here has every
     /// tab discarded, which is exactly what reconciling against the first
     /// reported layout then acts on.
-    pub fn restored(capacity: usize, tabs: impl IntoIterator<Item = (String, bool)>, active: Option<usize>) -> Self {
+    ///
+    /// The windows are given in the order they were last used, the most
+    /// recent last, and are numbered from 1 in that order. A window with no
+    /// tabs is skipped, and a browser restored with none has one empty window.
+    pub fn restored(capacity: usize, windows: impl IntoIterator<Item = RestoredWindow>) -> Self {
         let mut browser = Self::new(capacity);
+        browser.windows.clear();
+        browser.next_window = 1;
 
-        for (url, fixed) in tabs {
-            let id = TabId(browser.next_id);
-            browser.next_id += 1;
-            let mut tab = Tab::new(id, url);
-            tab.fixed = fixed;
-            browser.tabs.push(tab);
+        for (tabs, active) in windows {
+            if tabs.is_empty() {
+                continue;
+            }
+            let window = browser.add_window(WindowKind::Normal);
+            let first = browser.tabs.len();
+            for (url, fixed) in tabs {
+                let id = TabId(browser.next_id);
+                browser.next_id += 1;
+                let mut tab = Tab::new(id, url);
+                tab.fixed = fixed;
+                browser.tabs.push(tab);
+                browser.homes.insert(id, window);
+            }
+            let restored = &browser.tabs[first..];
+            let active = active
+                .and_then(|index| restored.get(index))
+                .or_else(|| restored.first())
+                .map(|tab| tab.id);
+            if let Some(entry) = browser.window_mut(window) {
+                entry.active = active;
+            }
         }
-
-        browser.active = active
-            .and_then(|index| browser.tabs.get(index))
-            .or_else(|| browser.tabs.first())
-            .map(|tab| tab.id);
+        if browser.windows.is_empty() {
+            browser.add_window(WindowKind::Normal);
+        }
         browser
     }
 
+    /// What the normal window used last shows.
     pub fn state(&self) -> BrowserState {
-        BrowserState {
-            tabs: self.tabs.clone(),
-            active: self.active,
-            capacity: self.pool.capacity(),
-            live_count: self.tabs.iter().filter(|tab| tab.slot().is_some()).count(),
-        }
+        self.state_in(self.main_window())
+            .expect("the browser always has a normal window")
     }
 
+    /// What one window shows, or nothing when no window has this id.
+    pub fn state_in(&self, window: WindowId) -> Option<BrowserState> {
+        let entry = self.window(window)?;
+        Some(BrowserState {
+            kind: entry.kind,
+            tabs: self.tabs_in(window).cloned().collect(),
+            active: entry.active,
+            capacity: self.pool.capacity(),
+            live_count: self.tabs.iter().filter(|tab| tab.slot().is_some()).count(),
+        })
+    }
+
+    /// Every window's tabs.
     pub fn tabs(&self) -> &[Tab] {
         &self.tabs
     }
 
+    /// The active tab of the normal window used last.
     pub fn active(&self) -> Option<TabId> {
-        self.active
+        self.active_in(self.main_window())
+    }
+
+    pub fn active_in(&self, window: WindowId) -> Option<TabId> {
+        self.window(window)?.active
+    }
+
+    /// Open windows, the one used most recently last.
+    pub fn window_ids(&self) -> Vec<WindowId> {
+        self.windows.iter().map(|window| window.id).collect()
+    }
+
+    pub fn kind(&self, window: WindowId) -> Option<WindowKind> {
+        self.window(window).map(|window| window.kind)
+    }
+
+    /// The window a tab belongs to.
+    pub fn window_of(&self, tab: TabId) -> Option<WindowId> {
+        self.homes.get(&tab).copied()
+    }
+
+    /// The normal window used last: where a tab opened from nowhere in
+    /// particular goes, and where a popup's tabs open.
+    pub fn main_window(&self) -> WindowId {
+        self.windows
+            .iter()
+            .rev()
+            .find(|window| window.kind == WindowKind::Normal)
+            .map(|window| window.id)
+            .expect("the browser always has a normal window")
+    }
+
+    /// Whether closing this window would leave no normal window, which is
+    /// quitting rather than closing.
+    pub fn is_last_window(&self, window: WindowId) -> bool {
+        self.kind(window) == Some(WindowKind::Normal)
+            && self
+                .windows
+                .iter()
+                .filter(|entry| entry.kind == WindowKind::Normal)
+                .count()
+                == 1
+    }
+
+    /// The slots whose webviews are in a window.
+    pub fn slots_in(&self, window: WindowId) -> Vec<SlotId> {
+        self.pool
+            .slots()
+            .iter()
+            .map(|slot| slot.id)
+            .filter(|slot| self.slot_windows.get(slot) == Some(&window))
+            .collect()
+    }
+
+    fn window(&self, id: WindowId) -> Option<&Window> {
+        self.windows.iter().find(|window| window.id == id)
+    }
+
+    fn window_mut(&mut self, id: WindowId) -> Option<&mut Window> {
+        self.windows.iter_mut().find(|window| window.id == id)
+    }
+
+    /// Adds a window, as the one used most recently.
+    fn add_window(&mut self, kind: WindowKind) -> WindowId {
+        let id = WindowId(self.next_window);
+        self.next_window += 1;
+        self.windows.push(Window { id, kind, active: None });
+        id
+    }
+
+    fn tabs_in(&self, window: WindowId) -> impl Iterator<Item = &Tab> {
+        self.tabs
+            .iter()
+            .filter(move |tab| self.homes.get(&tab.id) == Some(&window))
+    }
+
+    /// The tab each window shows.
+    fn visible(&self) -> Vec<TabId> {
+        self.windows.iter().filter_map(|window| window.active).collect()
+    }
+
+    fn is_visible(&self, id: TabId) -> bool {
+        self.windows.iter().any(|window| window.active == Some(id))
+    }
+
+    /// The window tabs opened from `window` go in: itself, unless it is a
+    /// popup, which never takes another tab.
+    fn tab_window(&self, window: WindowId) -> WindowId {
+        match self.kind(window) {
+            Some(WindowKind::Normal) => window,
+            _ => self.main_window(),
+        }
     }
 
     pub fn capacity(&self) -> usize {
@@ -357,7 +546,7 @@ impl Browser {
     pub fn position(&self, id: TabId) -> Option<Position> {
         let tab = self.tab(id).ok()?;
         tab.slot()?;
-        Some(if Some(id) == self.active {
+        Some(if self.is_visible(id) {
             Position::Visible
         } else if self.must_run(tab) {
             Position::MustRun
@@ -371,22 +560,40 @@ impl Browser {
         self.clock = self.clock.max(now);
     }
 
-    /// Makes a tab the visible one, timing the tab it replaces from now: a tab
-    /// is in grace from when it was left.
+    /// Makes a tab the one its window shows, timing the tab it replaces from
+    /// now: a tab is in grace from when it was left.
     fn activate(&mut self, id: TabId) {
         let clock = self.clock;
-        if let Some(previous) = self.active.filter(|&previous| previous != id) {
+        let Some(window) = self.window_of(id) else { return };
+        if let Some(previous) = self.active_in(window).filter(|&previous| previous != id) {
             if let Ok(tab) = self.tab_mut(previous) {
                 tab.active_at = tab.active_at.max(clock);
             }
         }
-        self.active = Some(id);
+        if let Some(window) = self.window_mut(window) {
+            window.active = Some(id);
+        }
+    }
+
+    /// Records that a window is the one in use, which is where tabs opened
+    /// from nowhere in particular go.
+    pub fn focus(&mut self, window: WindowId) {
+        if let Some(index) = self.windows.iter().position(|entry| entry.id == window) {
+            let entry = self.windows.remove(index);
+            self.windows.push(entry);
+        }
     }
 
     /// Drops what the browser remembered about a slot it has let go of.
     fn forget_slot(&mut self, slot: SlotId) {
         self.slot_urls.remove(&slot);
         self.awaiting.remove(&slot);
+    }
+
+    /// Forgets a slot whose webview is being destroyed.
+    fn drop_slot(&mut self, slot: SlotId) {
+        self.forget_slot(slot);
+        self.slot_windows.remove(&slot);
     }
 
     /// Releases a tab's pending dialog because its page is going away.
@@ -417,17 +624,18 @@ impl Browser {
         self.connected.iter().any(|tab| self.openers.get(tab) == Some(&id))
     }
 
-    /// Slots that must exist whatever the configured capacity: one for the
-    /// visible tab, one per fixed tab, and one per background tab that must
-    /// run for another reason.
+    /// Slots that must exist whatever the configured capacity: one for each
+    /// window's visible tab, one per fixed tab, and one per background tab
+    /// that must run for another reason.
     fn reserved(&self) -> usize {
+        let visible = self.visible();
         let fixed = self.tabs.iter().filter(|tab| tab.fixed && !tab.is_internal()).count();
         let running = self
             .tabs
             .iter()
-            .filter(|tab| !tab.fixed && Some(tab.id) != self.active && self.must_run(tab))
+            .filter(|tab| !tab.fixed && !visible.contains(&tab.id) && self.must_run(tab))
             .count();
-        1 + fixed + running
+        visible.len().max(1) + fixed + running
     }
 
     fn effective_capacity(&self) -> usize {
@@ -436,7 +644,7 @@ impl Browser {
 
     /// Whether a tab must keep its slot: it is visible, or it must run.
     fn is_protected(&self, id: TabId) -> bool {
-        Some(id) == self.active || self.tab(id).is_ok_and(|tab| self.must_run(tab))
+        self.is_visible(id) || self.tab(id).is_ok_and(|tab| self.must_run(tab))
     }
 
     /// The tab to give up its slot when the pool is full: the unprotected
@@ -471,20 +679,65 @@ impl Browser {
 
     // -- mutations -------------------------------------------------------
 
+    /// Opens a tab in the normal window used last.
     pub fn open_tab(&mut self, url: impl Into<String>, activate: bool) -> (TabId, Vec<Effect>) {
-        let id = TabId(self.next_id);
-        self.next_id += 1;
-        self.tabs.push(Tab::new(id, url));
-        self.navigated.insert(id);
-
-        if activate || self.active.is_none() {
-            self.activate(id);
-        }
-        (id, self.realize())
+        self.open_tab_in(self.main_window(), url, activate)
     }
 
-    /// Opens the window a page in `opener` asked for in a tab instead, next to
-    /// the page's own, after any it opened before. Haku opens no windows yet.
+    /// Opens a tab in `window`, or in the normal window used last when
+    /// `window` is a popup, which is then brought to the front.
+    pub fn open_tab_in(&mut self, window: WindowId, url: impl Into<String>, activate: bool) -> (TabId, Vec<Effect>) {
+        let home = self.tab_window(window);
+        let mut effects = self.focus_elsewhere(window, home);
+        let id = self.add_tab(self.tabs.len(), home, url);
+
+        if activate || self.active_in(home).is_none() {
+            self.activate(id);
+        }
+        effects.extend(self.realize());
+        (id, effects)
+    }
+
+    /// Opens a new browser window on `url`, as the window in use.
+    ///
+    /// @returns The window's one tab.
+    pub fn open_window(&mut self, url: impl Into<String>) -> (TabId, Vec<Effect>) {
+        let window = self.add_window(WindowKind::Normal);
+        let id = self.add_tab(self.tabs.len(), window, url);
+        self.activate(id);
+        let mut effects = vec![Effect::OpenWindow {
+            window,
+            kind: WindowKind::Normal,
+            placement: Placement::default(),
+        }];
+        effects.extend(self.realize());
+        (id, effects)
+    }
+
+    fn add_tab(&mut self, index: usize, window: WindowId, url: impl Into<String>) -> TabId {
+        let id = TabId(self.next_id);
+        self.next_id += 1;
+        self.tabs.insert(index, Tab::new(id, url));
+        self.homes.insert(id, window);
+        self.navigated.insert(id);
+        id
+    }
+
+    /// Brings `to` to the front when what the user did in `from` opened
+    /// something there instead.
+    fn focus_elsewhere(&mut self, from: WindowId, to: WindowId) -> Vec<Effect> {
+        if from == to {
+            return Vec::new();
+        }
+        self.focus(to);
+        vec![Effect::FocusWindow { window: to }]
+    }
+
+    /// Opens the window a page in `opener` asked for, as `opening` says.
+    ///
+    /// A tab opens next to the page's own, after any it opened before, in the
+    /// page's window; a page in a popup opens its tabs in the normal window
+    /// used last. A window opens with the request's page as its only tab.
     ///
     /// A connected tab gets a webview that has never loaded anything, as the
     /// engine requires of one it hands to the page. When every slot is spoken
@@ -492,42 +745,71 @@ impl Browser {
     /// unanswered by a webview, and the tab loads `url` like any other once
     /// it gets a slot.
     pub fn open_from(&mut self, opener: SlotId, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
-        let id = TabId(self.next_id);
-        self.next_id += 1;
         let parent = self.occupant_of(opener);
-        let index = match parent.and_then(|parent| self.index_of(parent).ok()) {
-            Some(at) => {
-                let mut index = at + 1;
-                while self
-                    .tabs
-                    .get(index)
-                    .is_some_and(|tab| self.openers.get(&tab.id) == parent.as_ref())
-                {
-                    index += 1;
-                }
-                index
+        let source = parent
+            .and_then(|parent| self.window_of(parent))
+            .unwrap_or_else(|| self.main_window());
+
+        let mut effects = Vec::new();
+        let (id, request) = match opening {
+            Opening::Window | Opening::Popup { .. } => {
+                let (kind, placement, request) = match opening {
+                    Opening::Popup { request, placement } => (WindowKind::Popup, placement, Some(request)),
+                    _ => (WindowKind::Normal, Placement::default(), None),
+                };
+                let window = self.add_window(kind);
+                effects.push(Effect::OpenWindow {
+                    window,
+                    kind,
+                    placement,
+                });
+                (self.add_tab(self.tabs.len(), window, url), request)
             }
-            None => self.tabs.len(),
+            Opening::Foreground | Opening::Background | Opening::Connected(_) => {
+                let home = self.tab_window(source);
+                effects.extend(self.focus_elsewhere(source, home));
+                let index = self.index_after(parent.filter(|&parent| self.window_of(parent) == Some(home)));
+                let id = self.add_tab(index, home, url);
+                let request = match opening {
+                    Opening::Connected(request) => Some(request),
+                    _ => None,
+                };
+                (id, request)
+            }
         };
-        self.tabs.insert(index, Tab::new(id, url));
-        self.navigated.insert(id);
-        if let Some(parent) = parent {
+        if let Some(parent) = parent.filter(|_| opening != Opening::Window) {
             self.openers.insert(id, parent);
         }
 
+        let home = self.window_of(id).unwrap_or(source);
         match opening {
-            Opening::Foreground => self.activate(id),
-            Opening::Background if self.active.is_none() => self.activate(id),
-            Opening::Background => {}
-            Opening::Connected(request) => {
-                self.adopting.insert(id, request);
-                self.connected.insert(id);
-                self.activate(id);
-            }
+            Opening::Background if self.active_in(home).is_some() => {}
+            _ => self.activate(id),
         }
-        let effects = self.realize();
+        if let Some(request) = request {
+            self.adopting.insert(id, request);
+            self.connected.insert(id);
+        }
+        effects.extend(self.realize());
         self.adopting.remove(&id);
         (id, effects)
+    }
+
+    /// Where a tab opened from `parent` goes in the list: after it, and after
+    /// the tabs it opened before. At the end without one.
+    fn index_after(&self, parent: Option<TabId>) -> usize {
+        let Some(at) = parent.and_then(|parent| self.index_of(parent).ok()) else {
+            return self.tabs.len();
+        };
+        let mut index = at + 1;
+        while self
+            .tabs
+            .get(index)
+            .is_some_and(|tab| self.openers.get(&tab.id) == parent.as_ref())
+        {
+            index += 1;
+        }
+        index
     }
 
     /// The tab whose page is in `slot`, if any.
@@ -538,50 +820,119 @@ impl Browser {
     /// Closes a tab, moving activation to its right-hand neighbour, or back to
     /// the tab that opened it.
     ///
-    /// The browser always keeps a tab: closing the last one opens `replacement`
-    /// in its place, the page a new tab would show.
+    /// A normal window always keeps a tab: closing its last one opens
+    /// `replacement` in its place, the page a new tab would show. A popup's
+    /// one tab closes its window.
     ///
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn close_tab(&mut self, id: TabId, replacement: &str) -> Result<Vec<Effect>> {
         let index = self.index_of(id)?;
+        let window = self.window_of(id).unwrap_or_else(|| self.main_window());
+        if self.kind(window) == Some(WindowKind::Popup) {
+            return Ok(self.close_window(window));
+        }
+        let place = self.tabs_in(window).position(|tab| tab.id == id).unwrap_or_default();
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
         effects.extend(self.release_slot(id));
         let closed = self.tabs.remove(index);
+        self.homes.remove(&id);
         self.navigated.remove(&id);
-        self.remember_closed(index, closed);
+        self.remember_closed(window, index, closed);
         // A page-opened tab, such as a sign-in popup, closing returns to the
-        // page that opened it.
-        let opener = self.openers.remove(&id).filter(|opener| self.index_of(*opener).is_ok());
+        // page that opened it, when that page is in the same window.
+        let opener = self
+            .openers
+            .remove(&id)
+            .filter(|opener| self.window_of(*opener) == Some(window));
         self.openers.retain(|_, parent| *parent != id);
         self.connected.remove(&id);
 
-        if self.tabs.is_empty() {
-            let (_, opened) = self.open_tab(replacement, true);
+        let remaining: Vec<TabId> = self.tabs_in(window).map(|tab| tab.id).collect();
+        if remaining.is_empty() {
+            if let Some(entry) = self.window_mut(window) {
+                entry.active = None;
+            }
+            let (_, opened) = self.open_tab_in(window, replacement, true);
             effects.extend(opened);
             return Ok(effects);
         }
 
-        if self.active == Some(id) {
-            self.active = opener.or_else(|| self.tabs.get(index).or_else(|| self.tabs.last()).map(|tab| tab.id));
+        if self.active_in(window) == Some(id) {
+            let next = opener.or_else(|| remaining.get(place).or_else(|| remaining.last()).copied());
+            if let Some(entry) = self.window_mut(window) {
+                entry.active = next;
+            }
         }
 
         effects.extend(self.realize());
         Ok(effects)
     }
 
+    /// Closes a window and every tab in it, destroying the webviews in it.
+    ///
+    /// Closing the only normal window does nothing: that is quitting, which
+    /// keeps the window's tabs for the next launch, and is the caller's to do.
+    /// The tabs of a closed window are not remembered for reopening.
+    pub fn close_window(&mut self, window: WindowId) -> Vec<Effect> {
+        if self.window(window).is_none() || self.is_last_window(window) {
+            return Vec::new();
+        }
+        let closing: HashSet<TabId> = self.tabs_in(window).map(|tab| tab.id).collect();
+        let mut effects: Vec<Effect> = closing.iter().filter_map(|&id| self.dismiss_dialog(id)).collect();
+
+        // A webview goes with its window, whichever tab holds it.
+        for slot in self.slots_in(window) {
+            let Some(removed) = self.pool.remove(slot) else {
+                continue;
+            };
+            if let Some(occupant) = removed.occupant.filter(|occupant| !closing.contains(occupant)) {
+                effects.extend(self.dismiss_dialog(occupant));
+                effects.extend(self.leave(occupant));
+                if let Ok(tab) = self.tab_mut(occupant) {
+                    tab.lose_page();
+                }
+                self.connected.remove(&occupant);
+            }
+            self.drop_slot(slot);
+            effects.push(Effect::Destroy { slot });
+        }
+
+        self.tabs.retain(|tab| !closing.contains(&tab.id));
+        for id in &closing {
+            self.homes.remove(id);
+            self.navigated.remove(id);
+            self.openers.remove(id);
+            self.connected.remove(id);
+            self.adopting.remove(id);
+        }
+        self.openers.retain(|_, parent| !closing.contains(parent));
+        self.shown.retain(|(_, tab)| !closing.contains(tab));
+        self.windows.retain(|entry| entry.id != window);
+
+        effects.push(Effect::CloseWindow { window });
+        effects.extend(self.realize());
+        effects
+    }
+
     /// Reopens the most recently closed tab where it stood, with its history,
-    /// and makes it active. Does nothing when no closed tab is remembered.
+    /// and makes it active. A tab whose window has closed since reopens in the
+    /// normal window used last. Does nothing when no closed tab is remembered.
     pub fn reopen_closed_tab(&mut self) -> Vec<Effect> {
-        let Some((index, mut tab)) = self.closed.pop() else {
+        let Some((window, index, mut tab)) = self.closed.pop() else {
             return Vec::new();
         };
+        let main = self.main_window();
+        let window = if self.window(window).is_some() { window } else { main };
+        let mut effects = self.focus_elsewhere(main, window);
         tab.id = TabId(self.next_id);
         self.next_id += 1;
         let id = tab.id;
         self.tabs.insert(index.min(self.tabs.len()), tab);
+        self.homes.insert(id, window);
         self.activate(id);
-        self.realize()
+        effects.extend(self.realize());
+        effects
     }
 
     /// Keeps a closed tab for reopening, as a discarded page that reloads into
@@ -589,7 +940,7 @@ impl Browser {
     ///
     /// A tab that never left an internal page, such as a new tab opened and
     /// closed again, holds nothing worth reopening.
-    fn remember_closed(&mut self, index: usize, mut tab: Tab) {
+    fn remember_closed(&mut self, window: WindowId, index: usize, mut tab: Tab) {
         if tab.history.entries().len() == 1 && tab.is_internal() {
             return;
         }
@@ -597,23 +948,31 @@ impl Browser {
         tab.reclassify();
         tab.dialog = None;
         tab.relieved = false;
-        self.closed.push((index, tab));
+        self.closed.push((window, index, tab));
         if self.closed.len() > CLOSED_LIMIT {
             self.closed.remove(0);
         }
     }
 
-    /// The tab a pick lands on, if there is one.
+    /// The tab a pick lands on in the normal window used last, if there is one.
     pub fn pick(&self, pick: Pick) -> Option<TabId> {
-        let count = self.tabs.len();
-        let active = self.active.and_then(|id| self.index_of(id).ok());
+        self.pick_in(self.main_window(), pick)
+    }
+
+    /// The tab a pick lands on in `window`, if there is one.
+    pub fn pick_in(&self, window: WindowId, pick: Pick) -> Option<TabId> {
+        let tabs: Vec<TabId> = self.tabs_in(window).map(|tab| tab.id).collect();
+        let count = tabs.len();
+        let active = self
+            .active_in(window)
+            .and_then(|id| tabs.iter().position(|&tab| tab == id));
         let index = match pick {
             Pick::Next => (active? + 1) % count,
             Pick::Previous => (active? + count - 1) % count,
             Pick::Nth(index) => index,
             Pick::Last => count.checked_sub(1)?,
         };
-        self.tabs.get(index).map(|tab| tab.id)
+        tabs.get(index).copied()
     }
 
     /// # Errors
@@ -713,12 +1072,22 @@ impl Browser {
         Ok(self.realize())
     }
 
+    /// Moves a tab to position `to` among its window's tabs.
+    ///
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn reorder_tab(&mut self, id: TabId, to: usize) -> Result<()> {
         let from = self.index_of(id)?;
+        let window = self.window_of(id);
         let tab = self.tabs.remove(from);
-        self.tabs.insert(to.min(self.tabs.len()), tab);
+        let places: Vec<usize> = (0..self.tabs.len())
+            .filter(|&index| self.homes.get(&self.tabs[index].id) == window.as_ref())
+            .collect();
+        let at = match places.get(to) {
+            Some(&at) => at,
+            None => places.last().map_or(self.tabs.len(), |&last| last + 1),
+        };
+        self.tabs.insert(at, tab);
         Ok(())
     }
 
@@ -774,7 +1143,7 @@ impl Browser {
                 }
                 self.connected.remove(&occupant);
             }
-            self.forget_slot(removed.id);
+            self.drop_slot(removed.id);
             effects.push(Effect::Destroy { slot: removed.id });
         }
         effects
@@ -800,9 +1169,9 @@ impl Browser {
     /// @returns Nothing when no tab changed, which most ticks are.
     pub fn tick(&mut self, now: u64, pressure: Pressure, memory: HashMap<SlotId, u64>) -> Vec<Effect> {
         self.advance(now);
-        let active = self.active;
+        let visible = self.visible();
         for tab in &mut self.tabs {
-            if Some(tab.id) == active || tab.active_at == 0 {
+            if visible.contains(&tab.id) || tab.active_at == 0 {
                 tab.active_at = now;
             }
         }
@@ -1039,30 +1408,32 @@ impl Browser {
     /// Every mutation ends here rather than emitting effects itself, so there is
     /// exactly one description of what "correct" looks like.
     fn realize(&mut self) -> Vec<Effect> {
-        let active = self.active;
+        let visible = self.visible();
         // Before anything hides it or takes its slot: a page can only be
         // captured while it is still on screen.
-        let mut effects: Vec<Effect> = self.leave_shown().into_iter().collect();
+        let mut effects = self.leave_shown();
 
-        if let Some(active) = active {
-            effects.extend(self.bind(active));
+        for &id in &visible {
+            effects.extend(self.bind(id));
         }
 
-        // Fixed tabs stay resident behind the active one, capacity permitting.
+        // Fixed tabs stay resident behind the visible ones, capacity permitting.
         let fixed: Vec<TabId> = self
             .tabs
             .iter()
-            .filter(|tab| tab.fixed && !tab.is_internal() && Some(tab.id) != active)
+            .filter(|tab| tab.fixed && !tab.is_internal() && !visible.contains(&tab.id))
             .map(|tab| tab.id)
             .collect();
         for id in fixed {
             effects.extend(self.bind(id));
         }
 
-        let active_slot = active.and_then(|id| self.tab(id).ok()).and_then(Tab::slot);
-        self.shown = active_slot.zip(active);
+        self.shown = visible
+            .iter()
+            .filter_map(|&id| Some((self.tab(id).ok()?.slot()?, id)))
+            .collect();
         for slot in self.pool.slots().iter().map(|slot| slot.id).collect::<Vec<_>>() {
-            if Some(slot) == active_slot {
+            if self.shown.iter().any(|&(shown, _)| shown == slot) {
                 effects.push(Effect::Show { slot });
             } else {
                 effects.push(Effect::Hide { slot });
@@ -1071,24 +1442,30 @@ impl Browser {
 
         // After hiding: a webview can only be frozen while it is hidden.
         effects.extend(self.settle_background());
-        self.just_left = None;
+        self.just_left.clear();
         effects
     }
 
-    /// Reads and captures the page last shown, if its tab is no longer the
-    /// visible one and still has it running. A tab that closed or moved to an
-    /// internal page has no page left to read.
-    fn leave_shown(&mut self) -> Option<Effect> {
-        let (slot, tab) = self.shown?;
-        if Some(tab) == self.active || self.tab(tab).ok()?.presence != (TabPresence::Live { slot }) {
-            return None;
+    /// Reads and captures each page last shown whose tab is no longer visible
+    /// and still has it running. A tab that closed or moved to an internal
+    /// page has no page left to read.
+    fn leave_shown(&mut self) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        for (slot, tab) in self.shown.clone() {
+            let running = self
+                .tab(tab)
+                .is_ok_and(|found| found.presence == TabPresence::Live { slot });
+            if self.is_visible(tab) || !running {
+                continue;
+            }
+            self.just_left.insert(tab);
+            effects.push(Effect::Leave {
+                slot,
+                tab,
+                capture: true,
+            });
         }
-        self.just_left = Some(tab);
-        Some(Effect::Leave {
-            slot,
-            tab,
-            capture: true,
-        })
+        effects
     }
 
     /// Applies the discard and freeze policies to every background tab, then
@@ -1186,7 +1563,7 @@ impl Browser {
             .into_iter()
             .filter_map(|slot| {
                 self.pool.remove(slot)?;
-                self.forget_slot(slot);
+                self.drop_slot(slot);
                 Some(Effect::Destroy { slot })
             })
             .collect()
@@ -1197,7 +1574,7 @@ impl Browser {
     fn background(&self) -> Vec<TabId> {
         self.tabs
             .iter()
-            .filter(|tab| tab.slot().is_some() && !tab.fixed && Some(tab.id) != self.active)
+            .filter(|tab| tab.slot().is_some() && !tab.fixed && !self.is_visible(tab.id))
             .map(|tab| tab.id)
             .collect()
     }
@@ -1239,7 +1616,7 @@ impl Browser {
     /// was frozen, and cannot have changed since, and a page just read as it
     /// stopped being visible is not read again.
     fn leave(&self, id: TabId) -> Option<Effect> {
-        if self.just_left == Some(id) {
+        if self.just_left.contains(&id) {
             return None;
         }
         match self.tab(id).ok()?.presence {
@@ -1345,10 +1722,19 @@ impl Browser {
             tab.relieved = false;
         }
 
+        let window = self.window_of(id).unwrap_or_else(|| self.main_window());
+        if self.slot_windows.insert(slot, window).is_some_and(|was| was != window) {
+            effects.push(Effect::Move { slot, window });
+        }
+
         if self.slot_urls.get(&slot) != Some(&url) {
             self.slot_urls.insert(slot, url.clone());
             self.awaiting.insert(slot);
-            effects.push(Effect::EnsureSlot { slot, url: url.clone() });
+            effects.push(Effect::EnsureSlot {
+                slot,
+                url: url.clone(),
+                window,
+            });
             if !had_slot {
                 if let Ok(tab) = self.tab_mut(id) {
                     tab.restoring = true;
@@ -1387,11 +1773,18 @@ impl Browser {
             self.connected.remove(&id);
             return effects;
         }
+        let window = self.window_of(id).unwrap_or_else(|| self.main_window());
+        self.slot_windows.insert(slot, window);
         self.slot_urls.insert(slot, url.clone());
         self.awaiting.insert(slot);
         // Nothing was ever shown in a new webview, so nothing is covered
         // while the page loads.
-        effects.push(Effect::Adopt { slot, request, url });
+        effects.push(Effect::Adopt {
+            slot,
+            request,
+            url,
+            window,
+        });
         effects
     }
 }

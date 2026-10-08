@@ -1,4 +1,5 @@
 import { events, type TabId } from "@bindings";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useRef, type RefObject } from "react";
 
 /**
@@ -34,7 +35,9 @@ export function useAddressFocus(tabId: TabId | undefined, inputRef: RefObject<HT
     let unlisten: (() => void) | null = null;
 
     const listen = async () => {
-      const stop = await events.addressFocusRequested.listen((event) => {
+      // This window's own requests: a listener for any target would also
+      // focus the field for a tab another window opened.
+      const stop = await events.addressFocusRequested(getCurrentWebview()).listen((event) => {
         if (event.payload === currentRef.current) {
           inputRef.current?.focus();
         } else {

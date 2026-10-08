@@ -8,14 +8,16 @@ const listeners: FocusListener[] = [];
 
 vi.mock("@bindings", () => ({
   events: {
-    addressFocusRequested: {
+    addressFocusRequested: () => ({
       listen: vi.fn(async (listener: FocusListener) => {
         listeners.push(listener);
         return () => listeners.splice(listeners.indexOf(listener), 1);
       }),
-    },
+    }),
   },
 }));
+
+vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
 
 const { useAddressFocus } = await import("./use-address-focus");
 

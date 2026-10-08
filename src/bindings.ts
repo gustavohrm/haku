@@ -97,8 +97,10 @@ export const events = {
  */
 export type AddressFocusRequested = TabId;
 
-/**  The projection of browser state the frontend renders. */
+/**  The projection of browser state one window's interface renders. */
 export type BrowserState = {
+	kind: WindowKind,
+	/**  The window's tabs, in order. */
 	tabs: Tab[],
 	active: TabId | null,
 	/**
@@ -107,6 +109,7 @@ export type BrowserState = {
 	 *  double represents exactly.
 	 */
 	capacity: number,
+	/**  Tabs holding a webview, across every window: the pool is shared. */
 	liveCount: number,
 };
 
@@ -453,6 +456,17 @@ export type Visit = {
 	title: string,
 	favicon: string | null,
 };
+
+/**  What a window is for. */
+export type WindowKind = 
+/**  A browser window, with a tab strip and an address field. */
+"normal" | 
+/**
+ *  A window a page opened at a size or position of its choosing, such as
+ *  a sign-in popup. It shows one page, with a read-only address, and is
+ *  never given another tab.
+ */
+"popup";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

@@ -1,22 +1,33 @@
 pub mod inject;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
 
 use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 use crate::browser::{Effect, BLANK_URL};
 use crate::error::{HakuError, Result};
-use crate::model::{PageState, Scroll, SlotId, TabId, WindowRequestId};
-use crate::platform::{self, PageSignal};
+use crate::model::{PageState, Placement, Scroll, SlotId, TabId, WindowId, WindowKind, WindowRequestId};
+use crate::platform::{self, KeySink, PageSignal};
+use crate::storage::WindowBounds;
 
-/// Label of the webview that renders Haku's own interface.
-///
-/// It is the window's original webview, so it shares the window label.
-pub const CHROME_LABEL: &str = "main";
+/// Smallest a browser window may be made, in logical pixels.
+const MIN_WINDOW_SIZE: (f64, f64) = (640.0, 480.0);
 
-pub const MAIN_WINDOW_LABEL: &str = "main";
+/// Smallest a popup may be made, in logical pixels. Popups are often small
+/// on purpose, so they get far less room than a browser window.
+const MIN_POPUP_SIZE: (f64, f64) = (240.0, 160.0);
+
+/// What a popup's page is given when it asks for no size, in logical pixels.
+const DEFAULT_POPUP_SIZE: (f64, f64) = (500.0, 600.0);
+
+/// Height of a popup's own bar above its page, in logical pixels. A popup
+/// asks for the size of its page, so the window is made this much taller.
+/// The interface draws the bar at this height. Only the window's first size
+/// depends on the two agreeing: the page is placed where the interface
+/// reports it.
+const POPUP_BAR_HEIGHT: f64 = 34.0;
 
 /// Desktop user agent. The system webview would otherwise announce itself with
 /// an Edge/WebView2 string that some sites treat as an unsupported browser.
@@ -38,12 +49,76 @@ pub struct Viewport {
     pub height: f64,
 }
 
+/// Where each window's content webviews belong, in logical pixels.
+///
+/// An internal page reports no viewport, because the chrome covers the whole
+/// window while one is open. Content webviews still belong at the last real
+/// rectangle, so remembering it keeps a webview created while an internal
+/// page is showing from being built at zero size and staying invisible.
+#[derive(Default)]
+pub struct Viewports(RwLock<HashMap<WindowId, Viewport>>);
+
+impl Viewports {
+    /// Zero until the window's interface has reported a layout, or one was
+    /// guessed for it as it opened.
+    pub fn get(&self, window: WindowId) -> Viewport {
+        self.0
+            .read()
+            .ok()
+            .and_then(|viewports| viewports.get(&window).copied())
+            .unwrap_or_default()
+    }
+
+    pub fn set(&self, window: WindowId, viewport: Viewport) {
+        if let Ok(mut viewports) = self.0.write() {
+            viewports.insert(window, viewport);
+        }
+    }
+
+    fn remove(&self, window: WindowId) {
+        if let Ok(mut viewports) = self.0.write() {
+            viewports.remove(&window);
+        }
+    }
+
+    /// Any window's viewport, as a guess at a new browser window's: they all
+    /// draw the same interface.
+    fn any(&self) -> Viewport {
+        self.0
+            .read()
+            .ok()
+            .and_then(|viewports| viewports.values().next().copied())
+            .unwrap_or_default()
+    }
+}
+
 /// Receives what content webviews report, tagged with the slot they occupy.
 ///
 /// Supplied by the caller so this module stays free of application state: it
 /// knows how to drive webviews, not what to do with what they report. Called on
 /// the UI thread.
 pub type PageObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, SlotId, PageSignal) + Send + Sync>;
+
+/// Makes the sink that receives the shortcuts pressed while a window's chrome
+/// has focus.
+pub type KeyObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, WindowId) -> KeySink + Send + Sync>;
+
+/// What the caller attaches to the webviews this module creates.
+pub struct Hooks<R: tauri::Runtime> {
+    pub page: PageObserver<R>,
+    pub keys: KeyObserver<R>,
+}
+
+/// How a window is first put on screen.
+#[derive(Clone, Copy, Debug)]
+pub enum Frame {
+    /// Filling the screen, as a browser window first opens.
+    Maximized,
+    /// Where it was before, as a restored window opens.
+    Bounds(WindowBounds),
+    /// Where and how large its page asked for.
+    Popup(Placement),
+}
 
 /// Longest a page is waited on when it is read and captured as it is left,
 /// which is also the most a tab switch can be held up by it.
@@ -157,9 +232,111 @@ fn rect_of(viewport: Viewport) -> tauri::Rect {
     }
 }
 
+/// The chrome of the window opened first among those still open, for what
+/// the engine does once for every webview: installing extensions, measuring
+/// memory, watching service workers. Every chrome shares the one profile.
+///
+/// # Errors
+/// Returns [`HakuError::WindowMissing`] when no window is open.
 pub fn chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri::Webview<R>> {
-    app.get_webview(CHROME_LABEL)
-        .ok_or_else(|| HakuError::WindowMissing(CHROME_LABEL.into()))
+    app.webviews()
+        .into_values()
+        .filter_map(|webview| Some((WindowId::from_label(webview.label())?, webview)))
+        .min_by_key(|(window, _)| *window)
+        .map(|(_, webview)| webview)
+        .ok_or_else(|| HakuError::WindowMissing("no browser window".into()))
+}
+
+/// The webview that draws a window's interface.
+///
+/// # Errors
+/// Returns [`HakuError::WindowMissing`] when the window is not open.
+pub fn chrome_of<R: tauri::Runtime>(app: &tauri::AppHandle<R>, window: WindowId) -> Result<tauri::Webview<R>> {
+    app.get_webview(&window.label())
+        .ok_or_else(|| HakuError::WindowMissing(window.label()))
+}
+
+fn native_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>, window: WindowId) -> Result<tauri::Window<R>> {
+    app.get_window(&window.label())
+        .ok_or_else(|| HakuError::WindowMissing(window.label()))
+}
+
+/// Builds a browser window and the chrome that fills it.
+///
+/// Safe on the main thread, which is where startup builds the restored
+/// windows. The chrome is not ready for pages until [`prepare_chrome`] runs.
+///
+/// # Errors
+/// Propagates Tauri's failure to create the window.
+pub fn build_window<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    window: WindowId,
+    kind: WindowKind,
+    frame: Frame,
+) -> Result<tauri::WebviewWindow<R>> {
+    let min = match kind {
+        WindowKind::Normal => MIN_WINDOW_SIZE,
+        WindowKind::Popup => MIN_POPUP_SIZE,
+    };
+    let builder = tauri::WebviewWindowBuilder::new(app, window.label(), WebviewUrl::default())
+        .title("Haku")
+        .decorations(false)
+        .min_inner_size(min.0, min.1)
+        // Every webview sharing a profile must agree on this, content
+        // webviews included; see `create_slot`.
+        .browser_extensions_enabled(true);
+    let builder = match frame {
+        Frame::Maximized => builder.maximized(true),
+        Frame::Bounds(bounds) => builder
+            .position(bounds.x, bounds.y)
+            .inner_size(bounds.width, bounds.height)
+            .maximized(bounds.maximized),
+        Frame::Popup(placement) => {
+            let (width, height) = placement.size.unwrap_or(DEFAULT_POPUP_SIZE);
+            let builder = builder.inner_size(width, height + POPUP_BAR_HEIGHT);
+            match placement.position {
+                Some((x, y)) => builder.position(x, y),
+                None => builder.center(),
+            }
+        }
+    };
+    Ok(builder.build()?)
+}
+
+/// Lifts a window's chrome over the page content to come and starts taking
+/// its shortcuts.
+///
+/// Must not be called on the main thread: both wait on it.
+///
+/// # Errors
+/// Returns [`HakuError::WindowMissing`] when the window has closed, and the
+/// platform's failure to attach to it.
+pub fn prepare_chrome<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    window: WindowId,
+    keys: &KeyObserver<R>,
+) -> Result<()> {
+    let chrome = chrome_of(app, window)?;
+    platform::raise_chrome(&chrome)?;
+    platform::intercept_keys(&chrome, keys(app, window))
+}
+
+/// The viewport a window that has not laid out yet is given, so the first
+/// page put in it is not built at zero size: a popup's page fills it below
+/// its bar, and a browser window's sits where every other one's does.
+fn guessed_viewport(frame: Frame, viewports: &Viewports) -> Viewport {
+    match frame {
+        Frame::Popup(placement) => {
+            let (width, height) = placement.size.unwrap_or(DEFAULT_POPUP_SIZE);
+            Viewport {
+                x: 0.0,
+                y: POPUP_BAR_HEIGHT,
+                width,
+                height,
+            }
+        }
+        Frame::Maximized | Frame::Bounds(_) => viewports.any(),
+    }
 }
 
 /// Applies the effects [`crate::browser::Browser`] produced to real webviews.
@@ -173,21 +350,22 @@ pub fn chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri::Web
 ///   [`crate::browser::Browser::report_state`] and the preview store.
 ///
 /// # Errors
-/// Returns [`HakuError::WindowMissing`] when the main window is gone, and
-/// propagates Tauri failures from the individual operations.
+/// Returns [`HakuError::WindowMissing`] when a window an effect puts a
+/// webview in is gone, and propagates Tauri failures from the individual
+/// operations.
 pub fn apply<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     effects: &[Effect],
-    viewport: Viewport,
-    observer: &PageObserver<R>,
+    viewports: &Viewports,
+    hooks: &Hooks<R>,
 ) -> Result<Vec<Departure>> {
     let mut departures = Vec::new();
     for effect in effects {
         match effect {
-            Effect::EnsureSlot { slot, url } => {
+            Effect::EnsureSlot { slot, url, window } => {
                 set_pending(*slot, None);
                 renavigate(*slot);
-                ensure_slot(app, *slot, url, viewport, observer)?;
+                ensure_slot(app, *slot, url, *window, viewports.get(*window), &hooks.page)?;
             }
             Effect::Blank { slot } => {
                 set_pending(*slot, None);
@@ -231,10 +409,43 @@ pub fn apply<R: tauri::Runtime>(
                 }),
             ),
             Effect::AnswerDialog { id, answer } => platform::answer_dialog(app, *id, answer.clone())?,
-            Effect::Adopt { slot, request, url } => {
+            Effect::Adopt {
+                slot,
+                request,
+                url,
+                window,
+            } => {
                 set_pending(*slot, None);
                 renavigate(*slot);
-                adopt(app, *slot, *request, url, viewport, observer)?;
+                adopt(app, *slot, *request, url, *window, viewports.get(*window), &hooks.page)?;
+            }
+            Effect::Move { slot, window } => move_slot(app, *slot, *window, viewports.get(*window))?,
+            Effect::OpenWindow {
+                window,
+                kind,
+                placement,
+            } => {
+                let frame = match kind {
+                    WindowKind::Normal => Frame::Maximized,
+                    WindowKind::Popup => Frame::Popup(*placement),
+                };
+                viewports.set(*window, guessed_viewport(frame, viewports));
+                build_window(app, *window, *kind, frame)?;
+                prepare_chrome(app, *window, &hooks.keys)?;
+            }
+            Effect::CloseWindow { window } => {
+                viewports.remove(*window);
+                if let Some(native) = app.get_window(&window.label()) {
+                    native.destroy()?;
+                }
+            }
+            // Bringing a window forward is a courtesy; failing to does not
+            // undo what opened in it.
+            Effect::FocusWindow { window } => {
+                if let Ok(native) = native_window(app, *window) {
+                    let _ = native.unminimize();
+                    let _ = native.set_focus();
+                }
             }
         }
     }
@@ -303,13 +514,30 @@ fn ensure_slot<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     slot: SlotId,
     url: &str,
+    window: WindowId,
     viewport: Viewport,
     observer: &PageObserver<R>,
 ) -> Result<()> {
     if app.get_webview(&slot.label()).is_none() {
-        create_slot(app, slot, viewport, observer)?;
+        create_slot(app, slot, window, viewport, observer)?;
     }
     navigate(app, slot, url)
+}
+
+/// Moves a slot's webview into another window, whose chrome is then lifted
+/// back over it, as it is when a slot is created there.
+fn move_slot<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    slot: SlotId,
+    window: WindowId,
+    viewport: Viewport,
+) -> Result<()> {
+    let Some(webview) = app.get_webview(&slot.label()) else {
+        return Ok(());
+    };
+    webview.reparent(&native_window(app, window)?)?;
+    webview.set_bounds(rect_of(viewport))?;
+    platform::raise_chrome(&chrome_of(app, window)?)
 }
 
 /// Creates the slot's webview and hands it to the page that asked for a new
@@ -320,6 +548,7 @@ fn adopt<R: tauri::Runtime>(
     slot: SlotId,
     request: WindowRequestId,
     url: &str,
+    window: WindowId,
     viewport: Viewport,
     observer: &PageObserver<R>,
 ) -> Result<()> {
@@ -328,7 +557,7 @@ fn adopt<R: tauri::Runtime>(
         platform::refuse_window(app, request)?;
         return navigate(app, slot, url);
     }
-    let webview = create_slot(app, slot, viewport, observer)?;
+    let webview = create_slot(app, slot, window, viewport, observer)?;
     // A request that could not be handed the webview, for whatever reason,
     // still gets its page: the tab loads it, unconnected.
     if platform::adopt_window(&webview, request).unwrap_or(false) {
@@ -342,12 +571,12 @@ fn adopt<R: tauri::Runtime>(
 fn create_slot<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     slot: SlotId,
+    window: WindowId,
     viewport: Viewport,
     observer: &PageObserver<R>,
 ) -> Result<tauri::Webview<R>> {
-    let window = app
-        .get_window(MAIN_WINDOW_LABEL)
-        .ok_or_else(|| HakuError::WindowMissing(MAIN_WINDOW_LABEL.into()))?;
+    let chrome = chrome_of(app, window)?;
+    let window = native_window(app, window)?;
 
     // Created on a blank page and navigated only once it is being observed, so
     // the first commit of the real page cannot slip past before the observer is
@@ -355,7 +584,7 @@ fn create_slot<R: tauri::Runtime>(
     let builder = tauri::webview::WebviewBuilder::new(slot.label(), WebviewUrl::External(parse_url(BLANK_URL)?))
         .user_agent(USER_AGENT)
         // Every webview sharing a profile must agree on this, the chrome
-        // included; see `tauri.conf.json`.
+        // included; see `build_window`.
         .browser_extensions_enabled(true)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
@@ -370,7 +599,7 @@ fn create_slot<R: tauri::Runtime>(
     // A new child webview is placed above everything, including the chrome, so
     // the chrome has to be lifted back over it. Without this the interface
     // disappears behind the page the moment a slot is created.
-    platform::raise_chrome(&chrome(app)?)?;
+    platform::raise_chrome(&chrome)?;
 
     // What the page shows is observed from Rust rather than reported by the
     // page, so a remote origin never needs a channel into the application.

@@ -54,7 +54,8 @@ fn selecting_a_discarded_tab_reloads_its_url_into_the_slot() {
 
     assert!(effects.contains(&Effect::EnsureSlot {
         slot: SlotId(0),
-        url: "https://a.test".to_string()
+        url: "https://a.test".to_string(),
+        window: browser.main_window(),
     }));
 }
 
@@ -340,7 +341,8 @@ fn a_single_page_app_route_change_is_what_the_tab_returns_to() {
 
     assert!(effects.contains(&Effect::EnsureSlot {
         slot,
-        url: "https://spa.test/thread/42".to_string()
+        url: "https://spa.test/thread/42".to_string(),
+        window: browser.main_window(),
     }));
 }
 
@@ -723,7 +725,7 @@ fn a_discarded_tab_reloading_its_page_is_not_a_visit() {
 
 #[test]
 fn a_restored_session_reloading_its_pages_is_not_a_visit() {
-    let mut browser = Browser::restored(1, [("https://a.test".to_string(), false)], Some(0));
+    let mut browser = Browser::restored(1, [(vec![("https://a.test".to_string(), false)], Some(0))]);
     browser.reconcile();
 
     assert!(!visited(browser.report_page(
@@ -1099,6 +1101,7 @@ fn an_evicted_page_is_read_before_another_tab_takes_its_slot() {
     let ensure = Effect::EnsureSlot {
         slot,
         url: "https://b.test".into(),
+        window: browser.main_window(),
     };
     assert!(position(&effects, &leave) < position(&effects, &ensure));
 }
@@ -1733,6 +1736,7 @@ fn a_popup_opens_in_a_connected_tab_and_its_opener_keeps_running() {
         slot,
         request: REQUEST,
         url: "https://login.test".to_string(),
+        window: browser.main_window(),
     }));
     assert!(!effects
         .iter()
@@ -1817,4 +1821,329 @@ fn the_tab_in_a_slot_is_the_one_it_was_opened_from() {
 
     assert_eq!(browser.tab_in(slot), Some(ids[0]));
     assert_eq!(browser.tab_in(SlotId(9)), None);
+}
+
+// -- windows ---------------------------------------------------------------
+
+fn window_tabs(browser: &Browser, window: WindowId) -> Vec<TabId> {
+    browser
+        .state_in(window)
+        .unwrap()
+        .tabs
+        .iter()
+        .map(|tab| tab.id)
+        .collect()
+}
+
+const POPUP_PLACEMENT: Placement = Placement {
+    position: Some((10.0, 20.0)),
+    size: Some((400.0, 300.0)),
+};
+
+fn popup_from(browser: &mut Browser, opener: TabId) -> (TabId, Vec<Effect>) {
+    let slot = slot_of(browser, opener).unwrap();
+    browser.open_from(
+        slot,
+        "https://login.test",
+        Opening::Popup {
+            request: REQUEST,
+            placement: POPUP_PLACEMENT,
+        },
+    )
+}
+
+#[test]
+fn a_new_window_opens_on_its_one_tab_and_becomes_the_window_in_use() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let first = browser.main_window();
+
+    let (tab, effects) = browser.open_window("https://b.test");
+
+    let window = browser.window_of(tab).unwrap();
+    assert_ne!(window, first);
+    assert_eq!(browser.main_window(), window);
+    assert_eq!(window_tabs(&browser, window), vec![tab]);
+    assert_eq!(window_tabs(&browser, first), ids);
+    let opened = effects
+        .iter()
+        .position(|effect| matches!(effect, Effect::OpenWindow { window: w, .. } if *w == window))
+        .unwrap();
+    let loaded = effects
+        .iter()
+        .position(|effect| matches!(effect, Effect::EnsureSlot { window: w, .. } if *w == window))
+        .unwrap();
+    assert!(opened < loaded, "the window exists before a page is put in it");
+}
+
+#[test]
+fn every_window_shows_its_own_active_tab() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+
+    assert_eq!(browser.position(ids[0]), Some(Position::Visible));
+    assert_eq!(browser.position(tab), Some(Position::Visible));
+    assert_ne!(slot_of(&browser, ids[0]), slot_of(&browser, tab));
+}
+
+#[test]
+fn a_tab_another_window_shows_is_never_evicted() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(tab).unwrap();
+
+    browser.open_tab_in(window, "https://c.test", true);
+
+    assert!(slot_of(&browser, ids[0]).is_some(), "still on screen in its window");
+}
+
+#[test]
+fn a_parked_webview_is_moved_into_the_window_that_reuses_it() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let first = browser.main_window();
+    browser.close_tab(ids[1], HOME).unwrap();
+    let parked = browser
+        .slots_in(first)
+        .into_iter()
+        .find(|&slot| Some(slot) != slot_of(&browser, ids[0]))
+        .expect("closing a tab parks its webview where it was");
+
+    let (tab, effects) = browser.open_window("https://c.test");
+
+    let window = browser.window_of(tab).unwrap();
+    assert_eq!(slot_of(&browser, tab), Some(parked));
+    assert!(effects.contains(&Effect::Move { slot: parked, window }));
+    assert_eq!(browser.slots_in(window), vec![parked]);
+}
+
+#[test]
+fn a_popup_opens_in_a_window_of_its_own_connected_to_its_opener() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let first = browser.main_window();
+
+    let (popup, effects) = popup_from(&mut browser, ids[0]);
+
+    let window = browser.window_of(popup).unwrap();
+    assert_ne!(window, first);
+    assert_eq!(browser.kind(window), Some(WindowKind::Popup));
+    assert!(effects.contains(&Effect::OpenWindow {
+        window,
+        kind: WindowKind::Popup,
+        placement: POPUP_PLACEMENT,
+    }));
+    let slot = slot_of(&browser, popup).unwrap();
+    assert!(effects.contains(&Effect::Adopt {
+        slot,
+        request: REQUEST,
+        url: "https://login.test".to_string(),
+        window,
+    }));
+    assert_eq!(
+        browser.position(ids[0]),
+        Some(Position::Visible),
+        "its own window still shows it"
+    );
+    assert_eq!(browser.main_window(), first, "a popup is not where tabs open");
+}
+
+#[test]
+fn an_opener_in_the_background_keeps_running_for_its_popup() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
+    popup_from(&mut browser, ids[0]);
+
+    browser.open_tab("https://b.test", true);
+
+    assert_eq!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn a_link_opened_in_a_new_window_is_not_connected() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let (tab, effects) = browser.open_from(slot, "https://b.test", Opening::Window);
+
+    let window = browser.window_of(tab).unwrap();
+    assert_eq!(browser.kind(window), Some(WindowKind::Normal));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::Adopt { .. })));
+    browser.open_tab_in(browser.window_of(ids[0]).unwrap(), "https://c.test", true);
+    assert_ne!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn a_link_in_a_popup_opens_in_the_window_used_last_and_brings_it_forward() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
+    let first = browser.main_window();
+    let (popup, _) = popup_from(&mut browser, ids[0]);
+    let popup_window = browser.window_of(popup).unwrap();
+    browser.focus(popup_window);
+    let slot = slot_of(&browser, popup).unwrap();
+
+    let (tab, effects) = browser.open_from(slot, "https://b.test", Opening::Foreground);
+
+    assert_eq!(browser.window_of(tab), Some(first));
+    assert_eq!(window_tabs(&browser, popup_window), vec![popup]);
+    assert!(effects.contains(&Effect::FocusWindow { window: first }));
+}
+
+#[test]
+fn a_tab_opened_from_a_popup_window_goes_to_the_window_used_last() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
+    let first = browser.main_window();
+    let (popup, _) = popup_from(&mut browser, ids[0]);
+    let popup_window = browser.window_of(popup).unwrap();
+
+    let (tab, effects) = browser.open_tab_in(popup_window, HOME, true);
+
+    assert_eq!(browser.window_of(tab), Some(first));
+    assert!(effects.contains(&Effect::FocusWindow { window: first }));
+}
+
+#[test]
+fn closing_a_popup_closes_its_window_and_frees_its_opener() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
+    let (popup, _) = popup_from(&mut browser, ids[0]);
+    let window = browser.window_of(popup).unwrap();
+    let slot = slot_of(&browser, popup).unwrap();
+    browser.open_tab("https://b.test", true);
+
+    let effects = browser.close_tab(popup, HOME).unwrap();
+
+    assert!(effects.contains(&Effect::Destroy { slot }));
+    assert!(effects.contains(&Effect::CloseWindow { window }));
+    assert!(browser.tab(popup).is_err());
+    assert!(!browser.window_ids().contains(&window));
+    assert_ne!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn closing_a_window_destroys_its_webviews_and_its_tabs() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(tab).unwrap();
+    let second = browser.open_tab_in(window, "https://c.test", false).0;
+    let slot = slot_of(&browser, tab).unwrap();
+
+    let effects = browser.close_window(window);
+
+    let destroyed = position(&effects, &Effect::Destroy { slot });
+    let closed = position(&effects, &Effect::CloseWindow { window });
+    assert!(destroyed < closed, "a webview goes before its window does");
+    assert!(browser.tab(tab).is_err() && browser.tab(second).is_err());
+    assert!(browser.slots_in(window).is_empty());
+    assert_eq!(ids_of(&browser), ids);
+    assert_eq!(browser.position(ids[0]), Some(Position::Visible));
+}
+
+#[test]
+fn closing_the_last_browser_window_is_left_to_the_caller() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let window = browser.main_window();
+
+    assert!(browser.is_last_window(window));
+    assert!(browser.close_window(window).is_empty());
+    assert_eq!(browser.active(), Some(ids[0]));
+}
+
+#[test]
+fn a_popup_is_never_the_last_window() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let (popup, _) = popup_from(&mut browser, ids[0]);
+
+    assert!(!browser.is_last_window(browser.window_of(popup).unwrap()));
+}
+
+#[test]
+fn closing_the_last_tab_of_a_window_keeps_the_window() {
+    let (mut browser, _) = browser_with(2, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(tab).unwrap();
+
+    browser.close_tab(tab, HOME).unwrap();
+
+    let state = browser.state_in(window).unwrap();
+    assert_eq!(state.tabs.len(), 1);
+    assert_eq!(state.tabs[0].url(), HOME);
+}
+
+#[test]
+fn closing_a_tab_activates_its_neighbour_in_the_same_window() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let (tab, _) = browser.open_window("https://c.test");
+    let window = browser.window_of(tab).unwrap();
+    let last = browser.open_tab_in(window, "https://d.test", true).0;
+
+    browser.close_tab(last, HOME).unwrap();
+
+    assert_eq!(browser.active_in(window), Some(tab));
+    assert_eq!(browser.active_in(browser.window_of(ids[0]).unwrap()), Some(ids[1]));
+}
+
+#[test]
+fn picking_by_position_counts_only_the_window_tabs() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let first = browser.window_of(ids[0]).unwrap();
+    let (tab, _) = browser.open_window("https://c.test");
+    let window = browser.window_of(tab).unwrap();
+
+    assert_eq!(browser.pick_in(window, Pick::Next), Some(tab));
+    assert_eq!(browser.pick_in(window, Pick::Nth(1)), None);
+    assert_eq!(browser.pick_in(first, Pick::Last), Some(ids[1]));
+}
+
+#[test]
+fn reordering_moves_a_tab_among_its_window_tabs() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let first = browser.window_of(ids[0]).unwrap();
+    browser.open_window("https://c.test");
+
+    browser.reorder_tab(ids[1], 0).unwrap();
+
+    assert_eq!(window_tabs(&browser, first), vec![ids[1], ids[0]]);
+}
+
+#[test]
+fn reopening_a_tab_whose_window_closed_puts_it_in_the_window_used_last() {
+    let (mut browser, _) = browser_with(2, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(tab).unwrap();
+    let kept = browser.open_tab_in(window, "https://c.test", true).0;
+    browser.close_tab(kept, HOME).unwrap();
+    browser.close_window(window);
+
+    browser.reopen_closed_tab();
+
+    let reopened = browser.active().unwrap();
+    assert_eq!(browser.tab(reopened).unwrap().url(), "https://c.test");
+    assert_eq!(browser.window_of(reopened), Some(browser.main_window()));
+}
+
+#[test]
+fn tabs_opened_from_nowhere_go_to_the_window_used_last() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let first = browser.window_of(ids[0]).unwrap();
+    browser.open_window("https://b.test");
+
+    browser.focus(first);
+    let (tab, _) = browser.open_tab("https://c.test", true);
+
+    assert_eq!(browser.window_of(tab), Some(first));
+}
+
+#[test]
+fn switching_tabs_in_one_window_captures_only_the_page_it_leaves() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(tab).unwrap();
+
+    let (_, effects) = browser.open_tab_in(window, "https://c.test", true);
+
+    let captured: Vec<TabId> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Leave { tab, capture: true, .. } => Some(*tab),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(captured, vec![tab]);
+    assert_eq!(browser.position(ids[0]), Some(Position::Visible));
 }

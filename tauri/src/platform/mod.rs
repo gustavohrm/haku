@@ -16,7 +16,9 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
-use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, Shortcut, SlotId, WindowRequestId};
+use crate::model::{
+    Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, Placement, Shortcut, SlotId, WindowRequestId,
+};
 
 use memory::{Attribution, SlotMemoryTracker};
 
@@ -66,7 +68,7 @@ pub struct RoundedRect {
 }
 
 /// What a content webview reported about its own navigation.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PageSignal {
     /// The page changed URL, title, or both. `commits` are in the order the
     /// page made them and `title` is the document title after all of them.
@@ -105,8 +107,13 @@ pub enum PageSignal {
         url: String,
         /// Asked for with a size or a position, as a popup is.
         popup: bool,
+        /// The size and position asked for, for a popup.
+        placement: Placement,
         /// Asked for with Ctrl held, as a link opened for later is.
         background: bool,
+        /// Asked for with Shift held and not Ctrl, as a link opened in a new
+        /// browser window is.
+        window: bool,
         /// Asked for in answer to the user, such as a click, rather than by
         /// the page on its own.
         gesture: bool,

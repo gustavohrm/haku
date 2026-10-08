@@ -21,7 +21,7 @@ use serde_json::Value;
 use crate::error::{HakuError, Result};
 
 pub use history_db::HistoryDb;
-pub use session::Session;
+pub use session::{Session, SessionWindow, WindowBounds};
 pub use settings::Settings;
 
 /// Reads a JSON document, layering it over the type's defaults.

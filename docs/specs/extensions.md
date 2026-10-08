@@ -33,7 +33,7 @@ Rejected: one switch for all extensions. Per-extension switches cover that case 
 
 ## The engine is always extension-capable
 
-`AreBrowserExtensionsEnabled` is an option of the WebView2 environment, fixed when it is created, and every webview sharing a profile must agree on it: a content webview created with a different value fails to be created. The chrome window therefore sets `browserExtensionsEnabled` in `tauri.conf.json`, and every content webview sets it on its builder. It is never turned off, because it cannot change while Haku runs; with no extension installed it loads nothing.
+`AreBrowserExtensionsEnabled` is an option of the WebView2 environment, fixed when it is created, and every webview sharing a profile must agree on it: a content webview created with a different value fails to be created. Every window's chrome therefore sets it on its builder in `webview::build_window`, and every content webview sets it on its own. It is never turned off, because it cannot change while Haku runs; with no extension installed it loads nothing.
 
 ## Popups
 
