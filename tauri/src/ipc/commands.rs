@@ -18,7 +18,7 @@
 //! not. What a page is showing is observed from Rust instead, through
 //! [`page_observer`].
 
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, OnceLock};
 use std::time::Duration;
 
 use tauri::{Manager, State};
@@ -96,10 +96,7 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     let _ = StateChanged(snapshot).emit(app);
                 }
             }
-            PageSignal::Shortcut(shortcut) => {
-                let app = app.clone();
-                std::thread::spawn(move || run_shortcut(&app, shortcut));
-            }
+            PageSignal::Shortcut(shortcut) => queue_shortcut(app, shortcut),
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -116,10 +113,28 @@ fn page_observer() -> PageObserver<tauri::Wry> {
 /// Runs the shortcuts pressed while the interface has focus. Pages report
 /// theirs through [`page_observer`], so both reach [`run_shortcut`].
 pub fn shortcut_sink(app: tauri::AppHandle) -> KeySink {
-    Arc::new(move |shortcut| {
+    Arc::new(move |shortcut| queue_shortcut(&app, shortcut))
+}
+
+/// Runs shortcuts one at a time, in the order they were pressed.
+///
+/// A shortcut changes the browser and then applies the change to webviews,
+/// and only the first half holds the browser's lock. Run side by side, two
+/// quick Ctrl+Tabs could show their pages in the opposite order to the one
+/// the browser recorded, leaving the selected tab showing another's page.
+fn queue_shortcut(app: &tauri::AppHandle, shortcut: Shortcut) {
+    static QUEUE: OnceLock<mpsc::Sender<Shortcut>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel();
         let app = app.clone();
-        std::thread::spawn(move || run_shortcut(&app, shortcut));
-    })
+        std::thread::spawn(move || {
+            for shortcut in receiver {
+                run_shortcut(&app, shortcut);
+            }
+        });
+        sender
+    });
+    let _ = queue.send(shortcut);
 }
 
 /// Does what a shortcut asks, to the active tab.
