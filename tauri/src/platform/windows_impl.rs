@@ -12,6 +12,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -19,11 +20,12 @@ use std::time::{Duration, Instant};
 use tauri::Manager;
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, ICoreWebView2Controller,
-    ICoreWebView2Deferral, ICoreWebView2Environment13, ICoreWebView2FrameInfo, ICoreWebView2FrameInfo2,
-    ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2ProcessExtendedInfoCollection,
-    ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2_19, ICoreWebView2_2, ICoreWebView2_20, ICoreWebView2_3,
-    ICoreWebView2_8, COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+    ICoreWebView2, ICoreWebView2BrowserExtension, ICoreWebView2CallDevToolsProtocolMethodCompletedHandler,
+    ICoreWebView2Controller, ICoreWebView2Deferral, ICoreWebView2Environment13, ICoreWebView2FrameInfo,
+    ICoreWebView2FrameInfo2, ICoreWebView2NavigationStartingEventArgs3, ICoreWebView2ProcessExtendedInfoCollection,
+    ICoreWebView2Profile7, ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2_13, ICoreWebView2_19,
+    ICoreWebView2_2, ICoreWebView2_20, ICoreWebView2_3, ICoreWebView2_8,
+    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
     COREWEBVIEW2_NAVIGATION_KIND, COREWEBVIEW2_NAVIGATION_KIND_BACK_OR_FORWARD, COREWEBVIEW2_PROCESS_KIND,
     COREWEBVIEW2_PROCESS_KIND_BROWSER, COREWEBVIEW2_PROCESS_KIND_GPU, COREWEBVIEW2_PROCESS_KIND_RENDERER,
@@ -36,14 +38,15 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_PHYSICAL_KEY_STATUS,
 };
 use webview2_com::{
-    take_pwstr, AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
-    CapturePreviewCompletedHandler, DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler,
-    IsDocumentPlayingAudioChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
+    CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, DOMContentLoadedEventHandler,
+    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
+    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, ProfileAddBrowserExtensionCompletedHandler,
     ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR,
 };
@@ -91,6 +94,10 @@ thread_local! {
     /// The chrome webview's DevTools session and what it has seen of the
     /// profile's service workers. UI-thread only, like the webview itself.
     static WORKERS: RefCell<Option<(ICoreWebView2, WorkerTracker)>> = const { RefCell::new(None) };
+
+    /// Extensions this process installed, by id, as the engine handed them
+    /// over, to switch on and off. UI-thread only, like the engine's objects.
+    static EXTENSIONS: RefCell<HashMap<String, ICoreWebView2BrowserExtension>> = RefCell::new(HashMap::new());
 }
 
 /// Runs `action` against the container HWND of `webview`, on the UI thread.
@@ -904,4 +911,89 @@ unsafe fn drain(core: &ICoreWebView2, sink: PageSink, new_document: Option<bool>
         Ok(())
     }));
     core.ExecuteScript(&HSTRING::from(inject::navigation_drain_expression()), &handler)
+}
+
+/// Runs `start` against the chrome's profile on the UI thread and waits for
+/// the result it sends once the engine's callback arrives.
+///
+/// Every webview shares the profile, so an extension installed through it
+/// runs in every page.
+fn with_profile<R, T, F>(chrome: &tauri::Webview<R>, step: &'static str, start: F) -> Result<T>
+where
+    R: tauri::Runtime,
+    T: Send + 'static,
+    F: FnOnce(ICoreWebView2Profile7, mpsc::Sender<Result<T>>) -> windows::core::Result<()> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel();
+    chrome
+        .with_webview(move |platform| {
+            let profile = unsafe {
+                platform
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|core| core.cast::<ICoreWebView2_13>())
+                    .and_then(|core| core.Profile())
+                    .and_then(|profile| profile.cast::<ICoreWebView2Profile7>())
+            };
+            let started = profile.and_then(|profile| start(profile, sender.clone()));
+            if let Err(error) = started {
+                let _ = sender.send(Err(engine_error(step, &error)));
+            }
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|_| HakuError::Unsupported(format!("{step}: the engine did not answer")))?
+}
+
+fn engine_error(step: &str, error: &windows::core::Error) -> HakuError {
+    HakuError::Unsupported(format!("{step}: {error}"))
+}
+
+pub fn install_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, folder: &Path) -> Result<(String, String)> {
+    let folder = HSTRING::from(folder);
+    with_profile(chrome, "installing", move |profile, sender| unsafe {
+        let handler = ProfileAddBrowserExtensionCompletedHandler::create(Box::new(move |status, extension| {
+            let outcome = status.and_then(|()| {
+                let extension = extension.ok_or_else(|| windows::core::Error::from(E_POINTER))?;
+                let (mut id, mut name) = (PWSTR::null(), PWSTR::null());
+                extension.Id(&mut id)?;
+                extension.Name(&mut name)?;
+                let (id, name) = (take_pwstr(id), take_pwstr(name));
+                // Kept so it can be switched without listing the profile's
+                // extensions again. The handler runs on the UI thread, where
+                // the map lives.
+                EXTENSIONS.with(|extensions| extensions.borrow_mut().insert(id.clone(), extension));
+                Ok((id, name))
+            });
+            let _ = sender.send(outcome.map_err(|error| engine_error("installing", &error)));
+            Ok(())
+        }));
+        profile.AddBrowserExtension(&folder, &handler)
+    })
+}
+
+pub fn set_extension_enabled<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: String, enabled: bool) -> Result<()> {
+    let step = if enabled { "enabling" } else { "disabling" };
+    with_profile(chrome, step, move |_, sender| unsafe {
+        let Some(extension) = EXTENSIONS.with(|extensions| extensions.borrow().get(&id).cloned()) else {
+            // Not installed by this process: nothing to switch.
+            let _ = sender.send(Ok(()));
+            return Ok(());
+        };
+        let done = move |status: windows::core::Result<()>| {
+            let _ = sender.send(status.map_err(|error| engine_error(step, &error)));
+            Ok(())
+        };
+        extension.Enable(enabled, &BrowserExtensionEnableCompletedHandler::create(Box::new(done)))
+    })
+}
+
+pub fn reveal_folder(folder: &Path) -> Result<()> {
+    std::process::Command::new("explorer")
+        .arg(folder)
+        .spawn()
+        .map(drop)
+        .map_err(|error| HakuError::Unsupported(format!("opening {}: {error}", folder.display())))
 }

@@ -70,11 +70,19 @@ export const commands = {
 	 *  content webviews, and a capture shows another tab's page.
 	 */
 	tabPreview: (id: TabId) => typedError<string | null, HakuError>(__TAURI_INVOKE("tab_preview", { id })),
+	/**  The extensions the extensions folder installed. */
+	extensions: () => typedError<Extensions, HakuError>(__TAURI_INVOKE("extensions")),
+	/**
+	 *  Opens the extensions folder, creating it first, so an unpacked extension
+	 *  can be dropped in.
+	 */
+	openExtensionsFolder: () => typedError<null, HakuError>(__TAURI_INVOKE("open_extensions_folder")),
 };
 
 /** Events */
 export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
+	extensionsChanged: makeEvent<ExtensionsChanged>("extensions-changed"),
 	memoryChanged: makeEvent<MemoryChanged>("memory-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	stateChanged: makeEvent<StateChanged>("state-changed"),
@@ -114,6 +122,35 @@ export type DialogId = number;
 export type DialogKind = "alert" | "confirm" | "prompt" | 
 /**  "Leave site?", raised by a page's `beforeunload` handler. */
 "beforeUnload";
+
+/**  An installed extension, as the interface lists it. */
+export type Extension = {
+	id: string,
+	name: string,
+	/**
+	 *  The page its toolbar button would open, as a `chrome-extension://`
+	 *  URL. The engine draws no toolbar, so it is opened as a tab instead.
+	 */
+	popup: string | null,
+};
+
+/**  What the extensions folder holds, as last installed. */
+export type Extensions = {
+	installed: Extension[],
+	/**
+	 *  Folders the engine would not install, by name, so a broken or
+	 *  unsupported extension is not silently missing.
+	 */
+	failed: string[],
+	/**  The first other failure while installing the folder, if any. */
+	error: HakuError | null,
+};
+
+/**
+ *  Emitted once the extensions folder has been installed, which happens after
+ *  the interface may already have asked for the list.
+ */
+export type ExtensionsChanged = Extensions;
 
 /**
  *  Every failure Haku exposes across the IPC boundary.
@@ -303,6 +340,12 @@ export type Settings = {
 	locale: string,
 	searchUrl: string,
 	homeUrl: string,
+	/**
+	 *  Ids of installed extensions the user switched off. Extensions are
+	 *  installed by placing them in the extensions folder, so this holds only
+	 *  the exceptions, and every new extension starts enabled.
+	 */
+	disabledExtensions: string[],
 };
 
 export type SettingsChanged = Settings;

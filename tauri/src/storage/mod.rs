@@ -82,6 +82,8 @@ pub struct Paths {
     pub settings: PathBuf,
     pub session: PathBuf,
     pub history: PathBuf,
+    /// One unpacked Chrome extension per subfolder, installed at startup.
+    pub extensions: PathBuf,
 }
 
 impl Paths {
@@ -90,6 +92,7 @@ impl Paths {
             settings: root.join("settings.json"),
             session: root.join("session.json"),
             history: root.join("history.sqlite"),
+            extensions: root.join("extensions"),
         }
     }
 }

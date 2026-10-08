@@ -314,6 +314,9 @@ fn ensure_slot<R: tauri::Runtime>(
     // attached.
     let builder = tauri::webview::WebviewBuilder::new(slot.label(), WebviewUrl::External(parse_url(BLANK_URL)?))
         .user_agent(USER_AGENT)
+        // Every webview sharing a profile must agree on this, the chrome
+        // included; see `tauri.conf.json`.
+        .browser_extensions_enabled(true)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
         .initialization_script(inject::page_state_script());

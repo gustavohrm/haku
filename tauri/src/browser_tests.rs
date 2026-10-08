@@ -515,6 +515,10 @@ fn reordering_past_the_end_clamps_to_the_last_position() {
 fn an_address_with_a_scheme_is_used_as_typed() {
     assert_eq!(resolve_target("https://a.test/x", SEARCH), "https://a.test/x");
     assert_eq!(resolve_target("haku://settings", SEARCH), "haku://settings");
+    assert_eq!(
+        resolve_target("chrome-extension://abc/popup.html", SEARCH),
+        "chrome-extension://abc/popup.html"
+    );
 }
 
 #[test]

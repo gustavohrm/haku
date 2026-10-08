@@ -18,7 +18,8 @@
         "maximized": true,
         "minHeight": 480,
         "minWidth": 640,
-        "decorations": false
+        "decorations": false,
+        "browserExtensionsEnabled": true
       }
     ],
     "security": {

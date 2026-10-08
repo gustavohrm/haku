@@ -1274,7 +1274,13 @@ pub fn resolve_target(input: &str, search_url: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    if is_internal(trimmed) || trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+    // An extension's own pages are reached by address: the engine draws no
+    // toolbar to open its popup from.
+    if is_internal(trimmed)
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("chrome-extension://")
+    {
         return trimmed.to_string();
     }
     // A single token with a dot and no spaces is a host, anything else is a query.

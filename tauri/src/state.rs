@@ -8,7 +8,7 @@ use specta::Type;
 use crate::browser::{Browser, Position};
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
-use crate::model::{Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId};
+use crate::model::{Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId};
 use crate::platform::memory::{Attribution, UnattributedProcess};
 use crate::storage::{HistoryDb, Paths, Session, Settings};
 use crate::webview::Viewport;
@@ -140,6 +140,8 @@ pub struct AppState {
     /// What each tab showed as it was left, to cover its page while it
     /// reloads. Never written to disk.
     pub previews: Mutex<Previews>,
+    /// What the extensions folder installed at startup.
+    pub extensions: RwLock<Extensions>,
     pub paths: Paths,
 }
 
@@ -153,6 +155,7 @@ impl AppState {
             last_viewport: RwLock::new(Viewport::default()),
             memory: RwLock::new(MemoryReading::default()),
             previews: Mutex::new(Previews::default()),
+            extensions: RwLock::new(Extensions::default()),
             paths,
         }
     }

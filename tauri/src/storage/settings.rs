@@ -31,6 +31,10 @@ pub struct Settings {
     pub locale: String,
     pub search_url: String,
     pub home_url: String,
+    /// Ids of installed extensions the user switched off. Extensions are
+    /// installed by placing them in the extensions folder, so this holds only
+    /// the exceptions, and every new extension starts enabled.
+    pub disabled_extensions: Vec<String>,
 }
 
 impl Default for Settings {
@@ -45,6 +49,7 @@ impl Default for Settings {
             locale: "en".into(),
             search_url: DEFAULT_SEARCH_URL.into(),
             home_url: DEFAULT_HOME_URL.into(),
+            disabled_extensions: Vec::new(),
         }
     }
 }
