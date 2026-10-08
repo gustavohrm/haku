@@ -538,7 +538,6 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
         std::mem::replace(&mut *current, settings.clone())
     };
     state.save_settings()?;
-    switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
@@ -548,6 +547,10 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
     })?;
 
     SettingsChanged(settings.clone()).emit(app).map_err(HakuError::from)?;
+    // Last, so a switch the engine refuses is reported without leaving the
+    // interface showing other settings than the ones stored. The stored
+    // setting stands and is applied again at the next start.
+    switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
     Ok(settings)
 }
 
