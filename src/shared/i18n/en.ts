@@ -38,6 +38,8 @@ export const en = {
   "window.maximize": "Maximize",
   "window.close": "Close",
 
+  "popup.address": "Page address",
+
   "settings.title": "Settings",
   "settings.appearance": "Appearance",
   "settings.theme": "Theme",

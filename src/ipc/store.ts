@@ -7,6 +7,7 @@
  */
 
 import { events, type BrowserState, type Settings } from "@bindings";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { commands } from "./commands";
 import { unwrap } from "./result";
@@ -43,7 +44,7 @@ export function createStore<T>(initial: T): ExternalStore<T> {
   };
 }
 
-export const EMPTY_STATE: BrowserState = { tabs: [], active: null, capacity: 1, liveCount: 0 };
+export const EMPTY_STATE: BrowserState = { kind: "normal", tabs: [], active: null, capacity: 1, liveCount: 0 };
 
 export const browserStore = createStore<BrowserState>(EMPTY_STATE);
 export const settingsStore = createStore<Settings | null>(null);
@@ -54,11 +55,15 @@ export const settingsStore = createStore<Settings | null>(null);
  * Listeners are attached before the snapshot is fetched so that a change landing
  * during startup is not lost between the two.
  *
+ * Browser state is this window's own, so it is listened for on this webview
+ * only: a listener for any target also receives what Rust sends every other
+ * window.
+ *
  * @returns A function that detaches both listeners.
  */
 export async function connect(): Promise<() => void> {
   const [stopState, stopSettings] = await Promise.all([
-    events.stateChanged.listen((event) => browserStore.set(event.payload)),
+    events.stateChanged(getCurrentWebview()).listen((event) => browserStore.set(event.payload)),
     events.settingsChanged.listen((event) => settingsStore.set(event.payload)),
   ]);
 

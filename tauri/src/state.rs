@@ -8,10 +8,10 @@ use specta::Type;
 use crate::browser::{Browser, Position};
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
-use crate::model::{Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId};
+use crate::model::{Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId, WindowId};
 use crate::platform::memory::{Attribution, UnattributedProcess};
-use crate::storage::{HistoryDb, Paths, Session, Settings};
-use crate::webview::Viewport;
+use crate::storage::{HistoryDb, Paths, Session, Settings, WindowBounds};
+use crate::webview::Viewports;
 
 /// Milliseconds since the Unix epoch.
 ///
@@ -128,14 +128,12 @@ pub struct AppState {
     pub browser: RwLock<Browser>,
     pub settings: RwLock<Settings>,
     pub history: Mutex<HistoryDb>,
-    pub layout: RwLock<Layout>,
-    /// The last rectangle page content was given.
-    ///
-    /// An internal page reports no viewport, because the chrome covers the whole
-    /// window while one is open. Content webviews still belong at the last real
-    /// rectangle, so remembering it keeps a webview created while an internal
-    /// page is showing from being built at zero size and staying invisible.
-    last_viewport: RwLock<Viewport>,
+    /// Where each window's page content goes.
+    pub viewports: Viewports,
+    /// Where each window was last seen on screen, for the session. Kept as
+    /// windows move rather than read when the session is saved, because it is
+    /// saved from the UI thread too, where reading a window waits on itself.
+    pub bounds: RwLock<HashMap<WindowId, WindowBounds>>,
     pub memory: RwLock<MemoryReading>,
     /// What each tab showed as it was left, to cover its page while it
     /// reloads. Never written to disk.
@@ -151,8 +149,8 @@ impl AppState {
             browser: RwLock::new(browser),
             settings: RwLock::new(settings),
             history: Mutex::new(history),
-            layout: RwLock::new(Layout::default()),
-            last_viewport: RwLock::new(Viewport::default()),
+            viewports: Viewports::default(),
+            bounds: RwLock::new(HashMap::new()),
             memory: RwLock::new(MemoryReading::default()),
             previews: Mutex::new(Previews::default()),
             extensions: RwLock::new(Extensions::default()),
@@ -160,27 +158,14 @@ impl AppState {
         }
     }
 
-    /// Where content webviews belong.
-    ///
-    /// Zero until the interface has reported a layout, which keeps a webview
-    /// from being created at a meaningless position during startup.
-    pub fn viewport(&self) -> Viewport {
-        self.last_viewport.read().map(|viewport| *viewport).unwrap_or_default()
-    }
-
-    /// Records a reported layout, keeping the last real viewport.
-    pub fn set_layout(&self, layout: Layout) {
+    /// Records a window's reported layout, keeping the last real viewport.
+    pub fn set_layout(&self, window: WindowId, layout: &Layout) {
         if let Some(viewport) = layout.viewport {
-            if let Ok(mut last) = self.last_viewport.write() {
-                *last = viewport;
-            }
-        }
-        if let Ok(mut current) = self.layout.write() {
-            *current = layout;
+            self.viewports.set(window, viewport);
         }
     }
 
-    /// Persists the open tabs so the next launch restores them.
+    /// Persists the open windows and tabs so the next launch restores them.
     ///
     /// # Errors
     /// Returns [`HakuError::Storage`] when the session file cannot be written.
@@ -189,7 +174,11 @@ impl AppState {
             .browser
             .read()
             .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        crate::storage::write_json(&self.paths.session, &Session::capture(&browser))
+        let bounds = self
+            .bounds
+            .read()
+            .map_err(|_| HakuError::Storage("bounds lock poisoned".into()))?;
+        crate::storage::write_json(&self.paths.session, &Session::capture(&browser, &bounds))
     }
 
     /// # Errors

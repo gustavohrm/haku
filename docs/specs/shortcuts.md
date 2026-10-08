@@ -14,7 +14,7 @@ The handler is attached to the chrome and to every content webview, so a shortcu
 
 A held key repeats. Only the first press runs its shortcut; repeats are still kept from the page. Otherwise holding Ctrl+T would open a tab per repeat.
 
-Shortcuts run off the UI thread, like commands, because most of them drive webviews. They act on the active tab.
+Shortcuts run off the UI thread, like commands, because most of them drive webviews. They act on the active tab of the window they were pressed in. In a popup, which shows one page, a shortcut that opens a tab opens it in the browser window used last ([Windows and popups](new-windows.md#windows)).
 
 ## The keymap
 
@@ -23,6 +23,7 @@ Bindings follow Chrome's, because that is what users' hands already know. Modifi
 | Keys                        | Does                                 |
 | --------------------------- | ------------------------------------ |
 | Ctrl+T                      | Open a new tab, in the address field |
+| Ctrl+N                      | Open a new browser window            |
 | Ctrl+W, Ctrl+F4             | Close the tab                        |
 | Ctrl+Shift+T                | Reopen the last closed tab           |
 | Ctrl+Tab, Ctrl+PageDown     | Next tab, wrapping                   |
@@ -38,11 +39,11 @@ The keymap is fixed. Making it configurable is a settings format, and nothing ne
 
 ## Focusing the address field
 
-Focusing the address field from a page first moves keyboard focus to the chrome webview, then emits `AddressFocusRequested` with the tab it is for. The event names the tab because Ctrl+T requests focus for a tab the interface has not rendered yet. The interface focuses the field when that tab is active, and holds the request until it is.
+Focusing the address field from a page first moves keyboard focus to the chrome webview of the tab's window, then emits `AddressFocusRequested` to that chrome alone, with the tab it is for. The event names the tab because Ctrl+T requests focus for a tab the interface has not rendered yet. The interface focuses the field when that tab is active, and holds the request until it is. A popup has no address field, so there it does nothing, and focus stays on the page.
 
 ## Reopening closed tabs
 
-Closing a tab remembers it, with its position, its whole back and forward history, its scroll and the form contents Rust holds for it ([Tab optimization](tab-optimization.md)). Ctrl+Shift+T reopens the most recent one under a new id. A web page comes back discarded, so it loads into whatever slot it gets and its scroll and drafts are put back as for any discarded tab; an internal page is drawn by the chrome again.
+Closing a tab remembers it, with its position, its whole back and forward history, its scroll and the form contents Rust holds for it ([Tab optimization](tab-optimization.md)). Ctrl+Shift+T reopens the most recent one under a new id, in the window it was closed in, or in the browser window used last if that one has closed. A web page comes back discarded, so it loads into whatever slot it gets and its scroll and drafts are put back as for any discarded tab; an internal page is drawn by the chrome again.
 
 The position is the index the tab had when it closed, clamped to the strip as it is now. That is exact when nothing else changed in between; after other tabs were opened or closed, the tab lands near where it was rather than exactly there.
 

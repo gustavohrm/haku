@@ -46,7 +46,7 @@ Freezing is not rationed. A kept tab is frozen because a frozen page costs no mo
 A background tab must run while any of these holds:
 
 - it is **fixed** (the user's _Keep loaded_);
-- a **tab connected to it** is still open, such as a sign-in popup ([New windows](new-windows.md#connected-tabs));
+- a **tab connected to it** is still open, such as a sign-in popup ([Windows and popups](new-windows.md#connected-pages));
 - it is **playing audio**;
 - it is **capturing** the camera, the microphone or the screen.
 

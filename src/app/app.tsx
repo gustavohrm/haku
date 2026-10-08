@@ -1,15 +1,17 @@
 import { renderInternal } from "@app/router";
 import { applyTheme, isThemePreference } from "@app/theme";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
+import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
 import { Toolbar } from "@features/toolbar/toolbar";
 import { PreviewCover, usePreviewCover } from "@features/viewport/preview-cover";
 import { useChromeLayout } from "@features/viewport/use-chrome-layout";
 import { WindowControls } from "@features/window-controls/window-controls";
-import { useActiveTab, useSettings } from "@ipc/hooks";
+import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
 import { useEffect, useRef } from "react";
 
 export function App() {
+  const { kind } = useBrowserState();
   const tab = useActiveTab();
   const settings = useSettings();
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -36,12 +38,19 @@ export function App() {
     // Compact is the default density; the attribute is where a density setting
     // will plug in.
     <div className="flex h-full flex-col" data-density="compact">
-      <header className="haku-bar flex h-8.5 shrink-0 items-center gap-2 pl-1.5" data-tauri-drag-region>
-        <TabStrip />
-        <WindowControls />
-      </header>
+      {/* A popup shows one page, so it has no tabs and no address to edit. */}
+      {kind === "popup" ? (
+        <PopupBar tab={tab} />
+      ) : (
+        <>
+          <header className="haku-bar flex h-8.5 shrink-0 items-center gap-2 pl-1.5" data-tauri-drag-region>
+            <TabStrip />
+            <WindowControls />
+          </header>
 
-      <Toolbar tab={tab} />
+          <Toolbar tab={tab} />
+        </>
+      )}
 
       {/*
         The page surface. When a web page is showing this is an empty element:

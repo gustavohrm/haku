@@ -65,6 +65,7 @@ impl Chord {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shortcut {
     NewTab,
+    NewWindow,
     CloseTab,
     ReopenClosedTab,
     NextTab,
@@ -89,6 +90,7 @@ pub fn shortcut_for(chord: Chord) -> Option<Shortcut> {
     let Chord { key, ctrl, shift, alt } = chord;
     let shortcut = match (ctrl, shift, alt, key) {
         (true, false, false, Letter('T')) => Shortcut::NewTab,
+        (true, false, false, Letter('N')) => Shortcut::NewWindow,
         (true, false, false, Letter('W') | Function(4)) => Shortcut::CloseTab,
         (true, true, false, Letter('T')) => Shortcut::ReopenClosedTab,
         (true, false, false, Tab | PageDown) => Shortcut::NextTab,
@@ -114,6 +116,7 @@ mod tests {
     #[test]
     fn tab_shortcuts_follow_chrome() {
         assert_eq!(shortcut_for(Chord::ctrl(Key::Letter('T'))), Some(Shortcut::NewTab));
+        assert_eq!(shortcut_for(Chord::ctrl(Key::Letter('N'))), Some(Shortcut::NewWindow));
         assert_eq!(shortcut_for(Chord::ctrl(Key::Letter('W'))), Some(Shortcut::CloseTab));
         assert_eq!(
             shortcut_for(Chord::ctrl_shift(Key::Letter('T'))),

@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-06
+last_updated: 2026-10-08
 ---
 
 # App architecture
@@ -121,9 +121,9 @@ This is not a theoretical concern: it was the cause of a silent failure where we
 
 Content webviews load arbitrary remote pages, so they are given nothing:
 
-- The Tauri capability is scoped to `webviews: ["main"]`. The chrome webview alone receives core permissions. It must not name `windows`: a window scope also covers every child webview in the window, content webviews included.
+- The Tauri capability is scoped to `webviews: ["window-*"]`, the label each window's chrome shares with its window. Chrome webviews alone receive core permissions; content webviews are labelled `content-N`, which the pattern never matches. It must not name `windows`: a window scope also covers every child webview in the window, content webviews included.
 - No capability grants remote origins IPC access, so a page has no channel into the application at all.
-- Every command guards with `ensure_chrome`, rejecting any caller that is not the interface.
+- Every command guards with `ensure_chrome`, rejecting any caller that is not a window's interface, and acts for the window that called it.
 - Page metadata is observed from Rust rather than reported by the page. Rust evaluates an expression in the page to read what an injected script recorded; the page has no way to call back. See [Page observation](specs/page-observation.md).
 - Dialogs a page opens are drawn by the chrome, titled with the requesting site, so a page cannot present its text as Haku's.
 

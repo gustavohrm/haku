@@ -73,7 +73,7 @@ use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
 use crate::model::{
     shortcut_for, Chord, Commit, DialogAnswer, DialogId, DialogKind, Key, MemoryStatus, NavigationKind, PageDialog,
-    SlotId, WindowRequestId,
+    Placement, SlotId, WindowRequestId,
 };
 use crate::webview::inject;
 
@@ -725,10 +725,10 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     };
     core.add_ScriptDialogOpening(&on_dialog, &mut token)?;
 
-    // Haku opens no windows yet; every one a page asks for opens in a tab.
-    // wry has already marked the request handled, which on its own opens
-    // nothing; the page waits on a deferral until a webview is handed to it
-    // or it is refused.
+    // Haku opens every window itself, as a tab or a window of its own. wry
+    // has already marked the request handled, which on its own opens nothing;
+    // the page waits on a deferral until a webview is handed to it or it is
+    // refused.
     let on_window = {
         let sink = sink.clone();
         NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
@@ -741,6 +741,23 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
             let (mut sized, mut placed) = (BOOL::default(), BOOL::default());
             features.HasSize(&mut sized)?;
             features.HasPosition(&mut placed)?;
+            let (mut left, mut top, mut width, mut height) = (0u32, 0u32, 0u32, 0u32);
+            if placed.as_bool() {
+                features.Left(&mut left)?;
+                features.Top(&mut top)?;
+            }
+            if sized.as_bool() {
+                features.Width(&mut width)?;
+                features.Height(&mut height)?;
+            }
+            // The engine hands a position left of or above the main screen,
+            // which is negative, wrapped into its unsigned type.
+            let placement = Placement {
+                position: placed
+                    .as_bool()
+                    .then(|| (f64::from(left.cast_signed()), f64::from(top.cast_signed()))),
+                size: sized.as_bool().then(|| (f64::from(width), f64::from(height))),
+            };
             // The physical keys: the click happened in the engine's process,
             // so this thread's own key state may not have seen it.
             let held = |key: VIRTUAL_KEY| GetAsyncKeyState(i32::from(key.0)) < 0;
@@ -752,8 +769,10 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
                 request,
                 url: take_pwstr(uri),
                 popup: sized.as_bool() || placed.as_bool(),
+                placement,
                 // Ctrl+Shift opens a link in the foreground, as in Chrome.
                 background: held(VK_CONTROL) && !held(VK_SHIFT),
+                window: held(VK_SHIFT) && !held(VK_CONTROL),
                 gesture: gesture.as_bool(),
             });
             Ok(())

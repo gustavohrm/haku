@@ -9,9 +9,9 @@
 //! applies to real webviews. That split is what makes tab and pool behaviour
 //! testable without a window.
 //!
-//! The interface is a React application in the `main` webview. It holds no tab
-//! state of its own; it sends intents and renders the state events it receives.
-//! That is what will let a second window join later without a rewrite.
+//! The interface is a React application in each window's chrome webview. It
+//! holds no tab state of its own; it sends intents and renders the state
+//! events it receives, so every window renders the one browser.
 //!
 //! ## Layering
 //!
@@ -33,9 +33,10 @@ pub mod webview;
 
 use tauri::Manager;
 
-use crate::model::Preset;
+use crate::model::{Preset, WindowKind};
 use crate::state::AppState;
 use crate::storage::{HistoryDb, Paths, Session, Settings};
+use crate::webview::Frame;
 
 /// Builds and runs the application.
 ///
@@ -48,6 +49,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .invoke_handler(ipc.invoke_handler())
+        .on_window_event(ipc::commands::on_window_event)
         .setup(move |app| {
             ipc.mount_events(app);
 
@@ -64,30 +66,46 @@ pub fn run() {
             let session: Session = storage::read_json(&paths.session);
             let history = HistoryDb::open(&paths.history).expect("could not open the history database");
 
-            let browser = session
-                .restore(settings.pool_capacity(), &settings.home_url)
+            let (browser, restored) = session.restore(settings.pool_capacity(), &settings.home_url);
+            let browser = browser
                 .with_policies(settings.freeze_tabs, settings.discard_tabs)
                 .with_keeping(settings.kept_memory_bytes(), settings.kept_sites.clone());
+            let windows: Vec<_> = browser.window_ids().into_iter().zip(restored).collect();
             app.manage(AppState::new(browser, settings, history, paths));
             if first_launch {
                 let _ = app.state::<AppState>().save_settings();
             }
+
+            // A window that is not moved before the next save keeps its place.
+            if let Ok(mut bounds) = app.state::<AppState>().bounds.write() {
+                for (window, restored) in &windows {
+                    if let Some(restored) = restored.bounds {
+                        bounds.insert(*window, restored);
+                    }
+                }
+            }
+            for (window, restored) in &windows {
+                let frame = restored.bounds.map_or(Frame::Maximized, Frame::Bounds);
+                webview::build_window(app.handle(), *window, WindowKind::Normal, frame)?;
+            }
             ipc::commands::tick_periodically(app.handle().clone());
 
-            // The chrome starts underneath any content webview created later, so
-            // it is lifted once here and again after every slot is created. It
-            // also watches for service workers left running by pages that have
-            // gone, which would otherwise hold their memory indefinitely, and
-            // installs the extensions folder and takes the browser's shortcuts
-            // while the interface has focus.
+            // Each chrome starts underneath any content webview created later,
+            // so it is lifted once here and again after every slot is created,
+            // and takes the browser's shortcuts while the interface has focus.
+            // The first also watches for service workers left running by pages
+            // that have gone, which would otherwise hold their memory
+            // indefinitely, and installs the extensions folder.
             // Setup runs on the main thread and raising dispatches back to it,
             // so this has to happen off that thread or it would wait forever.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
+                let keys = ipc::commands::hooks().keys;
+                for (window, _) in &windows {
+                    let _ = webview::prepare_chrome(&handle, *window, &keys);
+                }
                 if let Ok(chrome) = webview::chrome(&handle) {
-                    let _ = platform::raise_chrome(&chrome);
                     let _ = platform::stop_idle_workers(&chrome);
-                    let _ = platform::intercept_keys(&chrome, ipc::commands::shortcut_sink(handle.clone()));
                     ipc::commands::sync_extensions(&handle);
                 }
             });

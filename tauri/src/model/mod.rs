@@ -20,4 +20,4 @@ pub use pool::{Acquired, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
 pub use preview::{jpeg_data_url, Previews};
 pub use tab::{host_of, is_internal, Scroll, Tab, TabId, TabPresence};
-pub use window::WindowRequestId;
+pub use window::{Placement, WindowId, WindowKind, WindowRequestId, WINDOW_LABEL_PREFIX};

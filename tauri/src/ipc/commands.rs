@@ -4,7 +4,8 @@
 //!
 //! Application commands are reachable from any webview in the process, and
 //! content webviews load arbitrary remote pages. Every command here therefore
-//! rejects callers that are not the chrome.
+//! rejects callers that are not a window's chrome, and acts for the window
+//! whose chrome called it.
 //!
 //! ## Threading
 //!
@@ -24,33 +25,38 @@ use std::time::Duration;
 use tauri::{Manager, State};
 use tauri_specta::Event;
 
-use crate::browser::{resolve_target, BrowserState, Direction, Effect, Opening, PageReport, Pick};
+use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport, Pick};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Preset, Pressure, Shortcut,
-    SlotId, TabId, WindowRequestId,
+    is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Placement, Preset, Pressure,
+    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, KeySink, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
-use crate::storage::Settings;
-use crate::webview::{self, Departure, PageObserver, PageReading, CHROME_LABEL};
+use crate::storage::{Settings, WindowBounds};
+use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{AddressFocusRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
 
 /// Rejects a command that only the interface may issue.
 ///
+/// @returns The window whose chrome called.
+///
 /// # Errors
 /// Returns [`HakuError::Unsupported`] when the caller is a content webview.
-fn ensure_chrome(webview: &tauri::Webview) -> Result<()> {
-    if webview.label() == CHROME_LABEL {
-        return Ok(());
+fn ensure_chrome(webview: &tauri::Webview) -> Result<WindowId> {
+    WindowId::from_label(webview.label())
+        .ok_or_else(|| HakuError::Unsupported(format!("{} may not call browser commands", webview.label())))
+}
+
+/// What every webview Haku creates is given to report through.
+pub fn hooks() -> Hooks<tauri::Wry> {
+    Hooks {
+        page: page_observer(),
+        keys: Arc::new(|app: &tauri::AppHandle, window: WindowId| shortcut_sink(app.clone(), window)),
     }
-    Err(HakuError::Unsupported(format!(
-        "{} may not call browser commands",
-        webview.label()
-    )))
 }
 
 /// Observes what content webviews load, without the pages taking part.
@@ -94,17 +100,29 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     .browser
                     .write()
                     .ok()
-                    .and_then(|mut browser| browser.report_loaded(slot, &url).then(|| browser.state()));
-                if let Some(snapshot) = loaded {
-                    let _ = StateChanged(snapshot).emit(app);
+                    .and_then(|mut browser| browser.report_loaded(slot, &url).then(|| window_states(&browser)));
+                if let Some(states) = loaded {
+                    emit_states(app, states);
                 }
             }
-            PageSignal::Shortcut(shortcut) => queue_shortcut(app, shortcut),
+            PageSignal::Shortcut(shortcut) => {
+                let window = app.state::<AppState>().browser.read().ok().map(|browser| {
+                    browser
+                        .tab_in(slot)
+                        .and_then(|tab| browser.window_of(tab))
+                        .unwrap_or_else(|| browser.main_window())
+                });
+                if let Some(window) = window {
+                    queue_shortcut(app, window, shortcut);
+                }
+            }
             PageSignal::WindowRequested {
                 request,
                 url,
                 popup,
+                placement,
                 background,
+                window,
                 gesture,
             } => queue_window(
                 app,
@@ -113,7 +131,9 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     request,
                     url,
                     popup,
+                    placement,
                     background,
+                    window,
                     gesture,
                 },
             ),
@@ -148,7 +168,9 @@ struct WindowRequest {
     request: WindowRequestId,
     url: String,
     popup: bool,
+    placement: Placement,
     background: bool,
+    window: bool,
     gesture: bool,
 }
 
@@ -159,20 +181,13 @@ struct WindowRequest {
 fn queue_window(app: &tauri::AppHandle, window: WindowRequest) {
     static QUEUE: OnceLock<mpsc::Sender<WindowRequest>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::channel::<WindowRequest>();
         let app = app.clone();
         std::thread::spawn(move || {
             for window in receiver {
-                let WindowRequest {
-                    slot,
-                    request,
-                    url,
-                    popup,
-                    background,
-                    gesture,
-                } = window;
-                if gesture {
-                    open_window(&app, slot, request, url, popup, background);
+                let request = window.request;
+                if window.gesture {
+                    open_requested(&app, window);
                 }
                 let _ = platform::refuse_window(&app, request);
             }
@@ -182,34 +197,43 @@ fn queue_window(app: &tauri::AppHandle, window: WindowRequest) {
     let _ = queue.send(window);
 }
 
-/// Opens what the page in `slot` asked to open in a new window in a tab
-/// instead: Haku opens no windows yet.
+/// Opens what a page asked to open in a new window.
 ///
-/// A popup's tab is handed a new webview so the page can still reach it, and
-/// so is anything that is not an ordinary web address, such as a blank page
-/// the page writes into or a `blob:` URL, which only the engine can load on
-/// the page's behalf. A link to a web address opens as an ordinary tab. A page
-/// never opens one of Haku's own pages. The request is answered by the
-/// caller, if handing it a webview did not answer it.
+/// A popup opens in a window of its own, handed a new webview so the page can
+/// still reach it. So is anything that is not an ordinary web address, such
+/// as a blank page the page writes into or a `blob:` URL, which only the
+/// engine can load on the page's behalf, though in a tab. A link to a web
+/// address opens as an ordinary tab, or in a new browser window with Shift
+/// held. A page never opens one of Haku's own pages. The request is answered
+/// by the caller, if handing it a webview did not answer it.
 ///
 /// As in other browsers, a page opens windows only in answer to the user:
 /// a request the page made on its own never reaches here.
-fn open_window(
-    app: &tauri::AppHandle,
-    slot: SlotId,
-    request: WindowRequestId,
-    url: String,
-    popup: bool,
-    background: bool,
-) {
+fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
+    let WindowRequest {
+        slot,
+        request,
+        url,
+        popup,
+        placement,
+        background,
+        window,
+        ..
+    } = requested;
     if is_internal(&url) {
         return;
     }
     let web = url.starts_with("https://") || url.starts_with("http://");
-    let opening = match (popup || !web, background) {
-        (true, _) => Opening::Connected(request),
-        (false, true) => Opening::Background,
-        (false, false) => Opening::Foreground,
+    let opening = if popup {
+        Opening::Popup { request, placement }
+    } else if !web {
+        Opening::Connected(request)
+    } else if window {
+        Opening::Window
+    } else if background {
+        Opening::Background
+    } else {
+        Opening::Foreground
     };
     let state = app.state::<AppState>();
     let pressure = read_pressure(&state);
@@ -219,10 +243,10 @@ fn open_window(
     });
 }
 
-/// Runs the shortcuts pressed while the interface has focus. Pages report
-/// theirs through [`page_observer`], so both reach [`run_shortcut`].
-pub fn shortcut_sink(app: tauri::AppHandle) -> KeySink {
-    Arc::new(move |shortcut| queue_shortcut(&app, shortcut))
+/// Runs the shortcuts pressed while a window's interface has focus. Pages
+/// report theirs through [`page_observer`], so both reach [`run_shortcut`].
+pub fn shortcut_sink(app: tauri::AppHandle, window: WindowId) -> KeySink {
+    Arc::new(move |shortcut| queue_shortcut(&app, window, shortcut))
 }
 
 /// Runs shortcuts one at a time, in the order they were pressed.
@@ -231,59 +255,47 @@ pub fn shortcut_sink(app: tauri::AppHandle) -> KeySink {
 /// and only the first half holds the browser's lock. Run side by side, two
 /// quick Ctrl+Tabs could show their pages in the opposite order to the one
 /// the browser recorded, leaving the selected tab showing another's page.
-fn queue_shortcut(app: &tauri::AppHandle, shortcut: Shortcut) {
-    static QUEUE: OnceLock<mpsc::Sender<Shortcut>> = OnceLock::new();
+fn queue_shortcut(app: &tauri::AppHandle, window: WindowId, shortcut: Shortcut) {
+    static QUEUE: OnceLock<mpsc::Sender<(WindowId, Shortcut)>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
         let (sender, receiver) = mpsc::channel();
         let app = app.clone();
         std::thread::spawn(move || {
-            for shortcut in receiver {
-                run_shortcut(&app, shortcut);
+            for (window, shortcut) in receiver {
+                run_shortcut(&app, window, shortcut);
             }
         });
         sender
     });
-    let _ = queue.send(shortcut);
+    let _ = queue.send((window, shortcut));
 }
 
-/// Does what a shortcut asks, to the active tab.
+/// Does what a shortcut asks, to the active tab of the window it was pressed
+/// in.
 ///
 /// Off the UI thread, like a command: most shortcuts drive webviews. A failure
 /// has nowhere to be shown, since no command call is waiting on it, and leaves
 /// the browser as it was.
-fn run_shortcut(app: &tauri::AppHandle, shortcut: Shortcut) {
+fn run_shortcut(app: &tauri::AppHandle, window: WindowId, shortcut: Shortcut) {
     let state = app.state::<AppState>();
-    let Some(active) = state.browser.read().ok().and_then(|browser| browser.active()) else {
+    let Some(active) = state.browser.read().ok().and_then(|browser| browser.active_in(window)) else {
         return;
     };
     let select = |pick: Pick| {
         let pressure = read_pressure(&state);
         mutate(app, &state, |browser| {
             browser.set_pressure(pressure);
-            match browser.pick(pick) {
+            match browser.pick_in(window, pick) {
                 Some(id) => browser.select_tab(id, now_ms()),
                 None => Ok(Vec::new()),
             }
         })
-        .map(drop)
     };
-    let change = |change: &dyn Fn(&mut crate::browser::Browser) -> Result<Vec<Effect>>| {
-        mutate(app, &state, |browser| change(browser)).map(drop)
-    };
+    let change = |change: &dyn Fn(&mut Browser) -> Result<Vec<Effect>>| mutate(app, &state, |browser| change(browser));
 
     let _ = match shortcut {
-        Shortcut::NewTab => home_url(&state).and_then(|home| {
-            let pressure = read_pressure(&state);
-            let mut opened = None;
-            mutate(app, &state, |browser| {
-                browser.set_pressure(pressure);
-                let (id, effects) = browser.open_tab(home, true);
-                opened = Some(id);
-                Ok(effects)
-            })?;
-            // As in every browser, a new tab starts in the address field.
-            opened.map_or(Ok(()), |id| focus_address(app, id))
-        }),
+        Shortcut::NewTab => open_home(app, &state, |browser, home| browser.open_tab_in(window, home, true)),
+        Shortcut::NewWindow => open_home(app, &state, Browser::open_window),
         Shortcut::CloseTab => home_url(&state).and_then(|home| change(&|browser| browser.close_tab(active, &home))),
         Shortcut::ReopenClosedTab => change(&|browser| Ok(browser.reopen_closed_tab())),
         Shortcut::NextTab => select(Pick::Next),
@@ -308,11 +320,46 @@ fn run_shortcut(app: &tauri::AppHandle, shortcut: Shortcut) {
     };
 }
 
+/// Opens the home page with `open`, in the address field, as every browser
+/// starts a new tab or window.
+fn open_home<F>(app: &tauri::AppHandle, state: &AppState, open: F) -> Result<()>
+where
+    F: FnOnce(&mut Browser, String) -> (TabId, Vec<Effect>),
+{
+    let home = home_url(state)?;
+    let pressure = read_pressure(state);
+    let mut opened = None;
+    mutate(app, state, |browser| {
+        browser.set_pressure(pressure);
+        let (id, effects) = open(browser, home);
+        opened = Some(id);
+        Ok(effects)
+    })?;
+    opened.map_or(Ok(()), |id| focus_address(app, id))
+}
+
 /// Moves keyboard focus to the interface and asks it to focus the address
-/// field for `tab`, which may not have rendered yet.
+/// field for `tab`, which may not have rendered yet. A popup has no address
+/// field, so its page keeps focus.
 fn focus_address(app: &tauri::AppHandle, tab: TabId) -> Result<()> {
-    webview::chrome(app)?.set_focus()?;
-    AddressFocusRequested(tab).emit(app).map_err(HakuError::from)
+    let state = app.state::<AppState>();
+    let (window, kind) = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let window = browser
+            .window_of(tab)
+            .ok_or_else(|| HakuError::TabNotFound(tab.0.to_string()))?;
+        (window, browser.kind(window))
+    };
+    if kind == Some(WindowKind::Popup) {
+        return Ok(());
+    }
+    webview::chrome_of(app, window)?.set_focus()?;
+    AddressFocusRequested(tab)
+        .emit_to(app, window.label())
+        .map_err(HakuError::from)
 }
 
 fn home_url(state: &AppState) -> Result<String> {
@@ -554,8 +601,28 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
     // opened.
     let _ = state.save_session();
 
-    if let Ok(browser) = state.browser.read() {
-        let _ = StateChanged(browser.state()).emit(app);
+    let states = state.browser.read().map(|browser| window_states(&browser));
+    if let Ok(states) = states {
+        emit_states(app, states);
+    }
+}
+
+/// What each window shows, read under the lock and sent after it is released.
+fn window_states(browser: &Browser) -> Vec<(WindowId, BrowserState)> {
+    browser
+        .window_ids()
+        .into_iter()
+        .filter_map(|window| Some((window, browser.state_in(window)?)))
+        .collect()
+}
+
+/// Sends each window's interface what it shows.
+///
+/// Each chrome listens for its own webview only: a listener for any target
+/// would also receive every other window's state.
+fn emit_states(app: &tauri::AppHandle, states: Vec<(WindowId, BrowserState)>) {
+    for (window, snapshot) in states {
+        let _ = StateChanged(snapshot).emit_to(app, window.label());
     }
 }
 
@@ -569,9 +636,10 @@ fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
     });
 }
 
-/// Applies effects to real webviews and tells the interface what changed.
-fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<BrowserState> {
-    let mut readings = keep_previews(state, webview::apply(app, effects, state.viewport(), &page_observer())?);
+/// Applies effects to real webviews and tells every window what changed.
+fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<()> {
+    let hooks = hooks();
+    let mut readings = keep_previews(state, webview::apply(app, effects, &state.viewports, &hooks)?);
     // A page read as it was left may turn out to be capturing, which changes
     // what should happen to it. Bounded, though a reading only ever leads to
     // freezing or resuming one tab.
@@ -580,27 +648,23 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
             break;
         }
         let effects = report_readings(state, readings)?;
-        readings = keep_previews(
-            state,
-            webview::apply(app, &effects, state.viewport(), &page_observer())?,
-        );
+        readings = keep_previews(state, webview::apply(app, &effects, &state.viewports, &hooks)?);
     }
 
-    let snapshot = {
+    let states = {
         let browser = state
             .browser
             .read()
             .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        browser.state()
+        // A closed tab's capture shows a page nobody can return to.
+        if let Ok(mut previews) = state.previews.lock() {
+            previews.retain(|id| browser.tabs().iter().any(|tab| tab.id == id));
+        }
+        window_states(&browser)
     };
-    // A closed tab's capture shows a page nobody can return to.
-    if let Ok(mut previews) = state.previews.lock() {
-        previews.retain(|id| snapshot.tabs.iter().any(|tab| tab.id == id));
-    }
-
-    StateChanged(snapshot.clone()).emit(app).map_err(HakuError::from)?;
+    emit_states(app, states);
     let _ = state.save_session();
-    Ok(snapshot)
+    Ok(())
 }
 
 /// Stores the captures taken as pages were left, and passes on what each
@@ -652,9 +716,9 @@ fn read_running_pages(app: &tauri::AppHandle, state: &AppState) -> Vec<PageReadi
 ///
 /// The lock is released before webviews are touched, so a native call that
 /// blocks cannot stall the next command.
-fn mutate<F>(app: &tauri::AppHandle, state: &AppState, mutate: F) -> Result<BrowserState>
+fn mutate<F>(app: &tauri::AppHandle, state: &AppState, mutate: F) -> Result<()>
 where
-    F: FnOnce(&mut crate::browser::Browser) -> Result<Vec<Effect>>,
+    F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
 {
     let effects = {
         let mut browser = state
@@ -666,15 +730,122 @@ where
     commit(app, state, &effects)
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn get_state(webview: tauri::Webview, state: State<'_, AppState>) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
+/// [`mutate`], for a command a window's interface called.
+///
+/// @returns What that window shows now, or what the normal window used last
+///   shows when the change closed it.
+fn mutate_in<F>(app: &tauri::AppHandle, state: &AppState, window: WindowId, change: F) -> Result<BrowserState>
+where
+    F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
+{
+    mutate(app, state, change)?;
     let browser = state
         .browser
         .read()
         .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-    Ok(browser.state())
+    Ok(browser.state_in(window).unwrap_or_else(|| browser.state()))
+}
+
+/// Follows what happens to a browser window that only the window system
+/// reports: being closed, used, moved or resized.
+pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    let Some(id) = WindowId::from_label(window.label()) else {
+        return;
+    };
+    let state = window.state::<AppState>();
+    match event {
+        // Closed by the browser rather than by the window system, so its tabs
+        // and webviews go with it, and the last window is kept for the next
+        // launch rather than emptied.
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            let app = window.app_handle().clone();
+            std::thread::spawn(move || close_window(&app, id));
+        }
+        tauri::WindowEvent::Focused(true) => {
+            if let Ok(mut browser) = state.browser.write() {
+                browser.focus(id);
+            }
+        }
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => record_bounds(window, id, &state),
+        _ => {}
+    }
+}
+
+/// Closes a browser window, or quits when it is the last one.
+///
+/// Off the UI thread: closing drives webviews.
+fn close_window(app: &tauri::AppHandle, window: WindowId) {
+    let state = app.state::<AppState>();
+    let last = state
+        .browser
+        .read()
+        .map_or(true, |browser| browser.is_last_window(window));
+    if last {
+        // The session already holds the window's tabs; only where it was may
+        // have changed since it was last saved.
+        let _ = state.save_session();
+        app.exit(0);
+        return;
+    }
+    let first = webview::chrome(app).ok().map(|chrome| chrome.label().to_string());
+    let _ = mutate(app, &state, |browser| Ok(browser.close_window(window)));
+    if let Ok(mut bounds) = state.bounds.write() {
+        bounds.remove(&window);
+    }
+    // The service worker watch is attached to the first window's chrome,
+    // and goes with it.
+    if first.as_deref() == Some(window.label().as_str()) {
+        if let Ok(chrome) = webview::chrome(app) {
+            let _ = platform::stop_idle_workers(&chrome);
+        }
+    }
+}
+
+/// Remembers where a window is on screen, for the session. A minimised
+/// window is remembered where it was before, and a maximised one keeps the
+/// rectangle it returns to. A window maximised before it ever had another
+/// rectangle is not remembered, so it opens maximized again.
+fn record_bounds(window: &tauri::Window, id: WindowId, state: &AppState) {
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let maximized = window.is_maximized().unwrap_or(false);
+    let Ok(mut bounds) = state.bounds.write() else { return };
+    if maximized {
+        if let Some(known) = bounds.get_mut(&id) {
+            known.maximized = true;
+        }
+        return;
+    }
+    let (Ok(scale), Ok(position), Ok(size)) = (window.scale_factor(), window.outer_position(), window.inner_size())
+    else {
+        return;
+    };
+    let (position, size) = (position.to_logical::<f64>(scale), size.to_logical::<f64>(scale));
+    bounds.insert(
+        id,
+        WindowBounds {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+            maximized,
+        },
+    );
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_state(webview: tauri::Webview, state: State<'_, AppState>) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    browser
+        .state_in(window)
+        .ok_or_else(|| HakuError::WindowMissing(window.label()))
 }
 
 #[tauri::command]
@@ -775,7 +946,7 @@ pub async fn open_tab(
     url: Option<String>,
     activate: bool,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
+    let window = ensure_chrome(&webview)?;
     let target = match url {
         Some(url) => {
             let settings = state
@@ -794,9 +965,9 @@ pub async fn open_tab(
     };
 
     let pressure = read_pressure(&state);
-    mutate(&app, &state, |browser| {
+    mutate_in(&app, &state, window, |browser| {
         browser.set_pressure(pressure);
-        let (_, effects) = browser.open_tab(target, activate);
+        let (_, effects) = browser.open_tab_in(window, target, activate);
         Ok(effects)
     })
 }
@@ -809,7 +980,7 @@ pub async fn close_tab(
     state: State<'_, AppState>,
     id: TabId,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
+    let window = ensure_chrome(&webview)?;
     let home = {
         let settings = state
             .settings
@@ -817,7 +988,7 @@ pub async fn close_tab(
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         settings.home_url.clone()
     };
-    mutate(&app, &state, |browser| browser.close_tab(id, &home))
+    mutate_in(&app, &state, window, |browser| browser.close_tab(id, &home))
 }
 
 #[tauri::command]
@@ -828,9 +999,9 @@ pub async fn select_tab(
     state: State<'_, AppState>,
     id: TabId,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
+    let window = ensure_chrome(&webview)?;
     let pressure = read_pressure(&state);
-    mutate(&app, &state, |browser| {
+    mutate_in(&app, &state, window, |browser| {
         browser.set_pressure(pressure);
         browser.select_tab(id, now_ms())
     })
@@ -849,7 +1020,7 @@ pub async fn navigate_tab(
     id: TabId,
     input: String,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
+    let window = ensure_chrome(&webview)?;
     let target = {
         let settings = state
             .settings
@@ -860,7 +1031,7 @@ pub async fn navigate_tab(
     if target.is_empty() {
         return get_state(webview, state);
     }
-    mutate(&app, &state, |browser| browser.navigate(id, target))
+    mutate_in(&app, &state, window, |browser| browser.navigate(id, target))
 }
 
 #[tauri::command]
@@ -871,8 +1042,8 @@ pub async fn go_back(
     state: State<'_, AppState>,
     id: TabId,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| browser.go_back(id))
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| browser.go_back(id))
 }
 
 #[tauri::command]
@@ -883,8 +1054,8 @@ pub async fn go_forward(
     state: State<'_, AppState>,
     id: TabId,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| browser.go_forward(id))
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| browser.go_forward(id))
 }
 
 #[tauri::command]
@@ -895,8 +1066,8 @@ pub async fn reload_tab(
     state: State<'_, AppState>,
     id: TabId,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| browser.reload(id))
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| browser.reload(id))
 }
 
 #[tauri::command]
@@ -908,8 +1079,8 @@ pub async fn set_tab_fixed(
     id: TabId,
     fixed: bool,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| browser.set_fixed(id, fixed))
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| browser.set_fixed(id, fixed))
 }
 
 #[tauri::command]
@@ -921,8 +1092,8 @@ pub async fn reorder_tab(
     id: TabId,
     to: u32,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| {
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| {
         browser.reorder_tab(id, to as usize)?;
         Ok(Vec::new())
     })
@@ -941,32 +1112,29 @@ pub async fn set_layout(
     state: State<'_, AppState>,
     layout: Layout,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
+    let window = ensure_chrome(&webview)?;
 
-    state.set_layout(layout.clone());
+    state.set_layout(window, &layout);
 
     let slots = {
         let browser = state
             .browser
             .read()
             .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        browser.slot_ids()
+        browser.slots_in(window)
     };
 
     if let Some(viewport) = layout.viewport {
         webview::set_bounds(&app, &slots, viewport)?;
     }
 
-    let window = app
-        .get_window(webview::MAIN_WINDOW_LABEL)
-        .ok_or_else(|| HakuError::WindowMissing(webview::MAIN_WINDOW_LABEL.into()))?;
-    let scale = window.scale_factor()?;
-    chrome::apply_layout(&webview::chrome(&app)?, &layout, scale)?;
+    let scale = webview.window().scale_factor()?;
+    chrome::apply_layout(&webview, &layout, scale)?;
 
     // A restored session has tabs but no webviews, because until now there was
     // nowhere on screen to put one. Reconciling here is what loads the page the
     // window opens on.
-    mutate(&app, &state, |browser| Ok(browser.reconcile()))
+    mutate_in(&app, &state, window, |browser| Ok(browser.reconcile()))
 }
 
 /// Records a visit, or retitles the last one, tolerating a failure rather than
@@ -1038,8 +1206,10 @@ pub async fn answer_dialog(
     dialog: DialogId,
     answer: DialogAnswer,
 ) -> Result<BrowserState> {
-    ensure_chrome(&webview)?;
-    mutate(&app, &state, |browser| browser.answer_dialog(tab, dialog, answer))
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| {
+        browser.answer_dialog(tab, dialog, answer)
+    })
 }
 
 #[tauri::command]
