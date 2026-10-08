@@ -20,12 +20,14 @@ WebView2 raises `NewWindowRequested` for `target="_blank"` links, `window.open`,
 | For a `haku://` page                                | Nothing: a page never opens Haku's own pages                                                                |
 | A popup: asked for with a size or position          | The active tab, connected to the page                                                                       |
 | For anything but an `http` or `https` address       | The active tab, connected to the page, since only the engine can load a `blob:` or blank page on its behalf |
-| A web address, with Ctrl held                       | A tab left for later, loaded when it is selected                                                            |
+| A web address, with Ctrl held but not Shift         | A tab left for later, loaded when it is selected                                                            |
 | A web address otherwise                             | The active tab                                                                                              |
 
 A click counts for about five seconds: Chromium lets a page act on one for that long, so a request made a moment after the click is not blocked.
 
-A tab opened from a page goes right after it, and after the tabs that page opened before, so links opened for later line up in the order they were clicked.
+Ctrl+Shift opens a web address as the active tab, as in Chrome.
+
+Requests are answered one at a time, in the order they were made. A tab opened from a page goes right after it, and after the tabs that page opened before, so links opened for later line up in the order they were clicked.
 
 Middle-clicking a link opens it as the active tab. The engine does not say which button was used, and by the time the request arrives the button is already up.
 
@@ -33,7 +35,7 @@ Middle-clicking a link opens it as the active tab. The engine does not say which
 
 A connected tab is the active tab, in a webview that has never loaded anything: the engine only accepts one in that state for the request. It is therefore never a parked webview or one taken from another tab. The pool grows by one for it and is trimmed back to capacity as eviction would, parked webviews first. If every other webview is protected, the tab gets none: the request is refused and the tab loads its address like any other, unconnected.
 
-While a connected tab is open, the tab that opened it [must run](webview-pool.md#must-run), whatever the optimization policies say, so the page a sign-in reports back to is still there.
+While a connected tab is open, the tab that opened it [must run](webview-pool.md#must-run), whatever the optimization policies say, _Discard: always_ included, so the page a sign-in reports back to is still there. A connected tab that loses its page, by being discarded or evicted, loses its connection with it, and its opener no longer has to run.
 
 ## Closing
 

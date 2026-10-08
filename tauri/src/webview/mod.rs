@@ -314,7 +314,7 @@ fn ensure_slot<R: tauri::Runtime>(
 
 /// Creates the slot's webview and hands it to the page that asked for a new
 /// window, which then loads its page into it. Loads `url` itself when the
-/// request is no longer waiting.
+/// request is no longer waiting or the webview could not be handed to it.
 fn adopt<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     slot: SlotId,
@@ -329,7 +329,9 @@ fn adopt<R: tauri::Runtime>(
         return navigate(app, slot, url);
     }
     let webview = create_slot(app, slot, viewport, observer)?;
-    if platform::adopt_window(&webview, request)? {
+    // A request that could not be handed the webview, for whatever reason,
+    // still gets its page: the tab loads it, unconnected.
+    if platform::adopt_window(&webview, request).unwrap_or(false) {
         return Ok(());
     }
     navigate(app, slot, url)

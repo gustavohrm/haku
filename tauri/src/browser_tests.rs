@@ -1776,14 +1776,38 @@ fn closing_a_connected_tab_returns_to_the_page_that_opened_it() {
 
 #[test]
 fn an_opener_stops_running_once_its_connected_tab_closes() {
-    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
     let opener = slot_of(&browser, ids[0]).unwrap();
     let (popup, _) = browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
     browser.open_tab("https://b.test", true);
+    assert_eq!(browser.position(ids[0]), Some(Position::MustRun));
 
     browser.close_tab(popup, HOME).unwrap();
 
     assert_ne!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn an_opener_stops_running_once_its_connected_tab_loses_its_page() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let opener = slot_of(&browser, ids[0]).unwrap();
+    let (popup, _) = browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+
+    browser.open_tab("https://b.test", true);
+
+    assert!(slot_of(&browser, popup).is_none(), "evicted, which cuts the connection");
+    assert_ne!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn discarding_always_spares_an_opener_while_its_connected_tab_is_open() {
+    let mut browser = Browser::new(2).with_policies(Policy::Never, Policy::Always);
+    let (first, _) = browser.open_tab("https://a.test", true);
+    let opener = slot_of(&browser, first).unwrap();
+
+    browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+
+    assert_eq!(slot_of(&browser, first), Some(opener), "the sign-in reports back to it");
 }
 
 #[test]

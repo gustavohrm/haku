@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-07
+last_updated: 2026-10-08
 scope: Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a discarded tab gets back when it reloads.
 ---
 
@@ -46,12 +46,13 @@ Freezing is not rationed. A kept tab is frozen because a frozen page costs no mo
 A background tab must run while any of these holds:
 
 - it is **fixed** (the user's _Keep loaded_);
+- a **tab connected to it** is still open, such as a sign-in popup ([New windows](new-windows.md#connected-tabs));
 - it is **playing audio**;
 - it is **capturing** the camera, the microphone or the screen.
 
 A must-run tab is never frozen, discarded or evicted, and it reserves a slot for as long as the signal lasts (see [Effective capacity](#effective-capacity)). When the signal ends it becomes an ordinary background tab, timed from that moment.
 
-_Freeze: always_ and _Discard: always_ still mean always: under either, audio and capture are not honoured, and fixing the tab is how a user exempts it.
+_Freeze: always_ and _Discard: always_ still mean always: under either, audio and capture are not honoured, and fixing the tab is how a user exempts it. A connected tab is honoured: discarding its opener would break the sign-in it is for.
 
 ### Loss
 
@@ -100,7 +101,7 @@ With _Discard: never_ nothing is discarded by this rule, pressure included; only
 effective_capacity = max(configured_capacity, visible_count + fixed_count + must_run_count)
 ```
 
-`must_run_count` is the background tabs currently playing audio or capturing. Music therefore survives a tab switch at a configured capacity of 1. A tab that starts playing while frozen cannot exist; one that starts while visible is already in a slot, so the reservation never has to find a webview for a page mid-playback.
+`must_run_count` is the background tabs currently playing audio or capturing, or with a connected tab open. Music therefore survives a tab switch at a configured capacity of 1. A tab that starts playing while frozen cannot exist; one that starts while visible is already in a slot, so the reservation never has to find a webview for a page mid-playback.
 
 ### Eviction
 

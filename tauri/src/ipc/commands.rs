@@ -106,15 +106,17 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 popup,
                 background,
                 gesture,
-            } => {
-                let app = app.clone();
-                std::thread::spawn(move || {
-                    if gesture {
-                        open_window(&app, slot, request, url, popup, background);
-                    }
-                    let _ = platform::refuse_window(&app, request);
-                });
-            }
+            } => queue_window(
+                app,
+                WindowRequest {
+                    slot,
+                    request,
+                    url,
+                    popup,
+                    background,
+                    gesture,
+                },
+            ),
             PageSignal::CloseRequested => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -137,6 +139,47 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             }
         },
     )
+}
+
+/// A page's request for a new window, as [`PageSignal::WindowRequested`]
+/// reported it from `slot`.
+struct WindowRequest {
+    slot: SlotId,
+    request: WindowRequestId,
+    url: String,
+    popup: bool,
+    background: bool,
+    gesture: bool,
+}
+
+/// Answers pages' requests for new windows one at a time, in the order they
+/// were made, so links opened for later line up in the order they were
+/// clicked. Off the UI thread, like [`queue_shortcut`]: opening one drives
+/// webviews.
+fn queue_window(app: &tauri::AppHandle, window: WindowRequest) {
+    static QUEUE: OnceLock<mpsc::Sender<WindowRequest>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            for window in receiver {
+                let WindowRequest {
+                    slot,
+                    request,
+                    url,
+                    popup,
+                    background,
+                    gesture,
+                } = window;
+                if gesture {
+                    open_window(&app, slot, request, url, popup, background);
+                }
+                let _ = platform::refuse_window(&app, request);
+            }
+        });
+        sender
+    });
+    let _ = queue.send(window);
 }
 
 /// Opens what the page in `slot` asked to open in a new window in a tab

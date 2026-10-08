@@ -216,7 +216,8 @@ pub struct Browser {
     adopting: HashMap<TabId, WindowRequestId>,
     /// Open tabs connected to the page that opened them. Their openers keep
     /// running while they are open: a sign-in popup reports back to the page
-    /// that opened it.
+    /// that opened it. A tab that loses its page loses the connection with
+    /// it, for good.
     connected: HashSet<TabId>,
 }
 
@@ -771,6 +772,7 @@ impl Browser {
                 if let Ok(tab) = self.tab_mut(occupant) {
                     tab.lose_page();
                 }
+                self.connected.remove(&occupant);
             }
             self.forget_slot(removed.id);
             effects.push(Effect::Destroy { slot: removed.id });
@@ -1213,7 +1215,7 @@ impl Browser {
         let waiting = tab.dialog.is_some();
 
         match (self.discard, self.freeze) {
-            (Policy::Always, _) => self.discard_tab(id),
+            (Policy::Always, _) if !self.has_connected(id) => self.discard_tab(id),
             (_, Policy::Never) => self.resume_tab(id),
             _ if keep_running => self.resume_tab(id),
             _ if waiting => Vec::new(),
@@ -1267,6 +1269,7 @@ impl Browser {
         if let Ok(tab) = self.tab_mut(id) {
             tab.lose_page();
         }
+        self.connected.remove(&id);
         effects
     }
 
@@ -1331,6 +1334,7 @@ impl Browser {
                 }
                 tab.lose_page();
             }
+            self.connected.remove(&evicted);
         }
 
         if let Ok(tab) = self.tab_mut(id) {
@@ -1380,6 +1384,7 @@ impl Browser {
             if let Ok(tab) = self.tab_mut(id) {
                 tab.lose_page();
             }
+            self.connected.remove(&id);
             return effects;
         }
         self.slot_urls.insert(slot, url.clone());
