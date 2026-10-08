@@ -30,7 +30,7 @@ use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
     is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Placement, Preset, Pressure,
-    Shortcut, SlotId, TabId, WindowId, WindowRequestId,
+    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, KeySink, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -339,15 +339,23 @@ where
 }
 
 /// Moves keyboard focus to the interface and asks it to focus the address
-/// field for `tab`, which may not have rendered yet.
+/// field for `tab`, which may not have rendered yet. A popup has no address
+/// field, so its page keeps focus.
 fn focus_address(app: &tauri::AppHandle, tab: TabId) -> Result<()> {
-    let window = app
-        .state::<AppState>()
-        .browser
-        .read()
-        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
-        .window_of(tab)
-        .ok_or_else(|| HakuError::TabNotFound(tab.0.to_string()))?;
+    let state = app.state::<AppState>();
+    let (window, kind) = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let window = browser
+            .window_of(tab)
+            .ok_or_else(|| HakuError::TabNotFound(tab.0.to_string()))?;
+        (window, browser.kind(window))
+    };
+    if kind == Some(WindowKind::Popup) {
+        return Ok(());
+    }
     webview::chrome_of(app, window)?.set_focus()?;
     AddressFocusRequested(tab)
         .emit_to(app, window.label())
@@ -796,7 +804,8 @@ fn close_window(app: &tauri::AppHandle, window: WindowId) {
 
 /// Remembers where a window is on screen, for the session. A minimised
 /// window is remembered where it was before, and a maximised one keeps the
-/// rectangle it returns to.
+/// rectangle it returns to. A window maximised before it ever had another
+/// rectangle is not remembered, so it opens maximized again.
 fn record_bounds(window: &tauri::Window, id: WindowId, state: &AppState) {
     if window.is_minimized().unwrap_or(false) {
         return;
@@ -806,8 +815,8 @@ fn record_bounds(window: &tauri::Window, id: WindowId, state: &AppState) {
     if maximized {
         if let Some(known) = bounds.get_mut(&id) {
             known.maximized = true;
-            return;
         }
+        return;
     }
     let (Ok(scale), Ok(position), Ok(size)) = (window.scale_factor(), window.outer_position(), window.inner_size())
     else {

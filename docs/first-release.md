@@ -56,7 +56,7 @@ Whether Tauri exposes WebView2 profiles on its webview builder is checked when t
 
 **Implemented**, without tear-off: [Windows and popups](specs/new-windows.md) covers windows, popups and the session.
 
-Haku may have several browser windows, including a tab torn off into its own window. They share **one** pool, so memory stays flat as windows are added.
+Haku may have several browser windows, and, once tear-off is built, a tab torn off into its own window. They share **one** pool, so memory stays flat as windows are added.
 
 Every tab belongs to a window. A slot shown in a different window is moved there with `Webview::reparent`, and the destination's chrome is raised over it afterwards, as on creation. `MAIN_WINDOW_LABEL` stops being an assumption anywhere outside startup.
 

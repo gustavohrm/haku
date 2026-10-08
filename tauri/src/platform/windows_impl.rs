@@ -750,8 +750,12 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
                 features.Width(&mut width)?;
                 features.Height(&mut height)?;
             }
+            // The engine hands a position left of or above the main screen,
+            // which is negative, wrapped into its unsigned type.
             let placement = Placement {
-                position: placed.as_bool().then(|| (f64::from(left), f64::from(top))),
+                position: placed
+                    .as_bool()
+                    .then(|| (f64::from(left.cast_signed()), f64::from(top.cast_signed()))),
                 size: sized.as_bool().then(|| (f64::from(width), f64::from(height))),
             };
             // The physical keys: the click happened in the engine's process,

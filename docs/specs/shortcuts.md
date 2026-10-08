@@ -39,7 +39,7 @@ The keymap is fixed. Making it configurable is a settings format, and nothing ne
 
 ## Focusing the address field
 
-Focusing the address field from a page first moves keyboard focus to the chrome webview of the tab's window, then emits `AddressFocusRequested` to that chrome alone, with the tab it is for. The event names the tab because Ctrl+T requests focus for a tab the interface has not rendered yet. The interface focuses the field when that tab is active, and holds the request until it is.
+Focusing the address field from a page first moves keyboard focus to the chrome webview of the tab's window, then emits `AddressFocusRequested` to that chrome alone, with the tab it is for. The event names the tab because Ctrl+T requests focus for a tab the interface has not rendered yet. The interface focuses the field when that tab is active, and holds the request until it is. A popup has no address field, so there it does nothing, and focus stays on the page.
 
 ## Reopening closed tabs
 

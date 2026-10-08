@@ -55,8 +55,11 @@ pub struct Viewport {
 /// window while one is open. Content webviews still belong at the last real
 /// rectangle, so remembering it keeps a webview created while an internal
 /// page is showing from being built at zero size and staying invisible.
+///
+/// Each is kept with its window's kind, so a popup's is never taken as a
+/// guess at a browser window's.
 #[derive(Default)]
-pub struct Viewports(RwLock<HashMap<WindowId, Viewport>>);
+pub struct Viewports(RwLock<HashMap<WindowId, (Viewport, WindowKind)>>);
 
 impl Viewports {
     /// Zero until the window's interface has reported a layout, or one was
@@ -65,13 +68,24 @@ impl Viewports {
         self.0
             .read()
             .ok()
-            .and_then(|viewports| viewports.get(&window).copied())
+            .and_then(|viewports| viewports.get(&window).map(|(viewport, _)| *viewport))
             .unwrap_or_default()
     }
 
+    /// Records a window's viewport. A window not opened through [`Self::open`],
+    /// as a restored one is not, is a browser window.
     pub fn set(&self, window: WindowId, viewport: Viewport) {
         if let Ok(mut viewports) = self.0.write() {
-            viewports.insert(window, viewport);
+            viewports
+                .entry(window)
+                .and_modify(|(known, _)| *known = viewport)
+                .or_insert((viewport, WindowKind::Normal));
+        }
+    }
+
+    fn open(&self, window: WindowId, kind: WindowKind, viewport: Viewport) {
+        if let Ok(mut viewports) = self.0.write() {
+            viewports.insert(window, (viewport, kind));
         }
     }
 
@@ -81,13 +95,18 @@ impl Viewports {
         }
     }
 
-    /// Any window's viewport, as a guess at a new browser window's: they all
-    /// draw the same interface.
+    /// Any browser window's viewport, as a guess at a new one's: they all draw
+    /// the same interface.
     fn any(&self) -> Viewport {
         self.0
             .read()
             .ok()
-            .and_then(|viewports| viewports.values().next().copied())
+            .and_then(|viewports| {
+                viewports
+                    .values()
+                    .find(|(_, kind)| *kind == WindowKind::Normal)
+                    .map(|(viewport, _)| *viewport)
+            })
             .unwrap_or_default()
     }
 }
@@ -429,7 +448,7 @@ pub fn apply<R: tauri::Runtime>(
                     WindowKind::Normal => Frame::Maximized,
                     WindowKind::Popup => Frame::Popup(*placement),
                 };
-                viewports.set(*window, guessed_viewport(frame, viewports));
+                viewports.open(*window, *kind, guessed_viewport(frame, viewports));
                 build_window(app, *window, *kind, frame)?;
                 prepare_chrome(app, *window, &hooks.keys)?;
             }

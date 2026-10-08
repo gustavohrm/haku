@@ -1973,6 +1973,8 @@ fn a_link_opened_in_a_new_window_is_not_connected() {
 fn a_link_in_a_popup_opens_in_the_window_used_last_and_brings_it_forward() {
     let (mut browser, ids) = browser_with(3, &["https://a.test"]);
     let first = browser.main_window();
+    browser.open_window("https://c.test");
+    browser.focus(first);
     let (popup, _) = popup_from(&mut browser, ids[0]);
     let popup_window = browser.window_of(popup).unwrap();
     browser.focus(popup_window);
@@ -1989,8 +1991,11 @@ fn a_link_in_a_popup_opens_in_the_window_used_last_and_brings_it_forward() {
 fn a_tab_opened_from_a_popup_window_goes_to_the_window_used_last() {
     let (mut browser, ids) = browser_with(3, &["https://a.test"]);
     let first = browser.main_window();
+    browser.open_window("https://c.test");
+    browser.focus(first);
     let (popup, _) = popup_from(&mut browser, ids[0]);
     let popup_window = browser.window_of(popup).unwrap();
+    browser.focus(popup_window);
 
     let (tab, effects) = browser.open_tab_in(popup_window, HOME, true);
 
@@ -2020,14 +2025,17 @@ fn closing_a_window_destroys_its_webviews_and_its_tabs() {
     let (mut browser, ids) = browser_with(3, &["https://a.test"]);
     let (tab, _) = browser.open_window("https://b.test");
     let window = browser.window_of(tab).unwrap();
-    let second = browser.open_tab_in(window, "https://c.test", false).0;
-    let slot = slot_of(&browser, tab).unwrap();
+    let second = browser.open_tab_in(window, "https://c.test", true).0;
+    browser.select_tab(tab, 0).unwrap();
+    let slots = [slot_of(&browser, tab).unwrap(), slot_of(&browser, second).unwrap()];
 
     let effects = browser.close_window(window);
 
-    let destroyed = position(&effects, &Effect::Destroy { slot });
     let closed = position(&effects, &Effect::CloseWindow { window });
-    assert!(destroyed < closed, "a webview goes before its window does");
+    for slot in slots {
+        let destroyed = position(&effects, &Effect::Destroy { slot });
+        assert!(destroyed < closed, "a webview goes before its window does");
+    }
     assert!(browser.tab(tab).is_err() && browser.tab(second).is_err());
     assert!(browser.slots_in(window).is_empty());
     assert_eq!(ids_of(&browser), ids);
@@ -2146,4 +2154,32 @@ fn switching_tabs_in_one_window_captures_only_the_page_it_leaves() {
         .collect();
     assert_eq!(captured, vec![tab]);
     assert_eq!(browser.position(ids[0]), Some(Position::Visible));
+}
+
+#[test]
+fn a_tab_whose_window_has_closed_reopens_at_its_place_in_the_window_used_last() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test"]);
+    let (tab, _) = browser.open_window("https://c.test");
+    let window = browser.window_of(tab).unwrap();
+    let closing = browser.open_tab_in(window, "https://d.test", true).0;
+    browser.open_tab_in(window, "https://e.test", true);
+    browser.close_tab(closing, HOME).unwrap();
+    browser.close_window(window);
+
+    browser.reopen_closed_tab();
+
+    let urls: Vec<&str> = browser.tabs().iter().map(Tab::url).collect();
+    assert_eq!(urls, ["https://a.test", "https://d.test", "https://b.test"]);
+    assert_eq!(window_tabs(&browser, browser.main_window())[0], ids[0]);
+}
+
+#[test]
+fn a_window_showing_an_internal_page_reserves_no_slot() {
+    let mut browser = Browser::new(1);
+    browser.open_tab("https://a.test", true);
+    browser.open_tab(HOME, true);
+    browser.open_window(HOME);
+    browser.open_window(HOME);
+
+    assert_eq!(browser.effective_capacity(), 1);
 }

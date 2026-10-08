@@ -13,29 +13,29 @@ Haku has any number of browser windows, sharing one webview pool as [First relea
 There are two kinds of window.
 
 - A **browser window** has a tab strip and an address field. Ctrl+N opens one on the home page, and so does Shift+clicking a link.
-- A **popup** shows the one page that opened it, under a bar with that page's address, read-only, and the window controls. It never takes another tab: a tab opened from a popup, by a link or by a shortcut, opens in the browser window used last, which is brought to the front.
+- A **popup** shows the one page a page opened in it, under a bar with that page's address, read-only, and the window controls. It never takes another tab: a tab opened from a popup, by a link or by a shortcut, opens in the browser window used last, which is brought to the front.
 
 Every tab belongs to one window. Each window shows its own active tab, so every window's visible tab is protected as [Webview pool § Capacity](webview-pool.md#capacity) protects the active one, and capacity grows with the number of windows rather than starving one of them. A webview stays in the window it was last used in. When a tab in another window takes it, it is moved there with `Webview::reparent`, and that window's chrome is raised over it, as when a webview is created.
 
 Rust creates the windows; `tauri.conf.json` declares none. A window and its chrome webview share the label `window-<id>`, which is also how a command knows which window called it: commands act for the window whose chrome called them, and each chrome receives only its own window's `StateChanged`. The shared work of the profile, such as installing extensions and watching service workers, runs on the chrome of the window opened first among those still open.
 
-The window used last is the one most recently focused. A tab opened from nowhere in particular, such as by a popup's shortcut, opens there.
+The browser window used last is the browser window most recently focused; a popup is never it. A tab opened from nowhere in particular, such as by a popup's shortcut, opens there.
 
 ## The request
 
 WebView2 raises `NewWindowRequested` for `target="_blank"` links, `window.open`, and the engine's own "open in new tab". `platform/` takes a deferral on it, so the page waits, and reports `PageSignal::WindowRequested`. The request is then answered once, either by handing it a webview or by refusing it, and the engine never opens a window of its own.
 
-| The request                                         | What opens                                                                                                                                  |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Made by the page on its own, without a click or key | Nothing, as other browsers block it                                                                                                         |
-| For a `haku://` page                                | Nothing: a page never opens Haku's own pages                                                                                                |
-| A popup: asked for with a size or position          | A popup window, connected to the page                                                                                                       |
-| For anything but an `http` or `https` address       | A new tab in the page's window, made active and connected to the page, since only the engine can load a `blob:` or blank page on its behalf |
-| A web address, with Shift held but not Ctrl         | A new browser window                                                                                                                        |
-| A web address, with Ctrl held but not Shift         | A tab left for later, loaded when it is selected                                                                                            |
-| A web address otherwise                             | A new tab, made active                                                                                                                      |
+| The request                                         | What opens                                                                                                                                                                                            |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Made by the page on its own, without a click or key | Nothing, as other browsers block it                                                                                                                                                                   |
+| For a `haku://` page                                | Nothing: a page never opens Haku's own pages                                                                                                                                                          |
+| A popup: asked for with a size or position          | A popup window, connected to the page                                                                                                                                                                 |
+| For anything but an `http` or `https` address       | A new tab in the page's window, or for a page in a popup in the browser window used last, made active and connected to the page, since only the engine can load a `blob:` or blank page on its behalf |
+| A web address, with Shift held but not Ctrl         | A new browser window                                                                                                                                                                                  |
+| A web address, with Ctrl held but not Shift         | A tab left for later, loaded when it is selected                                                                                                                                                      |
+| A web address otherwise                             | A new tab, made active                                                                                                                                                                                |
 
-Every row that opens something opens it anew: a page's request never replaces the page that made it, whatever its target. A request without a size or position, whether from a link or from `window.open`, opens a tab rather than a window, as in Chrome.
+Every row that opens something opens it anew: a page's request never replaces the page that made it, whatever its target. Without Shift, a request without a size or position, whether from a link or from `window.open`, opens a tab rather than a window, as in Chrome.
 
 A click counts for about five seconds: Chromium lets a page act on one for that long, so a request made a moment after the click is not blocked.
 
@@ -53,7 +53,7 @@ A popup's window is put where the page asked, in CSS pixels, with its page at th
 
 A page that opens a sign-in popup waits for it to report back through `window.opener`, so a popup, or a tab opened for a page that only the engine can load, is given a webview handed to the request, which keeps that connection.
 
-That webview has never loaded anything: the engine only accepts one in that state for the request. It is therefore never a parked webview or one taken from another tab. The pool grows by one for it and is trimmed back to capacity as eviction would, parked webviews first. If every other webview is protected, the page gets none: the request is refused and the popup loads its address like any other page, unconnected.
+That webview has never loaded anything: the engine only accepts one in that state for the request. It is therefore never a parked webview or one taken from another tab. The pool grows by one for it and is trimmed back to capacity as eviction would, parked webviews first. The connected page is shown as it opens, so it reserves a slot as every visible page does, and the trim never reaches it. Should the pool still have no room for it, which the capacity rule rules out, the request is refused and the page loads its address like any other, unconnected.
 
 While a connected page is open, the tab that opened it [must run](webview-pool.md#must-run), whatever the optimization policies say, _Discard: always_ included, so the page a sign-in reports back to is still there. A connected tab that loses its page, by being discarded or evicted, loses its connection with it, and its opener no longer has to run. A link opened in a new browser window is not connected.
 

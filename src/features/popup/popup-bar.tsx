@@ -22,7 +22,7 @@ export function PopupBar({ tab }: PopupBarProps) {
     <header className="haku-bar flex h-8.5 shrink-0 items-center gap-2 pl-3" data-tauri-drag-region>
       <i className={cx(addressIcon(url, false), "ic-sm text-text-secondary shrink-0")} aria-hidden="true" />
       <output
-        className="text-text-secondary min-w-0 flex-1 truncate select-text"
+        className="text-text-secondary min-w-0 flex-1 truncate"
         aria-label={t("popup.address")}
         title={url}
         data-tauri-drag-region

@@ -625,17 +625,22 @@ impl Browser {
     }
 
     /// Slots that must exist whatever the configured capacity: one for each
-    /// window's visible tab, one per fixed tab, and one per background tab
-    /// that must run for another reason.
+    /// window's visible web page, one per fixed tab, and one per background
+    /// tab that must run for another reason. A visible internal page is drawn
+    /// by the chrome and needs none.
     fn reserved(&self) -> usize {
         let visible = self.visible();
+        let shown = visible
+            .iter()
+            .filter(|&&id| self.tab(id).is_ok_and(|tab| !tab.is_internal()))
+            .count();
         let fixed = self.tabs.iter().filter(|tab| tab.fixed && !tab.is_internal()).count();
         let running = self
             .tabs
             .iter()
             .filter(|tab| !tab.fixed && !visible.contains(&tab.id) && self.must_run(tab))
             .count();
-        visible.len().max(1) + fixed + running
+        shown.max(1) + fixed + running
     }
 
     fn effective_capacity(&self) -> usize {
@@ -812,6 +817,23 @@ impl Browser {
         index
     }
 
+    /// The index in `tabs` that puts a tab at `place` among `window`'s tabs, or
+    /// after its last one when it has fewer.
+    fn index_in(&self, window: WindowId, place: usize) -> usize {
+        let indices: Vec<usize> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| self.homes.get(&tab.id) == Some(&window))
+            .map(|(index, _)| index)
+            .collect();
+        indices
+            .get(place)
+            .copied()
+            .or_else(|| indices.last().map(|index| index + 1))
+            .unwrap_or(self.tabs.len())
+    }
+
     /// The tab whose page is in `slot`, if any.
     pub fn tab_in(&self, slot: SlotId) -> Option<TabId> {
         self.occupant_of(slot)
@@ -838,7 +860,7 @@ impl Browser {
         let closed = self.tabs.remove(index);
         self.homes.remove(&id);
         self.navigated.remove(&id);
-        self.remember_closed(window, index, closed);
+        self.remember_closed(window, place, closed);
         // A page-opened tab, such as a sign-in popup, closing returns to the
         // page that opened it, when that page is in the same window.
         let opener = self
@@ -919,7 +941,7 @@ impl Browser {
     /// and makes it active. A tab whose window has closed since reopens in the
     /// normal window used last. Does nothing when no closed tab is remembered.
     pub fn reopen_closed_tab(&mut self) -> Vec<Effect> {
-        let Some((window, index, mut tab)) = self.closed.pop() else {
+        let Some((window, place, mut tab)) = self.closed.pop() else {
             return Vec::new();
         };
         let main = self.main_window();
@@ -928,7 +950,8 @@ impl Browser {
         tab.id = TabId(self.next_id);
         self.next_id += 1;
         let id = tab.id;
-        self.tabs.insert(index.min(self.tabs.len()), tab);
+        let at = self.index_in(window, place);
+        self.tabs.insert(at, tab);
         self.homes.insert(id, window);
         self.activate(id);
         effects.extend(self.realize());
@@ -940,7 +963,7 @@ impl Browser {
     ///
     /// A tab that never left an internal page, such as a new tab opened and
     /// closed again, holds nothing worth reopening.
-    fn remember_closed(&mut self, window: WindowId, index: usize, mut tab: Tab) {
+    fn remember_closed(&mut self, window: WindowId, place: usize, mut tab: Tab) {
         if tab.history.entries().len() == 1 && tab.is_internal() {
             return;
         }
@@ -948,7 +971,7 @@ impl Browser {
         tab.reclassify();
         tab.dialog = None;
         tab.relieved = false;
-        self.closed.push((window, index, tab));
+        self.closed.push((window, place, tab));
         if self.closed.len() > CLOSED_LIMIT {
             self.closed.remove(0);
         }
