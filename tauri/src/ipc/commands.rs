@@ -28,8 +28,7 @@ use crate::browser::{resolve_target, BrowserState, Direction, Effect, PageReport
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    jpeg_data_url, popup_url, reconcile, DialogAnswer, DialogId, Extension, ExtensionChange, Extensions, Preset,
-    Pressure, SlotId, TabId,
+    jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Preset, Pressure, SlotId, TabId,
 };
 use crate::platform::{self, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -112,27 +111,39 @@ fn page_observer() -> PageObserver<tauri::Wry> {
     )
 }
 
-/// Installs every extension in the extensions folder into the shared profile,
-/// uninstalls those whose folder is gone, and switches each on or off as the
-/// settings say.
+/// Installs every extension in the extensions folder into the shared profile
+/// and switches each on or off as the settings say.
+///
+/// An extension whose folder was deleted is not uninstalled: the engine lists
+/// its own built-in extensions alongside the user's, with nothing to tell them
+/// apart, and refuses to remove those.
 ///
 /// Runs once, at startup and off the UI thread: the engine has to be asked
 /// and waited on for each extension.
 ///
-/// # Errors
-/// Fails when the chrome webview or the engine's extension support cannot be
-/// reached. A single folder that does not install is reported in
-/// [`Extensions::failed`] instead.
-pub fn sync_extensions(app: &tauri::AppHandle) -> Result<()> {
+/// A failure is kept in [`Extensions::error`] for the settings page to show,
+/// since nothing is waiting on startup to report it.
+pub fn sync_extensions(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
-    let chrome = webview::chrome(app)?;
-    let before: Vec<String> = platform::installed_extensions(&chrome)?
-        .into_iter()
-        .map(|(id, _)| id)
-        .collect();
+    let extensions = install_extensions(app, &state).unwrap_or_else(|error| Extensions {
+        error: Some(error.to_string()),
+        ..Extensions::default()
+    });
+    if let Ok(mut stored) = state.extensions.write() {
+        *stored = extensions.clone();
+    }
+    let _ = ExtensionsChanged(extensions).emit(app);
+}
 
-    let mut present = Vec::new();
-    let mut popups = std::collections::HashMap::new();
+/// # Errors
+/// Fails when the chrome webview cannot be reached. A folder that does not
+/// install is reported in [`Extensions::failed`], and any other step that
+/// fails in [`Extensions::error`], without stopping the rest.
+fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extensions> {
+    let chrome = webview::chrome(app)?;
+    let mut problems = Vec::new();
+
+    let mut installed = Vec::new();
     let mut failed = Vec::new();
     let folders = std::fs::read_dir(&state.paths.extensions)
         .map(|entries| {
@@ -145,12 +156,18 @@ pub fn sync_extensions(app: &tauri::AppHandle) -> Result<()> {
         .unwrap_or_else(|_| Vec::new());
     for folder in folders {
         match platform::install_extension(&chrome, &folder) {
-            Ok(id) => {
+            Ok((id, name)) => {
                 let manifest = std::fs::read_to_string(folder.join("manifest.json")).unwrap_or_default();
-                popups.insert(id.clone(), popup_url(&id, &manifest));
-                present.push(id);
+                installed.push(Extension {
+                    popup: popup_url(&id, &manifest),
+                    id,
+                    name,
+                });
             }
-            Err(_) => failed.push(folder.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+            Err(error) => failed.push(format!(
+                "{} ({error})",
+                folder.file_name().unwrap_or_default().to_string_lossy()
+            )),
         }
     }
 
@@ -160,24 +177,18 @@ pub fn sync_extensions(app: &tauri::AppHandle) -> Result<()> {
         .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
         .disabled_extensions
         .clone();
-    for change in reconcile(&before, &present, &disabled) {
-        platform::change_extension(&chrome, change)?;
+    for extension in &installed {
+        let enabled = !disabled.contains(&extension.id);
+        if let Err(error) = platform::set_extension_enabled(&chrome, extension.id.clone(), enabled) {
+            problems.push(error.to_string());
+        }
     }
 
-    let installed = platform::installed_extensions(&chrome)?
-        .into_iter()
-        .map(|(id, name)| Extension {
-            popup: popups.get(&id).cloned().flatten(),
-            id,
-            name,
-        })
-        .collect();
-    let extensions = Extensions { installed, failed };
-    *state
-        .extensions
-        .write()
-        .map_err(|_| HakuError::Storage("extensions lock poisoned".into()))? = extensions.clone();
-    ExtensionsChanged(extensions).emit(app).map_err(HakuError::from)
+    Ok(Extensions {
+        installed,
+        failed,
+        error: (!problems.is_empty()).then(|| problems.join("; ")),
+    })
 }
 
 /// Switches installed extensions on or off where the settings changed them.
@@ -200,7 +211,7 @@ fn switch_extensions(app: &tauri::AppHandle, state: &AppState, before: &[String]
             None => chrome.insert(webview::chrome(app)?),
         };
         let enabled = !after.contains(&id);
-        platform::change_extension(chrome, ExtensionChange::Enable(id, enabled))?;
+        platform::set_extension_enabled(chrome, id, enabled)?;
     }
     Ok(())
 }

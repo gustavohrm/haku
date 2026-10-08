@@ -86,7 +86,7 @@ pub fn run() {
                 if let Ok(chrome) = webview::chrome(&handle) {
                     let _ = platform::raise_chrome(&chrome);
                     let _ = platform::stop_idle_workers(&chrome);
-                    let _ = ipc::commands::sync_extensions(&handle);
+                    ipc::commands::sync_extensions(&handle);
                 }
             });
             Ok(())

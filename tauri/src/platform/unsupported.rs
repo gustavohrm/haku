@@ -11,7 +11,7 @@ use std::path::Path;
 use super::memory::EngineSnapshot;
 use super::{PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId, ExtensionChange, MemoryStatus, SlotId};
+use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId};
 
 fn unsupported(operation: &str) -> HakuError {
     HakuError::Unsupported(format!("{operation} is only implemented on Windows"))
@@ -34,16 +34,16 @@ pub fn observe_page<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: Page
     Err(unsupported("observing page navigation"))
 }
 
-pub fn install_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _folder: &Path) -> Result<String> {
+pub fn install_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _folder: &Path) -> Result<(String, String)> {
     Err(unsupported("installing extensions"))
 }
 
-pub fn installed_extensions<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<Vec<(String, String)>> {
-    Err(unsupported("listing extensions"))
-}
-
-pub fn change_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _change: ExtensionChange) -> Result<()> {
-    Err(unsupported("changing extensions"))
+pub fn set_extension_enabled<R: tauri::Runtime>(
+    _chrome: &tauri::Webview<R>,
+    _id: String,
+    _enabled: bool,
+) -> Result<()> {
+    Err(unsupported("switching extensions"))
 }
 
 pub fn reveal_folder(_folder: &Path) -> Result<()> {

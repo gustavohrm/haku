@@ -129,10 +129,12 @@ export type Extension = {
 export type Extensions = {
 	installed: Extension[],
 	/**
-	 *  Folders the engine would not install, by name, so a broken or
-	 *  unsupported extension is not silently missing.
+	 *  Folders the engine would not install, by name and with the reason, so
+	 *  a broken or unsupported extension is not silently missing.
 	 */
 	failed: string[],
+	/**  What else went wrong while installing the folder, if anything. */
+	error: string | null,
 };
 
 /**

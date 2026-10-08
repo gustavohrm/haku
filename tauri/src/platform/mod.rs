@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
-use crate::model::{Commit, DialogAnswer, DialogId, ExtensionChange, MemoryStatus, PageDialog, SlotId};
+use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, SlotId};
 
 use memory::{Attribution, SlotMemoryTracker};
 
@@ -161,34 +161,26 @@ pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId,
 ///
 /// Blocks until the engine answers, so it must not be called on the UI thread.
 ///
-/// @returns The extension's id, which follows from the folder's path.
+/// @returns The extension's id, which follows from the folder's path, and
+///   its display name.
 ///
 /// # Errors
 /// Returns [`HakuError::Unsupported`] when the engine rejects the extension or
 /// the platform has no implementation.
-pub fn install_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, folder: &Path) -> Result<String> {
+pub fn install_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, folder: &Path) -> Result<(String, String)> {
     backend::install_extension(chrome, folder)
 }
 
-/// The id and display name of every extension installed in the profile.
+/// Switches an extension this process installed on or off, at once and in
+/// every page. Does nothing for any other extension.
 ///
 /// Blocks until the engine answers, so it must not be called on the UI thread.
 ///
 /// # Errors
-/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
-pub fn installed_extensions<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<Vec<(String, String)>> {
-    backend::installed_extensions(chrome)
-}
-
-/// Removes, enables or disables an installed extension, at once and in every
-/// page. Does nothing for an extension that is not installed.
-///
-/// Blocks until the engine answers, so it must not be called on the UI thread.
-///
-/// # Errors
-/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
-pub fn change_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, change: ExtensionChange) -> Result<()> {
-    backend::change_extension(chrome, change)
+/// Returns [`HakuError::Unsupported`] when the engine refuses, and on
+/// platforms without an implementation.
+pub fn set_extension_enabled<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: String, enabled: bool) -> Result<()> {
+    backend::set_extension_enabled(chrome, id, enabled)
 }
 
 /// Opens a folder in the system's file manager.

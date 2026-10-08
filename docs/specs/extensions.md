@@ -13,14 +13,17 @@ scope: How unpacked Chrome extensions are installed, switched on and off, and re
 Each subfolder of `extensions/` in the application data directory (`%APPDATA%\com.hakubrowser.app\extensions` on Windows) is one unpacked extension. At startup, off the UI thread, Haku:
 
 1. installs every subfolder into the profile, which every webview shares, so an extension runs in every page;
-2. uninstalls any extension the profile holds whose folder is gone;
-3. switches each one on or off as the settings say.
+2. switches each one on or off as the settings say.
 
 The folder is the list. Rejected: a list of paths in the settings, added by typing a path. It lets extensions live anywhere, at the cost of a persisted list and interface to edit it, and nothing needed that yet. Settings has a button that opens the folder.
 
-A folder the engine will not install is listed in settings by name, so a broken or unsupported extension is not silently missing. Changes to the folder take effect on the next start.
+A folder the engine will not install is listed in settings by name, with the engine's reason, and any other failure is shown there too, so a broken or unsupported extension is not silently missing. Changes to the folder take effect on the next start.
 
 An extension's id follows from its folder's path, so moving the folder makes it a different extension, with its own storage.
+
+### Uninstalling is not built
+
+Deleting a folder does not uninstall its extension; switching it off is how to stop one. The engine's list of installed extensions (`GetBrowserExtensions`) includes its own built-in ones, the Edge PDF viewer and the Microsoft Clipboard extension, and gives only an id and a name, so nothing tells them apart from the user's. Treating every listed extension without a folder as deleted tried to remove both, and the engine refused with `E_FAIL`. Uninstalling needs Haku to remember which ids it installed, which is a stored format of its own and was left until something needs it.
 
 ## Switching on and off
 

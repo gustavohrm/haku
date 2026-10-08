@@ -29,7 +29,13 @@ export function ExtensionsSection({ settings, update }: ExtensionsSectionProps) 
     <section className="card stack">
       <h2 className="text-title-sm">{t("settings.extensions")}</h2>
 
-      {extensions?.installed.length === 0 && (
+      {extensions !== null && extensions.error !== null && (
+        <p className="text-text-secondary text-sm">
+          {t("settings.extensions.error")} {extensions.error}
+        </p>
+      )}
+
+      {extensions?.installed.length === 0 && extensions.error === null && (
         <p className="text-text-secondary text-sm">{t("settings.extensions.empty")}</p>
       )}
 
