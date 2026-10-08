@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-06
+last_updated: 2026-10-08
 scope: How tabs share a limited number of webviews.
 ---
 

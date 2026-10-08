@@ -17,9 +17,9 @@ Each subfolder of `extensions/` in the application data directory (`%APPDATA%\co
 
 The folder is the list. Rejected: a list of paths in the settings, added by typing a path. It lets extensions live anywhere, at the cost of a persisted list and interface to edit it, and nothing needed that yet. Settings has a button that opens the folder.
 
-A folder the engine will not install is listed in settings by name, with the engine's reason, and any other failure is shown there too, so a broken or unsupported extension is not silently missing. Changes to the folder take effect on the next start.
+A folder the engine will not install is listed in settings by name, and any other failure is shown there as a typed `HakuError`, as [Errors](errors.md) requires, so a broken or unsupported extension is not silently missing. Folders are installed in name order, so the list does not shuffle between launches. Changes to the folder take effect on the next start.
 
-An extension's id follows from its folder's path, so moving the folder makes it a different extension, with its own storage.
+An unpacked extension's id follows from its folder's path unless its manifest declares a `key`, so moving a folder without one makes it a different extension, with its own storage.
 
 ### Uninstalling is not built
 
@@ -37,7 +37,7 @@ Rejected: one switch for all extensions. Per-extension switches cover that case 
 
 ## Popups
 
-The engine runs extensions but draws no toolbar, so an extension's toolbar button and its popup do not exist. Until Haku draws them, settings lists an **Open** button for each extension with a popup (`action.default_popup` in its manifest), which opens the popup page as a tab, and the address field accepts `chrome-extension://` addresses.
+The engine runs extensions but draws no toolbar, so an extension's toolbar button, the usual way into its popup page, does not exist. Until Haku draws them, settings lists an **Open** button for each extension with a popup (`action.default_popup` in its manifest), which opens the popup page as a tab, and is unavailable while the extension is switched off, and the address field accepts `chrome-extension://` addresses.
 
 An extension that acts on "the current tab" from its popup sees the popup's own tab there, so such actions do not work from it. In-page features do: Bitwarden's inline autofill menu and passkeys work, and uBlock Origin Lite blocks requests.
 
