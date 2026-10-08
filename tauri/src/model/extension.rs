@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::error::HakuError;
+
 /// An installed extension, as the interface lists it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -17,11 +19,11 @@ pub struct Extension {
 #[serde(rename_all = "camelCase")]
 pub struct Extensions {
     pub installed: Vec<Extension>,
-    /// Folders the engine would not install, by name and with the reason, so
-    /// a broken or unsupported extension is not silently missing.
+    /// Folders the engine would not install, by name, so a broken or
+    /// unsupported extension is not silently missing.
     pub failed: Vec<String>,
-    /// What else went wrong while installing the folder, if anything.
-    pub error: Option<String>,
+    /// The first other failure while installing the folder, if any.
+    pub error: Option<HakuError>,
 }
 
 /// The `chrome-extension://` URL of an extension's toolbar popup, read from

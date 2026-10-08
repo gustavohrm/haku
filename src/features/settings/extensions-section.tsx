@@ -1,6 +1,6 @@
 import { events, type Extensions, type Settings } from "@bindings";
 import { commands } from "@ipc/commands";
-import { unwrap } from "@ipc/result";
+import { describeError, unwrap } from "@ipc/result";
 import { t } from "@shared/i18n";
 import { useEffect, useState } from "react";
 
@@ -31,7 +31,7 @@ export function ExtensionsSection({ settings, update }: ExtensionsSectionProps) 
 
       {extensions !== null && extensions.error !== null && (
         <p className="text-text-secondary text-sm">
-          {t("settings.extensions.error")} {extensions.error}
+          {t("settings.extensions.error")} {describeError(extensions.error)}
         </p>
       )}
 

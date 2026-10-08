@@ -126,7 +126,7 @@ fn page_observer() -> PageObserver<tauri::Wry> {
 pub fn sync_extensions(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let extensions = install_extensions(app, &state).unwrap_or_else(|error| Extensions {
-        error: Some(error.to_string()),
+        error: Some(error),
         ..Extensions::default()
     });
     if let Ok(mut stored) = state.extensions.write() {
@@ -145,15 +145,21 @@ fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extens
 
     let mut installed = Vec::new();
     let mut failed = Vec::new();
-    let folders = std::fs::read_dir(&state.paths.extensions)
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| path.is_dir())
-                .collect()
-        })
-        .unwrap_or_else(|_| Vec::new());
+    let mut folders: Vec<std::path::PathBuf> = match std::fs::read_dir(&state.paths.extensions) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect(),
+        // No folder yet means no extensions.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            problems.push(HakuError::from(error));
+            Vec::new()
+        }
+    };
+    // The order the file system lists folders in is not stable.
+    folders.sort();
     for folder in folders {
         match platform::install_extension(&chrome, &folder) {
             Ok((id, name)) => {
@@ -164,10 +170,7 @@ fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extens
                     name,
                 });
             }
-            Err(error) => failed.push(format!(
-                "{} ({error})",
-                folder.file_name().unwrap_or_default().to_string_lossy()
-            )),
+            Err(_) => failed.push(folder.file_name().unwrap_or_default().to_string_lossy().into_owned()),
         }
     }
 
@@ -180,14 +183,14 @@ fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extens
     for extension in &installed {
         let enabled = !disabled.contains(&extension.id);
         if let Err(error) = platform::set_extension_enabled(&chrome, extension.id.clone(), enabled) {
-            problems.push(error.to_string());
+            problems.push(error);
         }
     }
 
     Ok(Extensions {
         installed,
         failed,
-        error: (!problems.is_empty()).then(|| problems.join("; ")),
+        error: problems.into_iter().next(),
     })
 }
 
