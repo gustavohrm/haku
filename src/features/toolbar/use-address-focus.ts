@@ -17,6 +17,10 @@ export function useAddressFocus(tabId: TabId | undefined, inputRef: RefObject<HT
     currentRef.current = tabId;
     if (tabId !== undefined && pendingRef.current === tabId) {
       pendingRef.current = null;
+      // Leaving first ends an edit begun on the previous tab, so focusing
+      // starts a fresh one on this tab's address. Focusing a field that
+      // already has focus would change nothing.
+      inputRef.current?.blur();
       inputRef.current?.focus();
       return;
     }
