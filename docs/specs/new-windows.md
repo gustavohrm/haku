@@ -25,23 +25,25 @@ The window used last is the one most recently focused. A tab opened from nowhere
 
 WebView2 raises `NewWindowRequested` for `target="_blank"` links, `window.open`, and the engine's own "open in new tab". `platform/` takes a deferral on it, so the page waits, and reports `PageSignal::WindowRequested`. The request is then answered once, either by handing it a webview or by refusing it, and the engine never opens a window of its own.
 
-| The request                                         | What opens                                                                                                                       |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Made by the page on its own, without a click or key | Nothing, as other browsers block it                                                                                              |
-| For a `haku://` page                                | Nothing: a page never opens Haku's own pages                                                                                     |
-| A popup: asked for with a size or position          | A popup window, connected to the page                                                                                            |
-| For anything but an `http` or `https` address       | The active tab of the page's window, connected to the page, since only the engine can load a `blob:` or blank page on its behalf |
-| A web address, with Shift held but not Ctrl         | A new browser window                                                                                                             |
-| A web address, with Ctrl held but not Shift         | A tab left for later, loaded when it is selected                                                                                 |
-| A web address otherwise                             | The active tab                                                                                                                   |
+| The request                                         | What opens                                                                                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Made by the page on its own, without a click or key | Nothing, as other browsers block it                                                                                                         |
+| For a `haku://` page                                | Nothing: a page never opens Haku's own pages                                                                                                |
+| A popup: asked for with a size or position          | A popup window, connected to the page                                                                                                       |
+| For anything but an `http` or `https` address       | A new tab in the page's window, made active and connected to the page, since only the engine can load a `blob:` or blank page on its behalf |
+| A web address, with Shift held but not Ctrl         | A new browser window                                                                                                                        |
+| A web address, with Ctrl held but not Shift         | A tab left for later, loaded when it is selected                                                                                            |
+| A web address otherwise                             | A new tab, made active                                                                                                                      |
+
+Every row that opens something opens it anew: a page's request never replaces the page that made it, whatever its target. A request without a size or position, whether from a link or from `window.open`, opens a tab rather than a window, as in Chrome.
 
 A click counts for about five seconds: Chromium lets a page act on one for that long, so a request made a moment after the click is not blocked.
 
-Ctrl+Shift opens a web address as the active tab, as in Chrome.
+Ctrl+Shift opens a web address in a new tab, made active, as in Chrome.
 
 Requests are answered one at a time, in the order they were made. A tab opened from a page goes right after it, and after the tabs that page opened before, so links opened for later line up in the order they were clicked.
 
-Middle-clicking a link opens it as the active tab. The engine does not say which button was used, and by the time the request arrives the button is already up.
+Middle-clicking a link opens it in a new tab, made active. The engine does not say which button was used, and by the time the request arrives the button is already up.
 
 ### Where a popup goes
 
