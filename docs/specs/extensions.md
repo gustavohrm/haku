@@ -23,7 +23,7 @@ An extension's id follows from its folder's path, so moving the folder makes it 
 
 ### Uninstalling is not built
 
-Deleting a folder does not uninstall its extension; switching it off is how to stop one. The engine's list of installed extensions (`GetBrowserExtensions`) includes its own built-in ones, the Edge PDF viewer and the Microsoft Clipboard extension, and gives only an id and a name, so nothing tells them apart from the user's. Treating every listed extension without a folder as deleted tried to remove both, and the engine refused with `E_FAIL`. Uninstalling needs Haku to remember which ids it installed, which is a stored format of its own and was left until something needs it.
+Deleting a folder does not uninstall its extension; switching it off is how to stop one. The engine's list of installed extensions (`GetBrowserExtensions`) includes its own built-in ones, the Edge PDF viewer and the Microsoft Clipboard extension, and gives only an id and a name, so nothing tells them apart from the user's. Treating every listed extension without a folder as deleted tried to remove both, and the engine refused with `E_FAIL`. Uninstalling needs Haku to remember which ids it installed, which is a stored format of its own and was left until something needs it. Tracked in [gustavohrm/haku#13](https://github.com/gustavohrm/haku/issues/13).
 
 ## Switching on and off
 
