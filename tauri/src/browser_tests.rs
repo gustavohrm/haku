@@ -1687,3 +1687,134 @@ fn a_restore_carries_the_height_the_page_had_when_it_was_read() {
         .iter()
         .any(|effect| matches!(effect, Effect::RestoreState { height: Some(height), .. } if *height == 9000.0)));
 }
+
+const REQUEST: WindowRequestId = WindowRequestId(7);
+
+fn ids_of(browser: &Browser) -> Vec<TabId> {
+    browser.tabs().iter().map(|tab| tab.id).collect()
+}
+
+#[test]
+fn a_link_opened_from_a_page_becomes_the_active_tab_beside_it() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let (opened, _) = browser.open_from(slot, "https://c.test", Opening::Foreground);
+
+    assert_eq!(ids_of(&browser), vec![ids[0], opened, ids[1]]);
+    assert_eq!(browser.active(), Some(opened));
+}
+
+#[test]
+fn links_opened_for_later_line_up_after_their_opener_in_order() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    browser.select_tab(ids[0], 0).unwrap();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let (first, _) = browser.open_from(slot, "https://c.test", Opening::Background);
+    let (second, _) = browser.open_from(slot, "https://d.test", Opening::Background);
+
+    assert_eq!(ids_of(&browser), vec![ids[0], first, second, ids[1]]);
+    assert_eq!(browser.active(), Some(ids[0]));
+    assert!(slot_of(&browser, first).is_none(), "loads when selected");
+}
+
+#[test]
+fn a_popup_opens_in_a_connected_tab_and_its_opener_keeps_running() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let opener = slot_of(&browser, ids[0]).unwrap();
+
+    let (popup, effects) = browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+
+    let slot = slot_of(&browser, popup).unwrap();
+    assert_ne!(slot, opener);
+    assert!(effects.contains(&Effect::Adopt {
+        slot,
+        request: REQUEST,
+        url: "https://login.test".to_string(),
+    }));
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::EnsureSlot { slot: s, .. } if *s == slot)));
+    assert_eq!(
+        slot_of(&browser, ids[0]),
+        Some(opener),
+        "the sign-in reports back to it"
+    );
+    assert_eq!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn a_connected_tab_never_gets_a_parked_webview() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    browser.close_tab(ids[1], HOME).unwrap();
+    let opener = slot_of(&browser, ids[0]).unwrap();
+    let parked = browser.slots().iter().find(|slot| slot.occupant.is_none()).unwrap().id;
+
+    let (popup, effects) = browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+
+    assert_ne!(slot_of(&browser, popup), Some(parked));
+    assert!(
+        effects.contains(&Effect::Destroy { slot: parked }),
+        "the pool keeps its size"
+    );
+    assert_eq!(browser.slots().len(), 2);
+}
+
+#[test]
+fn closing_a_connected_tab_returns_to_the_page_that_opened_it() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    browser.select_tab(ids[0], 0).unwrap();
+    let opener = slot_of(&browser, ids[0]).unwrap();
+    let (popup, _) = browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+
+    browser.close_tab(popup, HOME).unwrap();
+
+    assert_eq!(browser.active(), Some(ids[0]));
+}
+
+#[test]
+fn an_opener_stops_running_once_its_connected_tab_closes() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test"]);
+    let opener = slot_of(&browser, ids[0]).unwrap();
+    let (popup, _) = browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+    browser.open_tab("https://b.test", true);
+    assert_eq!(browser.position(ids[0]), Some(Position::MustRun));
+
+    browser.close_tab(popup, HOME).unwrap();
+
+    assert_ne!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn an_opener_stops_running_once_its_connected_tab_loses_its_page() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let opener = slot_of(&browser, ids[0]).unwrap();
+    let (popup, _) = browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+
+    browser.open_tab("https://b.test", true);
+
+    assert!(slot_of(&browser, popup).is_none(), "evicted, which cuts the connection");
+    assert_ne!(browser.position(ids[0]), Some(Position::MustRun));
+}
+
+#[test]
+fn discarding_always_spares_an_opener_while_its_connected_tab_is_open() {
+    let mut browser = Browser::new(2).with_policies(Policy::Never, Policy::Always);
+    let (first, _) = browser.open_tab("https://a.test", true);
+    let opener = slot_of(&browser, first).unwrap();
+
+    browser.open_from(opener, "https://login.test", Opening::Connected(REQUEST));
+
+    assert_eq!(slot_of(&browser, first), Some(opener), "the sign-in reports back to it");
+}
+
+#[test]
+fn the_tab_in_a_slot_is_the_one_it_was_opened_from() {
+    let (browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    assert_eq!(browser.tab_in(slot), Some(ids[0]));
+    assert_eq!(browser.tab_in(SlotId(9)), None);
+}
