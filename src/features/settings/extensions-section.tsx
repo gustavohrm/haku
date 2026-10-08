@@ -48,6 +48,9 @@ export function ExtensionsSection({ settings, update }: ExtensionsSectionProps) 
             <button
               type="button"
               className="btn ghost"
+              aria-label={`${t("settings.extensions.open")} ${extension.name}`}
+              // A switched-off extension's popup cannot load.
+              disabled={disabled.includes(extension.id)}
               onClick={() => extension.popup !== null && void commands.openTab(extension.popup, true)}
             >
               {t("settings.extensions.open")}
