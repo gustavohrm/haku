@@ -6,6 +6,7 @@ import { useSettings } from "@ipc/hooks";
 import { t } from "@shared/i18n";
 
 import { DraftInput } from "./draft-input";
+import { ExtensionsSection } from "./extensions-section";
 import { OptimizationSection } from "./optimization-section";
 
 /**
@@ -74,6 +75,8 @@ export function SettingsPage() {
           />
         </label>
       </section>
+
+      <ExtensionsSection settings={settings} update={update} />
     </InternalPage>
   );
 }

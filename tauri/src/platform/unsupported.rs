@@ -6,10 +6,12 @@
 //! Both reach their handles through the same `Webview::with_webview` hook the
 //! Windows backend uses.
 
+use std::path::Path;
+
 use super::memory::EngineSnapshot;
 use super::{PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId};
+use crate::model::{DialogAnswer, DialogId, ExtensionChange, MemoryStatus, SlotId};
 
 fn unsupported(operation: &str) -> HakuError {
     HakuError::Unsupported(format!("{operation} is only implemented on Windows"))
@@ -30,6 +32,22 @@ pub fn set_input_mask<R: tauri::Runtime>(
 
 pub fn observe_page<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: PageSink) -> Result<()> {
     Err(unsupported("observing page navigation"))
+}
+
+pub fn install_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _folder: &Path) -> Result<String> {
+    Err(unsupported("installing extensions"))
+}
+
+pub fn installed_extensions<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<Vec<(String, String)>> {
+    Err(unsupported("listing extensions"))
+}
+
+pub fn change_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _change: ExtensionChange) -> Result<()> {
+    Err(unsupported("changing extensions"))
+}
+
+pub fn reveal_folder(_folder: &Path) -> Result<()> {
+    Err(unsupported("opening a folder"))
 }
 
 pub fn stop_idle_workers<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<()> {

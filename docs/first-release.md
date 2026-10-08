@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-06
+last_updated: 2026-10-08
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -112,10 +112,12 @@ Looking like Chrome, Helium, Firefox or Zen is a **preset**: a named bundle of t
 
 ### Extensions
 
+**Implemented**, the second tier: [Extensions](specs/extensions.md) covers installing, switching and popups.
+
 There is no store. Extensions are installed from disk, at the user's own risk, in two tiers:
 
 1. **User scripts and user styles**, injected by Rust into pages matching a URL pattern. They run as part of the page and gain no channel into the application.
-2. **Unpacked Chrome extensions**, through WebView2's extension support. Chromium sees each pool webview as a tab, not Haku's tabs, so extensions built on tab APIs will misbehave. Content-script and request-filtering extensions are the expected fit. Bitwarden is the motivating case and its compatibility is unverified.
+2. **Unpacked Chrome extensions**, through WebView2's extension support. Chromium sees each pool webview as a tab, not Haku's tabs, so extensions built on tab APIs will misbehave. Content-script and request-filtering extensions are the expected fit. Bitwarden is the motivating case; its in-page autofill and passkeys work, and its popup has no toolbar to open from yet.
 
 ### Passwords and autofill
 

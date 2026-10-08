@@ -12,10 +12,11 @@
 //! [`HakuError::Unsupported`] rather than silently doing nothing, so a missing
 //! platform surfaces as a visible error instead of a subtly broken window.
 
+use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
-use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, SlotId};
+use crate::model::{Commit, DialogAnswer, DialogId, ExtensionChange, MemoryStatus, PageDialog, SlotId};
 
 use memory::{Attribution, SlotMemoryTracker};
 
@@ -153,6 +154,49 @@ pub fn leave_page<R: tauri::Runtime>(
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId, answer: DialogAnswer) -> Result<()> {
     backend::answer_dialog(app, id, answer)
+}
+
+/// Installs the unpacked Chrome extension in `folder` into the profile every
+/// webview shares, or reinstalls it from there if it is installed already.
+///
+/// Blocks until the engine answers, so it must not be called on the UI thread.
+///
+/// @returns The extension's id, which follows from the folder's path.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the engine rejects the extension or
+/// the platform has no implementation.
+pub fn install_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, folder: &Path) -> Result<String> {
+    backend::install_extension(chrome, folder)
+}
+
+/// The id and display name of every extension installed in the profile.
+///
+/// Blocks until the engine answers, so it must not be called on the UI thread.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn installed_extensions<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<Vec<(String, String)>> {
+    backend::installed_extensions(chrome)
+}
+
+/// Removes, enables or disables an installed extension, at once and in every
+/// page. Does nothing for an extension that is not installed.
+///
+/// Blocks until the engine answers, so it must not be called on the UI thread.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn change_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, change: ExtensionChange) -> Result<()> {
+    backend::change_extension(chrome, change)
+}
+
+/// Opens a folder in the system's file manager.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when it cannot be opened.
+pub fn reveal_folder(folder: &Path) -> Result<()> {
+    backend::reveal_folder(folder)
 }
 
 /// Stops service workers that keep running after every page using them is gone.

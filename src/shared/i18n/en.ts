@@ -70,6 +70,13 @@ export const en = {
   "settings.browsing": "Browsing",
   "settings.search": "Search engine URL",
   "settings.home": "Home page",
+  "settings.extensions": "Extensions",
+  "settings.extensions.empty": "No extensions installed.",
+  "settings.extensions.open": "Open",
+  "settings.extensions.failed": "Could not install:",
+  "settings.extensions.folder": "Open extensions folder",
+  "settings.extensions.help":
+    "Put each unpacked Chrome extension in its own folder there, then restart Haku. Deleting a folder uninstalls it on the next start. Extensions are installed at your own risk.",
 
   "newTab.title": "New tab",
   "newTab.prompt": "Type an address or a search above.",
