@@ -15,7 +15,7 @@
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
-use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, SlotId};
+use crate::model::{Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, Shortcut, SlotId};
 
 use memory::{Attribution, SlotMemoryTracker};
 
@@ -89,6 +89,9 @@ pub enum PageSignal {
     NavigationStarted { form: bool },
     /// The document reached `DOMContentLoaded`, on `url`.
     Loaded { url: String },
+    /// A browser shortcut was pressed while the page had focus. The page never
+    /// saw the key.
+    Shortcut(Shortcut),
     /// The navigation finished, after the document's `load`, on `url`. Not
     /// sent for a navigation cancelled by the next one, which says nothing
     /// about the page that replaced it.
@@ -98,6 +101,24 @@ pub enum PageSignal {
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on
 /// anything that dispatches back to it.
 pub type PageSink = Arc<dyn Fn(PageSignal) + Send + Sync>;
+
+/// Receives the shortcuts pressed in a webview. Called on the UI thread, so it
+/// must not block on anything that dispatches back to it.
+pub type KeySink = Arc<dyn Fn(Shortcut) + Send + Sync>;
+
+/// Reports the shortcuts pressed in the chrome to `sink`.
+///
+/// A key bound in [`crate::model::keymap`] is consumed natively, before the
+/// webview acts on it, so it never reaches the interface or the engine's own
+/// handling of the key. Content webviews report theirs as
+/// [`PageSignal::Shortcut`] instead, attached by [`observe_page`], so a
+/// shortcut works wherever focus is without the page taking part.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn intercept_keys<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: KeySink) -> Result<()> {
+    backend::intercept_keys(webview, sink)
+}
 
 /// Starts reporting a content webview's navigation to `sink`.
 ///

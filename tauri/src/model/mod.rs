@@ -1,5 +1,6 @@
 pub mod dialog;
 pub mod history;
+pub mod keymap;
 pub mod optimization;
 pub mod page_state;
 pub mod pool;
@@ -9,6 +10,7 @@ pub mod tab;
 
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
 pub use history::{Commit, History, NavigationKind, Visit};
+pub use keymap::{shortcut_for, Chord, Key, Shortcut};
 pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};
 pub use pool::{Acquired, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};

@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-06
+last_updated: 2026-10-08
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -31,6 +31,8 @@ effective_capacity = max(configured_capacity, fixed_count + visible_count)
 Split view is built on this. No other feature may assume there is exactly one page on screen.
 
 ### Keyboard input while a page has focus
+
+**Implemented.** [Shortcuts](specs/shortcuts.md) has the keymap and how it is attached.
 
 When a content webview has focus, keys go to it, and the page has no channel into the application. Browser shortcuts are therefore intercepted **natively**: `platform/` handles the content webview's accelerator-key event (WebView2's `AcceleratorKeyPressed`) and hands the key to Rust.
 

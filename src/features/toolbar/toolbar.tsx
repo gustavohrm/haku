@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { addressIcon, displayAddress } from "./address";
 import { SiteMenu } from "./site-menu";
+import { useAddressFocus } from "./use-address-focus";
 
 const SETTINGS_URL = "haku://settings";
 
@@ -31,13 +32,8 @@ export function Toolbar({ tab }: ToolbarProps) {
     }
   }, [editing, url]);
 
-  // An edit belongs to the tab it was started in. Switching tabs abandons it,
-  // so the field never shows one tab's address while another is active.
   const tabId = tab?.id;
-  useEffect(() => {
-    inputRef.current?.blur();
-    setEditing(false);
-  }, [tabId]);
+  useAddressFocus(tabId, inputRef);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

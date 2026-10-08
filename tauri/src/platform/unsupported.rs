@@ -7,7 +7,7 @@
 //! Windows backend uses.
 
 use super::memory::EngineSnapshot;
-use super::{PageSink, PhysicalRect, RoundedRect};
+use super::{KeySink, PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
 use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId};
 
@@ -30,6 +30,10 @@ pub fn set_input_mask<R: tauri::Runtime>(
 
 pub fn observe_page<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: PageSink) -> Result<()> {
     Err(unsupported("observing page navigation"))
+}
+
+pub fn intercept_keys<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: KeySink) -> Result<()> {
+    Err(unsupported("intercepting shortcut keys"))
 }
 
 pub fn stop_idle_workers<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<()> {
