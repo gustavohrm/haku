@@ -132,6 +132,26 @@ mod tests {
     }
 
     #[test]
+    fn alt_and_function_key_bindings_follow_chrome() {
+        assert_eq!(shortcut_for(Chord::alt(Key::Letter('D'))), Some(Shortcut::FocusAddress));
+        assert_eq!(shortcut_for(Chord::alt(Key::Left)), Some(Shortcut::Back));
+        assert_eq!(shortcut_for(Chord::alt(Key::Right)), Some(Shortcut::Forward));
+        assert_eq!(shortcut_for(Chord::ctrl(Key::Function(4))), Some(Shortcut::CloseTab));
+        assert_eq!(shortcut_for(Chord::plain(Key::Function(5))), Some(Shortcut::Reload));
+        assert_eq!(
+            shortcut_for(Chord::plain(Key::Function(6))),
+            Some(Shortcut::FocusAddress)
+        );
+        assert_eq!(shortcut_for(Chord::plain(Key::Function(12))), Some(Shortcut::DevTools));
+        assert_eq!(
+            shortcut_for(Chord::ctrl_shift(Key::Letter('I'))),
+            Some(Shortcut::DevTools)
+        );
+        assert_eq!(shortcut_for(Chord::ctrl(Key::PageDown)), Some(Shortcut::NextTab));
+        assert_eq!(shortcut_for(Chord::ctrl(Key::PageUp)), Some(Shortcut::PreviousTab));
+    }
+
+    #[test]
     fn modifiers_must_match_exactly() {
         assert_eq!(shortcut_for(Chord::ctrl_shift(Key::Letter('W'))), None);
         assert_eq!(shortcut_for(Chord::plain(Key::Letter('T'))), None);

@@ -190,12 +190,21 @@ fn only_the_most_recent_closed_tabs_are_remembered() {
         browser.close_tab(id, HOME).unwrap();
     }
 
-    let mut reopened = 0;
+    let mut reopened = Vec::new();
     while !browser.reopen_closed_tab().is_empty() {
-        reopened += 1;
+        reopened.push(browser.tab(browser.active().unwrap()).unwrap().url().to_string());
     }
 
-    assert_eq!(reopened, CLOSED_LIMIT);
+    assert_eq!(reopened.len(), CLOSED_LIMIT);
+    assert_eq!(
+        reopened[0],
+        format!("https://{CLOSED_LIMIT}.test"),
+        "the newest comes back first"
+    );
+    assert!(
+        !reopened.contains(&"https://0.test".to_string()),
+        "the oldest is forgotten"
+    );
 }
 
 #[test]
