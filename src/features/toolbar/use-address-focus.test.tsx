@@ -22,7 +22,7 @@ const { useAddressFocus } = await import("./use-address-focus");
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /** The address field as the toolbar wires it, recording focus changes. */
-function Field({ tabId, log }: { tabId: number; log: string[] }) {
+function Field({ tabId, log }: { tabId: number | undefined; log: string[] }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useAddressFocus(tabId, inputRef);
   return <input ref={inputRef} onFocus={() => log.push("focus")} onBlur={() => log.push("blur")} />;
@@ -33,7 +33,7 @@ describe("useAddressFocus", () => {
   let root: Root;
   let log: string[];
 
-  const render = async (tabId: number) => {
+  const render = async (tabId: number | undefined) => {
     await act(async () => root.render(<Field tabId={tabId} log={log} />));
   };
 
@@ -82,6 +82,28 @@ describe("useAddressFocus", () => {
     await render(2);
 
     expect(log).toEqual(["blur", "focus"]);
+    expect(document.activeElement).toBe(input());
+  });
+
+  it("holds a request made while no tab is active until that tab renders", async () => {
+    await render(undefined);
+    await request(1);
+    expect(document.activeElement).not.toBe(input());
+
+    await render(1);
+
+    expect(document.activeElement).toBe(input());
+  });
+
+  it("follows only the latest request when a newer one replaces a pending one", async () => {
+    await render(1);
+    await request(2);
+    await request(3);
+
+    await render(2);
+    expect(document.activeElement).not.toBe(input());
+
+    await render(3);
     expect(document.activeElement).toBe(input());
   });
 
