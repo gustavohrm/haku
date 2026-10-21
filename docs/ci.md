@@ -68,7 +68,7 @@ The rule is all or nothing on purpose. Pinning some actions and not others is wo
 
 `./.github/actions/setup` is deliberately not pinned. It is a path in this repository, already versioned by the commit under test.
 
-Nothing updates these automatically. That is the cost of the rule, accepted rather than overlooked: upgrades are manual. Resolve the new SHA with `gh` and update the comment alongside it:
+Dependabot proposes weekly updates for these actions, as `.github/dependabot.yml` sets out. It moves the SHA and its version comment together, so the pin and its label cannot drift apart. The same file covers npm and Cargo dependencies, grouped per ecosystem. For a hand upgrade, resolve the new SHA with `gh` and update the comment alongside it:
 
 ```sh
 gh api repos/actions/checkout/commits/v5.1.0 --jq .sha
