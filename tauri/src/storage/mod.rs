@@ -12,6 +12,7 @@ pub mod session;
 pub mod settings;
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -57,12 +58,13 @@ static WRITES: Mutex<()> = Mutex::new(());
 
 /// Writes a JSON document atomically.
 ///
-/// The write goes to a temporary file that then replaces the target, so a crash
-/// mid-write leaves the previous contents intact instead of a truncated file.
-/// Writes are serialised, so concurrent saves land one after another.
+/// The write goes to a temporary file, flushed to disk before it replaces the
+/// target, so a crash or power loss mid-write leaves the previous contents
+/// intact instead of a truncated file. Writes are serialised, so concurrent
+/// saves land one after another.
 ///
 /// # Errors
-/// Returns [`HakuError::Storage`] when the directory cannot be created or either
+/// Returns [`HakuError::Storage`] when the directory cannot be created or any
 /// filesystem step fails.
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -73,7 +75,10 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     // A writer that panicked left nothing half-done that the guard protects.
     let _guard = WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let temporary = path.with_extension("tmp");
-    fs::write(&temporary, body)?;
+    let mut file = fs::File::create(&temporary)?;
+    file.write_all(body.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
     fs::rename(&temporary, path)?;
     Ok(())
 }
