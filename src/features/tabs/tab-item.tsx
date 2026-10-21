@@ -111,10 +111,10 @@ function TabAction({ icon, label, alwaysVisible, onClick }: TabActionProps) {
  * image swaps in the fallback rather than leaving a gap in the strip.
  */
 function Favicon({ src }: { src: string | null }) {
-  const [broken, setBroken] = useState(false);
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
 
-  if (!src || broken) {
+  if (!src || brokenSrc === src) {
     return <i className="ic-globe ic-md shrink-0" aria-hidden="true" />;
   }
-  return <img src={src} alt="" className="size-4 shrink-0" onError={() => setBroken(true)} />;
+  return <img src={src} alt="" className="size-4 shrink-0" onError={() => setBrokenSrc(src)} />;
 }
