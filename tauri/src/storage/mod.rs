@@ -41,9 +41,9 @@ pub fn corrupt_path(path: &Path) -> PathBuf {
 /// Reads a JSON document, layering it over the type's defaults.
 ///
 /// Missing keys keep their default, so a hand-edited file naming one setting
-/// does not reset the rest. A file that cannot be read yields the defaults
-/// outright: losing a window layout is a far better outcome than refusing to
-/// start. A file that exists but is not valid for the type is moved to
+/// does not reset the rest. A file that exists but cannot be read, or is not
+/// valid for the type, yields the defaults outright: losing a window layout is
+/// a far better outcome than refusing to start. It is set aside at
 /// [`corrupt_path`] first, so the user's contents survive the next save.
 pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
     let defaults = T::default();
@@ -51,8 +51,15 @@ pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
         return defaults;
     };
 
-    let Ok(raw) = fs::read_to_string(path) else {
-        return defaults;
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return defaults,
+        // Not UTF-8, or not readable now: either way the next save would
+        // replace it.
+        Err(_) => {
+            set_aside(path);
+            return defaults;
+        }
     };
     let document: Option<T> = serde_json::from_str::<Value>(&raw)
         .ok()
@@ -60,9 +67,19 @@ pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
     match document {
         Some(document) => document,
         None => {
-            let _ = fs::rename(path, corrupt_path(path));
+            set_aside(path);
             defaults
         }
+    }
+}
+
+/// Moves an unreadable document to [`corrupt_path`], or copies it there when
+/// it cannot be moved, so the next save does not destroy the only copy.
+/// Startup goes on either way: there is nowhere to report a failure yet.
+fn set_aside(path: &Path) {
+    let aside = corrupt_path(path);
+    if fs::rename(path, &aside).is_err() {
+        let _ = fs::copy(path, &aside);
     }
 }
 
@@ -216,6 +233,16 @@ mod tests {
         assert_eq!(read_json::<Sample>(&path), Sample::default());
         assert!(!path.exists());
         assert!(corrupt_path(&path).exists());
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_is_moved_aside_with_its_bytes_intact() {
+        let path = temp_dir("not-utf8").join("value.json");
+        fs::write(&path, [0xff, 0xfe, b'{']).unwrap();
+
+        assert_eq!(read_json::<Sample>(&path), Sample::default());
+        assert!(!path.exists());
+        assert_eq!(fs::read(corrupt_path(&path)).unwrap(), [0xff, 0xfe, b'{']);
     }
 
     #[test]
