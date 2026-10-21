@@ -1093,6 +1093,10 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
 fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
     let settings = settings.sanitized();
 
+    // One store at a time, from replacing through saving or rolling back, so a
+    // failed save never restores settings older than a store that overlapped.
+    static STORING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let storing = STORING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let previous = {
         let mut current = state
             .settings
@@ -1108,6 +1112,7 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
         *current = previous;
         return Err(error);
     }
+    drop(storing);
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
