@@ -1,17 +1,15 @@
 import { type Tab } from "@bindings";
+import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
 import { useSettings } from "@ipc/hooks";
 import { updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { addressIcon } from "./address";
-
-/** Space between the icon and the menu below it, in pixels. */
-const MENU_GAP = 6;
 
 interface SiteMenuProps {
   tab: Tab;
@@ -53,34 +51,8 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
   // The menu hangs over the page, so it must be registered to be clickable.
   useOverlay(menuRef, open);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const close = () => setAnchor(null);
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
-        close();
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-      }
-    };
-    // A click on the page never reaches the chrome; it only takes focus away.
-    window.addEventListener("blur", close);
-    window.addEventListener("resize", close);
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("blur", close);
-      window.removeEventListener("resize", close);
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
+  const close = useCallback(() => setAnchor(null), []);
+  useMenuDismiss(open, close, menuRef, buttonRef);
 
   // The menu is anchored at the lock glyph rather than its button, whose hover
   // box is wider than the glyph, and pulls itself back by its own inset so its
