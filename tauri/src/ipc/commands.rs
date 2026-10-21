@@ -187,10 +187,14 @@ fn queue_window(app: &tauri::AppHandle, window: WindowRequest) {
         std::thread::spawn(move || {
             for window in receiver {
                 let request = window.request;
+                let from_popup = window.slot.is_none();
                 if window.gesture {
                     open_requested(&app, window);
                 }
                 let _ = platform::refuse_window(&app, request);
+                if from_popup {
+                    popup_request_answered(&app);
+                }
             }
         });
         sender
@@ -254,6 +258,23 @@ fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
     }
 }
 
+/// Requests from the toolbar popup still being answered. The popup waits on
+/// each, and destroying it first crashes Haku when the request is answered,
+/// so losing focus meanwhile, as it does to the window it asked for, leaves
+/// closing it to the answer; see `tauri/AGENTS.md`.
+static POPUP_REQUESTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Whether the toolbar popup lost focus while a request of its own was being
+/// answered, and is to close once none is.
+static POPUP_LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn popup_request_answered(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    if POPUP_REQUESTS.fetch_sub(1, Ordering::SeqCst) == 1 && POPUP_LEFT.swap(false, Ordering::SeqCst) {
+        let _ = webview::close_extension_popup(app);
+    }
+}
+
 /// What an extension's toolbar popup reports: its requests to open a window,
 /// answered as a page's are, and to close itself.
 fn popup_sink(app: &tauri::AppHandle) -> platform::PageSink {
@@ -267,19 +288,22 @@ fn popup_sink(app: &tauri::AppHandle) -> platform::PageSink {
             background,
             window,
             gesture,
-        } => queue_window(
-            &app,
-            WindowRequest {
-                slot: None,
-                request,
-                url,
-                popup,
-                placement,
-                background,
-                window,
-                gesture,
-            },
-        ),
+        } => {
+            POPUP_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            queue_window(
+                &app,
+                WindowRequest {
+                    slot: None,
+                    request,
+                    url,
+                    popup,
+                    placement,
+                    background,
+                    window,
+                    gesture,
+                },
+            );
+        }
         PageSignal::CloseRequested => {
             let app = app.clone();
             std::thread::spawn(move || webview::close_extension_popup(&app));
@@ -318,6 +342,10 @@ fn on_popup_event(window: &tauri::Window, event: &tauri::WindowEvent) {
         if let Some(url) = popup.open.take() {
             popup.closed = Some((url, std::time::Instant::now()));
         }
+    }
+    if POPUP_REQUESTS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+        POPUP_LEFT.store(true, std::sync::atomic::Ordering::SeqCst);
+        return;
     }
     let app = window.app_handle().clone();
     std::thread::spawn(move || webview::close_extension_popup(&app));
