@@ -24,8 +24,7 @@
         "base-uri": "'none'",
         "form-action": "'none'",
         "frame-src": "'none'"
-      },
-      "devCsp": null
+      }
     }
   },
   "bundle": {
