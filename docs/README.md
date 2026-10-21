@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-08
+last_updated: 2026-10-21
 scope: Index of the project documentation.
 ---
 
@@ -26,10 +26,11 @@ Start with [Architecture](architecture.md).
 
 ## Guidelines
 
-| Document                                     | Contains                                                                     |
-| -------------------------------------------- | ---------------------------------------------------------------------------- |
-| [Code](guidelines/code.md)                   | Naming, structure, TypeScript, Rust, React and styling conventions; testing. |
-| [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, and layout. |
+| Document                                     | Contains                                                                                              |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [Code](guidelines/code.md)                   | Naming, structure, TypeScript, Rust, React and styling conventions; testing.                          |
+| [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, and layout.                          |
+| [Security](guidelines/security.md)           | Keeping web pages out of the application, in code: capabilities, commands, injected scripts, dialogs. |
 
 ## Specifications
 

@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-06
+last_updated: 2026-10-21
 ---
 
 # Codebase guidelines
@@ -61,6 +61,7 @@ Function parameters:
 - File and module names are snake_case; the kebab-case rule above is for TypeScript.
 - Keep `browser.rs` and `model/` free of Tauri types. Logic that cannot be tested without a window is logic in the wrong module.
 - Any command that drives a webview must be `async`. See [Architecture § Threading](../architecture.md#threading) for why.
+- Every command guards with `ensure_chrome` before it does anything else. See [Security guidelines § Commands](security.md#commands).
 - Document failure conditions with an `# Errors` section on public functions returning `Result`.
 
 ## React
