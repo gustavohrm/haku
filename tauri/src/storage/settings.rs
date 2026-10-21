@@ -143,10 +143,14 @@ fn normalized_home_url(typed: &str) -> String {
             return trimmed.into();
         }
     }
+    // Something that names a scheme already is not a bare host: `ftp://x`
+    // would otherwise become `https://ftp://x`.
+    if trimmed.contains("://") || trimmed.chars().any(char::is_whitespace) {
+        return DEFAULT_HOME_URL.into();
+    }
     let with_scheme = format!("{HTTPS_PREFIX}{trimmed}");
-    let has_whitespace = trimmed.chars().any(char::is_whitespace);
     match tauri::Url::parse(&with_scheme) {
-        Ok(url) if !has_whitespace && url.host().is_some() => with_scheme,
+        Ok(url) if url.host().is_some() => with_scheme,
         _ => DEFAULT_HOME_URL.into(),
     }
 }
@@ -182,6 +186,12 @@ mod tests {
     #[test]
     fn a_home_url_that_is_not_a_url_falls_back_to_the_default() {
         assert_eq!(sanitized_home_url("not a url"), Settings::default().home_url);
+    }
+
+    #[test]
+    fn a_home_url_with_a_scheme_haku_does_not_open_falls_back_to_the_default() {
+        assert_eq!(sanitized_home_url("ftp://example.com"), Settings::default().home_url);
+        assert_eq!(sanitized_home_url("https://"), Settings::default().home_url);
     }
 
     #[test]
