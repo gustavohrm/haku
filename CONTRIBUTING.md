@@ -36,10 +36,11 @@ Defects and requests are tracked as GitHub issues, opened through the bug and fe
 
 Each issue carries one label from each group that applies:
 
-| Group     | Labels                            | Says                                 |
-| --------- | --------------------------------- | ------------------------------------ |
-| `type:`   | `bug`, `feature`, `docs`, `chore` | What kind of work it is              |
-| `status:` | `needs-triage`, `blocked`         | Why it is not moving, when it is not |
+| Group     | Labels                                        | Says                                    |
+| --------- | --------------------------------------------- | --------------------------------------- |
+| `type:`   | `bug`, `feature`, `security`, `docs`, `chore` | What kind of work it is                 |
+| `area:`   | `src`, `tauri`, `docs`                        | Which part of the repository it touches |
+| `status:` | `needs-triage`, `blocked`                     | Why it is not moving, when it is not    |
 
 `.github/labels.json` holds the list. `pnpm labels` creates or updates them on GitHub through `gh`, and is run after editing the list. It never deletes a label; one that is no longer listed is reported for a maintainer to remove by hand.
 
