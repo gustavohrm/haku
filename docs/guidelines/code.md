@@ -24,15 +24,19 @@ This document outlines patterns, conventions and guidelines to follow when worki
 - Loose Coupling: minimize dependencies between modules
 - Prefer dependency injection over hard-coding
 - Prefer using folders to group related files, with an `index.ts` entrypoint
+- Do not add compatibility layers unless there is a real consumer, persisted data, shipped behavior, or explicit requirement
+- Do not add a runtime dependency unless simple in-house code is clearly worse. [Architecture § Dependencies](../architecture.md#dependencies) sets this rule and what it covers.
 
 ## Coding good/bad practices
 
 - Functions should be small and clearly nameable
 - Prefer `const` over `let`; never use `var`
-- Never use magic numbers or strings; extract to named constants
+- Avoid magic numbers and strings; extract to named constants when the value has domain meaning or is reused
 - Code should be self-explanatory; use descriptive names
 - Design for predictable, deterministic behavior
 - Avoid God Objects, Feature Envy, and excessive method chaining.
+
+Literal values MAY stay inline when extraction makes code worse, such as protocol literals, package names, CSS selectors, event names, test fixtures, one-off validation messages, and external API values used once near their boundary.
 
 Function parameters:
 
