@@ -528,6 +528,7 @@ pub fn sync_extensions(app: &tauri::AppHandle) {
     if let Ok(mut stored) = state.extensions.write() {
         *stored = extensions.clone();
     }
+    webview::extensions_installed(app);
     let _ = ExtensionsChanged(extensions).emit(app);
 }
 
