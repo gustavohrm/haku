@@ -92,7 +92,8 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
             ref={menuRef}
             id={menuId}
             aria-label={t("site.menu")}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 -ml-[calc(--spacing(3)+1px)] flex w-80 flex-col gap-3 rounded-(--radius-surface) border p-3"
+            tabIndex={-1}
+            className="bg-chrome-raised border-text/15 text-text fixed z-10 -ml-[calc(--spacing(3)+1px)] flex w-80 flex-col gap-3 rounded-(--radius-surface) border p-3 outline-none"
             style={{ left: anchor.x, top: anchor.y }}
           >
             <div className="flex min-w-0 flex-col">

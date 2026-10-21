@@ -4,8 +4,17 @@ import { useEffect, type RefObject } from "react";
 export const MENU_GAP = 6;
 
 /**
- * Closes a menu on Escape, on a pointer down outside it and its button, and
- * when the window loses focus or is resized.
+ * Closes a menu the way a menu should close, and keeps the keyboard in it.
+ *
+ * On open, focus moves to the menu itself, since the menu is portalled out of
+ * its button and would otherwise be unreachable by keyboard; Tab then reaches
+ * its controls. The menu, not its first control, takes focus so that opening
+ * it does not also open a tooltip or toggle that happens to come first. The
+ * menu element needs `tabIndex={-1}` to take focus.
+ *
+ * Escape closes it and returns focus to the button. A click outside, a window
+ * blur or a resize closes it without moving focus, because the person has
+ * already moved it elsewhere.
  *
  * @param open - Whether the menu is shown.
  * @param close - Hides the menu. Should be stable across renders.
@@ -22,6 +31,13 @@ export function useMenuDismiss(
     if (!open) {
       return;
     }
+    menuRef.current?.focus();
+  }, [open, menuRef]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
     const closeOutside = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
@@ -31,6 +47,7 @@ export function useMenuDismiss(
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         close();
+        buttonRef.current?.focus();
       }
     };
     // A click on the page never reaches the chrome; it only takes focus away.

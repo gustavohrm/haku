@@ -120,7 +120,8 @@ export function ExtensionsBar() {
             ref={menuRef}
             id={menuId}
             aria-label={t("extensions.menu")}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1"
+            tabIndex={-1}
+            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1 outline-none"
             style={{ right: menuAt.right, top: menuAt.top }}
           >
             <h2 className="text-text-secondary px-2 pt-1.5 pb-1 text-xs font-medium">{t("extensions.menu")}</h2>

@@ -23,7 +23,7 @@ function Menu() {
         elsewhere
       </button>
       {open && (
-        <section ref={menuRef} data-testid="menu">
+        <section ref={menuRef} tabIndex={-1} data-testid="menu">
           <button type="button" data-testid="first">
             first
           </button>
@@ -68,20 +68,28 @@ describe("useMenuDismiss", () => {
     container.remove();
   });
 
-  it("closes on Escape", async () => {
+  it("focuses the menu itself when it opens", async () => {
+    await open();
+
+    expect(document.activeElement).toBe(query("menu"));
+  });
+
+  it("closes on Escape and returns focus to the button that opened it", async () => {
     await open();
 
     await pressEscape();
 
     expect(query("menu")).toBeNull();
+    expect(document.activeElement).toBe(query("opener"));
   });
 
-  it("closes on a pointer down outside the menu", async () => {
+  it("closes on a pointer down outside the menu without moving focus", async () => {
     await open();
 
     await pointerDownOn("outside");
 
     expect(query("menu")).toBeNull();
+    expect(document.activeElement).not.toBe(query("opener"));
   });
 
   it("stays open on a pointer down inside the menu", async () => {
