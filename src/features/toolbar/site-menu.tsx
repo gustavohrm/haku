@@ -2,6 +2,7 @@ import { type Tab } from "@bindings";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
 import { useSettings } from "@ipc/hooks";
+import { updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useEffect, useId, useRef, useState } from "react";
@@ -40,11 +41,13 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
   const siteKept = host !== null && (settings?.keptSites.includes(host) ?? false);
 
   const setSiteKept = (kept: boolean) => {
-    if (!settings || host === null) {
+    if (host === null) {
       return;
     }
-    const others = settings.keptSites.filter((site) => site !== host);
-    void commands.setSettings({ ...settings, keptSites: kept ? [...others, host] : others });
+    void updateSettings((current) => {
+      const others = current.keptSites.filter((site) => site !== host);
+      return { ...current, keptSites: kept ? [...others, host] : others };
+    });
   };
 
   // The menu hangs over the page, so it must be registered to be clickable.

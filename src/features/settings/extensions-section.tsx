@@ -6,7 +6,7 @@ import { t } from "@shared/i18n";
 
 interface ExtensionsSectionProps {
   settings: Settings;
-  update: (patch: Partial<Settings>) => Promise<Settings | null>;
+  update: (change: (current: Settings) => Settings) => Promise<Settings | null>;
 }
 
 /**
@@ -20,8 +20,10 @@ export function ExtensionsSection({ settings, update }: ExtensionsSectionProps) 
   const disabled = settings.disabledExtensions;
 
   const setEnabled = (id: string, enabled: boolean) => {
-    const others = disabled.filter((other) => other !== id);
-    void update({ disabledExtensions: enabled ? others : [...others, id] });
+    void update((current) => {
+      const others = current.disabledExtensions.filter((other) => other !== id);
+      return { ...current, disabledExtensions: enabled ? others : [...others, id] };
+    });
   };
 
   return (

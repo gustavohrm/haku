@@ -2,6 +2,7 @@ import { type Extension } from "@bindings";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
 import { useExtensions, useSettings } from "@ipc/hooks";
+import { updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useEffect, useId, useRef, useState } from "react";
@@ -96,11 +97,10 @@ export function ExtensionsBar() {
   };
 
   const setPinned = (id: string, isPinned: boolean) => {
-    if (!settings) {
-      return;
-    }
-    const others = settings.pinnedExtensions.filter((other) => other !== id);
-    void commands.setSettings({ ...settings, pinnedExtensions: isPinned ? [...others, id] : others });
+    void updateSettings((current) => {
+      const others = current.pinnedExtensions.filter((other) => other !== id);
+      return { ...current, pinnedExtensions: isPinned ? [...others, id] : others };
+    });
   };
 
   return (

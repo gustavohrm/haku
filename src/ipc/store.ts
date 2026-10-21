@@ -90,3 +90,47 @@ export async function connect(): Promise<() => void> {
     stopExtensions();
   };
 }
+
+/** The last change queued, which the next one waits for. */
+let settingsQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Changes the settings from their latest value, one change at a time.
+ *
+ * Each change is built from what the store holds when its turn comes, not from
+ * a copy taken when it was requested. Two changes made back to back therefore
+ * both survive; built from the same snapshot, the second would write the list
+ * the first had just altered back to its old value.
+ *
+ * A failed change resolves to null and leaves the store as it was; the failure
+ * itself is reported by the command wrapper. Later changes still run.
+ *
+ * @param change - Returns the whole settings to store, given the current ones.
+ * @returns What Rust stored, or null when the change failed or settings are not loaded.
+ */
+export function updateSettings(change: (current: Settings) => Settings): Promise<Settings | null> {
+  const turn = applySettingsChange(settingsQueue, change);
+  settingsQueue = turn;
+  return turn;
+}
+
+async function applySettingsChange(
+  previous: Promise<unknown>,
+  change: (current: Settings) => Settings,
+): Promise<Settings | null> {
+  try {
+    await previous;
+  } catch {
+    // A change that threw is its own caller's problem; it must not stop this one.
+  }
+  const current = settingsStore.get();
+  if (current === null) {
+    return null;
+  }
+  const result = await commands.setSettings(change(current));
+  if (result.status !== "ok") {
+    return null;
+  }
+  settingsStore.set(result.data);
+  return result.data;
+}
