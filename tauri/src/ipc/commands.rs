@@ -1099,7 +1099,14 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         std::mem::replace(&mut *current, settings.clone())
     };
-    state.save_settings()?;
+    if let Err(error) = state.save_settings() {
+        let mut current = state
+            .settings
+            .write()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        *current = previous;
+        return Err(error);
+    }
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
