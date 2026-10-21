@@ -2183,3 +2183,42 @@ fn a_window_showing_an_internal_page_reserves_no_slot() {
 
     assert_eq!(browser.effective_capacity(), 1);
 }
+
+#[test]
+fn a_tab_requested_from_outside_every_tab_opens_last_in_the_window_used_last() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test"]);
+    let first = browser.main_window();
+    let (other, _) = browser.open_window("https://c.test");
+    browser.focus(first);
+
+    let (tab, effects) = browser.open_requested("https://d.test", Opening::Foreground);
+
+    assert_eq!(browser.window_of(tab), Some(first));
+    assert_eq!(window_tabs(&browser, first), vec![ids[0], ids[1], tab]);
+    assert_eq!(browser.active_in(first), Some(tab));
+    assert!(browser.window_of(other).is_some());
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::FocusWindow { .. })));
+}
+
+#[test]
+fn a_popup_requested_from_outside_every_tab_keeps_no_tab_running() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test"]);
+    browser.select_tab(ids[0], 0).unwrap();
+
+    let (popup, effects) = browser.open_requested(
+        "https://login.test",
+        Opening::Popup {
+            request: REQUEST,
+            placement: POPUP_PLACEMENT,
+        },
+    );
+
+    let window = browser.window_of(popup).unwrap();
+    assert_eq!(browser.kind(window), Some(WindowKind::Popup));
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Adopt { request, .. } if *request == REQUEST)));
+    assert_ne!(browser.position(ids[1]), Some(Position::MustRun));
+}

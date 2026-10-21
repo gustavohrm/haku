@@ -750,7 +750,17 @@ impl Browser {
     /// unanswered by a webview, and the tab loads `url` like any other once
     /// it gets a slot.
     pub fn open_from(&mut self, opener: SlotId, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
-        let parent = self.occupant_of(opener);
+        self.open_for(self.occupant_of(opener), url, opening)
+    }
+
+    /// Opens what a page outside every tab asked for, as `opening` says: an
+    /// extension's toolbar popup, which opens its tabs in the normal window
+    /// used last. No tab opened it, so none has to keep running for it.
+    pub fn open_requested(&mut self, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
+        self.open_for(None, url, opening)
+    }
+
+    fn open_for(&mut self, parent: Option<TabId>, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
         let source = parent
             .and_then(|parent| self.window_of(parent))
             .unwrap_or_else(|| self.main_window());

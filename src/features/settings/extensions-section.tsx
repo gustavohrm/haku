@@ -1,8 +1,8 @@
-import { events, type Extensions, type Settings } from "@bindings";
+import { type Settings } from "@bindings";
 import { commands } from "@ipc/commands";
-import { describeError, unwrap } from "@ipc/result";
+import { useExtensions } from "@ipc/hooks";
+import { describeError } from "@ipc/result";
 import { t } from "@shared/i18n";
-import { useEffect, useState } from "react";
 
 interface ExtensionsSectionProps {
   settings: Settings;
@@ -13,8 +13,7 @@ interface ExtensionsSectionProps {
  * Extensions installed from the extensions folder, each with a switch.
  *
  * Switching one off is stored as an exception in the settings, which Rust
- * applies to every page at once. Each extension's popup opens as a tab,
- * because the engine draws no toolbar to open it from.
+ * applies to every page at once. Popups are opened from the toolbar.
  */
 export function ExtensionsSection({ settings, update }: ExtensionsSectionProps) {
   const extensions = useExtensions();
@@ -44,18 +43,6 @@ export function ExtensionsSection({ settings, update }: ExtensionsSectionProps) 
           <label htmlFor={`extension-${extension.id}`} className="min-w-0 flex-1 truncate">
             {extension.name}
           </label>
-          {extension.popup !== null && (
-            <button
-              type="button"
-              className="btn ghost"
-              aria-label={`${t("settings.extensions.open")} ${extension.name}`}
-              // A switched-off extension's popup cannot load.
-              disabled={disabled.includes(extension.id)}
-              onClick={() => extension.popup !== null && void commands.openTab(extension.popup, true)}
-            >
-              {t("settings.extensions.open")}
-            </button>
-          )}
           <input
             id={`extension-${extension.id}`}
             type="checkbox"
@@ -80,40 +67,4 @@ export function ExtensionsSection({ settings, update }: ExtensionsSectionProps) 
       </div>
     </section>
   );
-}
-
-function useExtensions(): Extensions | null {
-  const [extensions, setExtensions] = useState<Extensions | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    let unlisten: (() => void) | null = null;
-
-    const connect = async () => {
-      // Listening first: the folder is installed at startup, possibly while
-      // this page is already open.
-      const stop = await events.extensionsChanged.listen((event) => {
-        if (isMounted) {
-          setExtensions(event.payload);
-        }
-      });
-      if (!isMounted) {
-        stop();
-        return;
-      }
-      unlisten = stop;
-      const first = await unwrap(commands.extensions());
-      if (isMounted) {
-        setExtensions((current) => current ?? first);
-      }
-    };
-    void connect();
-
-    return () => {
-      isMounted = false;
-      unlisten?.();
-    };
-  }, []);
-
-  return extensions;
 }

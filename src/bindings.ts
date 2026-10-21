@@ -77,6 +77,20 @@ export const commands = {
 	 *  can be dropped in.
 	 */
 	openExtensionsFolder: () => typedError<null, HakuError>(__TAURI_INVOKE("open_extensions_folder")),
+	/**
+	 *  Opens an extension's toolbar popup, for the active tab of the window that
+	 *  called, just below `anchor`: the button it was opened from, in the
+	 *  interface's logical pixels.
+	 * 
+	 *  Opening it from the button of the popup open now closes it instead, as
+	 *  in other browsers.
+	 * 
+	 *  # Errors
+	 *  Returns [`HakuError::Unsupported`] for an extension that is not
+	 *  installed, has no popup or is switched off, and propagates the failure to
+	 *  open the popup's window.
+	 */
+	openExtensionPopup: (id: string, anchor: Viewport) => typedError<null, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, anchor })),
 };
 
 /** Events */
@@ -130,11 +144,14 @@ export type DialogKind = "alert" | "confirm" | "prompt" |
 export type Extension = {
 	id: string,
 	name: string,
-	/**
-	 *  The page its toolbar button would open, as a `chrome-extension://`
-	 *  URL. The engine draws no toolbar, so it is opened as a tab instead.
-	 */
+	/**  The page its toolbar button opens, as a `chrome-extension://` URL. */
 	popup: string | null,
+	/**
+	 *  Its toolbar icon as a `data:` URL, read from the manifest. The engine
+	 *  does not report the icon an extension sets while it runs, so this is
+	 *  the one it declares.
+	 */
+	icon: string | null,
 };
 
 /**  What the extensions folder holds, as last installed. */
@@ -349,6 +366,12 @@ export type Settings = {
 	 *  the exceptions, and every new extension starts enabled.
 	 */
 	disabledExtensions: string[],
+	/**
+	 *  Ids of extensions with a button of their own in the toolbar, in the
+	 *  order they appear there. The rest are reached from the extensions
+	 *  menu.
+	 */
+	pinnedExtensions: string[],
 };
 
 export type SettingsChanged = Settings;

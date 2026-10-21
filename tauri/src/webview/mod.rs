@@ -8,9 +8,13 @@ use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 use crate::browser::{Effect, BLANK_URL};
 use crate::error::{HakuError, Result};
-use crate::model::{PageState, Placement, Scroll, SlotId, TabId, WindowId, WindowKind, WindowRequestId};
-use crate::platform::{self, KeySink, PageSignal};
+use crate::model::{
+    popup_origin, popup_size, PageState, Placement, ScreenRect, Scroll, SlotId, TabId, WindowId, WindowKind,
+    WindowRequestId, POPUP_MIN_SIZE,
+};
+use crate::platform::{self, KeySink, PageSignal, PageSink};
 use crate::storage::WindowBounds;
+use inject::ExtensionView;
 
 /// Smallest a browser window may be made, in logical pixels.
 const MIN_WINDOW_SIZE: (f64, f64) = (640.0, 480.0);
@@ -607,7 +611,8 @@ fn create_slot<R: tauri::Runtime>(
         .browser_extensions_enabled(true)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
-        .initialization_script(inject::page_state_script());
+        .initialization_script(inject::page_state_script())
+        .initialization_script(inject::extension_page_script(ExtensionView::Tab));
 
     let webview = window.add_child(
         builder,
@@ -687,6 +692,163 @@ pub fn set_bounds<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slots: &[SlotId]
         }
     }
     Ok(())
+}
+
+/// What the label of the window an extension's toolbar popup opens in starts
+/// with. Each popup gets a label of its own, since a window that is closing
+/// keeps its label for a while; one is open at a time, as in other browsers.
+const EXTENSION_POPUP: &str = "extension-popup-";
+
+/// Source of toolbar popup labels, unique for the life of the process.
+static NEXT_POPUP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Whether a window is an extension's toolbar popup.
+pub fn is_extension_popup(label: &str) -> bool {
+    label.starts_with(EXTENSION_POPUP)
+}
+
+/// The label of the toolbar popup open now. Locked while the popup is
+/// measured, resized or shown, and while it is destroyed, so it is not
+/// reached while it goes.
+static OPEN_POPUP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn open_popup() -> std::sync::MutexGuard<'static, Option<String>> {
+    OPEN_POPUP.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// How often a toolbar popup's page is measured while it is open.
+const POPUP_POLL: Duration = Duration::from_millis(100);
+
+/// Longest a toolbar popup stays hidden waiting for its page to load. One
+/// that never finishes is shown as it is.
+const POPUP_SHOW_LIMIT: Duration = Duration::from_secs(3);
+
+/// Opens an extension's toolbar popup on `url`, in a borderless window of
+/// its own owned by `owner`, closing any other first.
+///
+/// The window starts hidden and at its smallest, so its page lays out at its
+/// narrowest, as in Chrome; [`fit_extension_popup`] then sizes, places and
+/// shows it. What the page asks to open or close is reported to `sink`.
+///
+/// @returns The popup window's label, for [`fit_extension_popup`].
+///
+/// # Errors
+/// Returns [`HakuError::WindowMissing`] when `owner` is not open, and
+/// propagates Tauri's failure to create the window and the platform's to
+/// observe it.
+pub fn open_extension_popup<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    owner: WindowId,
+    url: &str,
+    view: ExtensionView,
+    sink: PageSink,
+) -> Result<String> {
+    // Held until the new popup is recorded, so two opens at once, as a
+    // double click makes, cannot each leave a popup behind.
+    let mut open = open_popup();
+    destroy_popups(app, &mut open)?;
+    let owner = native_window(app, owner)?;
+    let label = format!(
+        "{EXTENSION_POPUP}{}",
+        NEXT_POPUP.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let builder = tauri::WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parse_url(url)?))
+        .title("Haku")
+        .decorations(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .inner_size(POPUP_MIN_SIZE.0, POPUP_MIN_SIZE.1)
+        .user_agent(USER_AGENT)
+        // Every webview sharing a profile must agree on this; see
+        // `build_window`.
+        .browser_extensions_enabled(true)
+        .initialization_script(inject::extension_page_script(view));
+    // Owned, so it stays above its browser window and goes with it.
+    #[cfg(windows)]
+    let builder = builder.owner_raw(owner.hwnd()?);
+    #[cfg(not(windows))]
+    let _ = owner;
+    let window = builder.build()?;
+    *open = Some(label.clone());
+    platform::observe_popup(window.as_ref(), sink)?;
+    Ok(label)
+}
+
+/// Closes the extension's toolbar popup, if one is open.
+///
+/// Waits for [`fit_extension_popup`] to be done with it, so it must not be
+/// called on the UI thread, which that waits on.
+///
+/// # Errors
+/// Propagates Tauri's failure to destroy the window.
+pub fn close_extension_popup<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<()> {
+    destroy_popups(app, &mut open_popup())
+}
+
+fn destroy_popups<R: tauri::Runtime>(app: &tauri::AppHandle<R>, open: &mut Option<String>) -> Result<()> {
+    *open = None;
+    for (label, window) in app.webview_windows() {
+        if is_extension_popup(&label) {
+            window.destroy()?;
+        }
+    }
+    Ok(())
+}
+
+/// Sizes the toolbar popup `label` to its page, places it below `anchor` inside
+/// `area`, and shows it once its page has loaded, then keeps it fitting the
+/// page as the page grows. Returns once the popup is closed.
+///
+/// A page that shrinks leaves the popup at the size it reached: it lays out
+/// at the popup's width, so it never reports needing less.
+///
+/// Blocks, so it must not be called on the UI thread.
+pub fn fit_extension_popup<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    anchor: ScreenRect,
+    area: ScreenRect,
+) {
+    let started = std::time::Instant::now();
+    let mut size = POPUP_MIN_SIZE;
+    let mut shown = false;
+    loop {
+        std::thread::sleep(POPUP_POLL);
+        let open = open_popup();
+        if open.as_deref() != Some(label) {
+            return;
+        }
+        let Some(window) = app.get_webview_window(label) else {
+            return;
+        };
+        let measured = platform::evaluate(window.as_ref(), inject::popup_size_expression(), POPUP_POLL)
+            .and_then(|json| inject::parse_popup_size(&json));
+        let loaded = measured.is_some_and(|(loaded, _, _)| loaded);
+        // Only ever grown: a page laid out wider than it needs, as one with
+        // a scrollbar is, would otherwise shrink and grow back in turn.
+        let wanted = measured.map_or(size, |(_, width, height)| {
+            let (width, height) = popup_size(width, height);
+            (width.max(size.0), height.max(size.1))
+        });
+        if wanted != size || !shown {
+            let (x, y) = popup_origin(anchor, wanted, area);
+            let _ = window.set_size(LogicalSize::new(wanted.0, wanted.1));
+            let _ = window.set_position(LogicalPosition::new(x, y));
+            size = wanted;
+        }
+        if !shown && (loaded || started.elapsed() > POPUP_SHOW_LIMIT) {
+            let _ = window.show();
+            // Its page too, not only the window: keys go to the popup as in
+            // other browsers, and only the page reports losing focus, which
+            // is what closes it.
+            let _ = window.set_focus();
+            let _ = window.as_ref().set_focus();
+            shown = true;
+        }
+        drop(open);
+    }
 }
 
 fn parse_url(url: &str) -> Result<tauri::Url> {

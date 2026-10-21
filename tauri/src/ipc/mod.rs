@@ -36,6 +36,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::tab_preview,
             commands::extensions,
             commands::open_extensions_folder,
+            commands::open_extension_popup,
         ])
         .events(collect_events![
             StateChanged,

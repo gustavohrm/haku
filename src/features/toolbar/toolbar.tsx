@@ -1,4 +1,5 @@
 import { type Tab } from "@bindings";
+import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { commands } from "@ipc/commands";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
@@ -108,6 +109,7 @@ export function Toolbar({ tab }: ToolbarProps) {
         </label>
       </form>
 
+      <ExtensionsBar />
       <ToolbarButton
         icon="ic-code"
         label={t("toolbar.devtools")}
