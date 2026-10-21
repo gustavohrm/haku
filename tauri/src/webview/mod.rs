@@ -743,7 +743,10 @@ pub fn open_extension_popup<R: tauri::Runtime>(
     view: ExtensionView,
     sink: PageSink,
 ) -> Result<String> {
-    close_extension_popup(app)?;
+    // Held until the new popup is recorded, so two opens at once, as a
+    // double click makes, cannot each leave a popup behind.
+    let mut open = open_popup();
+    destroy_popups(app, &mut open)?;
     let owner = native_window(app, owner)?;
     let label = format!(
         "{EXTENSION_POPUP}{}",
@@ -768,8 +771,8 @@ pub fn open_extension_popup<R: tauri::Runtime>(
     #[cfg(not(windows))]
     let _ = owner;
     let window = builder.build()?;
+    *open = Some(label.clone());
     platform::observe_popup(window.as_ref(), sink)?;
-    *open_popup() = Some(label.clone());
     Ok(label)
 }
 
@@ -781,7 +784,10 @@ pub fn open_extension_popup<R: tauri::Runtime>(
 /// # Errors
 /// Propagates Tauri's failure to destroy the window.
 pub fn close_extension_popup<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<()> {
-    let mut open = open_popup();
+    destroy_popups(app, &mut open_popup())
+}
+
+fn destroy_popups<R: tauri::Runtime>(app: &tauri::AppHandle<R>, open: &mut Option<String>) -> Result<()> {
     *open = None;
     for (label, window) in app.webview_windows() {
         if is_extension_popup(&label) {

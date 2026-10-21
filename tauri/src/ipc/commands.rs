@@ -188,12 +188,17 @@ fn queue_window(app: &tauri::AppHandle, window: WindowRequest) {
             for window in receiver {
                 let request = window.request;
                 let from_popup = window.slot.is_none();
-                if window.gesture {
+                let opened = window.gesture;
+                if opened {
                     open_requested(&app, window);
                 }
                 let _ = platform::refuse_window(&app, request);
+                // What a toolbar popup opens takes the user away from it,
+                // which closes it in other browsers, where opening anything
+                // moves focus elsewhere. Only now, once the request has been
+                // answered either way.
                 if from_popup {
-                    popup_request_answered(&app);
+                    popup_request_answered(&app, opened);
                 }
             }
         });
@@ -250,27 +255,57 @@ fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
         }
         .1)
     });
-    // What a toolbar popup opens takes the user away from it, which closes it
-    // in other browsers, where opening anything moves focus elsewhere. Only
-    // now: the page that asked must still be there to be handed a webview.
-    if slot.is_none() {
-        let _ = webview::close_extension_popup(app);
-    }
 }
 
-/// Requests from the toolbar popup still being answered. The popup waits on
-/// each, and destroying it first crashes Haku when the request is answered,
-/// so losing focus meanwhile, as it does to the window it asked for, leaves
-/// closing it to the answer; see `tauri/AGENTS.md`.
-static POPUP_REQUESTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// The toolbar popup's requests to open a window still being answered, and
+/// whether it is to close once none is.
+///
+/// The popup waits on each request, and destroying it first crashes Haku
+/// when the request is answered, so closing it meanwhile, for losing focus
+/// to the window it asked for or at its own request, is left to the answer;
+/// see `tauri/AGENTS.md`. One lock for both, so a close is never decided
+/// between a request being answered and the count going down.
+struct PendingPopup {
+    requests: usize,
+    close: bool,
+}
 
-/// Whether the toolbar popup lost focus while a request of its own was being
-/// answered, and is to close once none is.
-static POPUP_LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static PENDING_POPUP: std::sync::Mutex<PendingPopup> = std::sync::Mutex::new(PendingPopup {
+    requests: 0,
+    close: false,
+});
 
-fn popup_request_answered(app: &tauri::AppHandle) {
-    use std::sync::atomic::Ordering;
-    if POPUP_REQUESTS.fetch_sub(1, Ordering::SeqCst) == 1 && POPUP_LEFT.swap(false, Ordering::SeqCst) {
+fn pending_popup() -> std::sync::MutexGuard<'static, PendingPopup> {
+    PENDING_POPUP.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Closes the toolbar popup now, or once its requests are answered.
+fn close_popup_when_free(app: &tauri::AppHandle) {
+    {
+        let mut pending = pending_popup();
+        if pending.requests > 0 {
+            pending.close = true;
+            return;
+        }
+    }
+    let app = app.clone();
+    std::thread::spawn(move || webview::close_extension_popup(&app));
+}
+
+/// Records that one of the toolbar popup's requests has been answered, and
+/// closes the popup if it opened something or was to close meanwhile.
+fn popup_request_answered(app: &tauri::AppHandle, opened: bool) {
+    let close = {
+        let mut pending = pending_popup();
+        pending.requests = pending.requests.saturating_sub(1);
+        pending.close |= opened;
+        let close = pending.requests == 0 && pending.close;
+        if close {
+            pending.close = false;
+        }
+        close
+    };
+    if close {
         let _ = webview::close_extension_popup(app);
     }
 }
@@ -289,7 +324,7 @@ fn popup_sink(app: &tauri::AppHandle) -> platform::PageSink {
             window,
             gesture,
         } => {
-            POPUP_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            pending_popup().requests += 1;
             queue_window(
                 &app,
                 WindowRequest {
@@ -304,10 +339,7 @@ fn popup_sink(app: &tauri::AppHandle) -> platform::PageSink {
                 },
             );
         }
-        PageSignal::CloseRequested => {
-            let app = app.clone();
-            std::thread::spawn(move || webview::close_extension_popup(&app));
-        }
+        PageSignal::CloseRequested => close_popup_when_free(&app),
         _ => {}
     })
 }
@@ -343,12 +375,7 @@ fn on_popup_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             popup.closed = Some((url, std::time::Instant::now()));
         }
     }
-    if POPUP_REQUESTS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
-        POPUP_LEFT.store(true, std::sync::atomic::Ordering::SeqCst);
-        return;
-    }
-    let app = window.app_handle().clone();
-    std::thread::spawn(move || webview::close_extension_popup(&app));
+    close_popup_when_free(window.app_handle());
 }
 
 /// Runs the shortcuts pressed while a window's interface has focus. Pages
