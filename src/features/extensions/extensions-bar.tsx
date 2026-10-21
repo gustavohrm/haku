@@ -1,3 +1,4 @@
+import { SETTINGS_URL } from "@app/router";
 import { type Extension } from "@bindings";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
@@ -10,8 +11,6 @@ import { useCallback, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { toolbarExtensions } from "./toolbar-extensions";
-
-const SETTINGS_URL = "haku://settings";
 
 /**
  * The toolbar's extensions: a button for each pinned one, and the extensions
