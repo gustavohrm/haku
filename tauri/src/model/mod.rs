@@ -12,7 +12,7 @@ pub mod window;
 
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
 pub use extension::{
-    icon_file, popup_origin, popup_size, popup_url, Extension, Extensions, ScreenRect, POPUP_MIN_SIZE,
+    icon_file, popup_origin, popup_size, popup_url, Extension, Extensions, ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
 pub use history::{Commit, History, NavigationKind, Visit};
 pub use keymap::{shortcut_for, Chord, Key, Shortcut};

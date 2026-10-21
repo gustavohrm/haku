@@ -14,7 +14,7 @@
 //! record, but all it could corrupt is its own tab's history, and it gains no
 //! way to call into Haku.
 
-use crate::model::{Commit, NavigationKind, PageState, Scroll};
+use crate::model::{Commit, NavigationKind, PageState, Scroll, POPUP_MAX_SIZE};
 
 /// Name of the page-side object that hands over the page's record.
 const STATE_READER: &str = "__hakuState";
@@ -523,6 +523,8 @@ pub fn extension_page_script(view: ExtensionView) -> String {
         .replace("__FIND_WINDOW_POLL_MS__", &FIND_WINDOW_POLL_MS.to_string())
         .replace("__POPUP_WIDTH__", &super::DEFAULT_POPUP_SIZE.0.to_string())
         .replace("__POPUP_HEIGHT__", &super::DEFAULT_POPUP_SIZE.1.to_string())
+        .replace("__POPUP_MAX_WIDTH__", &POPUP_MAX_SIZE.0.to_string())
+        .replace("__POPUP_MAX_HEIGHT__", &POPUP_MAX_SIZE.1.to_string())
 }
 
 const EXTENSION_PAGE_JS: &str = r#"
@@ -619,6 +621,27 @@ const EXTENSION_PAGE_JS: &str = r#"
   };
 
   if (!POPUP) return;
+
+  // The popup is sized to its page, but only once Haku has measured it, a
+  // moment after the page has laid out. A page that reads its window's size
+  // as it starts, as Bitwarden does to pick its height, would read the size
+  // before that. It reads the size the popup is being made instead, which is
+  // what it reads in Chrome, whose popups grow with the page's own layout.
+  function fit(name, content, max) {
+    var own = Object.getOwnPropertyDescriptor(window, name);
+    if (!own || !own.get || !own.configurable) return;
+    Object.defineProperty(window, name, {
+      configurable: true,
+      enumerable: own.enumerable,
+      get: function () {
+        var real = own.get.call(window), root = document.documentElement;
+        return root ? Math.max(real, Math.min(Math.ceil(root[content]), max)) : real;
+      },
+      set: own.set,
+    });
+  }
+  fit("innerWidth", "scrollWidth", __POPUP_MAX_WIDTH__);
+  fit("innerHeight", "scrollHeight", __POPUP_MAX_HEIGHT__);
 
   function current(getInfo, callback, fallback) {
     if (typeof getInfo === "function") {
@@ -763,6 +786,8 @@ mod tests {
                 "__FIND_WINDOW_POLL_MS__",
                 "__POPUP_WIDTH__",
                 "__POPUP_HEIGHT__",
+                "__POPUP_MAX_WIDTH__",
+                "__POPUP_MAX_HEIGHT__",
             ] {
                 assert!(!script.contains(placeholder), "{placeholder} was left in the script");
             }
