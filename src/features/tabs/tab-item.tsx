@@ -48,7 +48,7 @@ export function TabItem({ tab, active }: TabItemProps) {
             }
           }}
         >
-          <Favicon src={visit?.favicon ?? null} />
+          <Favicon key={visit?.favicon ?? ""} src={visit?.favicon ?? null} />
           <span className="truncate">{title}</span>
         </button>
 
@@ -108,13 +108,15 @@ function TabAction({ icon, label, alwaysVisible, onClick }: TabActionProps) {
  * A page's icon, falling back to a generic one.
  *
  * Favicons come from arbitrary sites and frequently fail to load, so a broken
- * image swaps in the fallback rather than leaving a gap in the strip.
+ * image swaps in the fallback rather than leaving a gap in the strip. It is
+ * keyed by its address, so every change of address, including back to one
+ * that failed before, tries the image again.
  */
 function Favicon({ src }: { src: string | null }) {
-  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const [broken, setBroken] = useState(false);
 
-  if (!src || brokenSrc === src) {
+  if (!src || broken) {
     return <i className="ic-globe ic-md shrink-0" aria-hidden="true" />;
   }
-  return <img src={src} alt="" className="size-4 shrink-0" onError={() => setBrokenSrc(src)} />;
+  return <img src={src} alt="" className="size-4 shrink-0" onError={() => setBroken(true)} />;
 }
