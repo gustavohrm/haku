@@ -29,6 +29,7 @@ export function ExtensionsBar() {
   const [menuAt, setMenuAt] = useState<{ right: number; top: number } | null>(null);
   const open = menuAt !== null;
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const pinnedRefs = useRef(new Map<string, HTMLButtonElement>());
   const menuRef = useRef<HTMLElement>(null);
   const menuId = useId();
 
@@ -107,6 +108,13 @@ export function ExtensionsBar() {
       {pinned.map((extension) => (
         <button
           key={extension.id}
+          ref={(button) => {
+            if (button) {
+              pinnedRefs.current.set(extension.id, button);
+            } else {
+              pinnedRefs.current.delete(extension.id);
+            }
+          }}
           type="button"
           className="btn icon ghost shrink-0"
           aria-label={extension.name}
@@ -154,7 +162,7 @@ export function ExtensionsBar() {
                     className="btn ghost min-w-0 flex-1 justify-start gap-2"
                     title={extension.popup === null ? t("extensions.noPopup") : extension.name}
                     disabled={extension.popup === null}
-                    onClick={() => openPopup(extension, buttonRef.current)}
+                    onClick={() => openPopup(extension, pinnedRefs.current.get(extension.id) ?? buttonRef.current)}
                   >
                     <ExtensionIcon extension={extension} />
                     <span className="truncate">{extension.name}</span>
@@ -162,7 +170,7 @@ export function ExtensionsBar() {
                   <button
                     type="button"
                     className="btn icon ghost shrink-0"
-                    aria-label={`${isPinned ? t("extensions.unpin") : t("extensions.pin")} ${extension.name}`}
+                    aria-label={`${t("extensions.pin")} ${extension.name}`}
                     title={isPinned ? t("extensions.unpin") : t("extensions.pin")}
                     aria-pressed={isPinned}
                     disabled={!settings}

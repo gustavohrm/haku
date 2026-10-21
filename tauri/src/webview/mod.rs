@@ -707,6 +707,15 @@ pub fn is_extension_popup(label: &str) -> bool {
     label.starts_with(EXTENSION_POPUP)
 }
 
+/// The label of the toolbar popup open now. Locked while the popup is
+/// measured, resized or shown, and while it is destroyed, so it is not
+/// reached while it goes.
+static OPEN_POPUP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn open_popup() -> std::sync::MutexGuard<'static, Option<String>> {
+    OPEN_POPUP.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// How often a toolbar popup's page is measured while it is open.
 const POPUP_POLL: Duration = Duration::from_millis(100);
 
@@ -717,8 +726,8 @@ const POPUP_SHOW_LIMIT: Duration = Duration::from_secs(3);
 /// Opens an extension's toolbar popup on `url`, in a borderless window of
 /// its own owned by `owner`, closing any other first.
 ///
-/// The window starts hidden and at its smallest, so its page lays out at the
-/// width its content needs; [`fit_extension_popup`] then sizes, places and
+/// The window starts hidden and at its smallest, so its page lays out at its
+/// narrowest, as in Chrome; [`fit_extension_popup`] then sizes, places and
 /// shows it. What the page asks to open or close is reported to `sink`.
 ///
 /// @returns The popup window's label, for [`fit_extension_popup`].
@@ -760,14 +769,20 @@ pub fn open_extension_popup<R: tauri::Runtime>(
     let _ = owner;
     let window = builder.build()?;
     platform::observe_popup(window.as_ref(), sink)?;
+    *open_popup() = Some(label.clone());
     Ok(label)
 }
 
 /// Closes the extension's toolbar popup, if one is open.
 ///
+/// Waits for [`fit_extension_popup`] to be done with it, so it must not be
+/// called on the UI thread, which that waits on.
+///
 /// # Errors
 /// Propagates Tauri's failure to destroy the window.
 pub fn close_extension_popup<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<()> {
+    let mut open = open_popup();
+    *open = None;
     for (label, window) in app.webview_windows() {
         if is_extension_popup(&label) {
             window.destroy()?;
@@ -795,13 +810,22 @@ pub fn fit_extension_popup<R: tauri::Runtime>(
     let mut shown = false;
     loop {
         std::thread::sleep(POPUP_POLL);
+        let open = open_popup();
+        if open.as_deref() != Some(label) {
+            return;
+        }
         let Some(window) = app.get_webview_window(label) else {
             return;
         };
         let measured = platform::evaluate(window.as_ref(), inject::popup_size_expression(), POPUP_POLL)
             .and_then(|json| inject::parse_popup_size(&json));
         let loaded = measured.is_some_and(|(loaded, _, _)| loaded);
-        let wanted = measured.map_or(size, |(_, width, height)| popup_size(width, height));
+        // Only ever grown: a page laid out wider than it needs, as one with
+        // a scrollbar is, would otherwise shrink and grow back in turn.
+        let wanted = measured.map_or(size, |(_, width, height)| {
+            let (width, height) = popup_size(width, height);
+            (width.max(size.0), height.max(size.1))
+        });
         if wanted != size || !shown {
             let (x, y) = popup_origin(anchor, wanted, area);
             let _ = window.set_size(LogicalSize::new(wanted.0, wanted.1));
@@ -817,6 +841,7 @@ pub fn fit_extension_popup<R: tauri::Runtime>(
             let _ = window.as_ref().set_focus();
             shown = true;
         }
+        drop(open);
     }
 }
 

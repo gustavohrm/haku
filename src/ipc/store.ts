@@ -78,7 +78,11 @@ export async function connect(): Promise<() => void> {
   ]);
   browserStore.set(state);
   settingsStore.set(settings);
-  extensionsStore.set(extensions);
+  // Installing can finish between the snapshot being read and arriving, and
+  // its event is then the newer of the two.
+  if (extensionsStore.get() === null) {
+    extensionsStore.set(extensions);
+  }
 
   return () => {
     stopState();

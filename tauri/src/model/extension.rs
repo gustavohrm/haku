@@ -3,9 +3,9 @@ use specta::Type;
 
 use crate::error::HakuError;
 
-/// The size an extension's icon is drawn at in the toolbar, in CSS pixels,
-/// doubled for high-density screens: the icon chosen is the smallest at least
-/// this large.
+/// The toolbar draws an extension's icon at 16 CSS pixels; this is that size
+/// doubled, for high-density screens. The icon chosen is the smallest at
+/// least this large.
 const ICON_SIZE: u64 = 32;
 
 /// An installed extension, as the interface lists it.
@@ -81,7 +81,9 @@ pub fn icon_file(manifest: &str) -> Option<(String, &'static str)> {
         }
         _ => return None,
     };
-    let path = path.trim_start_matches('/').to_string();
+    // Either separator: a path rooted at `\` would otherwise be read from the
+    // drive's root on Windows.
+    let path = path.trim_start_matches(['/', '\\']).to_string();
     if path.split(['/', '\\']).any(|part| part == "..") || path.contains(':') {
         return None;
     }
@@ -216,6 +218,18 @@ mod tests {
     fn a_single_icon_path_is_used_as_it_is() {
         let manifest = r#"{"browser_action": {"default_icon": "/icon.svg"}}"#;
         assert_eq!(icon_file(manifest), Some(("icon.svg".into(), "image/svg+xml")));
+    }
+
+    #[test]
+    fn an_icon_path_rooted_at_either_separator_stays_in_the_folder() {
+        assert_eq!(
+            icon_file(r#"{"icons": {"32": "\\Users\\me\\photo.png"}}"#),
+            Some(("Users\\me\\photo.png".into(), "image/png"))
+        );
+        assert_eq!(
+            icon_file(r#"{"icons": {"32": "\\\\server\\share\\a.png"}}"#),
+            Some(("server\\share\\a.png".into(), "image/png"))
+        );
     }
 
     #[test]

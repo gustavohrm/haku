@@ -521,6 +521,8 @@ pub fn extension_page_script(view: ExtensionView) -> String {
         )
         .replace("__FIND_WINDOW_MS__", &FIND_WINDOW_MS.to_string())
         .replace("__FIND_WINDOW_POLL_MS__", &FIND_WINDOW_POLL_MS.to_string())
+        .replace("__POPUP_WIDTH__", &super::DEFAULT_POPUP_SIZE.0.to_string())
+        .replace("__POPUP_HEIGHT__", &super::DEFAULT_POPUP_SIZE.1.to_string())
 }
 
 const EXTENSION_PAGE_JS: &str = r#"
@@ -555,12 +557,15 @@ const EXTENSION_PAGE_JS: &str = r#"
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
-  // The window a popup opened on `href` appeared in, once it does.
-  function findWindow(href) {
+  // The window a popup opened on `href` appeared in, once it does: the one
+  // with a tab on it that is not among the tabs open before, `before`.
+  function findWindow(href, before) {
     var deadline = Date.now() + __FIND_WINDOW_MS__;
     function look() {
       return query({}).then(function (found) {
-        var tab = found.find(function (tab) { return tab.url === href || tab.pendingUrl === href; });
+        var tab = found.find(function (tab) {
+          return before.indexOf(tab.id) === -1 && (tab.url === href || tab.pendingUrl === href);
+        });
         if (tab) return getWindow(tab.windowId, { populate: true });
         if (Date.now() > deadline) return undefined;
         return sleep(__FIND_WINDOW_POLL_MS__).then(look);
@@ -581,8 +586,14 @@ const EXTENSION_PAGE_JS: &str = r#"
     ["width", "height", "left", "top"].forEach(function (key) {
       if (typeof data[key] === "number") features.push(key + "=" + Math.round(data[key]));
     });
-    window.open(href, "_blank", features.join(","));
-    return answer(findWindow(href), callback);
+    // Haku takes a request as one for a popup by its size or position, so
+    // one asking for neither is given the size a popup gets by default.
+    if (features.length === 2) features.push("width=__POPUP_WIDTH__", "height=__POPUP_HEIGHT__");
+    var opened = query({}).then(function (before) {
+      window.open(href, "_blank", features.join(","));
+      return findWindow(href, before.map(function (tab) { return tab.id; }));
+    });
+    return answer(opened, callback);
   };
 
   windows.update = function (id, info, callback) {
@@ -649,8 +660,9 @@ const EXTENSION_PAGE_JS: &str = r#"
 /// Expression Rust evaluates in an extension's toolbar popup to size it to
 /// its page: whether the page has loaded, and how wide and tall it lays out.
 ///
-/// The popup starts at its smallest, so the page lays out at the width its
-/// content needs and overflows to it, as in other browsers.
+/// The popup starts at its smallest, so the page lays out at its narrowest
+/// and overflows to the width it needs, as in Chrome, where a popup that sets
+/// no width of its own is as narrow as its content allows.
 pub fn popup_size_expression() -> &'static str {
     r#"[document.readyState === "complete", document.documentElement.scrollWidth, document.documentElement.scrollHeight]"#
 }
@@ -749,9 +761,12 @@ mod tests {
                 "__CURRENT__",
                 "__FIND_WINDOW_MS__",
                 "__FIND_WINDOW_POLL_MS__",
+                "__POPUP_WIDTH__",
+                "__POPUP_HEIGHT__",
             ] {
                 assert!(!script.contains(placeholder), "{placeholder} was left in the script");
             }
+            assert!(script.contains(r#""width=500", "height=600""#));
         }
     }
 

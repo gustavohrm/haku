@@ -21,7 +21,7 @@ Rust creates the windows; `tauri.conf.json` declares none. A window and its chro
 
 The browser window used last is the browser window most recently focused; a popup is never it. A tab opened from nowhere in particular, such as by a popup's shortcut, opens there.
 
-An extension's toolbar popup, which [Extensions § Popups](extensions.md#popups) describes, is neither kind: it is not a tab, and the browser keeps no record of it. A window it asks for is answered as a page's would be, as though from no tab, so it opens in the browser window used last, and the toolbar popup closes.
+An extension's toolbar popup, which [Extensions § Popups](extensions.md#popups) describes, is neither kind: it is not a tab, and the browser state has no tab or window for it. A window it asks for is answered as a page's would be, as though from no tab: a tab opens in the browser window used last, a popup in a window of its own, and the toolbar popup closes.
 
 ## The request
 
