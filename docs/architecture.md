@@ -28,7 +28,7 @@ haku/
 │  ├─ app/                    shell, internal-page routing, theme
 │  ├─ ipc/                    typed wrappers, external store, hooks
 │  ├─ features/               tabs, toolbar, viewport, overlays, feedback, settings, history
-│  ├─ shared/                 i18n, hooks, utilities
+│  ├─ shared/                 i18n, utilities
 │  └─ styles/
 └─ tauri/src/
    ├─ browser.rs              the authority; no Tauri types
@@ -87,7 +87,7 @@ src/
 ├─ app/               shell, routing for internal pages, theme
 ├─ ipc/               typed wrappers, the external store, React hooks
 ├─ features/          one folder per feature: tabs, toolbar, viewport, overlays, feedback, settings, history
-├─ shared/            i18n, hooks, utilities
+├─ shared/            i18n, utilities
 └─ styles/            imports, Haku's surface tokens, density
 ```
 
@@ -130,9 +130,9 @@ Content webviews load arbitrary remote pages, so they are given nothing:
 
 ## Dependencies
 
-Only four external packages, all first-party: `@codenhub/theme` (preference storage and the pre-paint script), `@codenhub/styles` (tokens, palette, reset and components, through its Tailwind source entry), `@codenhub/icons` and `@codenhub/toaster` (notifications and dialogs).
+Runtime dependencies are of two kinds. The platform packages are React (`react`, `react-dom`) and Tauri's JavaScript API (`@tauri-apps/api`). Four first-party packages come from `@codenhub`: `@codenhub/theme` (preference storage and the pre-paint script), `@codenhub/styles` (tokens, palette, reset and components, through its Tailwind source entry), `@codenhub/icons` and `@codenhub/toaster` (notifications and dialogs).
 
-Everything else is built for Haku. General-purpose libraries with breaking changes pending are a poor foundation for a project meant to avoid repeated refactors. Do not add a runtime dependency unless simple in-house code is clearly worse. Development tooling — formatters, linters, test runners — is not covered by this rule, since none of it ships in the app.
+Apart from those, Haku builds its own code. General-purpose libraries with breaking changes pending are a poor foundation for a project meant to avoid repeated refactors. Do not add a runtime dependency unless simple in-house code is clearly worse. Development tooling — formatters, linters, test runners — is not covered by this rule, since none of it ships in the app.
 
 ## Platforms
 
