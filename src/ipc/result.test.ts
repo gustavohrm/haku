@@ -1,7 +1,7 @@
 import type { HakuError } from "@bindings";
 import { describe, expect, it } from "vitest";
 
-import { HakuFailure, unwrap } from "./result";
+import { describeError, HakuFailure, unwrap } from "./result";
 
 const failure = (error: HakuError) => Promise.resolve({ status: "error" as const, error });
 
@@ -31,5 +31,35 @@ describe("unwrap", () => {
     const error = await unwrap(failure({ kind: "NoSlotAvailable" })).catch((thrown: unknown) => thrown);
 
     expect((error as HakuFailure).message).toBe("No webview slot is available.");
+  });
+});
+
+describe("describeError", () => {
+  it("describes a missing webview slot in English", () => {
+    expect(describeError({ kind: "NoSlotAvailable" })).toBe("No webview slot is available.");
+  });
+
+  it("describes a missing tab with its identifier", () => {
+    expect(describeError({ kind: "TabNotFound", message: "7" })).toBe("Tab not found: 7");
+  });
+
+  it("describes an invalid address with its message", () => {
+    expect(describeError({ kind: "InvalidUrl", message: "nope" })).toBe("Invalid URL: nope");
+  });
+
+  it("describes an unsupported operation with its message", () => {
+    expect(describeError({ kind: "Unsupported", message: "print" })).toBe("Unsupported: print");
+  });
+
+  it("describes a missing window or webview with its message", () => {
+    expect(describeError({ kind: "WindowMissing", message: "main" })).toBe("Window or webview missing: main");
+  });
+
+  it("describes a storage failure with its message", () => {
+    expect(describeError({ kind: "Storage", message: "disk full" })).toBe("Storage failure: disk full");
+  });
+
+  it("describes a Tauri failure with its message", () => {
+    expect(describeError({ kind: "Tauri", message: "ipc" })).toBe("Tauri failure: ipc");
   });
 });

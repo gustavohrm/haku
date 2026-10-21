@@ -1,4 +1,5 @@
 import type { HakuError } from "@bindings";
+import { t } from "@shared/i18n";
 
 /** The shape every generated command resolves to. */
 export type CommandResult<T> = { status: "ok"; data: T } | { status: "error"; error: HakuError };
@@ -29,19 +30,19 @@ export class HakuFailure extends Error {
 export function describeError(error: HakuError): string {
   switch (error.kind) {
     case "NoSlotAvailable":
-      return "No webview slot is available.";
+      return t("error.noSlotAvailable");
     case "TabNotFound":
-      return `Tab not found: ${error.message}`;
+      return `${t("error.tabNotFound")}: ${error.message}`;
     case "InvalidUrl":
-      return `Invalid URL: ${error.message}`;
+      return `${t("error.invalidUrl")}: ${error.message}`;
     case "Unsupported":
-      return `Unsupported: ${error.message}`;
+      return `${t("error.unsupported")}: ${error.message}`;
     case "WindowMissing":
-      return `Window or webview missing: ${error.message}`;
+      return `${t("error.windowMissing")}: ${error.message}`;
     case "Storage":
-      return `Storage failure: ${error.message}`;
+      return `${t("error.storage")}: ${error.message}`;
     case "Tauri":
-      return `Tauri failure: ${error.message}`;
+      return `${t("error.tauri")}: ${error.message}`;
   }
 }
 

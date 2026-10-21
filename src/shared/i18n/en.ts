@@ -136,6 +136,13 @@ export const en = {
   "memory.process.other": "Other",
 
   "error.title": "Something went wrong",
+  "error.noSlotAvailable": "No webview slot is available.",
+  "error.tabNotFound": "Tab not found",
+  "error.invalidUrl": "Invalid URL",
+  "error.unsupported": "Unsupported",
+  "error.windowMissing": "Window or webview missing",
+  "error.storage": "Storage failure",
+  "error.tauri": "Tauri failure",
 
   "feedback.dismiss": "Dismiss notification",
 
