@@ -1,7 +1,7 @@
 import { InternalPage } from "@app/internal-page";
 import { type HistoryEntry } from "@bindings";
 import { commands } from "@ipc/commands";
-import { unwrap } from "@ipc/result";
+import { HakuFailure, unwrap } from "@ipc/result";
 import { t } from "@shared/i18n";
 import { useCallback, useEffect, useState } from "react";
 
@@ -18,7 +18,14 @@ export function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
 
   const load = useCallback(async () => {
-    setEntries(await unwrap(commands.recentHistory(PAGE_SIZE)));
+    try {
+      setEntries(await unwrap(commands.recentHistory(PAGE_SIZE)));
+    } catch (error) {
+      // A failed command has already been reported; anything else has not.
+      if (!(error instanceof HakuFailure)) {
+        throw error;
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -34,7 +41,15 @@ export function HistoryPage() {
           className="btn destructive ghost edged"
           disabled={entries.length === 0}
           onClick={async () => {
-            await unwrap(commands.clearHistory());
+            try {
+              await unwrap(commands.clearHistory());
+            } catch (error) {
+              // A failed command has already been reported; anything else has not.
+              if (!(error instanceof HakuFailure)) {
+                throw error;
+              }
+              return;
+            }
             await load();
           }}
         >

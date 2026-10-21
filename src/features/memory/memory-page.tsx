@@ -12,7 +12,7 @@ import {
 } from "@bindings";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
-import { unwrap } from "@ipc/result";
+import { HakuFailure, unwrap } from "@ipc/result";
 import { t, type TranslationKey } from "@shared/i18n";
 import { useEffect, useState } from "react";
 
@@ -166,7 +166,16 @@ function useMemoryReport(): MemoryReport | null {
         return;
       }
       unlisten = stop;
-      const first = await unwrap(commands.memoryReport());
+      let first: MemoryReport;
+      try {
+        first = await unwrap(commands.memoryReport());
+      } catch (error) {
+        // A failed command has already been reported; anything else has not.
+        if (!(error instanceof HakuFailure)) {
+          throw error;
+        }
+        return;
+      }
       if (isMounted) {
         setReport((current) => current ?? first);
       }
