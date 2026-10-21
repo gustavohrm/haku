@@ -27,6 +27,16 @@ CI reads those same files rather than repeating a version: `pnpm/action-setup` t
 
 `engine-strict` is deliberate friction. A patch-level difference rarely matters, and the one time it does, the failure looks like a bug in the change under review rather than a difference in the runtime.
 
+### Dependency installs
+
+`pnpm-workspace.yaml` holds the pnpm settings that govern installs, local and in CI alike. `packages` only names the workspace root. The other three are supply-chain rules:
+
+- `blockExoticSubdeps: true` refuses a transitive dependency that resolves to a git repository or a tarball URL instead of the registry. A direct dependency's source is written in `package.json`, where a reviewer sees it; a transitive one would arrive through another package's manifest unseen.
+- `trustPolicy: no-downgrade` refuses a version whose publish-time trust evidence is weaker than that of an earlier version of the same package. A release that drops its provenance is a common sign of a compromised publish.
+- `trustPolicyIgnoreAfter: 10080` is an age in minutes, seven days, after which a version is no longer held to the trust policy. It stops a long-published version that predates provenance from being refused as a downgrade.
+
+`allowBuilds` is absent, so no dependency's install script is approved. A dependency that needs one gets an entry in the same change, with the reason it needs one.
+
 ## Jobs
 
 | Job    | Runner           | Runs                                                           |
