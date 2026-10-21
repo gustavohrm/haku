@@ -180,7 +180,7 @@ export function ExtensionsBar() {
                       "hover:bg-text/10 grid size-7 shrink-0 place-items-center rounded-(--radius-control) outline-offset-[-2px]",
                       isPinned
                         ? "text-text"
-                        : "text-text-secondary opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                        : "text-text-secondary opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
                     )}
                     aria-label={`${t("extensions.pin")} ${extension.name}`}
                     title={isPinned ? t("extensions.unpin") : t("extensions.pin")}
