@@ -136,7 +136,7 @@ export function ExtensionsBar() {
         aria-controls={open ? menuId : undefined}
         onClick={toggle}
       >
-        <i className="ic-puzzle ic-sm" aria-hidden="true" />
+        <i className="ic-blocks ic-sm" aria-hidden="true" />
       </button>
 
       {/* Opaque and without a shadow, because the input mask cannot show
@@ -148,18 +148,23 @@ export function ExtensionsBar() {
             ref={menuRef}
             id={menuId}
             aria-label={t("extensions.menu")}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-72 flex-col gap-0.5 rounded-(--radius-surface) border p-1.5"
+            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1"
             style={{ right: menuAt.right, top: menuAt.top }}
           >
-            {enabled.length === 0 && <p className="text-text-secondary px-1.5 py-1 text-sm">{t("extensions.empty")}</p>}
+            <h2 className="text-text-secondary px-2 pt-1.5 pb-1 text-xs font-medium">{t("extensions.menu")}</h2>
+
+            {enabled.length === 0 && <p className="text-text-secondary px-2 py-1.5">{t("extensions.empty")}</p>}
 
             {enabled.map((extension) => {
               const isPinned = pinnedIds.includes(extension.id);
               return (
-                <div key={extension.id} className="flex items-center gap-0.5">
+                <div
+                  key={extension.id}
+                  className="group hover:bg-text/8 flex h-8 items-center rounded-(--radius-control) pr-0.5"
+                >
                   <button
                     type="button"
-                    className="btn ghost min-w-0 flex-1 justify-start gap-2"
+                    className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px] disabled:opacity-50"
                     title={extension.popup === null ? t("extensions.noPopup") : extension.name}
                     disabled={extension.popup === null}
                     onClick={() => openPopup(extension, pinnedRefs.current.get(extension.id) ?? buttonRef.current)}
@@ -167,30 +172,38 @@ export function ExtensionsBar() {
                     <ExtensionIcon extension={extension} />
                     <span className="truncate">{extension.name}</span>
                   </button>
+                  {/* Shown while pinned; otherwise only on the row's hover or
+                      focus, so the list reads as names, not as pins. */}
                   <button
                     type="button"
-                    className="btn icon ghost shrink-0"
+                    className={cx(
+                      "hover:bg-text/10 grid size-7 shrink-0 place-items-center rounded-(--radius-control) outline-offset-[-2px]",
+                      isPinned
+                        ? "text-text"
+                        : "text-text-secondary opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                    )}
                     aria-label={`${t("extensions.pin")} ${extension.name}`}
                     title={isPinned ? t("extensions.unpin") : t("extensions.pin")}
                     aria-pressed={isPinned}
                     disabled={!settings}
                     onClick={() => setPinned(extension.id, !isPinned)}
                   >
-                    <i className={cx(isPinned ? "ic-pin-off" : "ic-pin", "ic-sm")} aria-hidden="true" />
+                    <i className="ic-pin ic-xs" aria-hidden="true" />
                   </button>
                 </div>
               );
             })}
 
-            <hr className="border-text/15 my-1" />
+            <hr className="border-text/10 mx-1 my-1" />
             <button
               type="button"
-              className="btn ghost justify-start"
+              className="text-text-secondary hover:bg-text/8 hover:text-text flex h-8 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px]"
               onClick={() => {
                 setMenuAt(null);
                 void commands.openTab(SETTINGS_URL, true);
               }}
             >
+              <i className="ic-settings ic-sm shrink-0" aria-hidden="true" />
               {t("extensions.manage")}
             </button>
           </section>,
@@ -203,7 +216,7 @@ export function ExtensionsBar() {
 /** An extension's own icon, or a generic one when its manifest has none. */
 function ExtensionIcon({ extension }: { extension: Extension }) {
   if (extension.icon === null) {
-    return <i className="ic-puzzle ic-sm shrink-0" aria-hidden="true" />;
+    return <i className="ic-blocks ic-sm shrink-0" aria-hidden="true" />;
   }
   return <img src={extension.icon} alt="" className="size-4 shrink-0" draggable={false} />;
 }
