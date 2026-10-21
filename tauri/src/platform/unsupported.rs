@@ -109,3 +109,15 @@ pub fn adopt_window<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _request: W
 pub fn refuse_window<R: tauri::Runtime>(_app: &tauri::AppHandle<R>, _request: WindowRequestId) -> Result<()> {
     Err(unsupported("opening new windows"))
 }
+
+pub fn observe_popup<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: PageSink) -> Result<()> {
+    Err(unsupported("observing an extension popup"))
+}
+
+pub fn engine_window<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _timeout: std::time::Duration) -> Option<String> {
+    None
+}
+
+pub fn uninstall_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _id: String) -> Result<()> {
+    Err(unsupported("uninstalling extensions"))
+}

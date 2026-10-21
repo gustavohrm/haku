@@ -35,6 +35,10 @@ pub struct Settings {
     /// installed by placing them in the extensions folder, so this holds only
     /// the exceptions, and every new extension starts enabled.
     pub disabled_extensions: Vec<String>,
+    /// Ids of extensions with a button of their own in the toolbar, in the
+    /// order they appear there. The rest are reached from the extensions
+    /// menu.
+    pub pinned_extensions: Vec<String>,
 }
 
 impl Default for Settings {
@@ -50,6 +54,7 @@ impl Default for Settings {
             search_url: DEFAULT_SEARCH_URL.into(),
             home_url: DEFAULT_HOME_URL.into(),
             disabled_extensions: Vec::new(),
+            pinned_extensions: Vec::new(),
         }
     }
 }

@@ -155,6 +155,36 @@ pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSi
     backend::observe_page(webview, sink)
 }
 
+/// Starts reporting an extension's toolbar popup asking for a new window or
+/// to close itself, the only [`PageSignal`]s it sends: it is no tab, so
+/// nothing else it does is followed, and its dialogs stay the engine's own.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn observe_popup<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
+    backend::observe_popup(webview, sink)
+}
+
+/// The id the engine's extension APIs know a content webview's window by.
+///
+/// The engine treats every webview as a window of its own holding one tab,
+/// so this is what an extension's popup must be told "the current window"
+/// is, for the tab the user was on. Blocks for at most `timeout`, so it must
+/// not be called on the UI thread.
+///
+/// @returns The id, or nothing when the engine did not say in time.
+pub fn engine_window<R: tauri::Runtime>(webview: &tauri::Webview<R>, timeout: std::time::Duration) -> Option<i64> {
+    parse_window_id(&backend::engine_window(webview, timeout)?)
+}
+
+/// The `windowId` of a DevTools `Browser.getWindowForTarget` answer.
+fn parse_window_id(json: &str) -> Option<i64> {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()?
+        .get("windowId")?
+        .as_i64()
+}
+
 /// Evaluates `expression` in a webview's page and returns the result as JSON.
 ///
 /// Blocks for at most `timeout`, so it must not be called on the UI thread,
@@ -252,6 +282,18 @@ pub fn install_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, folder: 
 /// platforms without an implementation.
 pub fn set_extension_enabled<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: String, enabled: bool) -> Result<()> {
     backend::set_extension_enabled(chrome, id, enabled)
+}
+
+/// Uninstalls an extension from the profile every webview shares, which
+/// deletes what it stored. Does nothing for an id that is not installed.
+///
+/// Blocks until the engine answers, so it must not be called on the UI thread.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the engine refuses, as it does for
+/// its own built-in extensions, and on platforms without an implementation.
+pub fn uninstall_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: String) -> Result<()> {
+    backend::uninstall_extension(chrome, id)
 }
 
 /// Opens a folder in the system's file manager.
@@ -356,4 +398,21 @@ pub fn set_input_mask<R: tauri::Runtime>(
     overlays: &[RoundedRect],
 ) -> Result<()> {
     backend::set_input_mask(webview, viewport, radius, overlays)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_window_id_is_read_from_the_engine_answer() {
+        let answer = r#"{"windowId":506172816,"bounds":{"left":4,"top":65,"width":1912,"height":1011}}"#;
+        assert_eq!(parse_window_id(answer), Some(506_172_816));
+    }
+
+    #[test]
+    fn an_answer_without_a_window_id_gives_none() {
+        assert_eq!(parse_window_id(r#"{"error":"no target"}"#), None);
+        assert_eq!(parse_window_id("not json"), None);
+    }
 }

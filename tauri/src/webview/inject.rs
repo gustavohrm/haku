@@ -1,4 +1,5 @@
-//! Scripts that run inside content webviews.
+//! Scripts that run inside content webviews, and in extensions' toolbar
+//! popups.
 //!
 //! ## Why nothing here talks to Rust
 //!
@@ -454,6 +455,214 @@ pub fn parse_navigation_log(json: &str) -> Option<(Vec<Commit>, String)> {
     Some((commits, drained.title))
 }
 
+/// Where an extension page is shown, which decides how its view of windows
+/// and tabs is adjusted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtensionView {
+    /// In a tab or a popup window, like any page.
+    Tab,
+    /// As the extension's toolbar popup, opened for the tab the user was on,
+    /// whose engine window is given, or none when that tab shows no web page.
+    Popup(Option<i64>),
+}
+
+/// Name of the flag that marks an extension page as already adjusted.
+const EXTENSION_FLAG: &str = "__hakuExtensionPage";
+
+/// How long a popup opened for `chrome.windows.create` is looked for, to hand
+/// its window back to the extension.
+const FIND_WINDOW_MS: u32 = 3000;
+
+/// How often it is looked for in that time.
+const FIND_WINDOW_POLL_MS: u32 = 100;
+
+/// Adjusts what an extension page sees of windows and tabs to how Haku shows
+/// them. Does nothing in any page but an extension's own.
+///
+/// The engine treats every webview as a window of its own, holding one tab,
+/// and knows nothing of Haku's windows, so several of the extension APIs do
+/// not do what an extension expects:
+///
+/// - `chrome.windows.create` with `type: "popup"` arrives as a request for a
+///   new window without its size, the same as `chrome.tabs.create`, and so
+///   opens a tab. It is made through `window.open` with the size and position
+///   asked for instead, which opens a popup window, and the extension is handed
+///   that window once it appears.
+/// - `chrome.windows.update` with a position, size or state moves and
+///   resizes the webview inside Haku's window, out of its place. Those are
+///   left out, and the rest, such as `focused`, goes through.
+/// - `chrome.windows.remove` destroys the page under the tab without the tab
+///   closing. It closes the window's tabs with `chrome.tabs.remove` instead,
+///   which the tab follows.
+/// - `chrome.runtime.openOptionsPage` opens a bare engine window outside
+///   Haku. It opens the options page with `chrome.tabs.create` instead, as a
+///   tab.
+///
+/// In the toolbar popup, "the current window", as `currentWindow`,
+/// `lastFocusedWindow` and `WINDOW_ID_CURRENT` ask for it, is the window of
+/// the tab the user was on, as it is in other browsers, not the popup's own.
+/// Without a web page there, the current window has no tabs. And the popup
+/// is no tab: `chrome.tabs.getCurrent` answers nothing, as it does in a
+/// popup elsewhere, which is how an extension tells its popup from a tab.
+///
+/// Calls the extension's background worker makes are not adjusted: no script
+/// reaches it.
+pub fn extension_page_script(view: ExtensionView) -> String {
+    let (popup, current) = match view {
+        ExtensionView::Tab => (false, None),
+        ExtensionView::Popup(current) => (true, current),
+    };
+    EXTENSION_PAGE_JS
+        .replace("__FLAG__", EXTENSION_FLAG)
+        .replace("__POPUP__", if popup { "true" } else { "false" })
+        .replace(
+            "__CURRENT__",
+            &current.map_or_else(|| "null".into(), |id| id.to_string()),
+        )
+        .replace("__FIND_WINDOW_MS__", &FIND_WINDOW_MS.to_string())
+        .replace("__FIND_WINDOW_POLL_MS__", &FIND_WINDOW_POLL_MS.to_string())
+}
+
+const EXTENSION_PAGE_JS: &str = r#"
+(function () {
+  if (location.protocol !== "chrome-extension:" || window.__FLAG__) return;
+  var api = window.chrome;
+  if (!api || !api.tabs || !api.windows || !api.runtime) return;
+  Object.defineProperty(window, "__FLAG__", { value: true });
+
+  var POPUP = __POPUP__;
+  var CURRENT = __CURRENT__;
+  var tabs = api.tabs, windows = api.windows, runtime = api.runtime;
+  var WINDOW_ID_CURRENT = windows.WINDOW_ID_CURRENT;
+  var query = tabs.query.bind(tabs);
+  var removeTabs = tabs.remove.bind(tabs);
+  var createTab = tabs.create.bind(tabs);
+  var getWindow = windows.get.bind(windows);
+  var createWindow = windows.create.bind(windows);
+  var updateWindow = windows.update.bind(windows);
+  var getCurrent = windows.getCurrent.bind(windows);
+  var getLastFocused = windows.getLastFocused.bind(windows);
+  var openOptionsPage = runtime.openOptionsPage && runtime.openOptionsPage.bind(runtime);
+
+  // A call with a callback answers through it, and one without through a
+  // promise, as the engine's own do.
+  function answer(promise, callback) {
+    if (typeof callback !== "function") return promise;
+    promise.then(function (value) { callback(value); }, function () { callback(); });
+  }
+
+  function sleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  // The window a popup opened on `href` appeared in, once it does.
+  function findWindow(href) {
+    var deadline = Date.now() + __FIND_WINDOW_MS__;
+    function look() {
+      return query({}).then(function (found) {
+        var tab = found.find(function (tab) { return tab.url === href || tab.pendingUrl === href; });
+        if (tab) return getWindow(tab.windowId, { populate: true });
+        if (Date.now() > deadline) return undefined;
+        return sleep(__FIND_WINDOW_POLL_MS__).then(look);
+      });
+    }
+    return look();
+  }
+
+  windows.create = function (data, callback) {
+    if (typeof data === "function") return createWindow(data);
+    var url = data && (Array.isArray(data.url) ? (data.url.length === 1 ? data.url[0] : null) : data.url);
+    if (!data || data.type !== "popup" || typeof url !== "string") return createWindow.apply(null, arguments);
+    var href = new URL(url, location.href).href;
+    // Without an opener: a window opened on a page of the opener's own origin
+    // otherwise keeps the blank first document's window for that page, which
+    // is never adjusted, since the extension's APIs do not exist there yet.
+    var features = ["popup", "noopener"];
+    ["width", "height", "left", "top"].forEach(function (key) {
+      if (typeof data[key] === "number") features.push(key + "=" + Math.round(data[key]));
+    });
+    window.open(href, "_blank", features.join(","));
+    return answer(findWindow(href), callback);
+  };
+
+  windows.update = function (id, info, callback) {
+    var kept = Object.assign({}, info);
+    ["left", "top", "width", "height", "state"].forEach(function (key) { delete kept[key]; });
+    return updateWindow(id, kept, callback);
+  };
+
+  windows.remove = function (id, callback) {
+    var target = id === WINDOW_ID_CURRENT ? getCurrent() : Promise.resolve({ id: id });
+    var removed = target
+      .then(function (target) { return query({ windowId: target.id }); })
+      .then(function (found) { return removeTabs(found.map(function (tab) { return tab.id; })); })
+      .then(function () {});
+    return answer(removed, callback);
+  };
+
+  runtime.openOptionsPage = function (callback) {
+    var manifest = runtime.getManifest();
+    var page = (manifest.options_ui && manifest.options_ui.page) || manifest.options_page;
+    if (!page) return openOptionsPage(callback);
+    return answer(createTab({ url: runtime.getURL(page) }).then(function () {}), callback);
+  };
+
+  if (!POPUP) return;
+
+  function current(getInfo, callback, fallback) {
+    if (typeof getInfo === "function") {
+      callback = getInfo;
+      getInfo = undefined;
+    }
+    if (CURRENT === null) return fallback(getInfo || {}, callback);
+    return answer(getWindow(CURRENT, getInfo || {}), callback);
+  }
+
+  tabs.query = function (info, callback) {
+    info = Object.assign({}, info);
+    if (info.currentWindow === true || info.lastFocusedWindow === true || info.windowId === WINDOW_ID_CURRENT) {
+      delete info.currentWindow;
+      delete info.lastFocusedWindow;
+      if (CURRENT === null) return answer(Promise.resolve([]), callback);
+      info.windowId = CURRENT;
+    }
+    return query(info, callback);
+  };
+  // A popup is not a tab.
+  tabs.getCurrent = function (callback) {
+    return answer(Promise.resolve(undefined), callback);
+  };
+  windows.getCurrent = function (getInfo, callback) {
+    return current(getInfo, callback, getCurrent);
+  };
+  windows.getLastFocused = function (getInfo, callback) {
+    return current(getInfo, callback, getLastFocused);
+  };
+  windows.get = function (id) {
+    var args = Array.prototype.slice.call(arguments);
+    if (id === WINDOW_ID_CURRENT && CURRENT !== null) args[0] = CURRENT;
+    return getWindow.apply(null, args);
+  };
+})();
+"#;
+
+/// Expression Rust evaluates in an extension's toolbar popup to size it to
+/// its page: whether the page has loaded, and how wide and tall it lays out.
+///
+/// The popup starts at its smallest, so the page lays out at the width its
+/// content needs and overflows to it, as in other browsers.
+pub fn popup_size_expression() -> &'static str {
+    r#"[document.readyState === "complete", document.documentElement.scrollWidth, document.documentElement.scrollHeight]"#
+}
+
+/// Reads what [`popup_size_expression`] evaluated to.
+///
+/// @returns Whether the page has loaded, and its width and height in CSS
+///   pixels, or nothing when the answer is not one.
+pub fn parse_popup_size(json: &str) -> Option<(bool, f64, f64)> {
+    serde_json::from_str(json).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,6 +732,44 @@ mod tests {
         let expression = restore_expression("https://a.test/", Scroll::default(), None, Some(r#"");alert(1);(""#));
 
         assert!(expression.contains(r#"\");alert(1);(\""#));
+    }
+
+    #[test]
+    fn the_extension_page_script_has_every_placeholder_filled() {
+        for view in [
+            ExtensionView::Tab,
+            ExtensionView::Popup(None),
+            ExtensionView::Popup(Some(7)),
+        ] {
+            let script = extension_page_script(view);
+            assert!(script.contains(EXTENSION_FLAG));
+            for placeholder in [
+                "__FLAG__",
+                "__POPUP__",
+                "__CURRENT__",
+                "__FIND_WINDOW_MS__",
+                "__FIND_WINDOW_POLL_MS__",
+            ] {
+                assert!(!script.contains(placeholder), "{placeholder} was left in the script");
+            }
+        }
+    }
+
+    #[test]
+    fn the_toolbar_popup_is_told_the_current_window() {
+        let script = extension_page_script(ExtensionView::Popup(Some(506_172_816)));
+        assert!(script.contains("var POPUP = true;"));
+        assert!(script.contains("var CURRENT = 506172816;"));
+
+        let tab = extension_page_script(ExtensionView::Tab);
+        assert!(tab.contains("var POPUP = false;"));
+        assert!(tab.contains("var CURRENT = null;"));
+    }
+
+    #[test]
+    fn a_popup_size_is_read_from_its_answer() {
+        assert_eq!(parse_popup_size("[true,380,600]"), Some((true, 380.0, 600.0)));
+        assert_eq!(parse_popup_size("null"), None);
     }
 
     #[test]

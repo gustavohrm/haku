@@ -5,6 +5,7 @@
 //! are JSON files. History grows without bound and will need filtering and
 //! ranged queries, so it is SQLite.
 
+pub mod extensions;
 pub mod history_db;
 pub mod merge;
 pub mod session;
@@ -20,6 +21,7 @@ use serde_json::Value;
 
 use crate::error::{HakuError, Result};
 
+pub use extensions::{InstalledExtension, InstalledExtensions};
 pub use history_db::HistoryDb;
 pub use session::{Session, SessionWindow, WindowBounds};
 pub use settings::Settings;
@@ -84,6 +86,9 @@ pub struct Paths {
     pub history: PathBuf,
     /// One unpacked Chrome extension per subfolder, installed at startup.
     pub extensions: PathBuf,
+    /// The ids of the extensions Haku installed, so the ones whose folder
+    /// is gone can be told from the engine's own.
+    pub installed_extensions: PathBuf,
 }
 
 impl Paths {
@@ -93,6 +98,7 @@ impl Paths {
             session: root.join("session.json"),
             history: root.join("history.sqlite"),
             extensions: root.join("extensions"),
+            installed_extensions: root.join("extensions.json"),
         }
     }
 }

@@ -39,12 +39,13 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 };
 use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
-    CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, DOMContentLoadedEventHandler,
-    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
-    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    BrowserExtensionRemoveCompletedHandler, CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
+    DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
+    ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
     NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    ProfileAddBrowserExtensionCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
-    TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
+    ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
+    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
+    WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND};
@@ -602,6 +603,45 @@ pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSi
         .map_err(|error| HakuError::WindowMissing(error.to_string()))?
 }
 
+pub fn observe_popup<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+
+    webview
+        .with_webview(move |platform| {
+            let outcome = unsafe { platform.controller().CoreWebView2() }
+                .and_then(|core| unsafe { attach_window_requests(&core, &sink) })
+                .map_err(|error| HakuError::WindowMissing(error.to_string()));
+            let _ = sender.send(outcome);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+}
+
+pub fn engine_window<R: tauri::Runtime>(webview: &tauri::Webview<R>, timeout: Duration) -> Option<String> {
+    let (sender, receiver) = mpsc::channel();
+    webview
+        .with_webview(move |platform| {
+            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |status, result| {
+                let _ = sender.send(status.ok().map(|()| result));
+                Ok(())
+            }));
+            let _ = unsafe {
+                platform.controller().CoreWebView2().and_then(|core| {
+                    core.CallDevToolsProtocolMethod(
+                        &HSTRING::from("Browser.getWindowForTarget"),
+                        &HSTRING::from("{}"),
+                        &handler,
+                    )
+                })
+            };
+        })
+        .ok()?;
+    receiver.recv_timeout(timeout).ok().flatten()
+}
+
 unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink) -> windows::core::Result<()> {
     let core = controller.CoreWebView2()?;
     let keys = sink.clone();
@@ -725,6 +765,35 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     };
     core.add_ScriptDialogOpening(&on_dialog, &mut token)?;
 
+    attach_window_requests(&core, sink)?;
+
+    // Whether a page is playing audio decides whether a smart policy leaves it
+    // running in the background. Older runtimes lack the event, and a page is
+    // then treated as silent.
+    if let Ok(core) = core.cast::<ICoreWebView2_8>() {
+        let on_audio = {
+            let sink = sink.clone();
+            IsDocumentPlayingAudioChangedEventHandler::create(Box::new(move |sender, _| {
+                let Some(core) = sender.and_then(|sender| sender.cast::<ICoreWebView2_8>().ok()) else {
+                    return Ok(());
+                };
+                let mut playing = BOOL::default();
+                core.IsDocumentPlayingAudio(&mut playing)?;
+                sink(PageSignal::AudioChanged {
+                    playing: playing.as_bool(),
+                });
+                Ok(())
+            }))
+        };
+        core.add_IsDocumentPlayingAudioChanged(&on_audio, &mut token)?;
+    }
+    Ok(())
+}
+
+/// Reports a webview's requests for a new window and to close its own, the
+/// part of [`attach_observers`] an extension's toolbar popup needs too.
+unsafe fn attach_window_requests(core: &ICoreWebView2, sink: &PageSink) -> windows::core::Result<()> {
+    let mut token = 0i64;
     // Haku opens every window itself, as a tab or a window of its own. wry
     // has already marked the request handled, which on its own opens nothing;
     // the page waits on a deferral until a webview is handed to it or it is
@@ -788,27 +857,6 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
         }))
     };
     core.add_WindowCloseRequested(&on_close, &mut token)?;
-
-    // Whether a page is playing audio decides whether a smart policy leaves it
-    // running in the background. Older runtimes lack the event, and a page is
-    // then treated as silent.
-    if let Ok(core) = core.cast::<ICoreWebView2_8>() {
-        let on_audio = {
-            let sink = sink.clone();
-            IsDocumentPlayingAudioChangedEventHandler::create(Box::new(move |sender, _| {
-                let Some(core) = sender.and_then(|sender| sender.cast::<ICoreWebView2_8>().ok()) else {
-                    return Ok(());
-                };
-                let mut playing = BOOL::default();
-                core.IsDocumentPlayingAudio(&mut playing)?;
-                sink(PageSignal::AudioChanged {
-                    playing: playing.as_bool(),
-                });
-                Ok(())
-            }))
-        };
-        core.add_IsDocumentPlayingAudioChanged(&on_audio, &mut token)?;
-    }
     Ok(())
 }
 
@@ -1095,6 +1143,50 @@ pub fn set_extension_enabled<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: 
             Ok(())
         };
         extension.Enable(enabled, &BrowserExtensionEnableCompletedHandler::create(Box::new(done)))
+    })
+}
+
+pub fn uninstall_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: String) -> Result<()> {
+    with_profile(chrome, "uninstalling", move |profile, sender| unsafe {
+        let handler = ProfileGetBrowserExtensionsCompletedHandler::create(Box::new(move |status, list| {
+            let found = status.and_then(|()| {
+                let Some(list) = list else { return Ok(None) };
+                let mut count = 0u32;
+                list.Count(&mut count)?;
+                for index in 0..count {
+                    let extension = list.GetValueAtIndex(index)?;
+                    let mut listed = PWSTR::null();
+                    extension.Id(&mut listed)?;
+                    if take_pwstr(listed) == id {
+                        return Ok(Some(extension));
+                    }
+                }
+                Ok(None)
+            });
+            let removing = match found {
+                // Already gone: nothing to remove.
+                Ok(None) => {
+                    let _ = sender.send(Ok(()));
+                    return Ok(());
+                }
+                Ok(Some(extension)) => {
+                    let done = {
+                        let sender = sender.clone();
+                        BrowserExtensionRemoveCompletedHandler::create(Box::new(move |status| {
+                            let _ = sender.send(status.map_err(|error| engine_error("uninstalling", &error)));
+                            Ok(())
+                        }))
+                    };
+                    extension.Remove(&done)
+                }
+                Err(error) => Err(error),
+            };
+            if let Err(error) = removing {
+                let _ = sender.send(Err(engine_error("uninstalling", &error)));
+            }
+            Ok(())
+        }));
+        profile.GetBrowserExtensions(&handler)
     })
 }
 

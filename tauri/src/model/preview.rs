@@ -42,10 +42,17 @@ impl Previews {
 /// A JPEG as a `data:` URL, which an `<img>` in the interface can show
 /// without any protocol a content webview could also reach.
 pub fn jpeg_data_url(jpeg: &[u8]) -> String {
+    data_url("image/jpeg", jpeg)
+}
+
+/// Any image as a `data:` URL, for the same reason as [`jpeg_data_url`].
+pub fn data_url(mime: &str, bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut url = String::with_capacity(23 + jpeg.len().div_ceil(3) * 4);
-    url.push_str("data:image/jpeg;base64,");
-    for chunk in jpeg.chunks(3) {
+    let mut url = String::with_capacity(mime.len() + 13 + bytes.len().div_ceil(3) * 4);
+    url.push_str("data:");
+    url.push_str(mime);
+    url.push_str(";base64,");
+    for chunk in bytes.chunks(3) {
         let bytes = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
         let triple = u32::from(bytes[0]) << 16 | u32::from(bytes[1]) << 8 | u32::from(bytes[2]);
         for index in 0..4 {

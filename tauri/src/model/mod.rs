@@ -11,13 +11,15 @@ pub mod tab;
 pub mod window;
 
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
-pub use extension::{popup_url, Extension, Extensions};
+pub use extension::{
+    icon_file, popup_origin, popup_size, popup_url, Extension, Extensions, ScreenRect, POPUP_MIN_SIZE,
+};
 pub use history::{Commit, History, NavigationKind, Visit};
 pub use keymap::{shortcut_for, Chord, Key, Shortcut};
 pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};
 pub use pool::{Acquired, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
-pub use preview::{jpeg_data_url, Previews};
+pub use preview::{data_url, jpeg_data_url, Previews};
 pub use tab::{host_of, is_internal, Scroll, Tab, TabId, TabPresence};
 pub use window::{Placement, WindowId, WindowKind, WindowRequestId, WINDOW_LABEL_PREFIX};

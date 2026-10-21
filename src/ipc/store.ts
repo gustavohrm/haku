@@ -6,7 +6,7 @@
  * step with the webviews it is describing.
  */
 
-import { events, type BrowserState, type Settings } from "@bindings";
+import { events, type BrowserState, type Extensions, type Settings } from "@bindings";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { commands } from "./commands";
@@ -48,6 +48,8 @@ export const EMPTY_STATE: BrowserState = { kind: "normal", tabs: [], active: nul
 
 export const browserStore = createStore<BrowserState>(EMPTY_STATE);
 export const settingsStore = createStore<Settings | null>(null);
+/** What the extensions folder installed, or null until it is known. */
+export const extensionsStore = createStore<Extensions | null>(null);
 
 /**
  * Subscribes to Rust's state events and loads the first snapshot.
@@ -59,20 +61,28 @@ export const settingsStore = createStore<Settings | null>(null);
  * only: a listener for any target also receives what Rust sends every other
  * window.
  *
- * @returns A function that detaches both listeners.
+ * @returns A function that detaches every listener.
  */
 export async function connect(): Promise<() => void> {
-  const [stopState, stopSettings] = await Promise.all([
+  const [stopState, stopSettings, stopExtensions] = await Promise.all([
     events.stateChanged(getCurrentWebview()).listen((event) => browserStore.set(event.payload)),
     events.settingsChanged.listen((event) => settingsStore.set(event.payload)),
+    // The folder is installed after startup, possibly once this has loaded.
+    events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
   ]);
 
-  const [state, settings] = await Promise.all([unwrap(commands.getState()), unwrap(commands.getSettings())]);
+  const [state, settings, extensions] = await Promise.all([
+    unwrap(commands.getState()),
+    unwrap(commands.getSettings()),
+    unwrap(commands.extensions()),
+  ]);
   browserStore.set(state);
   settingsStore.set(settings);
+  extensionsStore.set(extensions);
 
   return () => {
     stopState();
     stopSettings();
+    stopExtensions();
   };
 }

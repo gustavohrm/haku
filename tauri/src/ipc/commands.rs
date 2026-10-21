@@ -29,13 +29,14 @@ use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, O
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions, Placement, Preset, Pressure,
-    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    data_url, icon_file, is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions,
+    Placement, Preset, Pressure, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, KeySink, PageSignal};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
-use crate::storage::{Settings, WindowBounds};
+use crate::storage::{self, InstalledExtension, InstalledExtensions, Settings, WindowBounds};
+use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{AddressFocusRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
@@ -127,7 +128,7 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             } => queue_window(
                 app,
                 WindowRequest {
-                    slot,
+                    slot: Some(slot),
                     request,
                     url,
                     popup,
@@ -162,9 +163,9 @@ fn page_observer() -> PageObserver<tauri::Wry> {
 }
 
 /// A page's request for a new window, as [`PageSignal::WindowRequested`]
-/// reported it from `slot`.
+/// reported it from `slot`, or from an extension's toolbar popup without one.
 struct WindowRequest {
-    slot: SlotId,
+    slot: Option<SlotId>,
     request: WindowRequestId,
     url: String,
     popup: bool,
@@ -239,8 +240,87 @@ fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
     let pressure = read_pressure(&state);
     let _ = mutate(app, &state, |browser| {
         browser.set_pressure(pressure);
-        Ok(browser.open_from(slot, url, opening).1)
+        Ok(match slot {
+            Some(slot) => browser.open_from(slot, url, opening),
+            None => browser.open_requested(url, opening),
+        }
+        .1)
     });
+    // What a toolbar popup opens takes the user away from it, which closes it
+    // in other browsers, where opening anything moves focus elsewhere. Only
+    // now: the page that asked must still be there to be handed a webview.
+    if slot.is_none() {
+        let _ = webview::close_extension_popup(app);
+    }
+}
+
+/// What an extension's toolbar popup reports: its requests to open a window,
+/// answered as a page's are, and to close itself.
+fn popup_sink(app: &tauri::AppHandle) -> platform::PageSink {
+    let app = app.clone();
+    Arc::new(move |signal| match signal {
+        PageSignal::WindowRequested {
+            request,
+            url,
+            popup,
+            placement,
+            background,
+            window,
+            gesture,
+        } => queue_window(
+            &app,
+            WindowRequest {
+                slot: None,
+                request,
+                url,
+                popup,
+                placement,
+                background,
+                window,
+                gesture,
+            },
+        ),
+        PageSignal::CloseRequested => {
+            let app = app.clone();
+            std::thread::spawn(move || webview::close_extension_popup(&app));
+        }
+        _ => {}
+    })
+}
+
+/// How long after a toolbar popup closed for losing focus a request to open
+/// it again is taken as the click that closed it. Clicking the button of the
+/// popup that is open closes it, as in other browsers, and the click reaches
+/// the button only after the popup has lost focus to it.
+const POPUP_TOGGLE: Duration = Duration::from_millis(400);
+
+/// The toolbar popup open now, and the last one closed for losing focus,
+/// with when.
+#[derive(Default)]
+struct PopupRecord {
+    open: Option<String>,
+    closed: Option<(String, std::time::Instant)>,
+}
+
+static POPUP: std::sync::Mutex<PopupRecord> = std::sync::Mutex::new(PopupRecord {
+    open: None,
+    closed: None,
+});
+
+/// Closes the toolbar popup when it loses focus, as other browsers do.
+fn on_popup_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    // Focus a popup passes through while it is still hidden, being created
+    // and sized, is not the user leaving it.
+    if !matches!(event, tauri::WindowEvent::Focused(false)) || !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    if let Ok(mut popup) = POPUP.lock() {
+        if let Some(url) = popup.open.take() {
+            popup.closed = Some((url, std::time::Instant::now()));
+        }
+    }
+    let app = window.app_handle().clone();
+    std::thread::spawn(move || webview::close_extension_popup(&app));
 }
 
 /// Runs the shortcuts pressed while a window's interface has focus. Pages
@@ -370,12 +450,14 @@ fn home_url(state: &AppState) -> Result<String> {
     Ok(settings.home_url.clone())
 }
 
-/// Installs every extension in the extensions folder into the shared profile
-/// and switches each on or off as the settings say.
+/// Installs every extension in the extensions folder into the shared profile,
+/// switches each on or off as the settings say, and uninstalls the ones Haku
+/// installed before whose folder is gone.
 ///
-/// An extension whose folder was deleted is not uninstalled: the engine lists
-/// its own built-in extensions alongside the user's, with nothing to tell them
-/// apart, and refuses to remove those.
+/// Only ids Haku recorded installing are uninstalled: the engine lists its own
+/// built-in extensions alongside the user's, with nothing to tell them apart,
+/// and refuses to remove those. One that fails to uninstall stays recorded, to
+/// be tried again at the next start.
 ///
 /// Runs once, at startup and off the UI thread: the engine has to be asked
 /// and waited on for each extension.
@@ -403,6 +485,7 @@ fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extens
     let mut problems = Vec::new();
 
     let mut installed = Vec::new();
+    let mut now = Vec::new();
     let mut failed = Vec::new();
     let mut folders: Vec<std::path::PathBuf> = match std::fs::read_dir(&state.paths.extensions) {
         Ok(entries) => entries
@@ -423,8 +506,18 @@ fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extens
         match platform::install_extension(&chrome, &folder) {
             Ok((id, name)) => {
                 let manifest = std::fs::read_to_string(folder.join("manifest.json")).unwrap_or_default();
+                let icon = icon_file(&manifest).and_then(|(path, mime)| {
+                    std::fs::read(folder.join(path))
+                        .ok()
+                        .map(|bytes| data_url(mime, &bytes))
+                });
+                now.push(InstalledExtension {
+                    id: id.clone(),
+                    folder: folder.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                });
                 installed.push(Extension {
                     popup: popup_url(&id, &manifest),
+                    icon,
                     id,
                     name,
                 });
@@ -444,6 +537,33 @@ fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extens
         if let Err(error) = platform::set_extension_enabled(&chrome, extension.id.clone(), enabled) {
             problems.push(error);
         }
+    }
+
+    let before: InstalledExtensions = storage::read_json(&state.paths.installed_extensions);
+    let mut recorded: Vec<InstalledExtension> = before
+        .installed
+        .iter()
+        .filter(|old| !now.iter().any(|new| new.id == old.id))
+        .cloned()
+        .collect();
+    // An extension with a `key` keeps its id when its folder moves: still
+    // installed, from its new folder.
+    let gone = before
+        .removed(|folder| state.paths.extensions.join(folder).is_dir())
+        .into_iter()
+        .filter(|old| !now.iter().any(|new| new.id == old.id));
+    for gone in gone {
+        match platform::uninstall_extension(&chrome, gone.id.clone()) {
+            Ok(()) => recorded.retain(|kept| kept.id != gone.id),
+            Err(error) => problems.push(error),
+        }
+    }
+    recorded.extend(now);
+    if let Err(error) = storage::write_json(
+        &state.paths.installed_extensions,
+        &InstalledExtensions { installed: recorded },
+    ) {
+        problems.push(error);
     }
 
     Ok(Extensions {
@@ -749,6 +869,10 @@ where
 /// Follows what happens to a browser window that only the window system
 /// reports: being closed, used, moved or resized.
 pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    if webview::is_extension_popup(window.label()) {
+        on_popup_event(window, event);
+        return;
+    }
     let Some(id) = WindowId::from_label(window.label()) else {
         return;
     };
@@ -1244,6 +1368,100 @@ pub fn extensions(webview: tauri::Webview, state: State<'_, AppState>) -> Result
         .read()
         .map_err(|_| HakuError::Storage("extensions lock poisoned".into()))?;
     Ok(extensions.clone())
+}
+
+/// Longest the engine is waited on for the window id of the tab a toolbar
+/// popup acts on.
+const ENGINE_WINDOW_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Opens an extension's toolbar popup, for the active tab of the window that
+/// called, just below `anchor`: the button it was opened from, in the
+/// interface's logical pixels.
+///
+/// Opening it from the button of the popup open now closes it instead, as
+/// in other browsers.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] for an extension that is not
+/// installed, has no popup or is switched off, and propagates the failure to
+/// open the popup's window.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_extension_popup(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: String,
+    anchor: webview::Viewport,
+) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    let url = state
+        .extensions
+        .read()
+        .map_err(|_| HakuError::Storage("extensions lock poisoned".into()))?
+        .installed
+        .iter()
+        .find(|extension| extension.id == id)
+        .and_then(|extension| extension.popup.clone())
+        .ok_or_else(|| HakuError::Unsupported(format!("{id} has no popup")))?;
+    let disabled = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
+        .disabled_extensions
+        .contains(&id);
+    if disabled {
+        return Err(HakuError::Unsupported(format!("{id} is switched off")));
+    }
+    {
+        let mut popup = POPUP
+            .lock()
+            .map_err(|_| HakuError::Storage("popup lock poisoned".into()))?;
+        let closed = popup.closed.take();
+        if closed.is_some_and(|(closed, at)| closed == url && at.elapsed() < POPUP_TOGGLE) {
+            return Ok(());
+        }
+        popup.open = Some(url.clone());
+    }
+
+    // The tab the popup acts on, as the engine knows its window.
+    let slot = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        browser.active_in(window).and_then(|tab| browser.tab(tab).ok()?.slot())
+    };
+    let current = slot
+        .and_then(|slot| app.get_webview(&slot.label()))
+        .and_then(|page| platform::engine_window(&page, ENGINE_WINDOW_TIMEOUT));
+
+    let native = app
+        .get_window(&window.label())
+        .ok_or_else(|| HakuError::WindowMissing(window.label()))?;
+    let scale = native.scale_factor()?;
+    let origin = native.inner_position()?.to_logical::<f64>(scale);
+    let anchor = ScreenRect {
+        x: origin.x + anchor.x,
+        y: origin.y + anchor.y,
+        width: anchor.width,
+        height: anchor.height,
+    };
+    let area = native.current_monitor()?.map_or(anchor, |monitor| {
+        let area = monitor.work_area();
+        let position = area.position.to_logical::<f64>(scale);
+        let size = area.size.to_logical::<f64>(scale);
+        ScreenRect {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+        }
+    });
+
+    let label = webview::open_extension_popup(&app, window, &url, ExtensionView::Popup(current), popup_sink(&app))?;
+    std::thread::spawn(move || webview::fit_extension_popup(&app, &label, anchor, area));
+    Ok(())
 }
 
 /// Opens the extensions folder, creating it first, so an unpacked extension

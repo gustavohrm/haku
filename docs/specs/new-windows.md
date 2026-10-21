@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-08
+last_updated: 2026-10-21
 scope: Browser windows and popups, what happens when a page asks for a new window, by a link or by script, and when it asks to close one.
 ---
 
@@ -20,6 +20,8 @@ Every tab belongs to one window. Each window shows its own active tab, so every 
 Rust creates the windows; `tauri.conf.json` declares none. A window and its chrome webview share the label `window-<id>`, which is also how a command knows which window called it: commands act for the window whose chrome called them, and each chrome receives only its own window's `StateChanged`. The shared work of the profile, such as installing extensions and watching service workers, runs on the chrome of the window opened first among those still open.
 
 The browser window used last is the browser window most recently focused; a popup is never it. A tab opened from nowhere in particular, such as by a popup's shortcut, opens there.
+
+An extension's toolbar popup, which [Extensions § Popups](extensions.md#popups) describes, is neither kind: it is not a tab, and the browser keeps no record of it. A window it asks for is answered as a page's would be, as though from no tab, so it opens in the browser window used last, and the toolbar popup closes.
 
 ## The request
 
