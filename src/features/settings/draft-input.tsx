@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface DraftInputProps {
   type: "text" | "number";
@@ -20,8 +20,13 @@ interface DraftInputProps {
  */
 export function DraftInput({ type, value, min, max, disabled, onCommit, ...rest }: DraftInputProps) {
   const [draft, setDraft] = useState(value);
-
-  useEffect(() => setDraft(value), [value]);
+  // A new stored value replaces the draft. Done while rendering, so the stale
+  // draft is never painted first.
+  const [stored, setStored] = useState(value);
+  if (value !== stored) {
+    setStored(value);
+    setDraft(value);
+  }
 
   const commit = async () => {
     if (draft === value) {
