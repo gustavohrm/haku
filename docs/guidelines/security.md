@@ -20,14 +20,14 @@ Content webviews load arbitrary remote pages, and they are given nothing. The ru
 ## Commands
 
 - Every command takes the calling `tauri::Webview` and calls `ensure_chrome` before it does anything else. That rejects any caller that is not a window's chrome, and identifies the window the caller belongs to. Every command in [`tauri/src/ipc/commands.rs`](../../tauri/src/ipc/commands.rs) does this today.
-- A command acts for the window that called it, never for another.
+- A command that acts on a window acts on the one that called it, never on another. Commands that change what every window shares, such as `set_settings` reconfiguring the pool, act on the whole browser by design, and say so in their documentation.
 - A new command or event changes the IPC contract. It is proposed and approved before it is built, as [AGENTS.md](../../AGENTS.md) requires for contract changes.
 
 ## Page metadata comes from Rust
 
 - Rust reads what a page is showing, the URL, title, icons, navigation, dialogs and memory state, through WebView2's events and `ExecuteScript`. Do not give a page a way to report these: no message handler, no host object, no request to a Haku endpoint. The page has no way to call back, and that is what keeps its claims from becoming commands.
 - What Rust reads back is the page's own claim. Parse it into a typed value and drop what does not parse, as `parse_navigation_log` and `parse_page_state` do.
-- A page's claim affects only its own tab: at most that tab's history and the text restored into it. Code that applies a claim must not reach past the tab it came from.
+- A page's claim is applied to its own tab only: that tab's history, the text restored into it, and what discarding it would lose. The last reaches other tabs indirectly, because [Tab optimization § The rule](../specs/tab-optimization.md#the-rule) shares one budget: a page that claims unsaved work keeps its webview, which can leave less room for others. That is the price of never discarding work. Code that applies a claim must not reach past that tab in any other way.
 
 ## Injected scripts
 
@@ -68,10 +68,10 @@ Content webviews load arbitrary remote pages, and they are given nothing. The ru
 A change that touches any of the above names it in its pull request and adds or updates its tests. The [pull request template](../../.github/pull_request_template.md) carries the check. Ask:
 
 - Does it add or change a capability, permission, command or event? Is it named and tested?
-- Does each new command call `ensure_chrome` before anything else, and act only for its window?
+- Does each new command call `ensure_chrome` before anything else, and act only on its window unless it changes shared state by design?
 - Does a page now reach Rust, a chrome surface or a `haku://` page by a new path? That changes the boundary, so decide it first.
 - Does a new injected script record a secret, or anything a reload would not lose?
-- Is a value read back from a page parsed, and kept to its own tab?
+- Is a value read back from a page parsed, and applied to its own tab only?
 - Is every dialog or page-supplied text shown with its site's host?
 - Is everything read from disk checked on read?
 - Does a log line or an error carry page content, form values or a full URL?
