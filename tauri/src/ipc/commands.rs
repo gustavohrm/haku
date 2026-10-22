@@ -1120,12 +1120,14 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
         *current = previous;
         return Err(error);
     }
-    drop(storing);
-
     // Announced once stored, before applying, so every window shows the stored
     // settings even when applying them fails. Those stand and are applied again
-    // at the next start; only the caller hears of the failure.
-    SettingsChanged(settings.clone()).emit(app).map_err(HakuError::from)?;
+    // at the next start; only the caller hears of the failure. Announced within
+    // the store's turn, so windows hear overlapping stores in the order they
+    // were stored. A failed announcement is reported after applying, not
+    // instead of it.
+    let announced = SettingsChanged(settings.clone()).emit(app);
+    drop(storing);
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
@@ -1134,6 +1136,7 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
         Ok(browser.set_optimization(capacity, freeze, discard))
     })?;
     switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
+    announced.map_err(HakuError::from)?;
     Ok(settings)
 }
 
