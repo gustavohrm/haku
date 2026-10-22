@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-06
+last_updated: 2026-10-21
 scope: Continuous integration, the pinned toolchain, and the checks that report on pull requests.
 ---
 
@@ -27,6 +27,16 @@ CI reads those same files rather than repeating a version: `pnpm/action-setup` t
 
 `engine-strict` is deliberate friction. A patch-level difference rarely matters, and the one time it does, the failure looks like a bug in the change under review rather than a difference in the runtime.
 
+### Dependency installs
+
+`pnpm-workspace.yaml` holds the pnpm settings that govern installs, local and in CI alike. `packages` only names the workspace root. The other three are supply-chain rules:
+
+- `blockExoticSubdeps: true` refuses a transitive dependency that resolves to a git repository or a tarball URL instead of the registry. A direct dependency's source is written in `package.json`, where a reviewer sees it; a transitive one would arrive through another package's manifest unseen.
+- `trustPolicy: no-downgrade` refuses a version whose publish-time trust evidence is weaker than that of an earlier version of the same package. A release that drops its provenance is a common sign of a compromised publish.
+- `trustPolicyIgnoreAfter: 10080` is an age in minutes, seven days, after which a version is no longer held to the trust policy. It stops a long-published version that predates provenance from being refused as a downgrade.
+
+`allowBuilds` is absent, so no dependency's install script is approved. A dependency that needs one gets an entry in the same change, with the reason it needs one.
+
 ## Jobs
 
 | Job    | Runner           | Runs                                                           |
@@ -34,7 +44,7 @@ CI reads those same files rather than repeating a version: `pnpm/action-setup` t
 | `Web`  | `ubuntu-latest`  | `pnpm verify:web`                                              |
 | `Rust` | `windows-latest` | `pnpm verify:rust`, then `pnpm build` and `pnpm check:release` |
 
-Both jobs run on every pull request and every push to `main`, in parallel. There is no change-based selection: the repository is one application, and a check that skips half of it on a pull request is a check that lets the other half reach `main` unverified.
+Both jobs run on every pull request and every push to `main`, in parallel. There is no change-based selection: the repository is one application, and a check that skips half of it on a pull request is a check that lets the other half reach `main` unverified. Each job ends with a `Working tree is clean` step, which fails when a check has left a tracked or untracked file changed, so a check that writes is reported rather than passing.
 
 The split follows what each half needs. The interface and its tooling are platform-independent, so they run on the fastest, cheapest runner and report in a few minutes. Rust runs on Windows because Windows is the one platform with a native layer: the macOS and Linux layers in `platform/` are stubs, so a Linux build would compile code nothing runs, and it would also need WebKitGTK's system libraries before it built at all. Rust is verified where Haku runs. The rejected alternative was one Windows job for everything, which makes the interface's feedback wait behind a Rust build.
 
@@ -68,7 +78,7 @@ The rule is all or nothing on purpose. Pinning some actions and not others is wo
 
 `./.github/actions/setup` is deliberately not pinned. It is a path in this repository, already versioned by the commit under test.
 
-Nothing updates these automatically. That is the cost of the rule, accepted rather than overlooked: upgrades are manual. Resolve the new SHA with `gh` and update the comment alongside it:
+Dependabot proposes weekly updates for these actions, as `.github/dependabot.yml` sets out. It moves the SHA and its version comment together, so the pin and its label cannot drift apart. The same file covers npm and Cargo dependencies, grouped per ecosystem. For a hand upgrade, resolve the new SHA with `gh` and update the comment alongside it:
 
 ```sh
 gh api repos/actions/checkout/commits/v5.1.0 --jq .sha

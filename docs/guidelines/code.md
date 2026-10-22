@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-06
+last_updated: 2026-10-21
 ---
 
 # Codebase guidelines
@@ -24,15 +24,19 @@ This document outlines patterns, conventions and guidelines to follow when worki
 - Loose Coupling: minimize dependencies between modules
 - Prefer dependency injection over hard-coding
 - Prefer using folders to group related files, with an `index.ts` entrypoint
+- Do not add compatibility layers unless there is a real consumer, persisted data, shipped behavior, or explicit requirement
+- Do not add a runtime dependency unless simple in-house code is clearly worse. [Architecture § Dependencies](../architecture.md#dependencies) sets this rule and what it covers.
 
 ## Coding good/bad practices
 
 - Functions should be small and clearly nameable
 - Prefer `const` over `let`; never use `var`
-- Never use magic numbers or strings; extract to named constants
+- Avoid magic numbers and strings; extract to named constants when the value has domain meaning or is reused
 - Code should be self-explanatory; use descriptive names
 - Design for predictable, deterministic behavior
 - Avoid God Objects, Feature Envy, and excessive method chaining.
+
+Literal values MAY stay inline when extraction makes code worse, such as protocol literals, package names, CSS selectors, event names, test fixtures, one-off validation messages, and external API values used once near their boundary.
 
 Function parameters:
 
@@ -61,6 +65,7 @@ Function parameters:
 - File and module names are snake_case; the kebab-case rule above is for TypeScript.
 - Keep `browser.rs` and `model/` free of Tauri types. Logic that cannot be tested without a window is logic in the wrong module.
 - Any command that drives a webview must be `async`. See [Architecture § Threading](../architecture.md#threading) for why.
+- Every command guards with `ensure_chrome` before it does anything else. See [Security guidelines § Commands](security.md#commands).
 - Document failure conditions with an `# Errors` section on public functions returning `Result`.
 
 ## React

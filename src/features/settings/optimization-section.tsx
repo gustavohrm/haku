@@ -1,5 +1,6 @@
 import { type Policy, type Preset, type Settings } from "@bindings";
 import { commands } from "@ipc/commands";
+import { applySettingsPreset } from "@ipc/store";
 import { t, type TranslationKey } from "@shared/i18n";
 import { useEffect, useId, useState, type ReactNode } from "react";
 
@@ -75,7 +76,7 @@ export function OptimizationSection({ settings, update }: OptimizationSectionPro
           onChange={(event) => {
             const next = event.target.value;
             if (isPreset(next)) {
-              void commands.applyPreset(next);
+              void applySettingsPreset(next);
             }
           }}
         >

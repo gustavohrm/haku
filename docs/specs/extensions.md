@@ -21,6 +21,8 @@ A folder the engine will not install is listed in settings by name, and any othe
 
 Each extension's toolbar icon is read from its manifest at install, `action.default_icon` or else `icons`, the smallest at least 32 pixels, and reaches the interface as a `data:` URL in `Extension.icon`. The engine does not report the icon an extension sets while it runs.
 
+Until the folder is installed, a tab sent to a `chrome-extension://` page, such as one restored from the last session, waits on the blank page and loads once installing ends. Loaded earlier, the page would fail, and the engine's error page would replace it in the tab's history ([gustavohrm/haku#19](https://github.com/gustavohrm/haku/issues/19)).
+
 An unpacked extension's id follows from its folder's path unless its manifest declares a `key`, so moving a folder without one makes it a different extension, with its own storage.
 
 ### Uninstalling
@@ -83,7 +85,6 @@ Extensions are written for Chrome's windows and tabs, which WebView2 lays out di
 - An extension without a popup, whose toolbar button raises `action.onClicked`, cannot be clicked: the engine gives no way to raise that event.
 - `tabs.update` with `active` and `windows.update` with `focused` do not switch Haku's tab or window.
 - uBlock Origin Lite opens a new dashboard tab each time instead of returning to the open one: it looks for one in a window of type `normal`, and every engine window is a popup.
-- An extension tab restored at startup can load before the extensions are reinstalled, and shows an error page instead. Tracked in [gustavohrm/haku#19](https://github.com/gustavohrm/haku/issues/19).
 
 ## Service workers
 

@@ -1,4 +1,4 @@
-import { type Tab, type TabId } from "@bindings";
+import { type Tab } from "@bindings";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { t } from "@shared/i18n";
@@ -35,8 +35,4 @@ export function TabStrip() {
       </button>
     </div>
   );
-}
-
-export function selectTab(id: TabId): void {
-  void commands.selectTab(id);
 }

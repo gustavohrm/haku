@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-08
+last_updated: 2026-10-21
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -62,15 +62,13 @@ Every tab belongs to a window. A slot shown in a different window is moved there
 
 ### Tab optimization
 
-**Implemented.** The pool keeps memory flat by giving up page state, and users choose how far that goes, from "one page loaded at a time" to "keep everything running". The states, the Optimization settings and their presets, the freeze and discard policy, the signals it reads, fixed tabs and the site menu, and how a discarded tab keeps its form contents are specified in [Webview pool](specs/webview-pool.md).
+**Implemented.** The pool keeps memory flat by giving up page state, and users choose how far that goes, from "one page loaded at a time" to "keep everything running". The policy is [Tab optimization](specs/tab-optimization.md): a tab holds a webview only while discarding it would cost the user something, within a memory budget, and memory pressure shrinks that further. The pool's states, Optimization settings and presets, and the mechanics of sharing and parking webviews are in [Webview pool](specs/webview-pool.md), which defers to Tab optimization for the policy.
 
-Three decisions changed in implementation:
+The first policy, which these decisions were made for, is superseded by Tab optimization. The decisions are kept as the record of why it was built the way it was; each notes what still holds.
 
-- **Under memory pressure, every eligible tab is discarded**, rather than one at a time, largest first. Measuring each slot's memory would need process accounting the policy did not otherwise need, and low memory is rare enough that freeing everything not shown recently is the safer answer.
-- **Freezing a tab does not wait for it to have been shown recently.** With _Freeze: smart_, a background tab is frozen as soon as it is left, unless it is playing audio; recency decides only what smart discarding spares.
-- **Reloads do not prefer stale cached responses.** WebView2 gives a navigation no way to ask for it; see [Webview pool § Reloads and the HTTP cache](specs/webview-pool.md#reloads-and-the-http-cache). Form contents are kept as planned.
-
-**Next.** [Tab optimization](specs/tab-optimization.md) is approved and not built. It replaces the policy above with a fixed footprint: a tab holds a webview only while discarding it would cost the user something, within a memory budget, and memory pressure shrinks that further. It also moves scroll and form contents into Rust and specifies tab previews. Build tab optimization work on it, not on the policy as implemented.
+- **Under memory pressure, every eligible tab is discarded**, rather than one at a time, largest first. Measuring each slot's memory would need process accounting the policy did not otherwise need, and low memory is rare enough that freeing everything not shown recently is the safer answer. _Superseded:_ [Memory pressure](specs/tab-optimization.md#memory-pressure) discards by loss, State tabs at Tight and Work tabs too at Critical, and the rule reads each slot's memory ([Slot memory](specs/tab-optimization.md#slot-memory)), so the reason for not measuring no longer holds.
+- **Freezing a tab does not wait for it to have been shown recently.** _Still holds:_ [freezing is not rationed](specs/tab-optimization.md#the-rule), so a kept tab is frozen when it is left; recency decides discarding, not freezing.
+- **Reloads do not prefer stale cached responses.** _Still holds:_ WebView2 gives a navigation no way to ask for it; see [Webview pool § Reloads and the HTTP cache](specs/webview-pool.md#reloads-and-the-http-cache). _Superseded_ for form contents: scroll and drafts live in Rust and follow the tab into whichever slot it reloads in ([Scroll and drafts live in Rust](specs/tab-optimization.md#scroll-and-drafts-live-in-rust)), not in `sessionStorage`.
 
 ### Running in the background
 

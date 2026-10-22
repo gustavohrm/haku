@@ -1,0 +1,37 @@
+# Weekly update pull requests, labelled with the repository's own `type:chore`.
+#
+# The groups take minor and patch updates only, so one week is one review per ecosystem. A major update
+# arrives as a pull request of its own, because it is a decision (it may need code changes) rather than
+# upkeep, and a group that mixes one in cannot be merged until the major is dealt with.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    # The workflows, and the composite actions under .github/actions/, which `directory: /` alone misses.
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: weekly
+    labels: ["type:chore"]
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["type:chore"]
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: cargo
+    directory: /tauri
+    schedule:
+      interval: weekly
+    labels: ["type:chore"]
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

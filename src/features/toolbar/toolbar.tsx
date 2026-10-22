@@ -1,3 +1,4 @@
+import { SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { commands } from "@ipc/commands";
@@ -8,8 +9,6 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { addressIcon, displayAddress } from "./address";
 import { SiteMenu } from "./site-menu";
 import { useAddressFocus } from "./use-address-focus";
-
-const SETTINGS_URL = "haku://settings";
 
 interface ToolbarProps {
   tab: Tab | null;

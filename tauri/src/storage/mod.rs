@@ -12,6 +12,7 @@ pub mod session;
 pub mod settings;
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -26,26 +27,60 @@ pub use history_db::HistoryDb;
 pub use session::{Session, SessionWindow, WindowBounds};
 pub use settings::Settings;
 
+/// Suffix that moves an unreadable document aside.
+const CORRUPT_SUFFIX: &str = ".corrupt";
+
+/// Where a document that exists but cannot be read is moved, so the next save
+/// does not overwrite it.
+pub fn corrupt_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(CORRUPT_SUFFIX);
+    PathBuf::from(name)
+}
+
 /// Reads a JSON document, layering it over the type's defaults.
 ///
 /// Missing keys keep their default, so a hand-edited file naming one setting
-/// does not reset the rest. A corrupt or unreadable file yields the defaults
-/// outright: losing a window layout is a far better outcome than refusing to
-/// start.
+/// does not reset the rest. A file that exists but cannot be read, or is not
+/// valid for the type, yields the defaults outright: losing a window layout is
+/// a far better outcome than refusing to start. It is set aside at
+/// [`corrupt_path`] first, so the user's contents survive the next save.
 pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
     let defaults = T::default();
     let Ok(base) = serde_json::to_value(&defaults) else {
         return defaults;
     };
 
-    let stored = fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
-    let Some(stored) = stored else {
-        return defaults;
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return defaults,
+        // Not UTF-8, or not readable now: either way the next save would
+        // replace it.
+        Err(_) => {
+            set_aside(path);
+            return defaults;
+        }
     };
+    let document: Option<T> = serde_json::from_str::<Value>(&raw)
+        .ok()
+        .and_then(|stored| serde_json::from_value(merge::merge(base, stored)).ok());
+    match document {
+        Some(document) => document,
+        None => {
+            set_aside(path);
+            defaults
+        }
+    }
+}
 
-    serde_json::from_value(merge::merge(base, stored)).unwrap_or(defaults)
+/// Moves an unreadable document to [`corrupt_path`], or copies it there when
+/// it cannot be moved, so the next save does not destroy the only copy.
+/// Startup goes on either way: there is nowhere to report a failure yet.
+fn set_aside(path: &Path) {
+    let aside = corrupt_path(path);
+    if fs::rename(path, &aside).is_err() {
+        let _ = fs::copy(path, &aside);
+    }
 }
 
 /// Serialises every document write.
@@ -57,12 +92,13 @@ static WRITES: Mutex<()> = Mutex::new(());
 
 /// Writes a JSON document atomically.
 ///
-/// The write goes to a temporary file that then replaces the target, so a crash
-/// mid-write leaves the previous contents intact instead of a truncated file.
-/// Writes are serialised, so concurrent saves land one after another.
+/// The write goes to a temporary file, flushed to disk before it replaces the
+/// target, so a crash or power loss mid-write leaves the previous contents
+/// intact instead of a truncated file. Writes are serialised, so concurrent
+/// saves land one after another.
 ///
 /// # Errors
-/// Returns [`HakuError::Storage`] when the directory cannot be created or either
+/// Returns [`HakuError::Storage`] when the directory cannot be created or any
 /// filesystem step fails.
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -73,7 +109,10 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     // A writer that panicked left nothing half-done that the guard protects.
     let _guard = WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let temporary = path.with_extension("tmp");
-    fs::write(&temporary, body)?;
+    let mut file = fs::File::create(&temporary)?;
+    file.write_all(body.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
     fs::rename(&temporary, path)?;
     Ok(())
 }
@@ -153,6 +192,68 @@ mod tests {
         fs::write(&path, "{ not json").unwrap();
 
         assert_eq!(read_json::<Sample>(&path), Sample::default());
+    }
+
+    #[test]
+    fn a_corrupt_file_is_moved_aside_with_its_contents_intact() {
+        let path = temp_dir("set-aside").join("broken.json");
+        fs::write(&path, "{ not json").unwrap();
+
+        read_json::<Sample>(&path);
+
+        assert!(!path.exists());
+        assert_eq!(fs::read_to_string(corrupt_path(&path)).unwrap(), "{ not json");
+    }
+
+    #[test]
+    fn a_valid_file_is_not_moved_aside() {
+        let path = temp_dir("keep-valid").join("value.json");
+        write_json(&path, &Sample { value: 42 }).unwrap();
+
+        read_json::<Sample>(&path);
+
+        assert!(path.exists());
+        assert!(!corrupt_path(&path).exists());
+    }
+
+    #[test]
+    fn a_missing_file_creates_no_corrupt_file() {
+        let path = temp_dir("no-trace").join("absent.json");
+
+        read_json::<Sample>(&path);
+
+        assert!(!corrupt_path(&path).exists());
+    }
+
+    #[test]
+    fn a_valid_json_document_of_the_wrong_shape_is_moved_aside() {
+        let path = temp_dir("wrong-shape").join("value.json");
+        fs::write(&path, r#"{"value":"text"}"#).unwrap();
+
+        assert_eq!(read_json::<Sample>(&path), Sample::default());
+        assert!(!path.exists());
+        assert!(corrupt_path(&path).exists());
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_is_moved_aside_with_its_bytes_intact() {
+        let path = temp_dir("not-utf8").join("value.json");
+        fs::write(&path, [0xff, 0xfe, b'{']).unwrap();
+
+        assert_eq!(read_json::<Sample>(&path), Sample::default());
+        assert!(!path.exists());
+        assert_eq!(fs::read(corrupt_path(&path)).unwrap(), [0xff, 0xfe, b'{']);
+    }
+
+    #[test]
+    fn a_new_corrupt_file_replaces_an_earlier_one_set_aside() {
+        let path = temp_dir("replace-aside").join("broken.json");
+        fs::write(corrupt_path(&path), "old").unwrap();
+        fs::write(&path, "{ not json").unwrap();
+
+        read_json::<Sample>(&path);
+
+        assert_eq!(fs::read_to_string(corrupt_path(&path)).unwrap(), "{ not json");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { InternalPage } from "@app/internal-page";
 import { type HistoryEntry } from "@bindings";
+import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { unwrap } from "@ipc/result";
 import { t } from "@shared/i18n";
@@ -18,7 +19,11 @@ export function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
 
   const load = useCallback(async () => {
-    setEntries(await unwrap(commands.recentHistory(PAGE_SIZE)));
+    try {
+      setEntries(await unwrap(commands.recentHistory(PAGE_SIZE)));
+    } catch (error) {
+      reportUnexpected(error);
+    }
   }, []);
 
   useEffect(() => {
@@ -34,7 +39,12 @@ export function HistoryPage() {
           className="btn destructive ghost edged"
           disabled={entries.length === 0}
           onClick={async () => {
-            await unwrap(commands.clearHistory());
+            try {
+              await unwrap(commands.clearHistory());
+            } catch (error) {
+              reportUnexpected(error);
+              return;
+            }
             await load();
           }}
         >

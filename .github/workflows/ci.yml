@@ -31,6 +31,18 @@ jobs:
       - name: Verify
         run: pnpm verify:web
 
+      # A check that writes a file has changed what it was checking, so the run fails. `--untracked-files=all`
+      # lists a new file, not only the directory that holds it.
+      - name: Working tree is clean
+        run: |
+          changes="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "::error::A check left the working tree changed."
+            exit 1
+          fi
+        shell: bash
+
   # Windows is the one platform with a native layer; the macOS and Linux layers
   # are stubs, and Linux would also need WebKitGTK's system libraries to build at
   # all. Rust is verified where Haku actually runs.
@@ -78,4 +90,16 @@ jobs:
         run: |
           pnpm build
           pnpm check:release
+        shell: bash
+
+      # A check that writes a file has changed what it was checking, so the run fails. `--untracked-files=all`
+      # lists a new file, not only the directory that holds it.
+      - name: Working tree is clean
+        run: |
+          changes="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "::error::A check left the working tree changed."
+            exit 1
+          fi
         shell: bash

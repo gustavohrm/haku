@@ -10,3 +10,4 @@ Fixes #
 - [ ] `src/bindings.ts` is regenerated (`pnpm bindings`) if the IPC boundary changed
 - [ ] `pnpm check:release` passes if `tauri/Cargo.toml` features changed
 - [ ] Documentation affected by behavior, architecture, or convention changes is updated in this pull request
+- [ ] A new IPC command, event, capability, or permission is named in the description and tested ([security guidelines](https://github.com/gustavohrm/haku/blob/main/docs/guidelines/security.md))

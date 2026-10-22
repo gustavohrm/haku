@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-08
+last_updated: 2026-10-21
 ---
 
 # App architecture
@@ -28,7 +28,7 @@ haku/
 │  ├─ app/                    shell, internal-page routing, theme
 │  ├─ ipc/                    typed wrappers, external store, hooks
 │  ├─ features/               tabs, toolbar, viewport, overlays, feedback, settings, history
-│  ├─ shared/                 i18n, hooks, utilities
+│  ├─ shared/                 i18n, utilities
 │  └─ styles/
 └─ tauri/src/
    ├─ browser.rs              the authority; no Tauri types
@@ -87,7 +87,7 @@ src/
 ├─ app/               shell, routing for internal pages, theme
 ├─ ipc/               typed wrappers, the external store, React hooks
 ├─ features/          one folder per feature: tabs, toolbar, viewport, overlays, feedback, settings, history
-├─ shared/            i18n, hooks, utilities
+├─ shared/            i18n, utilities
 └─ styles/            imports, Haku's surface tokens, density
 ```
 
@@ -126,12 +126,13 @@ Content webviews load arbitrary remote pages, so they are given nothing:
 - Every command guards with `ensure_chrome`, rejecting any caller that is not a window's interface, and acts for the window that called it.
 - Page metadata is observed from Rust rather than reported by the page. Rust evaluates an expression in the page to read what an injected script recorded; the page has no way to call back. See [Page observation](specs/page-observation.md).
 - Dialogs a page opens are drawn by the chrome, titled with the requesting site, so a page cannot present its text as Haku's.
+- The chrome, the one webview with IPC, runs under a content security policy (`app.security.csp` in `tauri/tauri.conf.json`): scripts and styles only from the bundle, no plugins, frames, form posts or `<base>`, and network access only to Tauri's IPC. Images may come from any `http`, `https` or `data:` source, because tab favicons are the sites' own. Tauri adds a hash and a nonce for the bundle's own scripts and styles when it serves them. Styles set through the CSSOM, as React's `style` props and the toaster's rules are, are not subject to the policy. Tauri sets the policy only on what it serves from the bundle, so `pnpm tauri dev`, which loads the interface from Vite's dev server, runs without one; check a change to the policy in a built app (`pnpm tauri build --debug --no-bundle`).
 
 ## Dependencies
 
-Only four external packages, all first-party: `@codenhub/theme` (preference storage and the pre-paint script), `@codenhub/styles` (tokens, palette, reset and components, through its Tailwind source entry), `@codenhub/icons` and `@codenhub/toaster` (notifications and dialogs).
+Runtime dependencies are of two kinds. The platform packages are React (`react`, `react-dom`) and Tauri's JavaScript API (`@tauri-apps/api`). Four first-party packages come from `@codenhub`: `@codenhub/theme` (preference storage and the pre-paint script), `@codenhub/styles` (tokens, palette, reset and components, through its Tailwind source entry), `@codenhub/icons` and `@codenhub/toaster` (notifications and dialogs).
 
-Everything else is built for Haku. General-purpose libraries with breaking changes pending are a poor foundation for a project meant to avoid repeated refactors. Do not add a runtime dependency unless simple in-house code is clearly worse. Development tooling — formatters, linters, test runners — is not covered by this rule, since none of it ships in the app.
+Apart from those, Haku builds its own code. General-purpose libraries with breaking changes pending are a poor foundation for a project meant to avoid repeated refactors. Do not add a runtime dependency unless simple in-house code is clearly worse. Development tooling — formatters, linters, test runners — is not covered by this rule, since none of it ships in the app.
 
 ## Platforms
 

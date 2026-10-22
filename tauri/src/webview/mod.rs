@@ -650,7 +650,91 @@ fn create_slot<R: tauri::Runtime>(
     Ok(webview)
 }
 
+/// Each held-back extension page by slot, with its URL and the slot's
+/// [`LOADS`] count from when it was held.
+type Waiting = HashMap<SlotId, (String, u64)>;
+
+/// Extension pages a slot was sent to before the extensions folder was
+/// installed, or `None` once it has been.
+///
+/// At startup, restored tabs load as soon as their webviews exist, while the
+/// extensions are installed later, off the main thread. An extension page
+/// loaded before its extension fails, and the failure replaces the page in its
+/// tab's history, so it is lost for good. Such a load waits here instead, with
+/// the slot on the blank page, until [`extensions_installed`] sends it on.
+static WAITING_FOR_EXTENSIONS: LazyLock<Mutex<Option<Waiting>>> = LazyLock::new(|| Mutex::new(Some(HashMap::new())));
+
+/// How many times each slot has been sent somewhere or destroyed, so a load
+/// held back for the extensions can tell the slot has since moved on.
+static LOADS: LazyLock<Mutex<HashMap<SlotId, u64>>> = LazyLock::new(Mutex::default);
+
+/// Counts a new destination for the slot, and returns the count.
+fn next_load(slot: SlotId) -> u64 {
+    LOADS.lock().map_or(0, |mut loads| {
+        let count = loads.entry(slot).or_default();
+        *count += 1;
+        *count
+    })
+}
+
+fn loads(slot: SlotId) -> u64 {
+    LOADS
+        .lock()
+        .map(|loads| loads.get(&slot).copied().unwrap_or_default())
+        .unwrap_or_default()
+}
+
+const EXTENSION_SCHEME: &str = "chrome-extension://";
+
+/// Loads the extension pages held back until the extensions folder was
+/// installed, and lets later ones load at once. A slot sent elsewhere since
+/// its page was held back keeps its newer destination.
+pub fn extensions_installed<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let waiting = WAITING_FOR_EXTENSIONS
+        .lock()
+        .ok()
+        .and_then(|mut waiting| waiting.take())
+        .unwrap_or_default();
+    for (slot, (url, held_at)) in waiting {
+        if loads(slot) == held_at {
+            let _ = load(app, slot, &url);
+        }
+    }
+}
+
+/// Holds back a load of an extension page until the extensions are installed,
+/// and forgets any held-back load the slot no longer wants.
+///
+/// @param held_at - The slot's [`LOADS`] count for this load.
+/// @returns Whether the load was held back.
+fn hold_until_extensions(slot: SlotId, url: Option<&str>, held_at: u64) -> bool {
+    let Ok(mut waiting) = WAITING_FOR_EXTENSIONS.lock() else {
+        return false;
+    };
+    let Some(waiting) = waiting.as_mut() else {
+        return false;
+    };
+    match url {
+        Some(url) if url.starts_with(EXTENSION_SCHEME) => {
+            waiting.insert(slot, (url.to_owned(), held_at));
+            true
+        }
+        _ => {
+            waiting.remove(&slot);
+            false
+        }
+    }
+}
+
 fn navigate<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, url: &str) -> Result<()> {
+    let held_at = next_load(slot);
+    if app.get_webview(&slot.label()).is_none() || hold_until_extensions(slot, Some(url), held_at) {
+        return Ok(());
+    }
+    load(app, slot, url)
+}
+
+fn load<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, url: &str) -> Result<()> {
     let Some(webview) = app.get_webview(&slot.label()) else {
         return Ok(());
     };
@@ -666,6 +750,7 @@ fn reload<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId) -> Result<
 }
 
 fn destroy<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId) -> Result<()> {
+    hold_until_extensions(slot, None, next_load(slot));
     if let Some(webview) = app.get_webview(&slot.label()) {
         webview.close()?;
     }
@@ -853,4 +938,44 @@ pub fn fit_extension_popup<R: tauri::Runtime>(
 
 fn parse_url(url: &str) -> Result<tauri::Url> {
     tauri::Url::parse(url).map_err(|error| HakuError::InvalidUrl(format!("{url}: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn waiting() -> Option<Waiting> {
+        WAITING_FOR_EXTENSIONS.lock().unwrap().clone()
+    }
+
+    // One test, because the waiting list is process-wide.
+    #[test]
+    fn extension_pages_wait_for_the_extensions_and_other_pages_do_not() {
+        let page = "chrome-extension://abc/dashboard.html";
+
+        assert!(hold_until_extensions(SlotId(1), Some(page), 1));
+        assert!(!hold_until_extensions(SlotId(2), Some("https://a.test/"), 1));
+        assert_eq!(waiting(), Some(HashMap::from([(SlotId(1), (page.to_owned(), 1))])));
+
+        // Sent elsewhere, or destroyed, before the extensions are in.
+        assert!(!hold_until_extensions(SlotId(1), Some(BLANK_URL), 2));
+        assert!(hold_until_extensions(SlotId(3), Some(page), 1));
+        hold_until_extensions(SlotId(3), None, 2);
+        assert_eq!(waiting(), Some(HashMap::new()));
+
+        // Once installed, nothing waits.
+        WAITING_FOR_EXTENSIONS.lock().unwrap().take();
+        assert!(!hold_until_extensions(SlotId(4), Some(page), 1));
+        assert_eq!(waiting(), None);
+    }
+
+    #[test]
+    fn each_new_destination_counts_up_per_slot() {
+        let slot = SlotId(90);
+        let first = next_load(slot);
+
+        assert_eq!(next_load(slot), first + 1);
+        assert_eq!(loads(slot), first + 1);
+        assert_eq!(loads(SlotId(91)), 0);
+    }
 }

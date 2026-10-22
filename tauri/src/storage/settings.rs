@@ -6,6 +6,9 @@ use crate::model::{Policy, Preset, DEFAULT_CAPACITY};
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
 const DEFAULT_HOME_URL: &str = "haku://new-tab";
 const DEFAULT_KEPT_MEMORY_MB: u32 = 512;
+/// Schemes a home page may use as typed. Anything else is read as a bare host.
+const OPENABLE_HOME_SCHEMES: &[&str] = &["http", "https", "file", "about", "haku", "chrome-extension"];
+const HTTPS_PREFIX: &str = "https://";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -70,9 +73,7 @@ impl Settings {
         if self.search_url.trim().is_empty() {
             self.search_url = defaults.search_url;
         }
-        if self.home_url.trim().is_empty() {
-            self.home_url = defaults.home_url;
-        }
+        self.home_url = normalized_home_url(&self.home_url);
         // Hosts are compared as `host_of` gives them, so a hand-edited entry
         // in another case or with stray spaces still matches.
         let mut sites: Vec<String> = Vec::new();
@@ -129,9 +130,74 @@ impl Settings {
     }
 }
 
+/// The home page as it is stored. A URL with a scheme Haku opens is kept as
+/// typed; a bare host such as `example.com` gets `https://`; anything else is
+/// the default, since every new tab would otherwise fail to open.
+fn normalized_home_url(typed: &str) -> String {
+    let trimmed = typed.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_HOME_URL.into();
+    }
+    if let Ok(url) = tauri::Url::parse(trimmed) {
+        if OPENABLE_HOME_SCHEMES.contains(&url.scheme()) {
+            return trimmed.into();
+        }
+    }
+    // Something that names a scheme already is not a bare host: `ftp://x`
+    // would otherwise become `https://ftp://x`.
+    if trimmed.contains("://") || trimmed.chars().any(char::is_whitespace) {
+        return DEFAULT_HOME_URL.into();
+    }
+    let with_scheme = format!("{HTTPS_PREFIX}{trimmed}");
+    match tauri::Url::parse(&with_scheme) {
+        Ok(url) if url.host().is_some() => with_scheme,
+        _ => DEFAULT_HOME_URL.into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sanitized_home_url(home_url: &str) -> String {
+        Settings {
+            home_url: home_url.into(),
+            ..Settings::default()
+        }
+        .sanitized()
+        .home_url
+    }
+
+    #[test]
+    fn a_home_url_without_a_scheme_gets_https() {
+        assert_eq!(sanitized_home_url("example.com"), "https://example.com");
+    }
+
+    #[test]
+    fn a_home_url_with_a_scheme_is_kept_as_typed() {
+        assert_eq!(sanitized_home_url("https://example.com/a"), "https://example.com/a");
+    }
+
+    #[test]
+    fn a_home_url_is_trimmed_before_it_is_kept() {
+        assert_eq!(sanitized_home_url("  https://x.org  "), "https://x.org");
+    }
+
+    #[test]
+    fn a_home_url_that_is_not_a_url_falls_back_to_the_default() {
+        assert_eq!(sanitized_home_url("not a url"), Settings::default().home_url);
+    }
+
+    #[test]
+    fn a_home_url_with_a_scheme_haku_does_not_open_falls_back_to_the_default() {
+        assert_eq!(sanitized_home_url("ftp://example.com"), Settings::default().home_url);
+        assert_eq!(sanitized_home_url("https://"), Settings::default().home_url);
+    }
+
+    #[test]
+    fn a_host_with_a_port_gets_https_rather_than_being_read_as_a_scheme() {
+        assert_eq!(sanitized_home_url("localhost:3000"), "https://localhost:3000");
+    }
 
     #[test]
     fn the_default_pool_holds_a_single_webview() {

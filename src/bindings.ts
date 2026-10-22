@@ -12,6 +12,10 @@ export const commands = {
 	/**
 	 *  Replaces the settings, applying anything that takes effect immediately.
 	 * 
+	 *  Settings are shared: whichever window calls this changes them for every
+	 *  window and the one pool. Every window's interface hears of the change once
+	 *  it has been applied; a failure partway is returned to the caller alone.
+	 * 
 	 *  Lowering the webview capacity destroys surplus webviews right away rather
 	 *  than waiting for the next tab switch, because the point of lowering it is to
 	 *  release memory now.
@@ -19,6 +23,8 @@ export const commands = {
 	setSettings: (settings: Settings) => typedError<Settings, HakuError>(__TAURI_INVOKE("set_settings", { settings })),
 	/**
 	 *  Replaces the optimization settings with a preset's values.
+	 * 
+	 *  Like any settings change, it applies to every window, not only the caller.
 	 * 
 	 *  Resolved here so the preset values have one definition, in Rust.
 	 */

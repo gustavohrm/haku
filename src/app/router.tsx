@@ -14,6 +14,9 @@ import { createElement, type ComponentType, type ReactElement } from "react";
  */
 const INTERNAL_PREFIX = "haku://";
 
+/** Where the settings page lives, for anything that opens it. */
+export const SETTINGS_URL = "haku://settings";
+
 // Components, not the result of calling them. Invoking a component as a plain
 // function runs its hooks inside the caller's hook sequence, so opening or
 // leaving an internal page would change that sequence and React would tear the

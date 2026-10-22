@@ -2,6 +2,12 @@ name: Bug
 description: Haku does not behave the way it should.
 labels: ["type:bug", "status:needs-triage"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        A security vulnerability is not a bug report. Report it privately, as SECURITY.md describes.
+
+        This issue is public. Remove personal data from everything you write or paste below: logs, page content, and addresses that carry tokens or account details.
   - type: input
     id: commit
     attributes:

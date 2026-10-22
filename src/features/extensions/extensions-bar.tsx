@@ -1,18 +1,16 @@
+import { SETTINGS_URL } from "@app/router";
 import { type Extension } from "@bindings";
+import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
 import { useExtensions, useSettings } from "@ipc/hooks";
+import { updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { toolbarExtensions } from "./toolbar-extensions";
-
-const SETTINGS_URL = "haku://settings";
-
-/** Space between the extensions button and the menu below it, in pixels. */
-const MENU_GAP = 6;
 
 /**
  * The toolbar's extensions: a button for each pinned one, and the extensions
@@ -43,34 +41,8 @@ export function ExtensionsBar() {
   // The menu hangs over the page, so it must be registered to be clickable.
   useOverlay(menuRef, open);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const close = () => setMenuAt(null);
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
-        close();
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-      }
-    };
-    // A click on the page never reaches the chrome; it only takes focus away.
-    window.addEventListener("blur", close);
-    window.addEventListener("resize", close);
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("blur", close);
-      window.removeEventListener("resize", close);
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
+  const close = useCallback(() => setMenuAt(null), []);
+  useMenuDismiss(open, close, menuRef, buttonRef);
 
   const toggle = () => {
     const button = buttonRef.current?.getBoundingClientRect();
@@ -96,11 +68,10 @@ export function ExtensionsBar() {
   };
 
   const setPinned = (id: string, isPinned: boolean) => {
-    if (!settings) {
-      return;
-    }
-    const others = settings.pinnedExtensions.filter((other) => other !== id);
-    void commands.setSettings({ ...settings, pinnedExtensions: isPinned ? [...others, id] : others });
+    void updateSettings((current) => {
+      const others = current.pinnedExtensions.filter((other) => other !== id);
+      return { ...current, pinnedExtensions: isPinned ? [...others, id] : others };
+    });
   };
 
   return (
@@ -148,7 +119,8 @@ export function ExtensionsBar() {
             ref={menuRef}
             id={menuId}
             aria-label={t("extensions.menu")}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1"
+            tabIndex={-1}
+            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1 outline-none"
             style={{ right: menuAt.right, top: menuAt.top }}
           >
             <h2 className="text-text-secondary px-2 pt-1.5 pb-1 text-xs font-medium">{t("extensions.menu")}</h2>

@@ -14,7 +14,7 @@
 import type { HakuError } from "@bindings";
 import { createToaster, type Toaster } from "@codenhub/toaster";
 import { overlayOf, registerOverlay, unregisterOverlay } from "@features/overlays/registry";
-import { describeError } from "@ipc/result";
+import { describeError, HakuFailure } from "@ipc/result";
 import { t } from "@shared/i18n";
 
 /** A failure repeated within this window is shown once. */
@@ -69,6 +69,20 @@ export function notifyFailure(error: HakuError): void {
   }
   lastShown.set(description, now);
   feedback().error({ title: t("error.title"), description });
+}
+
+/**
+ * Tells the user about a failure nothing has reported yet.
+ *
+ * A failed command was already reported by the command wrapper, so only
+ * anything else, such as an exception from the IPC layer, is shown here.
+ *
+ * @param error - What was thrown.
+ */
+export function reportUnexpected(error: unknown): void {
+  if (!(error instanceof HakuFailure)) {
+    feedback().error({ title: t("error.title"), description: String(error) });
+  }
 }
 
 /**

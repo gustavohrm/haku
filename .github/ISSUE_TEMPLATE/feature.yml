@@ -19,3 +19,8 @@ body:
     attributes:
       label: Alternatives
       description: What you tried or considered instead.
+  - type: textarea
+    id: contracts
+    attributes:
+      label: Contracts touched
+      description: Which IPC commands or events, persisted settings or session formats, defaults, or limits the feature adds or changes, if any, and why each is needed.

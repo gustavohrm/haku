@@ -5,13 +5,18 @@
 //! history feature lands. Visits are recorded from the first release so that
 //! feature has data to show when it arrives.
 
+use std::fs;
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, ErrorCode};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::Result;
+use crate::storage::corrupt_path;
+
+/// Suffixes of the SQLite files that belong to the main database file.
+const COMPANION_SUFFIXES: &[&str] = &["", "-wal", "-shm"];
 
 /// Schema revisions, applied in order to whatever version a database is on.
 ///
@@ -51,9 +56,33 @@ impl HistoryDb {
     /// Returns [`crate::error::HakuError::Storage`] when the file cannot be
     /// opened or a migration fails.
     pub fn open(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+        create_parent(path)?;
+        Ok(Self::connect(path)?)
+    }
+
+    /// Opens the database at `path`, setting a damaged file aside first.
+    ///
+    /// A file SQLite cannot read as a database is moved to `history.sqlite.corrupt`,
+    /// with its `-wal` and `-shm` files, and a fresh database takes its place.
+    /// Any other failure, such as a locked or unreadable file, is returned
+    /// without touching the file.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the file cannot be
+    /// opened, moved aside, or a migration fails.
+    pub fn open_or_set_aside(path: &Path) -> Result<Self> {
+        create_parent(path)?;
+        match Self::connect(path) {
+            Ok(database) => Ok(database),
+            Err(error) if is_damage(&error) => {
+                set_aside(path)?;
+                Ok(Self::connect(path)?)
+            }
+            Err(error) => Err(error.into()),
         }
+    }
+
+    fn connect(path: &Path) -> rusqlite::Result<Self> {
         let mut database = Self {
             connection: Connection::open(path)?,
         };
@@ -77,7 +106,7 @@ impl HistoryDb {
     ///
     /// `user_version` is used as the revision counter because it costs no table
     /// and SQLite maintains it as part of the file header.
-    fn migrate(&mut self) -> Result<()> {
+    fn migrate(&mut self) -> rusqlite::Result<()> {
         let version: usize = self
             .connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))? as usize;
@@ -168,12 +197,87 @@ impl HistoryDb {
     }
 }
 
+fn create_parent(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
+/// Whether SQLite reports the file as something other than a usable database.
+/// Other failures, such as a lock held by another process, say nothing about
+/// the file's contents.
+fn is_damage(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(failure, _)
+            if matches!(failure.code, ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt)
+    )
+}
+
+/// Moves the database file and its companions aside, replacing earlier copies.
+fn set_aside(path: &Path) -> Result<()> {
+    for suffix in COMPANION_SUFFIXES {
+        let mut companion = path.as_os_str().to_owned();
+        companion.push(suffix);
+        let companion = Path::new(&companion);
+        if companion.exists() {
+            fs::rename(companion, corrupt_path(companion))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn database() -> HistoryDb {
         HistoryDb::in_memory().unwrap()
+    }
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("haku-history-{name}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("history.sqlite")
+    }
+
+    #[test]
+    fn a_damaged_file_is_set_aside_and_a_fresh_database_opens_in_its_place() {
+        let path = temp_path("damaged");
+        fs::write(&path, "this is not a database, just bytes\n").unwrap();
+
+        let database = HistoryDb::open_or_set_aside(&path).unwrap();
+
+        assert!(database.recent(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_damaged_file_is_preserved_at_the_corrupt_path() {
+        let path = temp_path("preserved");
+        fs::write(&path, "this is not a database, just bytes\n").unwrap();
+
+        HistoryDb::open_or_set_aside(&path).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(corrupt_path(&path)).unwrap(),
+            "this is not a database, just bytes\n"
+        );
+    }
+
+    #[test]
+    fn a_healthy_database_is_opened_as_it_is_and_not_moved() {
+        let path = temp_path("healthy");
+        HistoryDb::open(&path)
+            .unwrap()
+            .record("https://a.test", "A", 1)
+            .unwrap();
+
+        let database = HistoryDb::open_or_set_aside(&path).unwrap();
+
+        assert_eq!(database.recent(10).unwrap().len(), 1);
+        assert!(!corrupt_path(&path).exists());
     }
 
     #[test]

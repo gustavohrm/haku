@@ -3,3 +3,9 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/gustavohrm/haku/security/advisories/new
     about: Report it privately instead of opening a public issue. SECURITY.md has the details.
+  - name: Defect in Tauri
+    url: https://github.com/tauri-apps/tauri/issues
+    about: For a defect in Tauri itself, where Haku is using it correctly.
+  - name: Defect in WebView2
+    url: https://github.com/MicrosoftEdge/WebView2Feedback/issues
+    about: For a defect in the WebView2 runtime that Haku's behavior depends on.

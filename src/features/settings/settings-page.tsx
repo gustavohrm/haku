@@ -1,8 +1,8 @@
 import { InternalPage } from "@app/internal-page";
 import { applyTheme, isThemePreference } from "@app/theme";
 import { type Settings } from "@bindings";
-import { commands } from "@ipc/commands";
 import { useSettings } from "@ipc/hooks";
+import { updateSettings } from "@ipc/store";
 import { t } from "@shared/i18n";
 
 import { DraftInput } from "./draft-input";
@@ -24,11 +24,14 @@ export function SettingsPage() {
     return null;
   }
 
-  /** @returns What Rust stored, which may differ from what was sent. */
-  const update = async (patch: Partial<Settings>): Promise<Settings | null> => {
-    const result = await commands.setSettings({ ...settings, ...patch });
-    return result.status === "ok" ? result.data : null;
-  };
+  /**
+   * @param change - A patch to merge into the settings, or a function computing the whole
+   * new settings from the current ones. Prefer the function when the new value depends on
+   * the old one, so that it reads the value as it is when the change is made.
+   * @returns What Rust stored, which may differ from what was sent.
+   */
+  const update = (change: Partial<Settings> | ((current: Settings) => Settings)): Promise<Settings | null> =>
+    updateSettings((current) => (typeof change === "function" ? change(current) : { ...current, ...change }));
 
   return (
     <InternalPage title={t("settings.title")}>

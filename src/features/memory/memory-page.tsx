@@ -10,6 +10,7 @@ import {
   type SlotMemory,
   type Tab,
 } from "@bindings";
+import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { unwrap } from "@ipc/result";
@@ -166,7 +167,13 @@ function useMemoryReport(): MemoryReport | null {
         return;
       }
       unlisten = stop;
-      const first = await unwrap(commands.memoryReport());
+      let first: MemoryReport;
+      try {
+        first = await unwrap(commands.memoryReport());
+      } catch (error) {
+        reportUnexpected(error);
+        return;
+      }
       if (isMounted) {
         setReport((current) => current ?? first);
       }

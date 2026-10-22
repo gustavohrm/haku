@@ -528,6 +528,7 @@ pub fn sync_extensions(app: &tauri::AppHandle) {
     if let Ok(mut stored) = state.extensions.write() {
         *stored = extensions.clone();
     }
+    webview::extensions_installed(app);
     let _ = ExtensionsChanged(extensions).emit(app);
 }
 
@@ -1040,6 +1041,10 @@ pub fn get_settings(webview: tauri::Webview, state: State<'_, AppState>) -> Resu
 
 /// Replaces the settings, applying anything that takes effect immediately.
 ///
+/// Settings are shared: whichever window calls this changes them for every
+/// window and the one pool. Every window's interface hears of the change once
+/// it has been applied; a failure partway is returned to the caller alone.
+///
 /// Lowering the webview capacity destroys surplus webviews right away rather
 /// than waiting for the next tab switch, because the point of lowering it is to
 /// release memory now.
@@ -1056,6 +1061,8 @@ pub async fn set_settings(
 }
 
 /// Replaces the optimization settings with a preset's values.
+///
+/// Like any settings change, it applies to every window, not only the caller.
 ///
 /// Resolved here so the preset values have one definition, in Rust.
 #[tauri::command]
@@ -1092,6 +1099,10 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
 fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
     let settings = settings.sanitized();
 
+    // One store at a time, from replacing through saving or rolling back, so a
+    // failed save never restores settings older than a store that overlapped.
+    static STORING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let storing = STORING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let previous = {
         let mut current = state
             .settings
@@ -1099,7 +1110,15 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         std::mem::replace(&mut *current, settings.clone())
     };
-    state.save_settings()?;
+    if let Err(error) = state.save_settings() {
+        let mut current = state
+            .settings
+            .write()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        *current = previous;
+        return Err(error);
+    }
+    drop(storing);
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());

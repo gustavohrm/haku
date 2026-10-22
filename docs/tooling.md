@@ -77,7 +77,7 @@ rustfmt runs at width 120, the same as oxfmt's `printWidth`, so both languages w
 
 `src/bindings.ts` is the TypeScript side of the IPC boundary, generated from Rust by a cargo test, `ipc::tests::export_bindings`. A test rather than a build script, so that generation is explicit and an unrelated build cannot rewrite the interface's types. `pnpm bindings` runs it.
 
-`pnpm bindings:check` regenerates the file and fails if the result differs from what was there before. Comparing against the file as it was before the run, rather than against git, is what makes it work on a working tree with uncommitted Rust changes. A stale file is left regenerated, which is the content to review and commit.
+`pnpm bindings:check` regenerates the file and fails if the result differs from what was there before. It also fails unless cargo reports exactly one test run, so a renamed `export_bindings` test cannot pass the check having regenerated nothing. Comparing against the file as it was before the run, rather than against git, is what makes it work on a working tree with uncommitted Rust changes. A stale file is left regenerated, which is the content to review and commit.
 
 `pnpm test:rust` runs the same test among the others and so also rewrites the file. `verify` runs `bindings:check` first, so the check sees the file as committed.
 

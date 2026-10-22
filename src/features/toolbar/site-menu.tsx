@@ -1,16 +1,15 @@
 import { type Tab } from "@bindings";
+import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
 import { useSettings } from "@ipc/hooks";
+import { updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { addressIcon } from "./address";
-
-/** Space between the icon and the menu below it, in pixels. */
-const MENU_GAP = 6;
 
 interface SiteMenuProps {
   tab: Tab;
@@ -40,44 +39,20 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
   const siteKept = host !== null && (settings?.keptSites.includes(host) ?? false);
 
   const setSiteKept = (kept: boolean) => {
-    if (!settings || host === null) {
+    if (host === null) {
       return;
     }
-    const others = settings.keptSites.filter((site) => site !== host);
-    void commands.setSettings({ ...settings, keptSites: kept ? [...others, host] : others });
+    void updateSettings((current) => {
+      const others = current.keptSites.filter((site) => site !== host);
+      return { ...current, keptSites: kept ? [...others, host] : others };
+    });
   };
 
   // The menu hangs over the page, so it must be registered to be clickable.
   useOverlay(menuRef, open);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const close = () => setAnchor(null);
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
-        close();
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-      }
-    };
-    // A click on the page never reaches the chrome; it only takes focus away.
-    window.addEventListener("blur", close);
-    window.addEventListener("resize", close);
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("blur", close);
-      window.removeEventListener("resize", close);
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
+  const close = useCallback(() => setAnchor(null), []);
+  useMenuDismiss(open, close, menuRef, buttonRef);
 
   // The menu is anchored at the lock glyph rather than its button, whose hover
   // box is wider than the glyph, and pulls itself back by its own inset so its
@@ -117,7 +92,8 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
             ref={menuRef}
             id={menuId}
             aria-label={t("site.menu")}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 -ml-[calc(--spacing(3)+1px)] flex w-80 flex-col gap-3 rounded-(--radius-surface) border p-3"
+            tabIndex={-1}
+            className="bg-chrome-raised border-text/15 text-text fixed z-10 -ml-[calc(--spacing(3)+1px)] flex w-80 flex-col gap-3 rounded-(--radius-surface) border p-3 outline-none"
             style={{ left: anchor.x, top: anchor.y }}
           >
             <div className="flex min-w-0 flex-col">
