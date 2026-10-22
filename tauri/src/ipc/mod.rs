@@ -104,19 +104,57 @@ mod tests {
                     .split_once('{')
                     .map(|(_, body)| body)
                     .expect("command without a body");
-                let first = body.split(';').next().unwrap_or_default();
-                (name, first)
+                (name, body)
             })
             .collect();
 
         for name in registered {
-            let Some((_, first)) = defined.iter().find(|(defined, _)| *defined == name) else {
+            let Some((_, body)) = defined.iter().find(|(defined, _)| *defined == name) else {
                 panic!("{name} is registered but not defined with #[tauri::command] in commands.rs");
             };
             assert!(
-                first.contains("ensure_chrome(&webview)?"),
+                starts_with_guard(body),
                 "{name} must call `ensure_chrome(&webview)?` before anything else"
             );
         }
+    }
+
+    /// Whether a function body, past blank lines and line comments, opens with
+    /// `ensure_chrome(&webview)?;`, alone or bound as `let <name> = …`.
+    ///
+    /// Matches the start of the body rather than searching it, so nothing,
+    /// not even a block without a semicolon, can come before the guard.
+    fn starts_with_guard(body: &str) -> bool {
+        const GUARD: &str = "ensure_chrome(&webview)?;";
+        let mut rest = body.trim_start();
+        while rest.starts_with("//") {
+            rest = rest.split_once('\n').map_or("", |(_, after)| after).trim_start();
+        }
+        if let Some(binding) = rest.strip_prefix("let ") {
+            let Some((name, value)) = binding.split_once('=') else {
+                return false;
+            };
+            let name = name.trim();
+            if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                return false;
+            }
+            rest = value.trim_start();
+        }
+        rest.starts_with(GUARD)
+    }
+
+    #[test]
+    fn starts_with_guard_accepts_only_a_leading_guard() {
+        assert!(starts_with_guard("\n    ensure_chrome(&webview)?;\n    work();"));
+        assert!(starts_with_guard("\n    let window = ensure_chrome(&webview)?;"));
+        assert!(starts_with_guard("\n    // Why.\n    ensure_chrome(&webview)?;"));
+        assert!(!starts_with_guard(
+            "\n    if open { work() }\n    ensure_chrome(&webview)?;"
+        ));
+        assert!(!starts_with_guard("\n    // ensure_chrome(&webview)?;\n    work();"));
+        assert!(!starts_with_guard("\n    work(\"ensure_chrome(&webview)?;\");"));
+        assert!(!starts_with_guard(
+            "\n    let (a, b) = (work(), ensure_chrome(&webview)?);"
+        ));
     }
 }
