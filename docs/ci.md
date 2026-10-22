@@ -78,7 +78,7 @@ The rule is all or nothing on purpose. Pinning some actions and not others is wo
 
 `./.github/actions/setup` is deliberately not pinned. It is a path in this repository, already versioned by the commit under test.
 
-Dependabot proposes weekly updates for these actions, as `.github/dependabot.yml` sets out. It moves the SHA and its version comment together, so the pin and its label cannot drift apart. The same file covers npm and Cargo dependencies, grouped per ecosystem, except that Tauri, `windows` and `webview2-com` share a group of their own: Haku's WebView2 code has to use the same `windows` and `webview2-com` versions as Tauri's runtime, so none of them builds when updated alone. For a hand upgrade, resolve the new SHA with `gh` and update the comment alongside it:
+Dependabot proposes weekly updates for these actions, as `.github/dependabot.yml` sets out. It moves the SHA and its version comment together, so the pin and its label cannot drift apart. The same file covers npm and Cargo dependencies, grouped per ecosystem, except that Tauri, `windows` and `webview2-com` share a group of their own, so their available updates arrive in one pull request. Haku's WebView2 code has to use the same `windows` and `webview2-com` versions as Tauri's runtime. The group only coordinates; it does not guarantee a build. A Tauri update can still arrive without the matching `windows` and `webview2-com` versions, and then needs them raised by hand in the same pull request. For a hand upgrade, resolve the new SHA with `gh` and update the comment alongside it:
 
 ```sh
 gh api repos/actions/checkout/commits/v5.1.0 --jq .sha
