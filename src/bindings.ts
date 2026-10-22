@@ -13,7 +13,8 @@ export const commands = {
 	 *  Replaces the settings, applying anything that takes effect immediately.
 	 * 
 	 *  Settings are shared: whichever window calls this changes them for every
-	 *  window and the one pool, and every window's interface hears of it.
+	 *  window and the one pool. Every window's interface hears of the change once
+	 *  it has been applied; a failure partway is returned to the caller alone.
 	 * 
 	 *  Lowering the webview capacity destroys surplus webviews right away rather
 	 *  than waiting for the next tab switch, because the point of lowering it is to
