@@ -102,8 +102,10 @@ let settingsQueue: Promise<unknown> = Promise.resolve();
  * both survive; built from the same snapshot, the second would write the list
  * the first had just altered back to its old value.
  *
- * A failed change resolves to null and leaves the store as it was; the failure
- * itself is reported by the command wrapper. Later changes still run.
+ * A failed change resolves to null; the failure itself is reported by the
+ * command wrapper. The store changes only if Rust stored the settings before
+ * failing to apply them, through the settings event every window hears. Later
+ * changes still run.
  *
  * @param change - Returns the whole settings to store, given the current ones.
  * @returns What Rust stored, or null when the change failed or settings are not loaded.

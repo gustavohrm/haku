@@ -14,7 +14,9 @@ export const commands = {
 	 * 
 	 *  Settings are shared: whichever window calls this changes them for every
 	 *  window and the one pool. Every window's interface hears of the change once
-	 *  it has been applied; a failure partway is returned to the caller alone.
+	 *  it has been stored, before it is applied. Stored settings stand when
+	 *  applying them fails partway: the failure is returned to the caller alone,
+	 *  and they are applied again at the next start.
 	 * 
 	 *  Lowering the webview capacity destroys surplus webviews right away rather
 	 *  than waiting for the next tab switch, because the point of lowering it is to
