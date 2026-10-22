@@ -23,11 +23,12 @@ updates:
     schedule:
       interval: weekly
     labels: ["type:chore"]
-    # Node's types follow the Node major in `engines` and `.nvmrc`, so they move when Node does, not on
-    # their own: types for a newer Node accept APIs the pinned runtime does not have.
+    # Node's types follow the Node release in `engines` and `.nvmrc`, so they move when Node does, not on
+    # their own: types for a newer Node accept APIs the pinned runtime does not have. Their major and minor
+    # track Node's; none was published between 24.13 and 24.19, so they stay on the release just below.
     ignore:
       - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       npm:
         patterns: ["*"]
