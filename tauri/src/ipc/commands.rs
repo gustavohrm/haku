@@ -1043,7 +1043,9 @@ pub fn get_settings(webview: tauri::Webview, state: State<'_, AppState>) -> Resu
 ///
 /// Settings are shared: whichever window calls this changes them for every
 /// window and the one pool. Every window's interface hears of the change once
-/// it has been applied; a failure partway is returned to the caller alone.
+/// it has been stored, before it is applied. Stored settings stand when
+/// applying them fails partway: the failure is returned to the caller alone,
+/// and they are applied again at the next start.
 ///
 /// Lowering the webview capacity destroys surplus webviews right away rather
 /// than waiting for the next tab switch, because the point of lowering it is to
@@ -1120,17 +1122,17 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
     }
     drop(storing);
 
+    // Announced once stored, before applying, so every window shows the stored
+    // settings even when applying them fails. Those stand and are applied again
+    // at the next start; only the caller hears of the failure.
+    SettingsChanged(settings.clone()).emit(app).map_err(HakuError::from)?;
+
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
     mutate(app, state, |browser| {
         browser.set_keeping(budget, kept_sites);
         Ok(browser.set_optimization(capacity, freeze, discard))
     })?;
-
-    SettingsChanged(settings.clone()).emit(app).map_err(HakuError::from)?;
-    // Last, so a switch the engine refuses is reported without leaving the
-    // interface showing other settings than the ones stored. The stored
-    // setting stands and is applied again at the next start.
     switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
     Ok(settings)
 }
