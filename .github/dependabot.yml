@@ -32,6 +32,10 @@ updates:
       interval: weekly
     labels: ["type:chore"]
     groups:
+      # Haku calls WebView2 through the same `windows` and `webview2-com` versions as Tauri's runtime, so
+      # the four only build when they move together, majors included. The first matching group wins.
+      tauri:
+        patterns: ["tauri", "tauri-build", "windows", "webview2-com"]
       cargo:
         patterns: ["*"]
         update-types: ["minor", "patch"]
