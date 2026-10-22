@@ -1,6 +1,8 @@
 # Weekly update pull requests, labelled with the repository's own `type:chore`.
 #
-# The groups take minor and patch updates only, so one week is one review per ecosystem. A major update
+# The groups take minor and patch updates only, so one week is one review per ecosystem. The exception is
+# the Cargo `tauri` group below, which takes majors too: updating Tauri without the `windows` and
+# `webview2-com` versions its runtime uses breaks the build, so their updates are proposed together. A major update
 # arrives as a pull request of its own, because it is a decision (it may need code changes) rather than
 # upkeep, and a group that mixes one in cannot be merged until the major is dealt with.
 version: 2
@@ -32,6 +34,10 @@ updates:
       interval: weekly
     labels: ["type:chore"]
     groups:
+      # Haku calls WebView2 through the same `windows` and `webview2-com` versions as Tauri's runtime, so
+      # their updates are proposed together, majors included. The first matching group wins.
+      tauri:
+        patterns: ["tauri", "tauri-build", "windows", "webview2-com"]
       cargo:
         patterns: ["*"]
         update-types: ["minor", "patch"]

@@ -28,14 +28,19 @@ interface Cover {
 export function usePreviewCover(tab: Tab | null): string | null {
   const restoring = tab?.restoring ? tab.id : null;
   const [cover, setCover] = useState<Cover | null>(null);
+  // Each restore starts a fresh cover. Reset while rendering, so a cover left
+  // from the last restore is never shown for this one.
+  const [coveredFor, setCoveredFor] = useState<number | null>(null);
+  if (restoring !== coveredFor) {
+    setCoveredFor(restoring);
+    setCover(restoring === null ? null : { tab: restoring, src: null, expired: false });
+  }
 
   useEffect(() => {
     if (restoring === null) {
-      setCover(null);
       return;
     }
     let current = true;
-    setCover({ tab: restoring, src: null, expired: false });
 
     const load = async () => {
       const result = await commands.tabPreview(restoring);

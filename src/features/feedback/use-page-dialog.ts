@@ -1,7 +1,7 @@
 import type { PageDialog, Tab } from "@bindings";
 import { commands } from "@ipc/commands";
 import { t } from "@shared/i18n";
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 import { feedback } from "./feedback";
 import { dialogTitle, toAnswer } from "./page-dialog";
@@ -18,14 +18,15 @@ import { dialogTitle, toAnswer } from "./page-dialog";
  */
 export function usePageDialog(tab: Tab | null): void {
   const pending = tab?.dialog ?? null;
-  const pendingRef = useRef<PageDialog | null>(pending);
-  pendingRef.current = pending;
+  // Read when the dialog changes, not a dependency: a new copy of the same
+  // dialog must not show it again.
+  const readPending = useEffectEvent(() => pending);
 
   const tabId = tab?.id;
   const dialogId = pending?.id;
 
   useEffect(() => {
-    const dialog = pendingRef.current;
+    const dialog = readPending();
     if (tabId === undefined || !dialog) {
       return;
     }

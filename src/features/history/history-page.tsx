@@ -4,9 +4,11 @@ import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { unwrap } from "@ipc/result";
 import { t } from "@shared/i18n";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 const PAGE_SIZE = 200;
+
+const recentHistory = () => unwrap(commands.recentHistory(PAGE_SIZE));
 
 /**
  * Recent history.
@@ -18,17 +20,31 @@ const PAGE_SIZE = 200;
 export function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
 
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
-      setEntries(await unwrap(commands.recentHistory(PAGE_SIZE)));
+      setEntries(await recentHistory());
     } catch (error) {
       reportUnexpected(error);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let current = true;
+    const loadFirst = async () => {
+      try {
+        const entries = await recentHistory();
+        if (current) {
+          setEntries(entries);
+        }
+      } catch (error) {
+        reportUnexpected(error);
+      }
+    };
+    void loadFirst();
+    return () => {
+      current = false;
+    };
+  }, []);
 
   return (
     <InternalPage

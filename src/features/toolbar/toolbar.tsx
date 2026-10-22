@@ -4,7 +4,7 @@ import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { commands } from "@ipc/commands";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 
 import { addressIcon, displayAddress } from "./address";
 import { SiteMenu } from "./site-menu";
@@ -23,14 +23,6 @@ export function Toolbar({ tab }: ToolbarProps) {
   const url = tab ? (tab.history.entries[tab.history.index]?.url ?? "") : "";
   const canGoBack = (tab?.history.index ?? 0) > 0;
   const canGoForward = tab ? tab.history.index + 1 < tab.history.entries.length : false;
-
-  // The address follows the page, except while it is being edited: overwriting
-  // what someone is typing because a page finished loading is maddening.
-  useEffect(() => {
-    if (!editing) {
-      setDraft(displayAddress(url));
-    }
-  }, [editing, url]);
 
   const tabId = tab?.id;
   useAddressFocus(tabId, inputRef);
@@ -84,7 +76,10 @@ export function Toolbar({ tab }: ToolbarProps) {
             ref={inputRef}
             id={inputId}
             className="text-text placeholder:text-text-secondary min-w-0 flex-1 bg-transparent outline-none select-text"
-            value={draft}
+            // The address follows the page, except while it is being edited:
+            // overwriting what someone is typing because a page finished
+            // loading is maddening.
+            value={editing ? draft : displayAddress(url)}
             onChange={(event) => setDraft(event.target.value)}
             onFocus={(event) => {
               setEditing(true);
