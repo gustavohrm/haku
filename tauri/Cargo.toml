@@ -46,4 +46,6 @@ windows = { version = "0.62", features = [
 webview2-com = "0.39"
 
 [profile.dev]
+# No effect on Windows, where the MSVC linker keeps debug information in a
+# `.pdb` beside the binary. See docs/ci.md.
 strip = "debuginfo"
