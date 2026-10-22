@@ -6,11 +6,11 @@
  * step with the webviews it is describing.
  */
 
-import { events, type BrowserState, type Extensions, type Settings } from "@bindings";
+import { events, type BrowserState, type Extensions, type Preset, type Settings } from "@bindings";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { commands } from "./commands";
-import { unwrap } from "./result";
+import { unwrap, type CommandResult } from "./result";
 
 type Listener = () => void;
 
@@ -109,14 +109,29 @@ let settingsQueue: Promise<unknown> = Promise.resolve();
  * @returns What Rust stored, or null when the change failed or settings are not loaded.
  */
 export function updateSettings(change: (current: Settings) => Settings): Promise<Settings | null> {
-  const turn = applySettingsChange(settingsQueue, change);
+  return queueSettings((current) => commands.setSettings(change(current)));
+}
+
+/**
+ * Applies a preset's optimization values, in turn with every other change, so
+ * a change made while the preset is applied builds on the preset's result.
+ *
+ * @param preset - The preset to apply.
+ * @returns What Rust stored, or null when it failed or settings are not loaded.
+ */
+export function applySettingsPreset(preset: Preset): Promise<Settings | null> {
+  return queueSettings(() => commands.applyPreset(preset));
+}
+
+function queueSettings(send: (current: Settings) => Promise<CommandResult<Settings>>): Promise<Settings | null> {
+  const turn = sendInTurn(settingsQueue, send);
   settingsQueue = turn;
   return turn;
 }
 
-async function applySettingsChange(
+async function sendInTurn(
   previous: Promise<unknown>,
-  change: (current: Settings) => Settings,
+  send: (current: Settings) => Promise<CommandResult<Settings>>,
 ): Promise<Settings | null> {
   try {
     await previous;
@@ -127,7 +142,7 @@ async function applySettingsChange(
   if (current === null) {
     return null;
   }
-  const result = await commands.setSettings(change(current));
+  const result = await send(current);
   if (result.status !== "ok") {
     return null;
   }

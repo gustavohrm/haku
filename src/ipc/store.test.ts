@@ -2,13 +2,14 @@ import { type Settings } from "@bindings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { commands } from "./commands";
-import { createStore, settingsStore, updateSettings } from "./store";
+import { applySettingsPreset, createStore, settingsStore, updateSettings } from "./store";
 
 vi.mock("./commands", () => ({
-  commands: { setSettings: vi.fn() },
+  commands: { setSettings: vi.fn(), applyPreset: vi.fn() },
 }));
 
 const setSettings = vi.mocked(commands.setSettings);
+const applyPreset = vi.mocked(commands.applyPreset);
 
 const SETTINGS: Settings = {
   webviewCapacity: 1,
@@ -140,5 +141,27 @@ describe("updateSettings", () => {
 
     expect(result).toBeNull();
     expect(setSettings).not.toHaveBeenCalled();
+  });
+
+  it("still runs the next change after a change that throws", async () => {
+    const thrown = updateSettings(() => {
+      throw new Error("bad change");
+    });
+    const next = updateSettings((current) => ({ ...current, theme: "light" }));
+
+    await expect(thrown).rejects.toThrow("bad change");
+    expect((await next)?.theme).toBe("light");
+    expect(settingsStore.get()?.theme).toBe("light");
+  });
+
+  it("builds a change made while a preset applies on the preset's result", async () => {
+    applyPreset.mockResolvedValueOnce({ status: "ok", data: { ...SETTINGS, webviewCapacity: 4 } });
+
+    const preset = applySettingsPreset("balanced");
+    const change = updateSettings((current) => ({ ...current, theme: "dark" }));
+    await Promise.all([preset, change]);
+
+    expect(setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ webviewCapacity: 4, theme: "dark" }));
+    expect(settingsStore.get()).toMatchObject({ webviewCapacity: 4, theme: "dark" });
   });
 });
