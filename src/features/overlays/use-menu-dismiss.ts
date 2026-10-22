@@ -4,7 +4,7 @@ import { useEffect, type RefObject } from "react";
 export const MENU_GAP = 6;
 
 /**
- * Closes a menu the way a menu should close, and keeps the keyboard in it.
+ * Closes a menu the way a menu should close, and makes it reachable by keyboard.
  *
  * On open, focus moves to the menu itself, since the menu is portalled out of
  * its button and would otherwise be unreachable by keyboard; Tab then reaches
