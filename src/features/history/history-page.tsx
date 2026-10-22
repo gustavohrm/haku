@@ -1,7 +1,8 @@
 import { InternalPage } from "@app/internal-page";
 import { type HistoryEntry } from "@bindings";
+import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
-import { HakuFailure, unwrap } from "@ipc/result";
+import { unwrap } from "@ipc/result";
 import { t } from "@shared/i18n";
 import { useCallback, useEffect, useState } from "react";
 
@@ -21,10 +22,7 @@ export function HistoryPage() {
     try {
       setEntries(await unwrap(commands.recentHistory(PAGE_SIZE)));
     } catch (error) {
-      // A failed command has already been reported; anything else has not.
-      if (!(error instanceof HakuFailure)) {
-        throw error;
-      }
+      reportUnexpected(error);
     }
   }, []);
 
@@ -44,10 +42,7 @@ export function HistoryPage() {
             try {
               await unwrap(commands.clearHistory());
             } catch (error) {
-              // A failed command has already been reported; anything else has not.
-              if (!(error instanceof HakuFailure)) {
-                throw error;
-              }
+              reportUnexpected(error);
               return;
             }
             await load();

@@ -1,10 +1,8 @@
 import { App } from "@app/app";
 import { initTheme } from "@app/theme";
-import { feedback, notifyFailure } from "@features/feedback/feedback";
+import { notifyFailure, reportUnexpected } from "@features/feedback/feedback";
 import { onCommandFailure } from "@ipc/commands";
-import { HakuFailure } from "@ipc/result";
 import { connect } from "@ipc/store";
-import { t } from "@shared/i18n";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -29,10 +27,7 @@ if (!container) {
 try {
   await connect();
 } catch (error) {
-  // A failed command has already been reported; anything else has not.
-  if (!(error instanceof HakuFailure)) {
-    feedback().error({ title: t("error.title"), description: String(error) });
-  }
+  reportUnexpected(error);
 }
 
 createRoot(container).render(

@@ -10,9 +10,10 @@ import {
   type SlotMemory,
   type Tab,
 } from "@bindings";
+import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
-import { HakuFailure, unwrap } from "@ipc/result";
+import { unwrap } from "@ipc/result";
 import { t, type TranslationKey } from "@shared/i18n";
 import { useEffect, useState } from "react";
 
@@ -170,10 +171,7 @@ function useMemoryReport(): MemoryReport | null {
       try {
         first = await unwrap(commands.memoryReport());
       } catch (error) {
-        // A failed command has already been reported; anything else has not.
-        if (!(error instanceof HakuFailure)) {
-          throw error;
-        }
+        reportUnexpected(error);
         return;
       }
       if (isMounted) {
