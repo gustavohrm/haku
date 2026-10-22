@@ -19,7 +19,7 @@ Content webviews load arbitrary remote pages, and they are given nothing. The ru
 
 ## Commands
 
-- Every command takes the calling `tauri::Webview` and calls `ensure_chrome` before it does anything else. That rejects any caller that is not a window's chrome, and identifies the window the caller belongs to. Every command in [`tauri/src/ipc/commands.rs`](../../tauri/src/ipc/commands.rs) does this today.
+- Every command takes the calling `tauri::Webview` and calls `ensure_chrome` before it does anything else. That rejects any caller that is not a window's chrome, and identifies the window the caller belongs to. Every command in [`tauri/src/ipc/commands.rs`](../../tauri/src/ipc/commands.rs) does this today, and `ipc::tests::every_command_guards_with_ensure_chrome` fails when a registered command does not.
 - A command that acts on a window acts on the one that called it, never on another. Commands that change what every window shares, such as `set_settings` reconfiguring the pool, act on the whole browser by design, and say so in their documentation.
 - A new command or event changes the IPC contract. It is proposed and approved before it is built, as [AGENTS.md](../../AGENTS.md) requires for contract changes.
 

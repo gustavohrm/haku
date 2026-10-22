@@ -65,4 +65,96 @@ mod tests {
             )
             .expect("failed to write TypeScript bindings");
     }
+
+    /// Every registered command calls `ensure_chrome` as its first statement.
+    ///
+    /// Tauri allows app commands to any webview whose origin it treats as
+    /// local, so this guard is what keeps content webviews out (issue #38).
+    #[test]
+    fn every_command_guards_with_ensure_chrome() {
+        let registry = include_str!("mod.rs");
+        let list = registry
+            .split("collect_commands![")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("collect_commands! list not found");
+        let registered: Vec<&str> = list
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| {
+                name.strip_prefix("commands::")
+                    .expect("command registered from outside commands.rs")
+            })
+            .collect();
+        assert!(!registered.is_empty(), "no registered commands found");
+
+        let source = include_str!("commands.rs");
+        let defined: Vec<(&str, &str)> = source
+            .split("#[tauri::command]")
+            .skip(1)
+            .map(|chunk| {
+                let name = chunk
+                    .split("fn ")
+                    .nth(1)
+                    .and_then(|rest| rest.split(['(', '<']).next())
+                    .expect("command without a function")
+                    .trim();
+                let body = chunk
+                    .split_once('{')
+                    .map(|(_, body)| body)
+                    .expect("command without a body");
+                (name, body)
+            })
+            .collect();
+
+        for name in registered {
+            let Some((_, body)) = defined.iter().find(|(defined, _)| *defined == name) else {
+                panic!("{name} is registered but not defined with #[tauri::command] in commands.rs");
+            };
+            assert!(
+                starts_with_guard(body),
+                "{name} must call `ensure_chrome(&webview)?` before anything else"
+            );
+        }
+    }
+
+    /// Whether a function body, past blank lines and line comments, opens with
+    /// `ensure_chrome(&webview)?;`, alone or bound as `let <name> = …`.
+    ///
+    /// Matches the start of the body rather than searching it, so nothing,
+    /// not even a block without a semicolon, can come before the guard.
+    fn starts_with_guard(body: &str) -> bool {
+        const GUARD: &str = "ensure_chrome(&webview)?;";
+        let mut rest = body.trim_start();
+        while rest.starts_with("//") {
+            rest = rest.split_once('\n').map_or("", |(_, after)| after).trim_start();
+        }
+        if let Some(binding) = rest.strip_prefix("let ") {
+            let Some((name, value)) = binding.split_once('=') else {
+                return false;
+            };
+            let name = name.trim();
+            if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                return false;
+            }
+            rest = value.trim_start();
+        }
+        rest.starts_with(GUARD)
+    }
+
+    #[test]
+    fn starts_with_guard_accepts_only_a_leading_guard() {
+        assert!(starts_with_guard("\n    ensure_chrome(&webview)?;\n    work();"));
+        assert!(starts_with_guard("\n    let window = ensure_chrome(&webview)?;"));
+        assert!(starts_with_guard("\n    // Why.\n    ensure_chrome(&webview)?;"));
+        assert!(!starts_with_guard(
+            "\n    if open { work() }\n    ensure_chrome(&webview)?;"
+        ));
+        assert!(!starts_with_guard("\n    // ensure_chrome(&webview)?;\n    work();"));
+        assert!(!starts_with_guard("\n    work(\"ensure_chrome(&webview)?;\");"));
+        assert!(!starts_with_guard(
+            "\n    let (a, b) = (work(), ensure_chrome(&webview)?);"
+        ));
+    }
 }
