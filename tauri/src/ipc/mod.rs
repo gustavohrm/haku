@@ -65,4 +65,58 @@ mod tests {
             )
             .expect("failed to write TypeScript bindings");
     }
+
+    /// Every registered command calls `ensure_chrome` as its first statement.
+    ///
+    /// Tauri allows app commands to any webview whose origin it treats as
+    /// local, so this guard is what keeps content webviews out (issue #38).
+    #[test]
+    fn every_command_guards_with_ensure_chrome() {
+        let registry = include_str!("mod.rs");
+        let list = registry
+            .split("collect_commands![")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("collect_commands! list not found");
+        let registered: Vec<&str> = list
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| {
+                name.strip_prefix("commands::")
+                    .expect("command registered from outside commands.rs")
+            })
+            .collect();
+        assert!(!registered.is_empty(), "no registered commands found");
+
+        let source = include_str!("commands.rs");
+        let defined: Vec<(&str, &str)> = source
+            .split("#[tauri::command]")
+            .skip(1)
+            .map(|chunk| {
+                let name = chunk
+                    .split("fn ")
+                    .nth(1)
+                    .and_then(|rest| rest.split(['(', '<']).next())
+                    .expect("command without a function")
+                    .trim();
+                let body = chunk
+                    .split_once('{')
+                    .map(|(_, body)| body)
+                    .expect("command without a body");
+                let first = body.split(';').next().unwrap_or_default();
+                (name, first)
+            })
+            .collect();
+
+        for name in registered {
+            let Some((_, first)) = defined.iter().find(|(defined, _)| *defined == name) else {
+                panic!("{name} is registered but not defined with #[tauri::command] in commands.rs");
+            };
+            assert!(
+                first.contains("ensure_chrome(&webview)?"),
+                "{name} must call `ensure_chrome(&webview)?` before anything else"
+            );
+        }
+    }
 }
