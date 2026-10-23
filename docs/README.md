@@ -36,16 +36,16 @@ Start with [Architecture](architecture.md).
 
 ## Specifications
 
-| Document                                      | Contains                                                 |
-| --------------------------------------------- | -------------------------------------------------------- |
-| [Webview pool](specs/webview-pool.md)         | How tabs share webviews; discarding, pinning, eviction.  |
-| [Tab optimization](specs/tab-optimization.md) | Which tabs keep a webview, and why; previews on reload.  |
-| [Chrome layering](specs/chrome-layering.md)   | How the interface renders above page content.            |
-| [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.          |
-| [Shortcuts](specs/shortcuts.md)               | The keymap, native key handling, reopening closed tabs.  |
-| [Extensions](specs/extensions.md)             | Installing unpacked extensions, the toolbar, popups.     |
-| [Windows and popups](specs/new-windows.md)    | Browser windows, popups, and links that open them.       |
-| [Tests](specs/tests.md)                       | Test categories, locations, tooling, and coverage.       |
-| [Errors](specs/errors.md)                     | How failures are represented.                            |
-| [Settings page](specs/settings-page.md)       | Draft: sections, search and the row pattern of settings. |
-| [Context menus](specs/context-menus.md)       | Draft: page and interface menus; the menu component.     |
+| Document                                      | Contains                                                |
+| --------------------------------------------- | ------------------------------------------------------- |
+| [Webview pool](specs/webview-pool.md)         | How tabs share webviews; discarding, pinning, eviction. |
+| [Tab optimization](specs/tab-optimization.md) | Which tabs keep a webview, and why; previews on reload. |
+| [Chrome layering](specs/chrome-layering.md)   | How the interface renders above page content.           |
+| [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.         |
+| [Shortcuts](specs/shortcuts.md)               | The keymap, native key handling, reopening closed tabs. |
+| [Extensions](specs/extensions.md)             | Installing unpacked extensions, the toolbar, popups.    |
+| [Windows and popups](specs/new-windows.md)    | Browser windows, popups, and links that open them.      |
+| [Tests](specs/tests.md)                       | Test categories, locations, tooling, and coverage.      |
+| [Errors](specs/errors.md)                     | How failures are represented.                           |
+| [Settings page](specs/settings-page.md)       | Sections, search and the row pattern of settings.       |
+| [Context menus](specs/context-menus.md)       | Page and interface menus; the menu component.           |

@@ -1,12 +1,12 @@
 ---
-status: DRAFT
+status: APPROVED
 last_updated: 2026-10-23
 scope: Right-click menus over pages and over the interface, and the shared menu component they are drawn with.
 ---
 
 # Context menus
 
-Proposed for approval. It adds an IPC event and a command, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) already lists the feature as "WebView2's context-menu event, drawn by the chrome with Haku's own items"; this is how.
+Approved on 2026-10-23. It adds an IPC event and a command, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) already lists the feature as "WebView2's context-menu event, drawn by the chrome with Haku's own items"; this is how.
 
 ## Problem
 

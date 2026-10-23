@@ -1,12 +1,12 @@
 ---
-status: DRAFT
+status: APPROVED
 last_updated: 2026-10-23
 scope: The layout, navigation, search and row pattern of `haku://settings`.
 ---
 
 # Settings page
 
-Proposed for approval. Nothing here is built yet; `src/features/settings/` is still the single column of cards it replaces.
+Approved on 2026-10-23. Nothing here is built yet; `src/features/settings/` is still the single column of cards it replaces.
 
 ## Problem
 
