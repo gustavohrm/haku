@@ -33,6 +33,14 @@ export function isInternalUrl(url: string): boolean {
 }
 
 /**
+ * Whether a URL is the new-tab page, which the address field treats as no
+ * address at all: there is nothing to show until something is typed.
+ */
+export function isNewTab(url: string): boolean {
+  return routeOf(url) === routes["new-tab"];
+}
+
+/**
  * Resolves an internal URL to its page.
  *
  * @param url - A `haku://` URL.

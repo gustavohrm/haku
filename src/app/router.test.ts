@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { internalTitle, isInternalUrl, renderInternal } from "./router";
+import { internalTitle, isInternalUrl, isNewTab, renderInternal } from "./router";
 
 describe("internal routing", () => {
   it("recognises an internal url", () => {
@@ -9,6 +9,13 @@ describe("internal routing", () => {
 
   it("does not mistake a web url for an internal one", () => {
     expect(isInternalUrl("https://haku.example")).toBe(false);
+  });
+
+  it("recognises the new-tab page, with or without a path after it", () => {
+    expect(isNewTab("haku://new-tab")).toBe(true);
+    expect(isNewTab("haku://new-tab/")).toBe(true);
+    expect(isNewTab("haku://settings")).toBe(false);
+    expect(isNewTab("https://new-tab.example")).toBe(false);
   });
 
   it("returns an element whose type is the page component, not the page's output", () => {
