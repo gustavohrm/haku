@@ -17,7 +17,7 @@ A lightweight desktop browser built on Tauri v2. Its distinguishing idea is that
 
 `browser::Browser` holds every tab, its navigation history, and the webview pool, and it is the only thing allowed to change them. The React application in the chrome webview keeps no tab state of its own: it sends intents (`open_tab`, `select_tab`, `navigate_tab`) and renders the `StateChanged` events that come back.
 
-This was chosen over a TypeScript-side model because global shortcuts that open new windows are on the roadmap. The moment a second window exists, a model living inside one window cannot be the authority for both. Moving it later would mean rewriting every feature built on top of it.
+This was chosen over a TypeScript-side model because several windows were planned from the start, and Haku now has them: a model living inside one window cannot be the authority for the others. Moving it once a second window existed would have meant rewriting every feature built on top of it.
 
 ## Layout
 
@@ -109,7 +109,7 @@ The host names the page; a path, query or fragment after it belongs to the page,
 
 ## Where this is heading
 
-[First release](first-release.md) records the decisions the next features are built on: several viewports, several windows sharing one pool, webviews keyed by profile, and native keyboard handling while a page has focus. Read it before building anything it lists.
+[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool and native keyboard handling while a page has focus are built; several viewports and webviews keyed by profile are not. Read it before building anything it lists.
 
 ## Threading
 

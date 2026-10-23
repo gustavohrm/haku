@@ -114,7 +114,7 @@ Looking like Chrome, Helium, Firefox or Zen is a **preset**: a named bundle of t
 
 ### Extensions
 
-**Implemented**, the second tier: [Extensions](specs/extensions.md) covers installing, uninstalling, switching, the toolbar and popups.
+**Implemented**, the second tier only: [Extensions](specs/extensions.md) covers installing, uninstalling, switching, the toolbar and popups. The first tier, user scripts and styles, is not built.
 
 There is no store. Extensions are installed from disk, at the user's own risk, in two tiers:
 
