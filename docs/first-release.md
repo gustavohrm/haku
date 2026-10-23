@@ -30,6 +30,8 @@ effective_capacity = max(configured_capacity, fixed_count + visible_count)
 
 Split view is built on this. No other feature may assume there is exactly one page on screen.
 
+Viewports are built as the first step of split view, not before it. A list holding one viewport would change every place that shows, hides or protects a webview with nothing to show the change is right, and none of the features listed before split view needs a second one. Until then, a new command names the tab it acts on rather than reading the active one, so it needs no change when there are several visible tabs.
+
 ### Keyboard input while a page has focus
 
 **Implemented.** [Shortcuts](specs/shortcuts.md) has the keymap and how it is attached.
@@ -50,7 +52,14 @@ Capacity stays a single global count across profiles: memory is the constraint, 
 
 **Workspaces** are a grouping of tabs in the browser model, drawn by the interface. A workspace may name a default container for tabs opened in it. It is not itself a profile.
 
-Whether Tauri exposes WebView2 profiles on its webview builder is checked when this is implemented. If it does not, `platform/` sets them. A separate `data_directory` per container is not an acceptable substitute, because each one starts its own browser process.
+A webview's profile is an option of the WebView2 controller, so it is chosen when the controller is created and cannot be set afterwards, by `platform/` or anything else. What Tauri passes through decides what can be built (checked 2026-10-23 on Tauri 2.12.5, `tauri-runtime-wry` 2.12.3 and wry 0.57.0):
+
+- **Private** tabs use `WebviewBuilder::incognito`, which Tauri has, and can be built now.
+- **Containers** need a named profile. wry supports one (`with_profile_name`), but `tauri-runtime-wry` does not pass it through, so containers wait for Tauri to add it to the webview builder, and Haku proposes that change upstream. A patched `tauri-runtime-wry` was rejected: it is a fork of a crate that releases often, to be kept in step by hand.
+
+A separate `data_directory` per container is not an acceptable substitute, because each one starts its own browser process.
+
+Service workers are stopped by watching the DevTools protocol from the chrome webview, which shares the default profile ([Webview pool](specs/webview-pool.md)). Whether that session sees workers started in another profile is checked when private tabs are built.
 
 ### One pool across windows
 

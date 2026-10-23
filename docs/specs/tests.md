@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-06
+last_updated: 2026-10-23
 scope: Test categories, locations, tooling, and coverage expectations for the interface and the Rust backend.
 ---
 
@@ -42,7 +42,9 @@ Rust coverage is not measured.
 
 ## Not covered yet
 
-Nothing drives the built app end to end. The behaviors that only a real webview shows — layering, the input mask, page observation — are verified by hand. An end-to-end suite is a decision of its own, with its own tooling, and belongs to this document when it is made.
+Nothing drives the built app end to end. The behaviors that only a real webview shows — layering, the input mask, page observation — are verified by hand.
+
+An end-to-end suite is not added for now (decided 2026-10-23). A WebDriver session drives a webview's document, and these behaviors live outside any document: in the order of native windows, the region of the chrome that takes input, and the engine's own events. A suite would test what unit tests already cover and miss what is checked by hand. A smoke test that the built app starts and its interface renders is the one worth adding, if startup regressions show up.
 
 ## Commands
 
