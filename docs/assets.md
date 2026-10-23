@@ -88,7 +88,7 @@ These are the upright files of the official Inter 4.1 release, under their upstr
 }
 ```
 
-`block` is safe because the file is local: it never waits on a network, and it keeps the fallback font's different widths from flashing in the chrome. A web page loading Inter over the network should use `swap` instead.
+`block` hides text for a short period, about three seconds in Chromium, while the font loads, and falls back to the system stack if it has not loaded by then. Because the file is local, it loads in well under that period, so in practice the chrome paints once, in Inter, instead of painting in the fallback's different widths and then swapping. If the file ever failed to load, the chrome would stay blank for that period before falling back. A web page loading Inter over the network should use `swap` instead.
 
 ### Outfit
 
@@ -115,4 +115,4 @@ Serve WOFF2 with WOFF as a fallback; keep the TTF for tools that need TrueType.
 
 ### Font licenses
 
-Inter is © 2020 The Inter Project Authors and Outfit is © 2021 The Outfit Project Authors, both under the SIL Open Font License 1.1. Keep each family's `LICENSE.txt` with its files when bundling or redistributing them; the license files hold the complete terms.
+Inter is © 2016 The Inter Project Authors and Outfit is © 2021 The Outfit Project Authors, both under the SIL Open Font License 1.1. Keep each family's `LICENSE.txt` with its files when bundling or redistributing them; the license files hold the complete terms.

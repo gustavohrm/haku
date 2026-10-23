@@ -48,7 +48,7 @@ Rejected alternatives:
 
 The mark is the **lei knot**: two closed strands braided through each other, crossing four times and alternating over and under. It draws the name's story — _haku_, to braid — and Haku's mechanism, many tabs woven through a few webviews.
 
-Its geometry is fixed, in units of a 100-unit box centred on the knot:
+Its geometry is fixed, in units centred on the knot. The knot's outer edge reaches 44.5 units from the centre (28 + 11 + half the 11-unit stroke); the exported artwork scales those outer bounds to fill the file's width, so the mark files are 256 px wide edge to edge:
 
 - Each strand's centreline is the polar curve r(θ) = 28 ± 11 · sin 2θ; one strand takes `+`, the other `−`. They cross where sin 2θ = 0.
 - Strands are 11 units wide. At each crossing the strand underneath is cut by a gap of 3 units on either side of the strand on top, and outer corners are softened by 0.8 units.

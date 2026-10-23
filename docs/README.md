@@ -19,11 +19,11 @@ Start with [Architecture](architecture.md).
 
 ## Repository references
 
-| Document              | Contains                                                                 |
-| --------------------- | ------------------------------------------------------------------------ |
-| [Tooling](tooling.md) | Scripts, what `pnpm verify` runs, git hooks, and generated files.        |
-| [Assets](assets.md)   | Brand artwork, fonts and app icons under `assets/`, and how to use them. |
-| [CI](ci.md)           | Pinned toolchain, the verification jobs, and action pinning.             |
+| Document              | Contains                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [Tooling](tooling.md) | Scripts, what `pnpm verify` runs, git hooks, and generated files.                                                        |
+| [Assets](assets.md)   | Brand artwork, fonts and app icon sources under `assets/`, the icons generated into `tauri/icons/`, and how to use them. |
+| [CI](ci.md)           | Pinned toolchain, the verification jobs, and action pinning.                                                             |
 
 ## Guidelines
 
