@@ -24,21 +24,21 @@ describe("internal routing", () => {
     // caller's hook sequence. Opening or leaving an internal page then changes
     // that sequence and React tears down the whole tree, which shows up as the
     // entire interface vanishing.
-    const element = renderInternal("haku://settings");
+    const element = renderInternal("haku://settings", 1);
 
     expect(element).not.toBeNull();
     expect(typeof element?.type).toBe("function");
-    expect(element?.props).toEqual({});
+    expect(element?.props).toEqual({ url: "haku://settings", tabId: 1 });
   });
 
   it.each(["haku://new-tab", "haku://settings", "haku://history", "haku://memory"])("renders %s", (url) => {
-    expect(renderInternal(url)).not.toBeNull();
+    expect(renderInternal(url, 1)).not.toBeNull();
   });
 
   it.each(["haku://settings/", "haku://history/visits", "haku://history?q=a", "haku://settings#theme"])(
     "routes %s by its host",
     (url) => {
-      expect(renderInternal(url)).not.toBeNull();
+      expect(renderInternal(url, 1)).not.toBeNull();
     },
   );
 
@@ -53,6 +53,6 @@ describe("internal routing", () => {
   });
 
   it("returns nothing for an unknown route", () => {
-    expect(renderInternal("haku://nope")).toBeNull();
+    expect(renderInternal("haku://nope", 1)).toBeNull();
   });
 });

@@ -18,7 +18,7 @@ export function App() {
 
   const internal = tab?.presence.status === "internal";
   const activeUrl = tab?.history.entries[tab.history.index]?.url ?? "";
-  const internalPage = internal ? renderInternal(activeUrl) : null;
+  const internalPage = internal && tab ? renderInternal(activeUrl, tab.id) : null;
   const cover = usePreviewCover(tab);
 
   // An internal page is drawn by the chrome itself, and so is the cover over a
