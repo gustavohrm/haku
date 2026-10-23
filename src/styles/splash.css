@@ -39,11 +39,7 @@ html {
   width: 3rem;
   height: 3rem;
   background-color: currentColor;
+  /* Prefixed too: the bundle targets Chromium 110, which masks only with it. */
+  -webkit-mask: url("../../assets/logo/animated/mark-loop-light.svg") center / contain no-repeat;
   mask: url("../../assets/logo/animated/mark-loop-light.svg") center / contain no-repeat;
-}
-
-@keyframes haku-splash-in {
-  to {
-    opacity: 1;
-  }
 }
