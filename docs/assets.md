@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 scope: Brand artwork, the interface and brand fonts under root `assets/`, and the app icons generated from them in `tauri/icons/`.
 ---
 
@@ -21,16 +21,14 @@ Choose an image by the background actually behind it, not by a theme name or the
 
 Logo files are transparent SVG artwork. Keep the aspect ratio when resizing.
 
-| File                               | Artwork                           | Dimensions | Use                                             |
-| ---------------------------------- | --------------------------------- | ---------- | ----------------------------------------------- |
-| `assets/logo/logo-light.svg`       | Mark and wordmark, bright         | 963 x 256  | Full identification on dark backgrounds.        |
-| `assets/logo/logo-dark.svg`        | Mark and wordmark, dark           | 963 x 256  | Full identification on bright backgrounds.      |
-| `assets/logo/wordmark-light.svg`   | Wordmark alone, bright            | 691 x 256  | Where the mark already appears nearby.          |
-| `assets/logo/wordmark-dark.svg`    | Wordmark alone, dark              | 691 x 256  | As above, on bright backgrounds.                |
-| `assets/logo/mark-light.svg`       | Mark, bright                      | 256 x 256  | Compact placement above 32 px.                  |
-| `assets/logo/mark-dark.svg`        | Mark, dark                        | 256 x 256  | As above, on bright backgrounds.                |
-| `assets/logo/mark-small-light.svg` | Mark with heavier strands, bright | 256 x 256  | 32 px and below, where the regular gaps vanish. |
-| `assets/logo/mark-small-dark.svg`  | Mark with heavier strands, dark   | 256 x 256  | As above, on bright backgrounds.                |
+| File                             | Artwork                   | Dimensions | Use                                        |
+| -------------------------------- | ------------------------- | ---------- | ------------------------------------------ |
+| `assets/logo/logo-light.svg`     | Mark and wordmark, bright | 963 x 256  | Full identification on dark backgrounds.   |
+| `assets/logo/logo-dark.svg`      | Mark and wordmark, dark   | 963 x 256  | Full identification on bright backgrounds. |
+| `assets/logo/wordmark-light.svg` | Wordmark alone, bright    | 691 x 256  | Where the mark already appears nearby.     |
+| `assets/logo/wordmark-dark.svg`  | Wordmark alone, dark      | 691 x 256  | As above, on bright backgrounds.           |
+| `assets/logo/mark-light.svg`     | Mark, bright              | 256 x 256  | Compact placement.                         |
+| `assets/logo/mark-dark.svg`      | Mark, dark                | 256 x 256  | As above, on bright backgrounds.           |
 
 Use the full logo when there is room and the name must be visible, and the mark when there is not:
 
@@ -40,15 +38,33 @@ Use the full logo when there is room and the name must be visible, and the mark 
 
 The URL assumes the consumer serves the file at that path; where it goes is the consumer's choice.
 
+### Animated logos
+
+The animated files are self-contained SVG with CSS animations, the same size as their static counterparts. [Brand](guidelines/brand.md#animation) describes the motion.
+
+| File                                       | Animation                                     | Dimensions | Use                                     |
+| ------------------------------------------ | --------------------------------------------- | ---------- | --------------------------------------- |
+| `assets/logo/animated/mark-in-light.svg`   | Mark draws in once, 1.2 s, bright             | 256 x 256  | Splash or first appearance on dark.     |
+| `assets/logo/animated/mark-in-dark.svg`    | As above, dark                                | 256 x 256  | As above, on bright backgrounds.        |
+| `assets/logo/animated/logo-in-light.svg`   | Mark draws in, wordmark joins at 0.6 s; 1.4 s | 963 x 256  | Full identification appearing, on dark. |
+| `assets/logo/animated/logo-in-dark.svg`    | As above, dark                                | 963 x 256  | As above, on bright backgrounds.        |
+| `assets/logo/animated/mark-loop-light.svg` | Mark draws, holds, erases; 3.2 s              | 256 x 256  | Loading or waiting states, on dark.     |
+| `assets/logo/animated/mark-loop-dark.svg`  | As above, dark                                | 256 x 256  | As above, on bright backgrounds.        |
+
+They animate in an `<img>` tag, as a CSS background, or inline. An in animation plays once, when the image is first displayed, and then stays on the static logo; to replay it, load the file again under a new URL, such as with a changed query string. Every file shows the static logo, without motion, when the viewer's system asks for reduced motion.
+
+```html
+<img src="/assets/logo/animated/mark-loop-light.svg" alt="Loading" width="64" height="64" />
+```
+
 ## App icon and favicons
 
-| File                             | Content                                            | Use                                                 |
-| -------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
-| `assets/icon/app-icon.svg`       | Bright mark on the dark plate, 1024 x 1024         | Source artwork for the app icon above 32 px.        |
-| `assets/icon/app-icon-small.svg` | The small mark on the plate, 1024 x 1024           | Source artwork for the app icon at 32 px and below. |
-| `assets/icon/app-icon.png`       | `app-icon.svg` rendered at 1024 px                 | Input to `tauri icon`.                              |
-| `assets/favicon/favicon.ico`     | 16, 24, 32, 48, 64 and 256 px; small mark up to 32 | Default favicon.                                    |
-| `assets/favicon/favicon.svg`     | The small mark on the plate                        | Favicon for browsers that take SVG.                 |
+| File                         | Content                                    | Use                                 |
+| ---------------------------- | ------------------------------------------ | ----------------------------------- |
+| `assets/icon/app-icon.svg`   | Bright mark on the dark plate, 1024 x 1024 | Source artwork for the app icon.    |
+| `assets/icon/app-icon.png`   | `app-icon.svg` rendered at 1024 px         | Input to `tauri icon`.              |
+| `assets/favicon/favicon.ico` | `app-icon.svg` at 16, 24, 32, 48, 64, 256  | Default favicon.                    |
+| `assets/favicon/favicon.svg` | Same artwork as `app-icon.svg`             | Favicon for browsers that take SVG. |
 
 `favicon.ico` needs no `<link>` tag when it is served at the site root, since browsers request `/favicon.ico` by default. Offer the SVG explicitly:
 
@@ -62,7 +78,7 @@ The URL assumes the consumer serves the file at that path; where it goes is the 
 
 1. `pnpm tauri icon assets/icon/app-icon.png -o tauri/icons`.
 2. Delete what the command adds that Haku does not ship: `tauri/icons/android/`, `tauri/icons/ios/`, and `tauri/icons/64x64.png`.
-3. Replace `tauri/icons/32x32.png` with `app-icon-small.svg` rendered at 32 px, and rebuild `tauri/icons/icon.ico` with the same sizes as `assets/favicon/favicon.ico`: `app-icon-small.svg` at 16, 24 and 32 px, `app-icon.svg` above. `tauri icon` scales one source to every size, which puts the regular mark at 16 px, where it blurs.
+3. Rebuild `tauri/icons/icon.ico` with the same sizes as `assets/favicon/favicon.ico`, each rendered from `app-icon.svg` at that size rather than scaled down from one large image, and replace `tauri/icons/32x32.png` with `app-icon.svg` rendered at 32 px. A render at the target size keeps the strands and gaps as sharp as the pixel grid allows; `tauri icon` scales one 1024 px source down, which softens them further.
 
 ## Fonts
 

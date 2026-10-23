@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-22
-scope: Haku's name, logo, wordmark, colours, and typefaces, and why each was chosen.
+last_updated: 2026-10-23
+scope: Haku's name, logo, logo animations, wordmark, colours, and typefaces, and why each was chosen.
 ---
 
 # Brand
@@ -48,14 +48,16 @@ Rejected alternatives:
 
 The mark is the **lei knot**: two closed strands braided through each other, crossing four times and alternating over and under. It draws the name's story — _haku_, to braid — and Haku's mechanism, many tabs woven through a few webviews.
 
-Its geometry is fixed, in units centred on the knot. The knot's outer edge reaches 44.5 units from the centre (28 + 11 + half the 11-unit stroke); the exported artwork scales those outer bounds to fill the file's width, so the mark files are 256 px wide edge to edge:
+Its geometry is fixed, in units centred on the knot. The knot's outer edge reaches 44.5 units from the centre at its lobe tips (28 + 11 + half the 11-unit stroke), which point diagonally. Its horizontal extent is 38.6 units either side of the centre, and the exported artwork scales that extent to fill the file's width, so the mark files are 256 px wide edge to edge:
 
 - Each strand's centreline is the polar curve r(θ) = 28 ± 11 · sin 2θ; one strand takes `+`, the other `−`. They cross where sin 2θ = 0.
 - Strands are 11 units wide. At each crossing the strand underneath is cut by a gap of 3 units on either side of the strand on top, and outer corners are softened by 0.8 units.
 - The gaps are real cut-outs, not strokes in a background colour, so the mark works on any background.
-- A **small variant** (`mark-small-*`) is for 32 px and below: strands 15 units wide, gaps 5.5. The regular mark's gaps shrink under a pixel at 16 px and the knot reads as a blob.
+- One strand lies on top at the two crossings on the horizontal axis, the other at the two on the vertical axis.
 
-Keep the strands at or below the small variant's weight. The knot has four-fold rotational symmetry; heavier strokes with wide gaps turn its inner negative space into a hooked cross.
+The same mark is used at every size. Do not thicken the strands for small sizes. The knot has four-fold rotational symmetry, and heavier strokes with wide gaps turn its inner negative space into a hooked cross or a generic pinwheel.
+
+A small variant with strands 15 units wide and gaps of 5.5 was used at 32 px and below until 2026-10-23. It was removed because its heavier knot read as a generic pinwheel, which matters more than legibility at the smallest sizes. The cost: at 16 px the regular mark's gaps fall under a pixel and the knot blurs into a textured square. At 24 px and above it still reads as the knot.
 
 Rejected marks, from the exploration of 2026-10-22:
 
@@ -67,7 +69,23 @@ Rejected marks, from the exploration of 2026-10-22:
 
 ### App icon and favicon
 
-The app icon and favicon are the bright mark on a dark plate: `#0a0a0a`, corners rounded to 22.5% of the side, the mark at 62% of the side (74% for the small variant at 32 px and below). A bare mark disappears on one of the two taskbar themes, white on light or black on dark; the plate keeps it visible on both, and dark is the brand's primary look.
+The app icon and favicon are the bright mark on a dark plate: `#0a0a0a`, corners rounded to 22.5% of the side, the mark at 62% of the side, at every size. A bare mark disappears on one of the two taskbar themes, white on light or black on dark; the plate keeps it visible on both, and dark is the brand's primary look.
+
+### Animation
+
+The mark has two animations, both drawn from its geometry instead of moving the static artwork around:
+
+- **In**: from nothing to the static mark in 1.2 s. Each strand draws from both crossings where it passes under, so four ends travel around the knot, while the knot turns an eighth of a turn and grows from 70% to full size. As an end reaches a crossing where its strand lies on top, it carves the gap in the strand beneath, so the braid is woven while it draws. In the full logo, the wordmark starts at 0.6 s, while the knot is still drawing, and slides out from behind the mark as it fades in, ending at 1.4 s.
+- **Loop**: a 3.2 s cycle. The strands draw as in the in animation, without the turn, hold the complete mark, and then erase in the same direction back to nothing, so the cycle never reverses.
+
+The strand ends are round, matching the mark's soft geometry; square ends read as a generic line-drawing effect. Round ends set two constraints:
+
+- **Where the strands start.** Two round ends closing on each other form a lumpy joint. Each strand starts at a crossing where it passes under, so its ends meet inside the gap the other strand cuts, where the joint never shows. The gap is cut by a wider copy of the strand on top, with round ends too, so it hugs a passing end with the same 3-unit clearance as the static mark.
+- **How far the knot turns.** A round end at a lobe tip reaches 44.5 units from the centre, past the file's 38.6-unit edge once the lobe turns toward an axis. A turn of 45° with growth from 70% keeps every frame inside the file; a quarter turn would have to start at 43% size. A zero-length round end is a dot, so the strands fade in over the first 0.15 s, and in the loop also fade out at the end of each cycle.
+
+The strands draw and erase with `cubic-bezier(0.65, 0, 0.35, 1)`; the in animation's turn and the wordmark settle with `cubic-bezier(0.22, 1, 0.36, 1)`. They are drawn as strokes, which cannot reproduce the 0.8-unit softened corners, so the exact static artwork replaces the strokes wherever the mark is complete: at the end of the in animation and during the loop's hold. With reduced motion requested, both show the static artwork without moving.
+
+A draw-on suits the mark because the knot is one continuous braid: drawing it shows how it is made, which is the name's story. A rotation or pulse of the finished mark would show nothing a static mark does not.
 
 ## Wordmark
 
