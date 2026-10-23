@@ -57,6 +57,12 @@ They animate in an `<img>` tag, as a CSS background, or inline. An in animation 
 <img src="/assets/logo/animated/mark-loop-light.svg" alt="Loading" width="64" height="64" />
 ```
 
+### In the interface
+
+The interface uses the mark through a CSS mask filled with the text colour, so one file serves both themes and the choice of `-light` or `-dark` does not matter:
+
+- `mark-light.svg` is the `ic-haku` icon class in `src/styles/index.css`. It takes the icon package's `ic-*` sizes, and marks Haku's own pages in the tab strip and the address field.
+
 ## App icon and favicons
 
 | File                         | Content                                    | Use                                 |

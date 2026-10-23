@@ -54,6 +54,15 @@
   block-size: var(--control-height);
 }
 
+/* The Haku mark as an icon, for Haku's own pages in the tab strip and the
+   address field. It rides on the icon package's base rule, which paints
+   `currentColor` through `--ic-mask`, so it takes the text colour beside it and
+   the `ic-*` sizes like any other icon. The mask reads only the artwork's
+   alpha, so which colour of the file it points at does not matter. */
+.ic-haku {
+  --ic-mask: url("../../assets/logo/mark-light.svg");
+}
+
 html,
 body,
 #root {
