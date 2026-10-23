@@ -84,7 +84,7 @@ export const en = {
     "Tabs on these sites are kept loaded as if they held unsaved work, so they unload only when memory runs critically low. Add a site from the site menu in the address field.",
   "settings.keptSites.keywords": "always loaded, exceptions, never discard",
   "settings.keptSites.empty": "No sites are kept loaded.",
-  "settings.keptSites.remove": "Stop keeping loaded",
+  "settings.keptSites.remove": "Stop keeping this site loaded",
   "settings.policy.never": "Never",
   "settings.policy.smart": "Smart",
   "settings.policy.always": "Always",
