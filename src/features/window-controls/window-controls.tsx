@@ -2,6 +2,8 @@ import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { windowButtonClass } from "./window-button-class";
+
 /**
  * Minimise, maximise and close.
  *
@@ -35,16 +37,7 @@ interface WindowButtonProps {
 
 function WindowButton({ icon, label, danger, onClick }: WindowButtonProps) {
   return (
-    <button
-      type="button"
-      className={cx(
-        "grid w-11 place-items-center text-text-secondary transition-colors hover:text-text",
-        danger ? "hover:bg-destructive hover:text-destructive-contrast" : "hover:bg-text/10",
-      )}
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-    >
+    <button type="button" className={windowButtonClass(danger)} aria-label={label} title={label} onClick={onClick}>
       <i className={cx(icon, "ic-sm")} aria-hidden="true" />
     </button>
   );

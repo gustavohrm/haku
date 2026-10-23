@@ -168,8 +168,13 @@ export const en = {
 
   "error.title": "Something went wrong",
   "error.retry": "Try again",
+  "error.details": "Details",
+  "error.page": "This page ran into a problem",
+  "error.page.help": "The rest of Haku is still working. Try again, or go to another page.",
   "error.interface": "The interface stopped working",
+  "error.interface.help": "Your tabs are still open. Reload the interface to get back to them.",
   "error.startup": "The interface could not start",
+  "error.startup.help": "Your tabs are still open. Reload the interface to try again.",
   "error.reloadInterface": "Reload interface",
   "error.noSlotAvailable": "No webview slot is available.",
   "error.tabNotFound": "Tab not found",

@@ -1,42 +1,82 @@
+import { crashStyle, describeCrash } from "@app/crash-style";
+import { windowButtonClass } from "@features/window-controls/window-button-class";
 import { t } from "@shared/i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
- * Replaces the splash with a bar saying the interface could not start, a way
- * to reload it or close the window, and the error itself.
+ * Replaces the splash with the window's frame and a notice that the interface
+ * could not start, with a way to reload it, the window controls, and the
+ * error.
  *
  * For a failure before React renders anything, such as a module that throws
  * as it loads, which no error boundary can catch. Without it the splash stays
  * up for good, and the window, having no frame, has no control to close it.
- * Built from the DOM alone and styled by `splash.css`, since React or the
- * interface's stylesheet may be what failed.
+ * Built without React, since React may be what failed, from the same classes
+ * as the interface's own crash screen; the stylesheet is loaded before the
+ * interface is.
  *
  * @param error - What stopped the interface from starting.
  */
 export function showStartupFailure(error: unknown): void {
-  const bar = document.createElement("header");
-  bar.className = "haku-startup-failure";
+  const bar = element(
+    "header",
+    crashStyle.bar,
+    element(
+      "div",
+      crashStyle.controls,
+      windowButton("ic-minus", t("window.minimize"), () => void getCurrentWindow().minimize()),
+      windowButton("ic-square", t("window.maximize"), () => void getCurrentWindow().toggleMaximize()),
+      windowButton("ic-x", t("window.close"), () => void getCurrentWindow().close(), true),
+    ),
+  );
   bar.dataset.tauriDragRegion = "";
 
-  const message = document.createElement("p");
-  message.textContent = t("error.startup");
-  bar.append(
-    message,
-    button(t("error.reloadInterface"), () => globalThis.location.reload()),
-    button(t("window.close"), () => void getCurrentWindow().close()),
+  const reload = element("button", crashStyle.action, t("error.reloadInterface"));
+  reload.type = "button";
+  reload.addEventListener("click", () => globalThis.location.reload());
+
+  const mark = element("i", crashStyle.mark);
+  mark.setAttribute("aria-hidden", "true");
+
+  const notice = element(
+    "div",
+    crashStyle.notice,
+    mark,
+    element("h1", crashStyle.title, t("error.startup")),
+    element("p", crashStyle.description, t("error.startup.help")),
+    reload,
+    element(
+      "details",
+      crashStyle.details,
+      element("summary", crashStyle.summary, t("error.details")),
+      element("pre", crashStyle.error, describeCrash(error)),
+    ),
   );
 
-  const detail = document.createElement("pre");
-  detail.className = "haku-startup-failure-detail";
-  detail.textContent = error instanceof Error ? (error.stack ?? String(error)) : String(error);
-
-  (document.querySelector("#root") ?? document.body).replaceChildren(bar, detail);
+  const surface = element("main", crashStyle.surface, element("div", crashStyle.page, notice));
+  const frame = element("div", crashStyle.frame, bar, surface);
+  frame.dataset.density = "compact";
+  (document.querySelector("#root") ?? document.body).replaceChildren(frame);
 }
 
-function button(label: string, onClick: () => void): HTMLButtonElement {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.textContent = label;
-  element.addEventListener("click", onClick);
-  return element;
+function element<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className: string,
+  ...children: (Node | string)[]
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  node.className = className;
+  node.append(...children);
+  return node;
+}
+
+function windowButton(icon: string, label: string, onClick: () => void, danger = false): HTMLButtonElement {
+  const glyph = element("i", `${icon} ic-sm`);
+  glyph.setAttribute("aria-hidden", "true");
+  const button = element("button", windowButtonClass(danger), glyph);
+  button.type = "button";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.addEventListener("click", onClick);
+  return button;
 }
