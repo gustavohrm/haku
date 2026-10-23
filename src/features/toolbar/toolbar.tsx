@@ -1,4 +1,4 @@
-import { SETTINGS_URL } from "@app/router";
+import { isNewTab, SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { commands } from "@ipc/commands";
@@ -6,7 +6,7 @@ import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useId, useRef, useState, type FormEvent } from "react";
 
-import { addressIcon, displayAddress } from "./address";
+import { displayAddress, editableAddress, isInsecure } from "./address";
 import { SiteMenu } from "./site-menu";
 import { useAddressFocus } from "./use-address-focus";
 
@@ -67,10 +67,18 @@ export function Toolbar({ tab }: ToolbarProps) {
           htmlFor={inputId}
           className="bg-chrome-raised text-text-secondary focus-within:outline-text/30 flex h-(--control-height) items-center gap-2 rounded-(--radius-control) px-2.5 focus-within:outline-2"
         >
-          {tab && !editing && url !== "" && tab.presence.status !== "internal" ? (
-            <SiteMenu key={tab.id} tab={tab} url={url} />
+          {/* The icon says what the page is, and stays put while typing: the
+              site menu behind it is as useful mid-edit as at rest. */}
+          {tab && url !== "" && tab.presence.status !== "internal" ? (
+            <SiteMenu key={tab.id} tab={tab} url={url} warnInsecure={!editing && isInsecure(url)} />
           ) : (
-            <i className={cx(addressIcon(url, editing), "ic-sm shrink-0")} aria-hidden="true" />
+            <i
+              className={cx(
+                tab?.presence.status === "internal" && !isNewTab(url) ? "ic-haku" : "ic-search",
+                "ic-sm shrink-0",
+              )}
+              aria-hidden="true"
+            />
           )}
           <input
             ref={inputRef}
@@ -83,7 +91,7 @@ export function Toolbar({ tab }: ToolbarProps) {
             onChange={(event) => setDraft(event.target.value)}
             onFocus={(event) => {
               setEditing(true);
-              setDraft(url);
+              setDraft(editableAddress(url));
               // The full URL is swapped in on focus, so selecting has to wait
               // for React to render it.
               const input = event.target;

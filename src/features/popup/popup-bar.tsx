@@ -1,5 +1,5 @@
 import { type Tab } from "@bindings";
-import { addressIcon, displayAddress } from "@features/toolbar/address";
+import { connectionIcon, displayAddress } from "@features/toolbar/address";
 import { WindowControls } from "@features/window-controls/window-controls";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
@@ -20,7 +20,7 @@ export function PopupBar({ tab }: PopupBarProps) {
 
   return (
     <header className="haku-bar flex h-8.5 shrink-0 items-center gap-2 pl-3" data-tauri-drag-region>
-      <i className={cx(addressIcon(url, false), "ic-sm text-text-secondary shrink-0")} aria-hidden="true" />
+      <i className={cx(connectionIcon(url), "ic-sm text-text-secondary shrink-0")} aria-hidden="true" />
       <output
         className="text-text-secondary min-w-0 flex-1 truncate"
         aria-label={t("popup.address")}

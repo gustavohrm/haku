@@ -26,6 +26,7 @@ export const en = {
   "site.menu": "Site information",
   "site.secure": "Connection is secure",
   "site.insecure": "Connection is not secure",
+  "site.notSecure": "Not secure",
   "site.warning": "Warning",
   "site.keepLoaded": "Keep this tab loaded",
   "site.keepLoaded.warning":

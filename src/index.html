@@ -4,9 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Haku</title>
+    <link rel="stylesheet" href="./styles/splash.css" />
   </head>
   <body>
-    <div id="root"></div>
+    <!-- The splash is replaced by React's first render; splash.css explains it. -->
+    <div id="root">
+      <div class="haku-splash" aria-hidden="true"><div class="haku-splash-mark"></div></div>
+    </div>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>
