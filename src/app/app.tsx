@@ -1,3 +1,4 @@
+import { PageCrash } from "@app/crash";
 import { renderInternal } from "@app/router";
 import { applyTheme, isThemePreference } from "@app/theme";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
@@ -8,6 +9,7 @@ import { PreviewCover, usePreviewCover } from "@features/viewport/preview-cover"
 import { useChromeLayout } from "@features/viewport/use-chrome-layout";
 import { WindowControls } from "@features/window-controls/window-controls";
 import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
+import { ErrorBoundary } from "@shared/error-boundary";
 import { useEffect, useRef } from "react";
 
 export function App() {
@@ -59,7 +61,16 @@ export function App() {
         chrome on top, which is why the corners look right over any page.
       */}
       <main ref={viewportRef} className="haku-viewport relative mx-1 mb-1 min-h-0 flex-1 overflow-hidden">
-        {internalPage}
+        {internalPage !== null && (
+          // Keyed by tab and address, so leaving a page that failed gives the
+          // next one a fresh start.
+          <ErrorBoundary
+            key={`${tab?.id}:${activeUrl}`}
+            fallback={(error, retry) => <PageCrash error={error} retry={retry} />}
+          >
+            {internalPage}
+          </ErrorBoundary>
+        )}
         {cover !== null && <PreviewCover src={cover} />}
       </main>
     </div>
