@@ -19,8 +19,8 @@ Nothing in Haku handles a right click today.
 
 Every menu Haku draws uses one component, `features/overlays/menu.tsx`. The site menu and the extensions menu are panels, not menus, and keep their own markup, but share its positioning and dismissal.
 
-- **Items**: command, checkbox, separator, submenu; each with an optional icon, a shortcut hint shown with `.kbd`, and a disabled state.
-- **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox` and `separator`.
+- **Items**: command, checkbox, radio, separator, submenu; each with an optional icon, a shortcut hint shown with `.kbd`, and a disabled state.
+- **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox`, `menuitemradio` and `separator`. Native radio items, such as a spell-check language choice, keep their group: choosing one checks it and unchecks the others in its run between separators.
 - **Dismissal**: `useMenuDismiss`, as the site menu closes now.
 - **Placement**: opens at the pointer, down and to the right; flips left or up when it would leave the window, and then clamps to the window. A submenu opens beside its item and flips the same way.
 - **Over the page**: registered with `useOverlay`, opaque, no shadow, rounded corners cut from its own style, as [Chrome layering](chrome-layering.md#registering-an-overlay) requires. One consequence: the menu cannot extend past Haku's window, where a native menu can. In a small window a long menu is clamped and scrolls.
@@ -120,4 +120,5 @@ Duplicate opens the tab's current URL with `open_tab`, without its back history;
 
 - **Paste in the interface's text fields.** `navigator.clipboard.readText` in the chrome webview may raise WebView2's clipboard permission prompt. Whether Tauri answers it, or Haku needs `@tauri-apps/plugin-clipboard-manager`, which is a new dependency and capability, is checked when this is built.
 - **Extension items.** Whether WebView2 includes `chrome.contextMenus` items from extensions in `MenuItems` is to be checked with Bitwarden. If it does not, extension items are out of scope until it does.
+- **Open link in new window.** `open_tab` opens a tab in the calling window only, and no command opens a window on a URL, so the item needs a new command, such as `open_window(url)`, which opens a browser window whose one tab loads the URL, as Shift+clicking a link does ([Windows and popups](new-windows.md)). Until it exists, the link menu has only Open link in new tab.
 - **Reopen closed tab.** [Shortcuts](shortcuts.md) handles Ctrl+Shift+T in Rust, and no command exposes it to the interface, so the menu item needs a new command, `reopen_closed_tab`. Without it, the tab strip menu has only New tab.
