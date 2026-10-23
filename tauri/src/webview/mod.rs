@@ -305,9 +305,13 @@ pub fn build_window<R: tauri::Runtime>(
         .title("Haku")
         .decorations(false)
         .min_inner_size(min.0, min.1)
-        // Every webview sharing a profile must agree on this, content
+        // Every webview sharing a profile must agree on these, content
         // webviews included; see `create_slot`.
-        .browser_extensions_enabled(true);
+        .browser_extensions_enabled(true)
+        // The engine's own form autofill stays off, so it stores nothing a
+        // page is given. Its password saving is off by default and never
+        // turned on: a password-manager extension is the route for both.
+        .general_autofill_enabled(false);
     let builder = match frame {
         Frame::Maximized => builder.maximized(true),
         Frame::Bounds(bounds) => builder
@@ -606,9 +610,10 @@ fn create_slot<R: tauri::Runtime>(
     // attached.
     let builder = tauri::webview::WebviewBuilder::new(slot.label(), WebviewUrl::External(parse_url(BLANK_URL)?))
         .user_agent(USER_AGENT)
-        // Every webview sharing a profile must agree on this, the chrome
+        // Every webview sharing a profile must agree on these, the chrome
         // included; see `build_window`.
         .browser_extensions_enabled(true)
+        .general_autofill_enabled(false)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
         .initialization_script(inject::page_state_script())
@@ -846,9 +851,10 @@ pub fn open_extension_popup<R: tauri::Runtime>(
         .focused(false)
         .inner_size(POPUP_MIN_SIZE.0, POPUP_MIN_SIZE.1)
         .user_agent(USER_AGENT)
-        // Every webview sharing a profile must agree on this; see
+        // Every webview sharing a profile must agree on these; see
         // `build_window`.
         .browser_extensions_enabled(true)
+        .general_autofill_enabled(false)
         .initialization_script(inject::extension_page_script(view));
     // Owned, so it stays above its browser window and goes with it.
     #[cfg(windows)]
