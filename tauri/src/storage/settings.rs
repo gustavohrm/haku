@@ -6,8 +6,9 @@ use crate::model::{Policy, Preset, DEFAULT_CAPACITY};
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
 const DEFAULT_HOME_URL: &str = "haku://new-tab";
 const DEFAULT_KEPT_MEMORY_MB: u32 = 512;
-/// Schemes a home page may use as typed. Anything else is read as a bare host.
-const OPENABLE_HOME_SCHEMES: &[&str] = &["http", "https", "file", "about", "haku", "chrome-extension"];
+/// Schemes Haku opens from a stored address, as a home page or a restored tab.
+/// A home page typed with anything else is read as a bare host.
+pub const OPENABLE_SCHEMES: &[&str] = &["http", "https", "file", "about", "haku", "chrome-extension"];
 /// Schemes a search URL may use.
 const SEARCH_SCHEMES: &[&str] = &["http", "https"];
 const HTTPS_PREFIX: &str = "https://";
@@ -133,7 +134,7 @@ impl Settings {
 /// typed; a bare host such as `example.com` gets `https://`; anything else is
 /// the default, since every new tab would otherwise fail to open.
 fn normalized_home_url(typed: &str) -> String {
-    normalized_url(typed, OPENABLE_HOME_SCHEMES, DEFAULT_HOME_URL)
+    normalized_url(typed, OPENABLE_SCHEMES, DEFAULT_HOME_URL)
 }
 
 /// The search URL as it is stored, by the home page's rules but for web
