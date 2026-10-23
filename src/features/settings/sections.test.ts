@@ -46,8 +46,10 @@ describe("searchSettings", () => {
   });
 
   it("groups matches under their section, in page order", () => {
-    const sections = searchSettings("tabs").map((result) => result.section.id);
-    expect(sections).toEqual(SECTIONS.map((section) => section.id).filter((id) => sections.includes(id)));
+    // "Loaded tabs" and the background-tab rows are in Tabs & memory; the home
+    // page, "Where new tabs and windows open", is in Browsing, which comes after.
+    expect(searchSettings("tabs").map((result) => result.section.id)).toEqual(["tabs", "browsing"]);
+    expect(ids("tabs")).toEqual(["capacity", "keptMemory", "freeze", "discard", "keptSites", "homeUrl"]);
   });
 });
 
