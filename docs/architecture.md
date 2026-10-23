@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 ---
 
 # App architecture
@@ -116,6 +116,8 @@ The host names the page; a path, query or fragment after it belongs to the page,
 Commands that drive a webview are `async`. Tauri runs synchronous commands **on the main thread**, and creating, moving or raising a webview dispatches work to that same thread and waits for it — which deadlocks the event loop. Commands that only read state stay synchronous.
 
 This is not a theoretical concern: it was the cause of a silent failure where webviews were created but never navigated, because the event loop was blocked inside webview creation.
+
+Changes to the browser go **one at a time**, from deciding them to applying their effects, through `Changes` in `state.rs`. Effects name slots, not tabs, so a batch applied after a later one can undo it: a periodic tick that discards a tab, applied after a select that reused its slot, blanks the selected page. The browser's own lock is still released before webviews are touched, so reads never wait on a native call. Nothing on the main thread may start a change, since applying one waits on that thread.
 
 ## Security
 
