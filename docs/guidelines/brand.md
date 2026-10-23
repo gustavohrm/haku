@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 scope: Haku's name, logo, wordmark, colours, and typefaces, and why each was chosen.
 ---
 
@@ -53,9 +53,11 @@ Its geometry is fixed, in units centred on the knot. The knot's outer edge reach
 - Each strand's centreline is the polar curve r(θ) = 28 ± 11 · sin 2θ; one strand takes `+`, the other `−`. They cross where sin 2θ = 0.
 - Strands are 11 units wide. At each crossing the strand underneath is cut by a gap of 3 units on either side of the strand on top, and outer corners are softened by 0.8 units.
 - The gaps are real cut-outs, not strokes in a background colour, so the mark works on any background.
-- A **small variant** (`mark-small-*`) is for 32 px and below: strands 15 units wide, gaps 5.5. The regular mark's gaps shrink under a pixel at 16 px and the knot reads as a blob.
+- One strand lies on top at the two crossings on the horizontal axis, the other at the two on the vertical axis.
 
-Keep the strands at or below the small variant's weight. The knot has four-fold rotational symmetry; heavier strokes with wide gaps turn its inner negative space into a hooked cross.
+The same mark is used at every size. Do not thicken the strands for small sizes. The knot has four-fold rotational symmetry, and heavier strokes with wide gaps turn its inner negative space into a hooked cross or a generic pinwheel.
+
+A small variant with strands 15 units wide and gaps of 5.5 was used at 32 px and below until 2026-10-23. It was removed because its heavier knot read as a generic pinwheel, which matters more than legibility at the smallest sizes. The cost: at 16 px the regular mark's gaps fall under a pixel and the knot blurs into a textured square. At 24 px and above it still reads as the knot.
 
 Rejected marks, from the exploration of 2026-10-22:
 
@@ -67,7 +69,7 @@ Rejected marks, from the exploration of 2026-10-22:
 
 ### App icon and favicon
 
-The app icon and favicon are the bright mark on a dark plate: `#0a0a0a`, corners rounded to 22.5% of the side, the mark at 62% of the side (74% for the small variant at 32 px and below). A bare mark disappears on one of the two taskbar themes, white on light or black on dark; the plate keeps it visible on both, and dark is the brand's primary look.
+The app icon and favicon are the bright mark on a dark plate: `#0a0a0a`, corners rounded to 22.5% of the side, the mark at 62% of the side, at every size. A bare mark disappears on one of the two taskbar themes, white on light or black on dark; the plate keeps it visible on both, and dark is the brand's primary look.
 
 ## Wordmark
 
