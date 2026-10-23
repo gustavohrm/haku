@@ -910,14 +910,18 @@ pub fn fit_extension_popup<R: tauri::Runtime>(
         };
         let measured = platform::evaluate(window.as_ref(), inject::popup_size_expression(), POPUP_POLL)
             .and_then(|json| inject::parse_popup_size(&json));
-        let loaded = measured.is_some_and(|(loaded, _, _)| loaded);
+        // A window built hidden lays its page out at a size of the engine's
+        // own, not the one it was built at, until it is resized. Only a page
+        // laid out within the popup's size is measured.
+        let fitting = measured.filter(|measured| measured.viewport.0 <= size.0 && measured.viewport.1 <= size.1);
+        let loaded = fitting.is_some_and(|measured| measured.loaded);
         // Only ever grown: a page laid out wider than it needs, as one with
         // a scrollbar is, would otherwise shrink and grow back in turn.
-        let wanted = measured.map_or(size, |(_, width, height)| {
-            let (width, height) = popup_size(width, height);
+        let wanted = fitting.map_or(size, |measured| {
+            let (width, height) = popup_size(measured.size.0, measured.size.1);
             (width.max(size.0), height.max(size.1))
         });
-        if wanted != size || !shown {
+        if wanted != size || !shown || (measured.is_some() && fitting.is_none()) {
             let (x, y) = popup_origin(anchor, wanted, area);
             let _ = window.set_size(LogicalSize::new(wanted.0, wanted.1));
             let _ = window.set_position(LogicalPosition::new(x, y));

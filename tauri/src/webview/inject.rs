@@ -681,21 +681,37 @@ const EXTENSION_PAGE_JS: &str = r#"
 "#;
 
 /// Expression Rust evaluates in an extension's toolbar popup to size it to
-/// its page: whether the page has loaded, and how wide and tall it lays out.
+/// its page: whether the page has loaded, how wide and tall it lays out, and
+/// how wide and tall the viewport it lays out in is.
 ///
 /// The popup starts at its smallest, so the page lays out at its narrowest
 /// and overflows to the width it needs, as in Chrome, where a popup that sets
 /// no width of its own is as narrow as its content allows.
 pub fn popup_size_expression() -> &'static str {
-    r#"[document.readyState === "complete", document.documentElement.scrollWidth, document.documentElement.scrollHeight]"#
+    r#"[document.readyState === "complete", document.documentElement.scrollWidth, document.documentElement.scrollHeight, document.documentElement.clientWidth, document.documentElement.clientHeight]"#
 }
 
 /// Reads what [`popup_size_expression`] evaluated to.
 ///
-/// @returns Whether the page has loaded, and its width and height in CSS
-///   pixels, or nothing when the answer is not one.
-pub fn parse_popup_size(json: &str) -> Option<(bool, f64, f64)> {
-    serde_json::from_str(json).ok()
+/// @returns Nothing when the answer is not one.
+pub fn parse_popup_size(json: &str) -> Option<PopupMeasure> {
+    let (loaded, width, height, viewport_width, viewport_height) = serde_json::from_str(json).ok()?;
+    Some(PopupMeasure {
+        loaded,
+        size: (width, height),
+        viewport: (viewport_width, viewport_height),
+    })
+}
+
+/// What [`popup_size_expression`] measured, in CSS pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PopupMeasure {
+    /// Whether the page has loaded.
+    pub loaded: bool,
+    /// How wide and tall the page lays out.
+    pub size: (f64, f64),
+    /// How wide and tall the viewport it lays out in is, without scrollbars.
+    pub viewport: (f64, f64),
 }
 
 #[cfg(test)]
@@ -808,7 +824,14 @@ mod tests {
 
     #[test]
     fn a_popup_size_is_read_from_its_answer() {
-        assert_eq!(parse_popup_size("[true,380,600]"), Some((true, 380.0, 600.0)));
+        assert_eq!(
+            parse_popup_size("[true,380,600,25,25]"),
+            Some(PopupMeasure {
+                loaded: true,
+                size: (380.0, 600.0),
+                viewport: (25.0, 25.0),
+            })
+        );
         assert_eq!(parse_popup_size("null"), None);
     }
 
