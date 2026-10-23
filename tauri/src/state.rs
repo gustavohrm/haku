@@ -119,8 +119,9 @@ pub struct SlotMemory {
     pub signals: Vec<LossSignal>,
 }
 
-/// Lets one change to the browser through at a time, from deciding it to
-/// applying its effects to webviews.
+/// Lets one change to the browser that produces effects through at a time,
+/// from deciding it to applying those effects to webviews. A report that
+/// produces none may write the browser directly.
 ///
 /// Effects name slots, not tabs, so a batch is only right while the browser
 /// is as it was when the batch was decided. Two changes decided in one order
