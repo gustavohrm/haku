@@ -2,6 +2,8 @@ import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { windowButtonClass } from "./window-button-class";
+
 /**
  * Minimise, maximise and close.
  *
@@ -11,13 +13,17 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  * that is where people expect to find them.
  */
 export function WindowControls() {
-  const appWindow = getCurrentWindow();
-
+  // Looked up on click, not while rendering: the interface's crash bar draws
+  // these, and must not fail the same way when the window is out of reach.
   return (
     <div className="flex shrink-0 items-stretch self-stretch">
-      <WindowButton icon="ic-minus" label={t("window.minimize")} onClick={() => void appWindow.minimize()} />
-      <WindowButton icon="ic-square" label={t("window.maximize")} onClick={() => void appWindow.toggleMaximize()} />
-      <WindowButton icon="ic-x" label={t("window.close")} danger onClick={() => void appWindow.close()} />
+      <WindowButton icon="ic-minus" label={t("window.minimize")} onClick={() => void getCurrentWindow().minimize()} />
+      <WindowButton
+        icon="ic-square"
+        label={t("window.maximize")}
+        onClick={() => void getCurrentWindow().toggleMaximize()}
+      />
+      <WindowButton icon="ic-x" label={t("window.close")} danger onClick={() => void getCurrentWindow().close()} />
     </div>
   );
 }
@@ -31,16 +37,7 @@ interface WindowButtonProps {
 
 function WindowButton({ icon, label, danger, onClick }: WindowButtonProps) {
   return (
-    <button
-      type="button"
-      className={cx(
-        "grid w-11 place-items-center text-text-secondary transition-colors hover:text-text",
-        danger ? "hover:bg-destructive hover:text-destructive-contrast" : "hover:bg-text/10",
-      )}
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-    >
+    <button type="button" className={windowButtonClass(danger)} aria-label={label} title={label} onClick={onClick}>
       <i className={cx(icon, "ic-sm")} aria-hidden="true" />
     </button>
   );
