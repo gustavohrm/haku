@@ -95,8 +95,7 @@ pub fn run() {
             // and takes the browser's shortcuts while the interface has focus.
             // The first also watches for service workers left running by pages
             // that have gone, which would otherwise hold their memory
-            // indefinitely, turns off the engine's password saving and
-            // autofill, and installs the extensions folder.
+            // indefinitely, and installs the extensions folder.
             // Setup runs on the main thread and raising dispatches back to it,
             // so this has to happen off that thread or it would wait forever.
             let handle = app.handle().clone();
@@ -107,7 +106,6 @@ pub fn run() {
                 }
                 if let Ok(chrome) = webview::chrome(&handle) {
                     let _ = platform::stop_idle_workers(&chrome);
-                    let _ = platform::disable_autofill(&chrome);
                     ipc::commands::sync_extensions(&handle);
                 }
             });
