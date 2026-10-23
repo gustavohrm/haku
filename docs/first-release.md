@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -123,7 +123,7 @@ There is no store. Extensions are installed from disk, at the user's own risk, i
 
 ### Passwords and autofill
 
-Haku does not manage passwords or autofill. Storing credentials is a responsibility it does not take on; a password-manager extension is the recommended route. WebView2's built-in password saving and autofill are turned off, so nothing is stored by default either.
+**Implemented.** Haku does not manage passwords or autofill. Storing credentials is a responsibility it does not take on; a password-manager extension is the recommended route. WebView2's built-in password saving and autofill are turned off at startup, in the profile every webview shares (`platform::disable_autofill`), so nothing is stored by default either.
 
 ## Features
 

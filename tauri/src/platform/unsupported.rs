@@ -42,6 +42,10 @@ pub fn install_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _folder
     Err(unsupported("installing extensions"))
 }
 
+pub fn disable_autofill<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<()> {
+    Err(unsupported("disabling autofill"))
+}
+
 pub fn set_extension_enabled<R: tauri::Runtime>(
     _chrome: &tauri::Webview<R>,
     _id: String,

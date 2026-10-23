@@ -296,6 +296,19 @@ pub fn uninstall_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: St
     backend::uninstall_extension(chrome, id)
 }
 
+/// Turns off the engine's own password saving and form autofill in the
+/// profile every webview shares, so nothing a page is given is stored by
+/// default; a password-manager extension is the route for that.
+///
+/// Blocks until the engine answers, so it must not be called on the UI thread.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the engine refuses, and on
+/// platforms without an implementation.
+pub fn disable_autofill<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<()> {
+    backend::disable_autofill(chrome)
+}
+
 /// Opens a folder in the system's file manager.
 ///
 /// # Errors

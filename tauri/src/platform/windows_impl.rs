@@ -1130,6 +1130,15 @@ pub fn install_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, folder: 
     })
 }
 
+pub fn disable_autofill<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<()> {
+    with_profile(chrome, "disabling autofill", move |profile, sender| unsafe {
+        profile.SetIsPasswordAutosaveEnabled(false)?;
+        profile.SetIsGeneralAutofillEnabled(false)?;
+        let _ = sender.send(Ok(()));
+        Ok(())
+    })
+}
+
 pub fn set_extension_enabled<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: String, enabled: bool) -> Result<()> {
     let step = if enabled { "enabling" } else { "disabling" };
     with_profile(chrome, step, move |_, sender| unsafe {
