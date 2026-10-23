@@ -43,3 +43,16 @@ html {
   -webkit-mask: url("../../assets/logo/animated/mark-loop-light.svg") center / contain no-repeat;
   mask: url("../../assets/logo/animated/mark-loop-light.svg") center / contain no-repeat;
 }
+
+/* Still after 150 ms, but without the fade. */
+@media (prefers-reduced-motion: reduce) {
+  .haku-splash {
+    animation-duration: 0s;
+  }
+}
+
+@keyframes haku-splash-in {
+  to {
+    opacity: 1;
+  }
+}
