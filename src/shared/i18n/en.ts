@@ -136,6 +136,9 @@ export const en = {
   "memory.process.other": "Other",
 
   "error.title": "Something went wrong",
+  "error.retry": "Try again",
+  "error.interface": "The interface stopped working",
+  "error.reloadInterface": "Reload interface",
   "error.noSlotAvailable": "No webview slot is available.",
   "error.tabNotFound": "Tab not found",
   "error.invalidUrl": "Invalid URL",
