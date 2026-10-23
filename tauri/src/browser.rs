@@ -1853,8 +1853,17 @@ pub fn resolve_target(input: &str, search_url: &str) -> String {
     if !trimmed.contains(' ') && trimmed.contains('.') {
         return format!("https://{trimmed}");
     }
-    format!("{search_url}{}", urlencode(trimmed))
+    let query = urlencode(trimmed);
+    // `%s` marks where the search goes, as in other browsers' search URLs;
+    // without it the search is added to the end.
+    if search_url.contains(SEARCH_MARK) {
+        search_url.replacen(SEARCH_MARK, &query, 1)
+    } else {
+        format!("{search_url}{query}")
+    }
 }
+
+const SEARCH_MARK: &str = "%s";
 
 fn urlencode(value: &str) -> String {
     value

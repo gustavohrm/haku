@@ -8,6 +8,8 @@ const DEFAULT_HOME_URL: &str = "haku://new-tab";
 const DEFAULT_KEPT_MEMORY_MB: u32 = 512;
 /// Schemes a home page may use as typed. Anything else is read as a bare host.
 const OPENABLE_HOME_SCHEMES: &[&str] = &["http", "https", "file", "about", "haku", "chrome-extension"];
+/// Schemes a search URL may use.
+const SEARCH_SCHEMES: &[&str] = &["http", "https"];
 const HTTPS_PREFIX: &str = "https://";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
@@ -65,14 +67,11 @@ impl Default for Settings {
 impl Settings {
     /// Clamps values that would leave the browser unusable.
     ///
-    /// Settings can be hand-edited, so a zero capacity or an empty search URL
-    /// has to be survivable rather than fatal.
+    /// Settings can be hand-edited, so a zero capacity or a search URL that is
+    /// not a web address has to be survivable rather than fatal.
     pub fn sanitized(mut self) -> Self {
-        let defaults = Self::default();
         self.webview_capacity = self.webview_capacity.max(1);
-        if self.search_url.trim().is_empty() {
-            self.search_url = defaults.search_url;
-        }
+        self.search_url = normalized_search_url(&self.search_url);
         self.home_url = normalized_home_url(&self.home_url);
         // Hosts are compared as `host_of` gives them, so a hand-edited entry
         // in another case or with stray spaces still matches.
@@ -134,24 +133,35 @@ impl Settings {
 /// typed; a bare host such as `example.com` gets `https://`; anything else is
 /// the default, since every new tab would otherwise fail to open.
 fn normalized_home_url(typed: &str) -> String {
+    normalized_url(typed, OPENABLE_HOME_SCHEMES, DEFAULT_HOME_URL)
+}
+
+/// The search URL as it is stored, by the home page's rules but for web
+/// addresses only: a search is sent to a site, and anything else would turn
+/// every search typed in the address field into something that is not one.
+fn normalized_search_url(typed: &str) -> String {
+    normalized_url(typed, SEARCH_SCHEMES, DEFAULT_SEARCH_URL)
+}
+
+fn normalized_url(typed: &str, schemes: &[&str], default: &str) -> String {
     let trimmed = typed.trim();
     if trimmed.is_empty() {
-        return DEFAULT_HOME_URL.into();
+        return default.into();
     }
     if let Ok(url) = tauri::Url::parse(trimmed) {
-        if OPENABLE_HOME_SCHEMES.contains(&url.scheme()) {
+        if schemes.contains(&url.scheme()) {
             return trimmed.into();
         }
     }
     // Something that names a scheme already is not a bare host: `ftp://x`
     // would otherwise become `https://ftp://x`.
     if trimmed.contains("://") || trimmed.chars().any(char::is_whitespace) {
-        return DEFAULT_HOME_URL.into();
+        return default.into();
     }
     let with_scheme = format!("{HTTPS_PREFIX}{trimmed}");
     match tauri::Url::parse(&with_scheme) {
         Ok(url) if url.host().is_some() => with_scheme,
-        _ => DEFAULT_HOME_URL.into(),
+        _ => default.into(),
     }
 }
 
@@ -212,6 +222,40 @@ mod tests {
         }
         .sanitized();
         assert_eq!(settings.webview_capacity, 1);
+    }
+
+    fn sanitized_search_url(search_url: &str) -> String {
+        Settings {
+            search_url: search_url.into(),
+            ..Settings::default()
+        }
+        .sanitized()
+        .search_url
+    }
+
+    #[test]
+    fn a_search_url_without_a_scheme_gets_https() {
+        assert_eq!(
+            sanitized_search_url("google.com/search?q="),
+            "https://google.com/search?q="
+        );
+    }
+
+    #[test]
+    fn a_search_url_marking_where_the_search_goes_is_kept_as_typed() {
+        assert_eq!(
+            sanitized_search_url(" https://search.test/?q=%s "),
+            "https://search.test/?q=%s"
+        );
+    }
+
+    #[test]
+    fn a_search_url_that_is_not_a_web_address_falls_back_to_the_default() {
+        let default = Settings::default().search_url;
+        assert_eq!(sanitized_search_url("not a url"), default);
+        assert_eq!(sanitized_search_url("haku://settings?q="), default);
+        assert_eq!(sanitized_search_url("javascript:alert(1)//"), default);
+        assert_eq!(sanitized_search_url("https://"), default);
     }
 
     #[test]

@@ -91,7 +91,8 @@ export const en = {
   "settings.disabledByDiscard": "Has no effect while background tabs are always discarded.",
   "settings.browsing": "Browsing",
   "settings.search": "Search engine URL",
-  "settings.search.help": "Searches typed in the address field go to this address, with the search added to its end.",
+  "settings.search.help":
+    "Searches typed in the address field go to this address, in place of %s, or added to its end when it has none.",
   "settings.search.keywords": "search engine, DuckDuckGo, Google, Bing",
   "settings.home": "Home page",
   "settings.home.help": "Where new tabs and windows open.",

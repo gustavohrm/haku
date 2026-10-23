@@ -547,6 +547,14 @@ fn reserved_characters_in_a_search_are_percent_encoded() {
 }
 
 #[test]
+fn a_search_goes_where_the_search_url_marks_it() {
+    assert_eq!(
+        resolve_target("how to fly", "https://search.test/?q=%s&lang=en"),
+        "https://search.test/?q=how+to+fly&lang=en"
+    );
+}
+
+#[test]
 fn an_empty_address_resolves_to_nothing() {
     assert_eq!(resolve_target("   ", SEARCH), "");
 }
