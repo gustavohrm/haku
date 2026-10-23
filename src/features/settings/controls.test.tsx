@@ -5,9 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type UpdateSettings } from "./types";
 
-const applyTheme = vi.fn();
-vi.mock("@app/theme", () => ({ applyTheme }));
-
 const { KeptSitesControl, ThemeControl } = await import("./controls");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,12 +86,11 @@ describe("ThemeControl", () => {
     expect(new Set(radios.map((radio) => radio.name)).size).toBe(1);
   });
 
-  it("applies and stores the theme picked", () => {
+  it("stores the theme picked, leaving the shell to apply what was stored", () => {
     const update = vi.fn<UpdateSettings>(async () => null);
     renderTheme("system", update);
     act(() => container.querySelectorAll<HTMLInputElement>("input[type=radio]")[1]?.click());
 
-    expect(applyTheme).toHaveBeenCalledWith("light");
     expect(update).toHaveBeenCalledWith({ theme: "light" });
   });
 });

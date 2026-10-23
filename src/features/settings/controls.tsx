@@ -1,4 +1,4 @@
-import { applyTheme, type ThemePreference } from "@app/theme";
+import { type ThemePreference } from "@app/theme";
 import { type Policy, type Preset } from "@bindings";
 import { commands } from "@ipc/commands";
 import { useExtensions } from "@ipc/hooks";
@@ -74,10 +74,9 @@ export function ThemeControl({ labelId, describedBy, settings, update }: Control
           icon={theme.icon}
           label={t(theme.label)}
           checked={settings.theme === theme.value}
-          onChoose={() => {
-            applyTheme(theme.value);
-            void update({ theme: theme.value });
-          }}
+          // Only stored here: the shell applies the theme Rust stored, so a
+          // failed write cannot leave the page in a theme the settings lack.
+          onChoose={() => void update({ theme: theme.value })}
         />
       ))}
     </fieldset>
