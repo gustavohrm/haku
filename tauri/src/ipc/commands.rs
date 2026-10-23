@@ -1101,8 +1101,11 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
 fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
     let settings = settings.sanitized();
 
-    // One store at a time, from replacing through saving or rolling back, so a
-    // failed save never restores settings older than a store that overlapped.
+    // One store at a time, from replacing through applying, so a failed save
+    // never restores settings older than a store that overlapped, and the
+    // browser runs with the settings stored last (issue #41). Held across the
+    // main thread driving webviews; that is safe because no main-thread path
+    // takes it and both callers are async.
     static STORING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let storing = STORING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let previous = {
@@ -1127,7 +1130,6 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
     // were stored. A failed announcement is reported after applying, not
     // instead of it.
     let announced = SettingsChanged(settings.clone()).emit(app);
-    drop(storing);
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
@@ -1136,6 +1138,7 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
         Ok(browser.set_optimization(capacity, freeze, discard))
     })?;
     switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
+    drop(storing);
     announced.map_err(HakuError::from)?;
     Ok(settings)
 }
