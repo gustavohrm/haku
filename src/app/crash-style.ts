@@ -26,9 +26,16 @@ export const crashStyle = {
 /**
  * What was thrown, as the details of a crash screen show it.
  *
+ * Chromium's stack opens with the error's name and message; WebKit's is the
+ * frames alone, so the message is put in front when the stack lacks it.
+ *
  * @param error - What was thrown.
- * @returns The stack when there is one, otherwise the message.
+ * @returns The name and message, then the stack when there is one.
  */
 export function describeCrash(error: unknown): string {
-  return error instanceof Error ? (error.stack ?? String(error)) : String(error);
+  const summary = String(error);
+  if (!(error instanceof Error) || !error.stack) {
+    return summary;
+  }
+  return error.stack.includes(summary) ? error.stack : `${summary}\n${error.stack}`;
 }
