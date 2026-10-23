@@ -1,5 +1,6 @@
 import { type ThemePreference } from "@app/theme";
 import { type Policy, type Preset } from "@bindings";
+import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { useExtensions } from "@ipc/hooks";
 import { describeError } from "@ipc/result";
@@ -387,9 +388,13 @@ export function VersionControl({ labelId }: ControlProps) {
   useEffect(() => {
     let current = true;
     const read = async () => {
-      const value = await getVersion();
-      if (current) {
-        setVersion(value);
+      try {
+        const value = await getVersion();
+        if (current) {
+          setVersion(value);
+        }
+      } catch (error) {
+        reportUnexpected(error);
       }
     };
     void read();
