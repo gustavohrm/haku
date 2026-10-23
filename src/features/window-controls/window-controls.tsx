@@ -11,13 +11,17 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  * that is where people expect to find them.
  */
 export function WindowControls() {
-  const appWindow = getCurrentWindow();
-
+  // Looked up on click, not while rendering: the interface's crash bar draws
+  // these, and must not fail the same way when the window is out of reach.
   return (
     <div className="flex shrink-0 items-stretch self-stretch">
-      <WindowButton icon="ic-minus" label={t("window.minimize")} onClick={() => void appWindow.minimize()} />
-      <WindowButton icon="ic-square" label={t("window.maximize")} onClick={() => void appWindow.toggleMaximize()} />
-      <WindowButton icon="ic-x" label={t("window.close")} danger onClick={() => void appWindow.close()} />
+      <WindowButton icon="ic-minus" label={t("window.minimize")} onClick={() => void getCurrentWindow().minimize()} />
+      <WindowButton
+        icon="ic-square"
+        label={t("window.maximize")}
+        onClick={() => void getCurrentWindow().toggleMaximize()}
+      />
+      <WindowButton icon="ic-x" label={t("window.close")} danger onClick={() => void getCurrentWindow().close()} />
     </div>
   );
 }
