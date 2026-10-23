@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { internalTitle, isInternalUrl, renderInternal } from "./router";
+import { internalTitle, isInternalUrl, isNewTab, renderInternal } from "./router";
 
 describe("internal routing", () => {
   it("recognises an internal url", () => {
@@ -11,26 +11,34 @@ describe("internal routing", () => {
     expect(isInternalUrl("https://haku.example")).toBe(false);
   });
 
+  it("recognises the new-tab page, with or without a path after it", () => {
+    expect(isNewTab("haku://new-tab")).toBe(true);
+    expect(isNewTab("haku://new-tab/")).toBe(true);
+    expect(isNewTab("haku://new-tab/path")).toBe(true);
+    expect(isNewTab("haku://settings")).toBe(false);
+    expect(isNewTab("https://new-tab.example")).toBe(false);
+  });
+
   it("returns an element whose type is the page component, not the page's output", () => {
     // Calling a component as a plain function runs its hooks inside the
     // caller's hook sequence. Opening or leaving an internal page then changes
     // that sequence and React tears down the whole tree, which shows up as the
     // entire interface vanishing.
-    const element = renderInternal("haku://settings");
+    const element = renderInternal("haku://settings", 1);
 
     expect(element).not.toBeNull();
     expect(typeof element?.type).toBe("function");
-    expect(element?.props).toEqual({});
+    expect(element?.props).toEqual({ url: "haku://settings", tabId: 1 });
   });
 
   it.each(["haku://new-tab", "haku://settings", "haku://history", "haku://memory"])("renders %s", (url) => {
-    expect(renderInternal(url)).not.toBeNull();
+    expect(renderInternal(url, 1)).not.toBeNull();
   });
 
   it.each(["haku://settings/", "haku://history/visits", "haku://history?q=a", "haku://settings#theme"])(
     "routes %s by its host",
     (url) => {
-      expect(renderInternal(url)).not.toBeNull();
+      expect(renderInternal(url, 1)).not.toBeNull();
     },
   );
 
@@ -45,6 +53,6 @@ describe("internal routing", () => {
   });
 
   it("returns nothing for an unknown route", () => {
-    expect(renderInternal("haku://nope")).toBeNull();
+    expect(renderInternal("haku://nope", 1)).toBeNull();
   });
 });

@@ -18,6 +18,9 @@ interface TabItemProps {
  * its own is recognisable at a glance; keeping it loaded is set from the site
  * menu, not here. So does a tab unloaded to free memory, which would otherwise
  * reload for no reason the user can see.
+ *
+ * Haku's own pages carry the Haku mark in the text's colour; a web page
+ * carries its favicon.
  */
 export function TabItem({ tab, active }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
@@ -48,7 +51,11 @@ export function TabItem({ tab, active }: TabItemProps) {
             }
           }}
         >
-          <Favicon key={visit?.favicon ?? ""} src={visit?.favicon ?? null} />
+          {tab.presence.status === "internal" ? (
+            <i className="ic-haku ic-md shrink-0" aria-hidden="true" />
+          ) : (
+            <Favicon key={visit?.favicon ?? ""} src={visit?.favicon ?? null} />
+          )}
           <span className="truncate">{title}</span>
         </button>
 

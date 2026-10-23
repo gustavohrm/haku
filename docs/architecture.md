@@ -117,6 +117,8 @@ Commands that drive a webview are `async`. Tauri runs synchronous commands **on 
 
 This is not a theoretical concern: it was the cause of a silent failure where webviews were created but never navigated, because the event loop was blocked inside webview creation.
 
+Changes to the browser that produce effects go **one at a time**, from deciding them to applying their effects, through `Changes` in `state.rs`. Effects name slots, not tabs, so a batch applied after a later one can undo it: a periodic tick that discards a tab, applied after a select that reused its slot, blanks the selected page. The browser's own lock is still released before webviews are touched, so reads never wait on a native call. Nothing on the main thread may start one, since applying waits on that thread. Page reports that produce no effects, such as a navigation starting, a page loading or a window gaining focus, write the browser directly under its own lock on the main thread: with nothing to apply, they cannot be applied out of order.
+
 ## Security
 
 Content webviews load arbitrary remote pages, so they are given nothing:

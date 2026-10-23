@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 scope: How unpacked Chrome extensions are installed and uninstalled, switched on and off, pinned, and opened from the toolbar.
 ---
 
@@ -49,7 +49,7 @@ Rejected: one switch for all extensions. Per-extension switches cover that case 
 
 Right of the address field, before the developer tools button, the toolbar has an **Extensions** button, a puzzle piece, and to its left a button for each pinned extension, as in Chrome.
 
-The Extensions button opens a menu of every extension switched on, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address field still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
+The Extensions button opens a menu of every extension switched on, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings at its Extensions section, `haku://settings/extensions`. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address field still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
 
 `pinnedExtensions` in the settings holds the ids pinned, in the order they were pinned, so a new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it.
 
@@ -57,7 +57,7 @@ Rejected: a button for every extension, Chrome's old behaviour, which crowds the
 
 ## Popups
 
-An extension's popup opens in a borderless window of its own, owned by the browser window, below the button it was opened from with their right edges lined up: its own button when pinned, the Extensions button otherwise. It is moved as little as it takes to stay inside the screen's work area. The window stays hidden until the page has loaded, for up to three seconds, then is shown sized to the page's content, between 25 by 25 and 800 by 600 as in Chrome; a larger page scrolls. It grows when its page grows, and never shrinks. Until it has grown, the page reads its window's size, `innerWidth` and `innerHeight`, as the size it is being made, its content's size within those limits, as it would in Chrome, whose popups grow with the page's own layout. A page that picks its layout from the window's size as it starts would otherwise pick it from the window's size before the first measurement: Bitwarden picked its 240-pixel layout that way.
+An extension's popup opens in a borderless window of its own, owned by the browser window, below the button it was opened from with their right edges lined up: its own button when pinned, the Extensions button otherwise. It is moved as little as it takes to stay inside the screen's work area. The window stays hidden until the page has loaded and laid out within the window's size, for up to three seconds, then is shown sized to the page's content, between 25 by 25 and 800 by 600 as in Chrome; a larger page scrolls. It grows when its page grows, and never shrinks. Until it has grown, the page reads its window's size, `innerWidth` and `innerHeight`, as the size it is being made, its content's size within those limits, as it would in Chrome, whose popups grow with the page's own layout. A page that picks its layout from the window's size as it starts would otherwise pick it from the window's size before the first measurement: Bitwarden picked its 240-pixel layout that way.
 
 It closes when it loses focus, as in other browsers: on a click anywhere else, on switching windows, or when the page calls `window.close()`. Clicking the button of the popup that is open closes it instead of reopening it. That click reaches the button only after the popup has lost focus, so a request to open the popup that closed in the last 400 milliseconds is taken as that click. One popup is open at a time. A page opened from the popup, such as uBlock Origin Lite's dashboard, opens as a tab in the browser window used last, and the popup closes.
 
@@ -94,8 +94,9 @@ An extension's background worker is exempt from stopping idle workers; see [Webv
 
 On the WebView2 runtime 155.0.4283.62:
 
-| Extension                         | Result                                                                                                                                                            |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| uBlock Origin Lite 2026.1018.2229 | Blocks requests. Its popup shows and acts on the active tab's site, and its dashboard opens as a tab.                                                             |
-| Bitwarden 2026.10.0               | Its popup opens at full size, and its pop-out button opens it in a popup window. Logging in was not tried on this runtime; it worked from a tab on 154.0.4258.62. |
-| uBlock Origin (Manifest V2)       | Not tried. Chromium removed Manifest V2, so it is not expected to load.                                                                                           |
+| Extension                         | Result                                                                                                                                                                                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| uBlock Origin Lite 2026.1018.2229 | Blocks requests. Its popup shows and acts on the active tab's site, and its dashboard opens as a tab.                                                                                                                                                                  |
+| uBlock Origin Lite 2026.1006.1931 | Blocked popups to `doubleclick.net` and `popads.net` opened by `window.open` and by a `target="_blank"` link, and let the same popups to `example.com` open, as Helium did with the same version ([gustavohrm/haku#22](https://github.com/gustavohrm/haku/issues/22)). |
+| Bitwarden 2026.10.0               | Its popup opens at full size, and its pop-out button opens it in a popup window. Logging in was not tried on this runtime; it worked from a tab on 154.0.4258.62.                                                                                                      |
+| uBlock Origin (Manifest V2)       | Not tried. Chromium removed Manifest V2, so it is not expected to load.                                                                                                                                                                                                |

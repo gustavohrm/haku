@@ -13,6 +13,22 @@
   --color-chrome-raised: var(--color-surface);
 }
 
+/* Inter is bundled rather than taken from the system so the chrome looks and
+   measures the same on every platform: the bars are sized to its metrics. The
+   file is local, so blocking until it loads never shows the fallback's
+   different widths. Unlayered, so it outranks the package's own stack. */
+@font-face {
+  font-family: "Inter";
+  src: url("../../assets/fonts/inter/InterVariable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+}
+
+:root {
+  --font-default: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
 /*
   Density. Compact is the default, and it applies to the bars only: internal
   pages keep the package's own sizing, where form fields have room for their
@@ -36,6 +52,15 @@
   padding: 0;
   inline-size: var(--control-height);
   block-size: var(--control-height);
+}
+
+/* The Haku mark as an icon, for Haku's own pages in the tab strip and the
+   address field. It rides on the icon package's base rule, which paints
+   `currentColor` through `--ic-mask`, so it takes the text colour beside it and
+   the `ic-*` sizes like any other icon. The mask reads only the artwork's
+   alpha, so which colour of the file it points at does not matter. */
+.ic-haku {
+  --ic-mask: url("../../assets/logo/mark-light.svg");
 }
 
 html,

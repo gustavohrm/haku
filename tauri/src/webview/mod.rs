@@ -305,9 +305,13 @@ pub fn build_window<R: tauri::Runtime>(
         .title("Haku")
         .decorations(false)
         .min_inner_size(min.0, min.1)
-        // Every webview sharing a profile must agree on this, content
+        // Every webview sharing a profile must agree on these, content
         // webviews included; see `create_slot`.
-        .browser_extensions_enabled(true);
+        .browser_extensions_enabled(true)
+        // The engine's own form autofill stays off, so it stores nothing a
+        // page is given. Its password saving is off by default and never
+        // turned on: a password-manager extension is the route for both.
+        .general_autofill_enabled(false);
     let builder = match frame {
         Frame::Maximized => builder.maximized(true),
         Frame::Bounds(bounds) => builder
@@ -606,9 +610,10 @@ fn create_slot<R: tauri::Runtime>(
     // attached.
     let builder = tauri::webview::WebviewBuilder::new(slot.label(), WebviewUrl::External(parse_url(BLANK_URL)?))
         .user_agent(USER_AGENT)
-        // Every webview sharing a profile must agree on this, the chrome
+        // Every webview sharing a profile must agree on these, the chrome
         // included; see `build_window`.
         .browser_extensions_enabled(true)
+        .general_autofill_enabled(false)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
         .initialization_script(inject::page_state_script())
@@ -846,9 +851,10 @@ pub fn open_extension_popup<R: tauri::Runtime>(
         .focused(false)
         .inner_size(POPUP_MIN_SIZE.0, POPUP_MIN_SIZE.1)
         .user_agent(USER_AGENT)
-        // Every webview sharing a profile must agree on this; see
+        // Every webview sharing a profile must agree on these; see
         // `build_window`.
         .browser_extensions_enabled(true)
+        .general_autofill_enabled(false)
         .initialization_script(inject::extension_page_script(view));
     // Owned, so it stays above its browser window and goes with it.
     #[cfg(windows)]
@@ -910,14 +916,18 @@ pub fn fit_extension_popup<R: tauri::Runtime>(
         };
         let measured = platform::evaluate(window.as_ref(), inject::popup_size_expression(), POPUP_POLL)
             .and_then(|json| inject::parse_popup_size(&json));
-        let loaded = measured.is_some_and(|(loaded, _, _)| loaded);
+        // A window built hidden lays its page out at a size of the engine's
+        // own, not the one it was built at, until it is resized. Only a page
+        // laid out within the popup's size is measured.
+        let fitting = measured.filter(|measured| measured.viewport.0 <= size.0 && measured.viewport.1 <= size.1);
+        let loaded = fitting.is_some_and(|measured| measured.loaded);
         // Only ever grown: a page laid out wider than it needs, as one with
         // a scrollbar is, would otherwise shrink and grow back in turn.
-        let wanted = measured.map_or(size, |(_, width, height)| {
-            let (width, height) = popup_size(width, height);
+        let wanted = fitting.map_or(size, |measured| {
+            let (width, height) = popup_size(measured.size.0, measured.size.1);
             (width.max(size.0), height.max(size.1))
         });
-        if wanted != size || !shown {
+        if wanted != size || !shown || (measured.is_some() && fitting.is_none()) {
             let (x, y) = popup_origin(anchor, wanted, area);
             let _ = window.set_size(LogicalSize::new(wanted.0, wanted.1));
             let _ = window.set_position(LogicalPosition::new(x, y));

@@ -1,0 +1,58 @@
+/*
+  The startup splash, shown from the first frame until React's first render
+  replaces the contents of #root, which is what removes it.
+
+  It is linked from index.html rather than imported, so it applies before any
+  script has run, and so it cannot use the palette's tokens: the values are the
+  chrome and text colours from the brand's table, `neutral-100` and `-950` light,
+  `neutral-900` and `-50` dark. The interface's own stylesheet takes over the
+  page's colours, by theme preference, as soon as it loads.
+
+  The mark appears only after 150 ms. Most launches render before then, and a
+  splash that flashes for a frame or two is worse than none.
+*/
+
+html {
+  background: #f5f5f5;
+  color: #0a0a0a;
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    background: #171717;
+    color: #fafafa;
+  }
+}
+
+.haku-splash {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  animation: haku-splash-in 200ms ease-out 150ms forwards;
+}
+
+/* The looping mark as a mask over the text colour, so one file serves both
+   themes. The file stops moving by itself when reduced motion is requested. */
+.haku-splash-mark {
+  width: 3rem;
+  height: 3rem;
+  background-color: currentColor;
+  /* Prefixed too: the bundle targets Chromium 110, which masks only with it. */
+  -webkit-mask: url("../../assets/logo/animated/mark-loop-light.svg") center / contain no-repeat;
+  mask: url("../../assets/logo/animated/mark-loop-light.svg") center / contain no-repeat;
+}
+
+/* Still after 150 ms, but without the fade. */
+@media (prefers-reduced-motion: reduce) {
+  .haku-splash {
+    animation-duration: 0s;
+  }
+}
+
+@keyframes haku-splash-in {
+  to {
+    opacity: 1;
+  }
+}

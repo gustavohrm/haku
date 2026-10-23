@@ -4,27 +4,31 @@ import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
 import { useSettings } from "@ipc/hooks";
 import { updateSettings } from "@ipc/store";
-import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useCallback, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { addressIcon } from "./address";
-
 interface SiteMenuProps {
   tab: Tab;
   url: string;
+  /** Say on the button itself that the page is not secure. */
+  warnInsecure: boolean;
 }
 
 /**
  * The address field's leading icon, and the menu it opens about the site.
+ *
+ * The icon is the same on every site: it opens the site's settings, and a lock
+ * beside a URL reads as a verdict on the site that it never was. What a lock
+ * used to say is in the menu, and a page on plain HTTP also says it beside the
+ * button, as other browsers do.
  *
  * Keeping a tab loaded lives here rather than on the tab itself: it overrides
  * the optimization settings, so it should take a deliberate step, with the
  * warning beside it. Keeping the site applies to every tab on its host, so it
  * is stored in the settings rather than on the tab.
  */
-export function SiteMenu({ tab, url }: SiteMenuProps) {
+export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
   // Where the menu opens, or null while closed.
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const open = anchor !== null;
@@ -54,9 +58,9 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
   const close = useCallback(() => setAnchor(null), []);
   useMenuDismiss(open, close, menuRef, buttonRef);
 
-  // The menu is anchored at the lock glyph rather than its button, whose hover
-  // box is wider than the glyph, and pulls itself back by its own inset so its
-  // text starts directly under the lock.
+  // The menu is anchored at the glyph rather than its button, whose hover box
+  // is wider than the glyph, and pulls itself back by its own inset so its
+  // text starts directly under the glyph.
   const toggle = () => {
     const button = buttonRef.current?.getBoundingClientRect();
     const glyph = buttonRef.current?.querySelector("i")?.getBoundingClientRect();
@@ -77,8 +81,11 @@ export function SiteMenu({ tab, url }: SiteMenuProps) {
         aria-controls={open ? menuId : undefined}
         onClick={toggle}
       >
-        <i className={cx(addressIcon(url, false), "ic-sm")} aria-hidden="true" />
+        <i className="ic-sliders-horizontal ic-sm" aria-hidden="true" />
       </button>
+      {/* Beside the button rather than in it, so the button keeps the same
+          square shape as every other icon button. */}
+      {warnInsecure && <span className="text-text-secondary shrink-0">{t("site.notSecure")}</span>}
 
       {/*
         Portalled out of the address field: inside its <label>, any click in

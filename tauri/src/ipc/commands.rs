@@ -684,22 +684,25 @@ pub fn tick_periodically(app: tauri::AppHandle) {
                 Ok(memory) => memory.slot_bytes(),
                 Err(_) => continue,
             };
-            let effects = match state.browser.write() {
-                Ok(mut browser) => {
+            let _ = state.changes.run(
+                &state.browser,
+                |browser| {
                     let mut effects: Vec<Effect> = readings
                         .into_iter()
                         .flat_map(|(tab, reading)| browser.report_state(tab, reading))
                         .collect();
                     effects.extend(browser.tick(now_ms(), pressure, memory));
-                    effects
-                }
-                Err(_) => continue,
-            };
-            // Most passes only re-time the visible tab, which is not worth an
-            // event or a session write.
-            if !effects.is_empty() {
-                let _ = commit(&app, &state, &effects);
-            }
+                    Ok(effects)
+                },
+                // Most passes only re-time the visible tab, which is not worth
+                // an event or a session write.
+                |effects| {
+                    if effects.is_empty() {
+                        return Ok(());
+                    }
+                    commit(&app, &state, effects)
+                },
+            );
             if let Ok(report) = report_memory(&state) {
                 let _ = MemoryChanged(report).emit(&app);
             }
@@ -891,19 +894,15 @@ fn read_running_pages(app: &tauri::AppHandle, state: &AppState) -> Vec<PageReadi
 /// Runs `mutate` under the write lock and commits whatever it produced.
 ///
 /// The lock is released before webviews are touched, so a native call that
-/// blocks cannot stall the next command.
+/// blocks cannot stall a read; the next change waits for this one to be
+/// applied, through [`crate::state::Changes`].
 fn mutate<F>(app: &tauri::AppHandle, state: &AppState, mutate: F) -> Result<()>
 where
     F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
 {
-    let effects = {
-        let mut browser = state
-            .browser
-            .write()
-            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        mutate(&mut browser)?
-    };
-    commit(app, state, &effects)
+    state
+        .changes
+        .run(&state.browser, mutate, |effects| commit(app, state, effects))
 }
 
 /// [`mutate`], for a command a window's interface called.
@@ -1101,8 +1100,11 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
 fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
     let settings = settings.sanitized();
 
-    // One store at a time, from replacing through saving or rolling back, so a
-    // failed save never restores settings older than a store that overlapped.
+    // One store at a time, from replacing through applying, so a failed save
+    // never restores settings older than a store that overlapped, and the
+    // browser runs with the settings stored last (issue #41). Held across the
+    // main thread driving webviews; that is safe because no main-thread path
+    // takes it and both callers are async.
     static STORING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let storing = STORING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let previous = {
@@ -1127,7 +1129,6 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
     // were stored. A failed announcement is reported after applying, not
     // instead of it.
     let announced = SettingsChanged(settings.clone()).emit(app);
-    drop(storing);
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
@@ -1136,6 +1137,7 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
         Ok(browser.set_optimization(capacity, freeze, discard))
     })?;
     switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
+    drop(storing);
     announced.map_err(HakuError::from)?;
     Ok(settings)
 }
