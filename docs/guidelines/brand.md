@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
 last_updated: 2026-10-23
-scope: Haku's name, logo, wordmark, colours, and typefaces, and why each was chosen.
+scope: Haku's name, logo, logo animations, wordmark, colours, and typefaces, and why each was chosen.
 ---
 
 # Brand
@@ -70,6 +70,22 @@ Rejected marks, from the exploration of 2026-10-22:
 ### App icon and favicon
 
 The app icon and favicon are the bright mark on a dark plate: `#0a0a0a`, corners rounded to 22.5% of the side, the mark at 62% of the side, at every size. A bare mark disappears on one of the two taskbar themes, white on light or black on dark; the plate keeps it visible on both, and dark is the brand's primary look.
+
+### Animation
+
+The mark has two animations, both drawn from its geometry instead of moving the static artwork around:
+
+- **In**: from nothing to the static mark in 1.2 s. Each strand draws from both crossings where it passes under, so four ends travel around the knot, while the knot turns an eighth of a turn and grows from 70% to full size. As an end reaches a crossing where its strand lies on top, it carves the gap in the strand beneath, so the braid is woven while it draws. The full logo's wordmark then slides out from behind the mark and fades in, ending at 1.4 s.
+- **Loop**: a 3.2 s cycle. The strands draw as in the in animation, without the turn, hold the complete mark, and then erase in the same direction back to nothing, so the cycle never reverses.
+
+The strand ends are round, matching the mark's soft geometry; square ends read as a generic line-drawing effect. Round ends set two constraints:
+
+- **Where the strands start.** Two round ends closing on each other form a lumpy joint. Each strand starts at a crossing where it passes under, so its ends meet inside the gap the other strand cuts, where the joint never shows. The gap is cut by a wider copy of the strand on top, with round ends too, so it hugs a passing end with the same 3-unit clearance as the static mark.
+- **How far the knot turns.** A round end at a lobe tip reaches 44.5 units from the centre, past the file's 38.6-unit edge once the lobe turns toward an axis. A turn of 45° with growth from 70% keeps every frame inside the file; a quarter turn would have to start at 43% size. A zero-length round end is a dot, so the strands fade in over the first 0.15 s, and in the loop also fade out at the end of each cycle.
+
+Both use the same easing, `cubic-bezier(0.65, 0, 0.35, 1)`. They are drawn as strokes, which cannot reproduce the 0.8-unit softened corners, so the exact static artwork replaces the strokes wherever the mark is complete: at the end of the in animation and during the loop's hold. With reduced motion requested, both show the static artwork without moving.
+
+A draw-on suits the mark because the knot is one continuous braid: drawing it shows how it is made, which is the name's story. A rotation or pulse of the finished mark would show nothing a static mark does not.
 
 ## Wordmark
 

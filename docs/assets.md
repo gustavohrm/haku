@@ -38,6 +38,25 @@ Use the full logo when there is room and the name must be visible, and the mark 
 
 The URL assumes the consumer serves the file at that path; where it goes is the consumer's choice.
 
+### Animated logos
+
+The animated files are self-contained SVG with CSS animations, the same size as their static counterparts. [Brand](guidelines/brand.md#animation) describes the motion.
+
+| File                                       | Animation                           | Dimensions | Use                                     |
+| ------------------------------------------ | ----------------------------------- | ---------- | --------------------------------------- |
+| `assets/logo/animated/mark-in-light.svg`   | Mark draws in once, 1.2 s, bright   | 256 x 256  | Splash or first appearance on dark.     |
+| `assets/logo/animated/mark-in-dark.svg`    | As above, dark                      | 256 x 256  | As above, on bright backgrounds.        |
+| `assets/logo/animated/logo-in-light.svg`   | Mark draws in, then wordmark, 1.4 s | 963 x 256  | Full identification appearing, on dark. |
+| `assets/logo/animated/logo-in-dark.svg`    | As above, dark                      | 963 x 256  | As above, on bright backgrounds.        |
+| `assets/logo/animated/mark-loop-light.svg` | Mark draws, holds, erases; 3.2 s    | 256 x 256  | Loading or waiting states, on dark.     |
+| `assets/logo/animated/mark-loop-dark.svg`  | As above, dark                      | 256 x 256  | As above, on bright backgrounds.        |
+
+They animate in an `<img>` tag, as a CSS background, or inline. An in animation plays once, when the image is first displayed, and then stays on the static logo; to replay it, load the file again under a new URL, such as with a changed query string. Every file shows the static logo, without motion, when the viewer's system asks for reduced motion.
+
+```html
+<img src="/assets/logo/animated/mark-loop-light.svg" alt="Loading" width="64" height="64" />
+```
+
 ## App icon and favicons
 
 | File                         | Content                                    | Use                                 |
