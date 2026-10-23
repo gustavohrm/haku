@@ -14,6 +14,7 @@ describe("internal routing", () => {
   it("recognises the new-tab page, with or without a path after it", () => {
     expect(isNewTab("haku://new-tab")).toBe(true);
     expect(isNewTab("haku://new-tab/")).toBe(true);
+    expect(isNewTab("haku://new-tab/path")).toBe(true);
     expect(isNewTab("haku://settings")).toBe(false);
     expect(isNewTab("https://new-tab.example")).toBe(false);
   });
