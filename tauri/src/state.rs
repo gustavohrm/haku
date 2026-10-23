@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Mutex, PoisonError, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::browser::{Browser, Position};
+use crate::browser::{Browser, Effect, Position};
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
 use crate::model::{Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId, WindowId};
@@ -119,13 +119,54 @@ pub struct SlotMemory {
     pub signals: Vec<LossSignal>,
 }
 
+/// Lets one change to the browser that produces effects through at a time,
+/// from deciding it to applying those effects to webviews. A report that
+/// produces none may write the browser directly.
+///
+/// Effects name slots, not tabs, so a batch is only right while the browser
+/// is as it was when the batch was decided. Two changes decided in one order
+/// and applied in the other leave webviews showing something the browser no
+/// longer believes: a tick that discards a tab, applied after a later select
+/// that reused its slot, blanks the selected page.
+#[derive(Default)]
+pub struct Changes(Mutex<()>);
+
+impl Changes {
+    /// Decides a change under the browser's write lock, then applies its
+    /// effects after releasing it, while still holding off every other change.
+    ///
+    /// Never call it from the UI thread: applying waits on that thread.
+    ///
+    /// # Errors
+    /// Returns what `decide` or `apply` returns, or [`HakuError::Storage`]
+    /// when the browser's lock is poisoned.
+    pub fn run<T>(
+        &self,
+        browser: &RwLock<Browser>,
+        decide: impl FnOnce(&mut Browser) -> Result<Vec<Effect>>,
+        apply: impl FnOnce(&[Effect]) -> Result<T>,
+    ) -> Result<T> {
+        // Guards no data, so a change that panicked leaves nothing to distrust.
+        let _turn = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let effects = {
+            let mut browser = browser
+                .write()
+                .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+            decide(&mut browser)?
+        };
+        apply(&effects)
+    }
+}
+
 /// Everything the command layer needs, behind the locks that make it shareable.
 ///
-/// The browser is the only mutable authority over tabs. Commands take the write
-/// lock, mutate, collect effects, and release it before touching webviews, so a
-/// slow native call never blocks the next command.
+/// The browser is the only mutable authority over tabs. A change takes the
+/// write lock, mutates, collects effects, and releases it before touching
+/// webviews, so a slow native call never blocks a read. Changes themselves go
+/// one at a time through [`Changes`].
 pub struct AppState {
     pub browser: RwLock<Browser>,
+    pub changes: Changes,
     pub settings: RwLock<Settings>,
     pub history: Mutex<HistoryDb>,
     /// Where each window's page content goes.
@@ -147,6 +188,7 @@ impl AppState {
     pub fn new(browser: Browser, settings: Settings, history: HistoryDb, paths: Paths) -> Self {
         Self {
             browser: RwLock::new(browser),
+            changes: Changes::default(),
             settings: RwLock::new(settings),
             history: Mutex::new(history),
             viewports: Viewports::default(),
@@ -261,5 +303,52 @@ mod tests {
         assert_eq!(report.slots[1].position, Some(Position::Visible));
         assert_eq!(report.budget, 1024);
         assert_eq!(report.kept, 42, "only kept tabs count against the budget");
+    }
+
+    /// A tick decided before a select and applied after it blanks the
+    /// selected page, so a change waits for the one before it to be applied
+    /// before it is even decided.
+    #[test]
+    fn a_change_is_not_decided_while_another_is_being_applied() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (changes, browser) = (&Changes::default(), &RwLock::new(Browser::new(1)));
+        let (applying, first_applying) = mpsc::channel();
+        let (release, first_released) = mpsc::channel::<()>();
+        let (decided, second_decided) = mpsc::channel();
+
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                changes.run(
+                    browser,
+                    |_| Ok(Vec::new()),
+                    |_| {
+                        applying.send(()).unwrap();
+                        first_released.recv().unwrap();
+                        Ok(())
+                    },
+                )
+            });
+            first_applying.recv().unwrap();
+
+            scope.spawn(move || {
+                changes.run(
+                    browser,
+                    |_| {
+                        decided.send(()).unwrap();
+                        Ok(Vec::new())
+                    },
+                    |_| Ok(()),
+                )
+            });
+            // Released before asserting, or a failure would leave the first
+            // change waiting and the scope joining it forever.
+            let early = second_decided.recv_timeout(Duration::from_millis(200)).is_ok();
+            release.send(()).unwrap();
+
+            assert!(!early, "the second change was decided while the first was applying");
+            assert!(second_decided.recv_timeout(Duration::from_secs(5)).is_ok());
+        });
     }
 }
