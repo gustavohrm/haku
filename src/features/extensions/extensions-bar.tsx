@@ -172,7 +172,7 @@ export function ExtensionsBar() {
               className="text-text-secondary hover:bg-text/8 hover:text-text flex h-8 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px]"
               onClick={() => {
                 setMenuAt(null);
-                void commands.openTab(SETTINGS_URL, true);
+                void commands.openTab(`${SETTINGS_URL}/extensions`, true);
               }}
             >
               <i className="ic-settings ic-sm shrink-0" aria-hidden="true" />

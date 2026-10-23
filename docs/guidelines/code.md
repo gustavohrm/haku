@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 ---
 
 # Codebase guidelines
@@ -82,6 +82,7 @@ Function parameters:
 - `.btn` and the other component classes are Tailwind utilities themselves. Two utilities setting the same property on one element resolve by Tailwind's sort order, not by intent, so show or hide a component from a wrapper instead of adding `hidden` to it.
 - Size icons with the icon package's own classes (`ic-xs` … `ic-xl`). Its rules are unlayered, so Tailwind size utilities lose to them.
 - Join conditional classes with `cx` from `@shared/class-names`.
+- Prefer soft, flat or bare surfaces to outlined ones. Group with a soft fill one step from the ground (`.soft.edgeless` on a card or field), and separate with spacing. Draw a border, line or divider only where leaving it out is worse: where nothing else separates two things that must be told apart, or over page content, where a menu can cast no shadow and a border is what separates it from an unknown page beneath it ([Chrome layering](../specs/chrome-layering.md)). Outlines on every card, row and field add noise that competes with the content; Haku's look is monochrome and quiet, and edges are the loudest thing in it.
 
 ## Testing
 
