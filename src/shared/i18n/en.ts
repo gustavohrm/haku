@@ -169,6 +169,7 @@ export const en = {
   "error.title": "Something went wrong",
   "error.retry": "Try again",
   "error.interface": "The interface stopped working",
+  "error.startup": "The interface could not start",
   "error.reloadInterface": "Reload interface",
   "error.noSlotAvailable": "No webview slot is available.",
   "error.tabNotFound": "Tab not found",

@@ -56,3 +56,48 @@ html {
     opacity: 1;
   }
 }
+
+/*
+  What replaces the splash when the interface fails to start, from
+  `src/app/startup-failure.ts`. Styled here for the same reason as the splash:
+  the interface's own stylesheet may be part of what failed. The bar has the
+  height of the interface's top bar, so the window drags from where it would.
+*/
+.haku-startup-failure {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.125rem;
+  padding-left: 0.75rem;
+  font:
+    13px system-ui,
+    sans-serif;
+}
+
+.haku-startup-failure p {
+  flex: 1;
+  margin: 0;
+}
+
+.haku-startup-failure button {
+  align-self: stretch;
+  padding: 0 0.75rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.haku-startup-failure button:hover {
+  background: rgb(128 128 128 / 20%);
+}
+
+.haku-startup-failure-detail {
+  margin: 0;
+  padding: 0.75rem;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  opacity: 0.7;
+}
