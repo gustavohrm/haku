@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 scope: How unpacked Chrome extensions are installed and uninstalled, switched on and off, pinned, and opened from the toolbar.
 ---
 
@@ -94,8 +94,9 @@ An extension's background worker is exempt from stopping idle workers; see [Webv
 
 On the WebView2 runtime 155.0.4283.62:
 
-| Extension                         | Result                                                                                                                                                            |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| uBlock Origin Lite 2026.1018.2229 | Blocks requests. Its popup shows and acts on the active tab's site, and its dashboard opens as a tab.                                                             |
-| Bitwarden 2026.10.0               | Its popup opens at full size, and its pop-out button opens it in a popup window. Logging in was not tried on this runtime; it worked from a tab on 154.0.4258.62. |
-| uBlock Origin (Manifest V2)       | Not tried. Chromium removed Manifest V2, so it is not expected to load.                                                                                           |
+| Extension                         | Result                                                                                                                                                                                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| uBlock Origin Lite 2026.1018.2229 | Blocks requests. Its popup shows and acts on the active tab's site, and its dashboard opens as a tab.                                                                                                                                                                  |
+| uBlock Origin Lite 2026.1006.1931 | Blocked popups to `doubleclick.net` and `popads.net` opened by `window.open` and by a `target="_blank"` link, and let the same popups to `example.com` open, as Helium did with the same version ([gustavohrm/haku#22](https://github.com/gustavohrm/haku/issues/22)). |
+| Bitwarden 2026.10.0               | Its popup opens at full size, and its pop-out button opens it in a popup window. Logging in was not tried on this runtime; it worked from a tab on 154.0.4258.62.                                                                                                      |
+| uBlock Origin (Manifest V2)       | Not tried. Chromium removed Manifest V2, so it is not expected to load.                                                                                                                                                                                                |
