@@ -1,7 +1,11 @@
+import { cx } from "@shared/class-names";
 import { useState } from "react";
 
 interface DraftInputProps {
+  id?: string;
   type: "text" | "number";
+  /** Sizing only; the field's look is fixed here. */
+  className?: string;
   value: string;
   min?: number;
   max?: number;
@@ -14,11 +18,14 @@ interface DraftInputProps {
 /**
  * A field edited locally and saved when it is left or Enter is pressed.
  *
+ * Borderless and lightly filled, like every control in settings: it sits on a
+ * plate that already says where it belongs, and the focus ring still shows.
+ *
  * What was actually stored replaces the draft, so a value Rust corrected, such
  * as a blank home page restored to the default, shows as it really is. Escape
  * abandons the edit.
  */
-export function DraftInput({ type, value, min, max, disabled, onCommit, ...rest }: DraftInputProps) {
+export function DraftInput({ id, type, className, value, min, max, disabled, onCommit, ...rest }: DraftInputProps) {
   const [draft, setDraft] = useState(value);
   // A new stored value replaces the draft. Done while rendering, so the stale
   // draft is never painted first.
@@ -37,7 +44,8 @@ export function DraftInput({ type, value, min, max, disabled, onCommit, ...rest 
 
   return (
     <input
-      className="ipt"
+      id={id}
+      className={cx("ipt soft edgeless", className)}
       type={type}
       min={min}
       max={max}

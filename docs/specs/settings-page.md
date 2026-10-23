@@ -1,36 +1,34 @@
 ---
-status: APPROVED
+status: IMPLEMENTED
 last_updated: 2026-10-23
 scope: The layout, navigation, search and row pattern of `haku://settings`.
 ---
 
 # Settings page
 
-Approved on 2026-10-23. Nothing here is built yet; `src/features/settings/` is still the single column of cards it replaces.
+## Why this layout
 
-## Problem
-
-Settings is one centred column of cards, each a heading over stacked form fields with their labels above them ([`settings-page.tsx`](../../src/features/settings/settings-page.tsx)). It has four sections today and [First release § Appearance is data](../first-release.md#appearance-is-data) adds six appearance settings, presets and custom CSS. Stacked further, it becomes a long scroll with no way to jump or search, and every new setting has to invent its own layout. Chrome, Helium and Zen settle on the same answer: a section sidebar, a search box, and rows that put the label and its explanation on the left and the control on the right.
+Settings was one centred column of cards, each a heading over stacked form fields with their labels above them. It had four sections, and [First release § Appearance is data](../first-release.md#appearance-is-data) adds six appearance settings, presets and custom CSS. Stacked further, it becomes a long scroll with no way to jump or search, and every new setting has to invent its own layout. Chrome, Helium and Zen settle on the same answer: a section sidebar, a search box, and rows that put the label and its explanation on the left and the control on the right.
 
 ## Layout
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  [ Search settings          ]                                    │
-│                                                                  │
-│  ◐ Appearance        Appearance                                  │
-│  ⚡ Tabs & memory     ┌──────────────────────────────────────────┐│
-│  ◎ Browsing          │ Theme                     [Match system ▾]││
-│  ⧉ Extensions        │ Light, dark, or follow Windows.          ││
-│  ⓘ About             ├──────────────────────────────────────────┤│
-│                      │ …                                        ││
-│                      └──────────────────────────────────────────┘│
-└──────────────────────────────────────────────────────────────────┘
+  Settings
+  ░ Search settings ░░░░░          Appearance
+
+  ▓ Appearance ▓▓▓▓▓▓▓▓▓          ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+    Tabs & memory                 ░ Theme                   [▣][☼][☾]   ░
+    Browsing                      ░ Light, dark, or the same as your     ░
+    Extensions                    ░ system.                              ░
+    About                         ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
 ```
 
-- **Sidebar**, 13 rem wide, on the left: the search box, then one entry per section with an icon. The current section is the raised surface (`chrome-raised`), as the active tab is. Below 48 rem of page width the sidebar collapses into a row of section buttons above the content, so a narrow split-view pane still works.
-- **Content**, at most 42 rem wide: the section's title, then its groups. A group is one card (`@codenhub/styles` `.card`) with an optional heading above it, holding rows separated by dividers.
+The page has no borders or dividers: groups are soft plates, and spacing separates what is inside them. See [Code guidelines § Styling](../guidelines/code.md#styling).
+
+- **Sidebar**, 13 rem wide, on the left: the search box, sunk into the page as a soft, borderless field, then one entry per section with an icon. The current section is a soft plate, as the active tab is. Below 48 rem of page width the sidebar collapses into a row of section buttons above the content, so a narrow split-view pane still works.
+- **Content**, at most 42 rem wide: the section's title, then its groups. A group is one plate, `.card.soft.edgeless`, a step up from the page with no border, with an optional heading above it. Rows inside it are separated by spacing, not lines.
 - **Row**: title and description on the left, control on the right, vertically centred. A control too wide for the right, such as the extensions list or a URL field, takes the row's full width under its title instead. A row that has no effect in the current state, as Loaded tabs has none while discarding is Always, is shown disabled with the reason as its description, the way `settings.disabledByDiscard` works today.
+- **Controls** are borderless and lightly filled (`.soft.edgeless`): the plate already marks where they belong, and the focus ring still shows. A choice among a few options that each have an obvious icon, as the theme does, is a group of icon buttons, each named by a tooltip; it is a native radio group underneath, so the arrow keys move between choices.
 
 The page keeps using the package's own sizing, not the compact bar density, as [`index.css`](../../src/styles/index.css) already specifies for internal pages.
 
@@ -62,12 +60,12 @@ Search is not part of the address. A query is a moment, not a place, and putting
 
 ## Code shape
 
-- `settings/rows.tsx`: `SettingsGroup` and `SettingRow` (`title`, `description`, `keywords`, `control`, `wide`, `disabledReason`). Every setting uses them, so a new setting is a row, never a new layout.
-- `settings/sections.ts`: the sections as data, `{ id, icon, title, rows }`, which both the sidebar and search read, so they cannot disagree about what exists.
-- `InternalPage` gains an optional `sidebar` slot; History and Memory keep the plain frame.
-- The existing `OptimizationSection` and `ExtensionsSection` become row lists; their logic, including `DraftInput`'s save-on-commit rule, does not change.
+- `settings/types.ts`: a row is data, `{ id, title, description, keywords, disabledReason, wide, labelsControl, Control }`, grouped into cards and sections. Titles, descriptions and keywords are translation keys, so search reads the same strings the page shows.
+- `settings/sections.ts`: every section and row, which both the sidebar and search read, so they cannot disagree about what exists; with `sectionOf` and `searchSettings`. A new setting is a row here, never a new layout.
+- `settings/rows.tsx`: `SettingsGroup` and `SettingRow`, which lay out a row and wire its title and description to the control for assistive technology.
+- `settings/controls.tsx`: each row's control. The logic of the old sections moved here unchanged, including `DraftInput`'s save-on-commit rule.
+- `InternalPage` has an optional `sidebar` slot; History and Memory keep the plain frame. Every internal page is rendered with its `url` and `tabId` rather than reading the active tab, since split view will show more than one.
 
-## Open questions
+A disabled row used to explain itself in a tooltip on hover. Its reason now replaces its description, so it is visible without hovering and read with the control.
 
-- **Icons per section.** Proposed from Lucide: `palette`, `gauge`, `globe`, `puzzle`, `info`.
-- **About in scope?** It is new, not a regrouping of what exists, and can ship in a later change without affecting the rest.
+Section icons are Lucide's `palette`, `gauge`, `globe`, `puzzle` and `info`.
