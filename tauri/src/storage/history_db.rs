@@ -18,6 +18,9 @@ use crate::storage::corrupt_path;
 /// Suffixes of the SQLite files that belong to the main database file.
 const COMPANION_SUFFIXES: &[&str] = &["", "-wal", "-shm"];
 
+/// How long a statement waits for a lock another connection holds.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// Schema revisions, applied in order to whatever version a database is on.
 ///
 /// Migrations are append-only: never edit a shipped entry, add a new one.
@@ -82,10 +85,26 @@ impl HistoryDb {
         }
     }
 
+    /// Opens the database at `path` as [`Self::open_or_set_aside`] does, or
+    /// keeps history in memory for this run when the file cannot be opened.
+    ///
+    /// The browser is still usable without its history file, and Haku has no
+    /// window yet to say why it would not start. A file another Haku holds
+    /// locked, or one that cannot be read, is left untouched for the next run.
+    pub fn open_or_in_memory(path: &Path) -> Self {
+        Self::open_or_set_aside(path)
+            .or_else(|_| Self::in_memory())
+            .unwrap_or_else(|_| Self {
+                connection: Connection::open_in_memory().expect("SQLite cannot open an in-memory database"),
+            })
+    }
+
     fn connect(path: &Path) -> rusqlite::Result<Self> {
-        let mut database = Self {
-            connection: Connection::open(path)?,
-        };
+        let connection = Connection::open(path)?;
+        // A write by another Haku holds the file for milliseconds; waiting
+        // briefly is better than failing a visit, or startup, over it.
+        connection.busy_timeout(BUSY_TIMEOUT)?;
+        let mut database = Self { connection };
         database.migrate()?;
         Ok(database)
     }
@@ -264,6 +283,18 @@ mod tests {
             fs::read_to_string(corrupt_path(&path)).unwrap(),
             "this is not a database, just bytes\n"
         );
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_opened_leaves_history_in_memory() {
+        let path = temp_path("unopenable");
+        fs::create_dir_all(&path).unwrap();
+
+        let database = HistoryDb::open_or_in_memory(&path);
+        database.record("https://a.test", "A", 1).unwrap();
+
+        assert_eq!(database.recent(10).unwrap().len(), 1);
+        assert!(path.is_dir());
     }
 
     #[test]
