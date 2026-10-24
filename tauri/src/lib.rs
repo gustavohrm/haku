@@ -105,9 +105,9 @@ pub fn run() {
             // so this has to happen off that thread or it would wait forever.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                let keys = ipc::commands::hooks().keys;
+                let hooks = ipc::commands::hooks();
                 for (window, _) in &windows {
-                    let _ = webview::prepare_chrome(&handle, *window, &keys);
+                    let _ = webview::prepare_chrome(&handle, *window, &hooks);
                 }
                 ipc::commands::answer_launches();
                 if let Ok(chrome) = webview::chrome(&handle) {

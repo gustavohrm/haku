@@ -17,7 +17,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    Commit, DialogAnswer, DialogId, MemoryStatus, PageDialog, Placement, Shortcut, SlotId, WindowRequestId,
+    Commit, CrashCause, DialogAnswer, DialogId, MemoryStatus, PageDialog, Placement, Shortcut, SlotId, WindowRequestId,
 };
 
 use memory::{Attribution, SlotMemoryTracker};
@@ -120,7 +120,25 @@ pub enum PageSignal {
     },
     /// A page opened by script asked to close its window.
     CloseRequested,
+    /// A process behind the webview exited.
+    ProcessFailed(ProcessFailure),
 }
+
+/// A process behind a webview exited, of the kinds Haku answers.
+///
+/// The engine restarts the others itself, or, for a frame's process, draws
+/// the failure in the frame. [Crash recovery](../../docs/specs/crash-recovery.md#what-fails).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessFailure {
+    /// The webview's own page process: its page is gone.
+    Page(CrashCause),
+    /// The engine's browser process: every webview is gone.
+    Engine,
+}
+
+/// Receives a webview's [`ProcessFailure`]s. Called on the UI thread, so it
+/// must not block on anything that dispatches back to it.
+pub type FailureSink = Arc<dyn Fn(ProcessFailure) + Send + Sync>;
 
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on
 /// anything that dispatches back to it.
@@ -142,6 +160,22 @@ pub type KeySink = Arc<dyn Fn(Shortcut) + Send + Sync>;
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn intercept_keys<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: KeySink) -> Result<()> {
     backend::intercept_keys(webview, sink)
+}
+
+/// Reports a chrome webview's process failures to `sink`. Content webviews
+/// report theirs as [`PageSignal::ProcessFailed`], attached by
+/// [`observe_page`].
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn watch_failures<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: FailureSink) -> Result<()> {
+    backend::watch_failures(webview, sink)
+}
+
+/// Tells the user, in a native message box, about a failure Haku cannot show
+/// in a window, and waits until it is dismissed.
+pub fn show_fatal(message: &str) {
+    backend::show_fatal(message);
 }
 
 /// Starts reporting a content webview's navigation to `sink`.

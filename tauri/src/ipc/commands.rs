@@ -33,7 +33,7 @@ use crate::model::{
     data_url, icon_file, is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions,
     Placement, Preset, Pressure, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
-use crate::platform::{self, KeySink, PageSignal};
+use crate::platform::{self, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::{self, InstalledExtension, InstalledExtensions, Settings, WindowBounds};
@@ -41,6 +41,7 @@ use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{AddressFocusRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
+use super::recovery;
 
 /// Rejects a command that only the interface may issue.
 ///
@@ -58,6 +59,7 @@ pub fn hooks() -> Hooks<tauri::Wry> {
     Hooks {
         page: page_observer(),
         keys: Arc::new(|app: &tauri::AppHandle, window: WindowId| shortcut_sink(app.clone(), window)),
+        failures: Arc::new(recovery::chrome_failures),
     }
 }
 
@@ -139,6 +141,14 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     gesture,
                 },
             ),
+            PageSignal::ProcessFailed(ProcessFailure::Page(cause)) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let state = app.state::<AppState>();
+                    let _ = mutate(&app, &state, |browser| Ok(browser.page_crashed(slot, cause)));
+                });
+            }
+            PageSignal::ProcessFailed(ProcessFailure::Engine) => recovery::engine_failed(app),
             PageSignal::CloseRequested => {
                 let app = app.clone();
                 std::thread::spawn(move || {

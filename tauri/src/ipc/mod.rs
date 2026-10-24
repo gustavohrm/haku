@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod events;
+pub mod recovery;
 
 use tauri_specta::{collect_commands, collect_events, Builder};
 
