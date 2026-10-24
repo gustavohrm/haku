@@ -19,6 +19,7 @@
 //! not. What a page is showing is observed from Rust instead, through
 //! [`page_observer`].
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, OnceLock};
 use std::time::Duration;
 
@@ -473,19 +474,40 @@ where
     opened.map_or(Ok(()), |id| focus_address(app, id))
 }
 
+/// Whether startup has finished, so a launch while Haku runs is answered.
+static ANSWERING_LAUNCHES: AtomicBool = AtomicBool::new(false);
+
+/// Starts answering launches, once the restored windows are ready.
+pub fn answer_launches() {
+    ANSWERING_LAUNCHES.store(true, Ordering::Release);
+}
+
 /// Answers Haku being launched while it already runs: the second launch has
 /// exited, and this one opens a browser window on the home page, as Ctrl+N
 /// does and as other browsers do when launched again.
 ///
-/// Called on the UI thread, so the window is opened off it. A launch that
-/// lands before startup has finished finds no browser yet and opens nothing.
+/// A launch before startup has finished opens nothing, decided here as it
+/// arrives: it is most often the same launch repeated while Haku is slow to
+/// appear, and the windows starting up answer it. Called on the UI thread, so
+/// windows are opened on a queue of their own, one launch after another, so
+/// the window of the last launch is the one left in front.
 pub fn launched_again(app: &tauri::AppHandle) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        if let Some(state) = app.try_state::<AppState>() {
-            let _ = open_home(&app, &state, Browser::open_window);
-        }
+    if !ANSWERING_LAUNCHES.load(Ordering::Acquire) {
+        return;
+    }
+    static QUEUE: OnceLock<mpsc::Sender<()>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let state = app.state::<AppState>();
+            for () in receiver {
+                let _ = open_home(&app, &state, Browser::open_window);
+            }
+        });
+        sender
     });
+    let _ = queue.send(());
 }
 
 /// Moves keyboard focus to the interface and asks it to focus the address
