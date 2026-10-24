@@ -93,4 +93,13 @@ describe("ThemeControl", () => {
 
     expect(update).toHaveBeenCalledWith({ theme: "light" });
   });
+
+  it("keeps the stored theme checked when storing the one picked fails", async () => {
+    renderTheme("system", async () => null);
+    const radios = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")];
+
+    await act(async () => radios[1]?.click());
+
+    expect(radios.map((radio) => radio.checked)).toEqual([true, false, false]);
+  });
 });
