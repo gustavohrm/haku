@@ -14,6 +14,7 @@ export const en = {
   "tabs.frozen": "Frozen — resumes instantly when you open it",
   "tabs.fixed": "Kept loaded",
   "tabs.relieved": "Unloaded to free memory — reloads when you open it",
+  "tabs.crashed": "Crashed — reload it to see the page again",
 
   "toolbar.navigation": "Navigation",
   "toolbar.back": "Back",
@@ -171,6 +172,11 @@ export const en = {
 
   "error.title": "Something went wrong",
   "error.retry": "Try again",
+  "error.reload": "Reload",
+  "error.tabCrashed": "This page crashed",
+  "error.tabCrashed.outOfMemory": "It ran out of memory.",
+  "error.tabCrashed.ended": "Another program ended it.",
+  "error.tabCrashed.unknown": "Reload it to try again.",
   "error.details": "Details",
   "error.page": "This page ran into a problem",
   "error.page.help": "The rest of Haku is still working. Try again, or go to another page.",

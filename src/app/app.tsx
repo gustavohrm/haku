@@ -1,4 +1,4 @@
-import { PageCrash } from "@app/crash";
+import { PageCrash, TabCrash } from "@app/crash";
 import { renderInternal } from "@app/router";
 import { applyTheme, isThemePreference } from "@app/theme";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
@@ -19,14 +19,15 @@ export function App() {
   const viewportRef = useRef<HTMLDivElement>(null);
 
   const internal = tab?.presence.status === "internal";
+  const crash = tab?.presence.status === "crashed" ? tab.presence.cause : null;
   const activeUrl = tab?.history.entries[tab.history.index]?.url ?? "";
   const internalPage = internal && tab ? renderInternal(activeUrl, tab.id) : null;
   const cover = usePreviewCover(tab);
 
-  // An internal page is drawn by the chrome itself, and so is the cover over a
-  // reloading page, so nothing should show through and the chrome stays solid
-  // over the whole surface.
-  useChromeLayout(viewportRef, internal || cover !== null);
+  // An internal page is drawn by the chrome itself, and so are a crashed
+  // page's notice and the cover over a reloading page, so nothing should show
+  // through and the chrome stays solid over the whole surface.
+  useChromeLayout(viewportRef, internal || crash !== null || cover !== null);
   usePageDialog(tab);
 
   const themePreference = settings?.theme;
@@ -71,6 +72,7 @@ export function App() {
             {internalPage}
           </ErrorBoundary>
         )}
+        {crash !== null && tab && <TabCrash tabId={tab.id} cause={crash} />}
         {cover !== null && <PreviewCover src={cover} />}
       </main>
     </div>
