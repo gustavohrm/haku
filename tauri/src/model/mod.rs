@@ -21,5 +21,5 @@ pub use page_state::{Loss, LossSignal, PageRecord, PageState};
 pub use pool::{Acquired, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
 pub use preview::{data_url, jpeg_data_url, Previews};
-pub use tab::{host_of, is_internal, Scroll, Tab, TabId, TabPresence};
+pub use tab::{host_of, is_internal, CrashCause, Scroll, Tab, TabId, TabPresence};
 pub use window::{Placement, WindowId, WindowKind, WindowRequestId, WINDOW_LABEL_PREFIX};

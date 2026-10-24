@@ -6,9 +6,9 @@ use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, Acquired, Commit, DialogAnswer, DialogId, DialogKind, Loss, LossSignal, NavigationKind, PageDialog,
-    PageState, Placement, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool,
-    WindowId, WindowKind, WindowRequestId,
+    is_internal, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Loss, LossSignal, NavigationKind,
+    PageDialog, PageState, Placement, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit,
+    WebviewPool, WindowId, WindowKind, WindowRequestId,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -1086,7 +1086,11 @@ impl Browser {
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn reload(&mut self, id: TabId) -> Result<Vec<Effect>> {
-        let slot = self.tab(id)?.slot();
+        let tab = self.tab_mut(id)?;
+        if tab.is_crashed() {
+            tab.presence = TabPresence::Discarded;
+        }
+        let slot = tab.slot();
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
         match slot {
             Some(slot) => effects.push(Effect::Reload { slot }),
@@ -1672,6 +1676,29 @@ impl Browser {
     }
 
     /// Gives up a tab's page, keeping its place in history.
+    /// Records that the page in `slot` lost its process, as the engine reported.
+    ///
+    /// The tab gives up its slot as on a discard, without reading the page as
+    /// it leaves, since there is no page left to read. Navigating the slot to
+    /// a blank page gives its webview a new process for the next tab. A slot
+    /// no tab holds is left alone: the next tab to take it navigates it.
+    ///
+    /// [Crash recovery](../../docs/specs/crash-recovery.md#a-crashed-tab).
+    pub fn page_crashed(&mut self, slot: SlotId, cause: CrashCause) -> Vec<Effect> {
+        let Some(id) = self.occupant_of(slot) else {
+            return Vec::new();
+        };
+        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        effects.extend(self.release_slot(id));
+        if let Ok(tab) = self.tab_mut(id) {
+            tab.lose_page();
+            tab.presence = TabPresence::Crashed { cause };
+        }
+        self.connected.remove(&id);
+        effects.extend(self.realize());
+        effects
+    }
+
     fn discard_tab(&mut self, id: TabId) -> Vec<Effect> {
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
         effects.extend(self.leave(id));
@@ -1706,7 +1733,8 @@ impl Browser {
     /// Ensures one tab is backed by a loaded webview.
     fn bind(&mut self, id: TabId) -> Vec<Effect> {
         let Ok(tab) = self.tab(id) else { return Vec::new() };
-        if tab.is_internal() {
+        // A crashed tab waits for the user to ask for its page again.
+        if tab.is_internal() || tab.is_crashed() {
             return Vec::new();
         }
 

@@ -43,6 +43,20 @@ pub enum TabPresence {
     Discarded,
     /// Rendered by the chrome itself; never consumes a slot.
     Internal,
+    /// Its page's process exited. No webview, and none is given until the
+    /// user reloads or navigates it, so a page that crashes as it loads does
+    /// not crash again and again.
+    Crashed { cause: CrashCause },
+}
+
+/// Why a tab's page crashed, as far as the engine says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CrashCause {
+    OutOfMemory,
+    /// Ended from outside, such as from Task Manager.
+    Ended,
+    Unknown,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -165,6 +179,10 @@ impl Tab {
         matches!(self.presence, TabPresence::Internal)
     }
 
+    pub fn is_crashed(&self) -> bool {
+        matches!(self.presence, TabPresence::Crashed { .. })
+    }
+
     pub fn slot(&self) -> Option<SlotId> {
         match self.presence {
             TabPresence::Live { slot } | TabPresence::Frozen { slot } => Some(slot),
@@ -194,6 +212,8 @@ impl Tab {
                 self.presence = TabPresence::Discarded;
                 self.scroll = Scroll::default();
             }
+            // Going somewhere else is the user asking for a page again.
+            (TabPresence::Crashed { .. }, false) => self.presence = TabPresence::Discarded,
             (_, true) => self.presence = TabPresence::Internal,
             _ => {}
         }

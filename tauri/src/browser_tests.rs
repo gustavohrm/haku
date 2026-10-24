@@ -2230,3 +2230,85 @@ fn a_popup_requested_from_outside_every_tab_keeps_no_tab_running() {
         .any(|effect| matches!(effect, Effect::Adopt { request, .. } if *request == REQUEST)));
     assert_ne!(browser.position(ids[1]), Some(Position::MustRun));
 }
+
+fn crash(browser: &mut Browser, id: TabId) -> Vec<Effect> {
+    let slot = slot_of(browser, id).expect("the tab holds a webview");
+    browser.page_crashed(slot, CrashCause::OutOfMemory)
+}
+
+#[test]
+fn a_crashed_page_gives_up_its_slot_and_is_not_loaded_again() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = crash(&mut browser, ids[0]);
+
+    assert!(effects.contains(&Effect::Blank { slot }));
+    assert_eq!(
+        browser.tab(ids[0]).unwrap().presence,
+        TabPresence::Crashed {
+            cause: CrashCause::OutOfMemory
+        }
+    );
+    browser.select_tab(ids[0], 1).unwrap();
+    assert!(
+        slot_of(&browser, ids[0]).is_none(),
+        "the visible crashed tab stays unloaded"
+    );
+}
+
+#[test]
+fn a_crashed_fixed_tab_is_not_loaded_again() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    browser.set_fixed(ids[0], true).unwrap();
+
+    crash(&mut browser, ids[0]);
+    browser.select_tab(ids[1], 1).unwrap();
+
+    assert!(slot_of(&browser, ids[0]).is_none());
+}
+
+#[test]
+fn reloading_a_crashed_tab_loads_its_page_again() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    crash(&mut browser, ids[0]);
+
+    let effects = browser.reload(ids[0]).unwrap();
+
+    let slot = slot_of(&browser, ids[0]).expect("the tab holds a webview again");
+    assert!(effects.contains(&Effect::EnsureSlot {
+        slot,
+        url: "https://a.test".to_string(),
+        window: browser.main_window(),
+    }));
+}
+
+#[test]
+fn navigating_a_crashed_tab_loads_the_new_page() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    crash(&mut browser, ids[0]);
+
+    browser.navigate(ids[0], "https://b.test").unwrap();
+
+    assert!(slot_of(&browser, ids[0]).is_some());
+    assert_eq!(browser.tab(ids[0]).unwrap().url(), "https://b.test");
+}
+
+#[test]
+fn a_crash_releases_the_dialog_the_page_was_waiting_on() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.open_dialog(slot, dialog(1, DialogKind::Alert));
+
+    let effects = crash(&mut browser, ids[0]);
+
+    assert_eq!(answers(&effects).len(), 1);
+    assert!(browser.tab(ids[0]).unwrap().dialog.is_none());
+}
+
+#[test]
+fn a_crash_in_a_slot_no_tab_holds_changes_nothing() {
+    let (mut browser, _) = browser_with(2, &["https://a.test"]);
+
+    assert!(browser.page_crashed(SlotId(7), CrashCause::Unknown).is_empty());
+}
