@@ -30,7 +30,7 @@ effective_capacity = max(configured_capacity, fixed_count + visible_count)
 
 Split view is built on this. No other feature may assume there is exactly one page on screen.
 
-Viewports are built as the first step of split view, not before it. A list holding one viewport would change every place that shows, hides or protects a webview with nothing to show the change is right, and none of the features listed before split view needs a second one. Until then, a new command names the tab it acts on rather than reading the active one, so it needs no change when there are several visible tabs.
+Viewports are built as the first step of split view, not before it. None of the features listed before split view needs a second viewport, so a list that only ever holds one would rework every place that shows, hides or protects a webview without enabling anything, and leave the second viewport untested until split view arrives. Until then, a new command names the tab it acts on rather than reading the active one, so it needs no change when there are several visible tabs.
 
 ### Keyboard input while a page has focus
 

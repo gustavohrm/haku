@@ -52,10 +52,12 @@ pub struct SessionWindow {
 
 impl SessionWindow {
     /// The window without the tabs Haku does not open, its active tab still
-    /// active, or the one after it when it was left out.
+    /// active, or the one after it when it was left out. An index past the
+    /// tabs is dropped, so restoring falls back to the first tab, as before.
     fn openable(self) -> Self {
         let active = self
             .active
+            .filter(|&active| active < self.tabs.len())
             .map(|active| self.tabs.iter().take(active).filter(|tab| opens(&tab.url)).count());
         let tabs: Vec<SessionTab> = self.tabs.into_iter().filter(|tab| opens(&tab.url)).collect();
         Self {
@@ -384,6 +386,14 @@ mod tests {
         let urls: Vec<&str> = windows[0].tabs.iter().map(|tab| tab.url.as_str()).collect();
         assert_eq!(urls, vec!["https://a.test", "haku://settings"]);
         assert_eq!(windows[0].active, Some(1));
+    }
+
+    #[test]
+    fn an_active_index_past_the_tabs_still_falls_back_to_the_first_tab() {
+        let windows = session_of(&["https://a.test", "javascript:alert(1)", "https://b.test"], Some(9))
+            .windows_or_home("haku://new-tab");
+
+        assert_eq!(windows[0].active, None);
     }
 
     #[test]

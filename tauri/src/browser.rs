@@ -1854,10 +1854,10 @@ pub fn resolve_target(input: &str, search_url: &str) -> String {
         return format!("https://{trimmed}");
     }
     let query = urlencode(trimmed);
-    // `%s` marks where the search goes, as in other browsers' search URLs;
-    // without it the search is added to the end.
+    // `%s` marks where the search goes, each time it appears, as in other
+    // browsers' search URLs; without it the search is added to the end.
     if search_url.contains(SEARCH_MARK) {
-        search_url.replacen(SEARCH_MARK, &query, 1)
+        search_url.replace(SEARCH_MARK, &query)
     } else {
         format!("{search_url}{query}")
     }
