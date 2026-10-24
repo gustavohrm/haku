@@ -23,7 +23,7 @@ A page's renderer process can exit: it crashed, ran out of memory, or was ended 
 
 The reason, such as `OUT_OF_MEMORY` or `TERMINATED`, does not change the answer. It is kept on the tab to word the notice.
 
-Which slot failed is known from the webview that raised the event, as every other page signal is ([Page observation](page-observation.md)). Two pages of the same site may share a renderer process; each of their webviews reports its own failure, so each tab is crashed on its own. This is checked when it is implemented.
+Which slot failed is known from the webview that raised the event, as every other page signal is ([Page observation](page-observation.md)). Two pages of the same site may share a renderer process; each of their webviews should report its own failure, so each tab is crashed on its own. That has not been checked yet.
 
 ## A crashed tab
 
@@ -65,6 +65,7 @@ Restarting was chosen over rebuilding each window in place: rebuilding means rec
 
 - The browser model's rules are unit tests: a crash releases the slot and dismisses the dialog; a crashed tab stays unbound when visible and when capacity frees; reload, navigation and closing behave as on a discarded tab; the session stores it as a plain tab.
 - In the app, a renderer is made to crash with the DevTools protocol's `Page.crash` on a tab's webview, and its process can be ended from Task Manager. The interface's renderer is crashed the same way on the chrome webview, and the browser process by ending the `msedgewebview2.exe` started without `--type`.
+- Checked on 2026-10-23 with a debug build, on WebView2 for Windows: ending a page's renderer showed the notice and the warning in the strip, and Reload loaded the page again in the same slot, so blanking does recover it. Ending a renderer with `Stop-Process` was reported with no known reason, not as terminated. Ending the interface's renderer reloaded it within a second, the page untouched. Ending the browser process restarted Haku on the same tabs, and ending it again within the minute showed the message box and quit.
 
 ## Not built
 
