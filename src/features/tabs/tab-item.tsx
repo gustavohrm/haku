@@ -20,7 +20,7 @@ interface TabItemProps {
  * reload for no reason the user can see.
  *
  * Haku's own pages carry the Haku mark in the text's colour; a web page
- * carries its favicon, and one that crashed a warning in its place.
+ * carries its favicon, and one that crashed carries a warning in its place.
  */
 export function TabItem({ tab, active }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];

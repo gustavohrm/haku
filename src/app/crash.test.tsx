@@ -33,6 +33,12 @@ describe("TabCrash", () => {
     expect(container.querySelector("details")).toBeNull();
   });
 
+  it("names no reason when the engine gave none", () => {
+    act(() => root.render(<TabCrash tabId={3} cause="unknown" />));
+
+    expect(container.querySelector("p")).toBeNull();
+  });
+
   it("reloads the tab when asked", () => {
     act(() => root.render(<TabCrash tabId={3} cause="unknown" />));
 

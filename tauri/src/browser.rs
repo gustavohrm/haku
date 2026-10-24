@@ -1675,16 +1675,18 @@ impl Browser {
     }
 
     /// Gives up a tab's page, keeping its place in history.
-    /// Records that the page in `slot` lost its process, as the engine reported.
+    /// Records that `tab`'s page in `slot` lost its process, as the engine
+    /// reported.
     ///
     /// The tab gives up its slot as on a discard, without reading the page as
     /// it leaves, since there is no page left to read. Navigating the slot to
-    /// a blank page gives its webview a new process for the next tab. A slot
-    /// no tab holds is left alone: the next tab to take it navigates it.
+    /// a blank page gives its webview a new process for the next tab. A report
+    /// that comes after the slot passed to another tab is ignored: that tab's
+    /// page is loaded into the slot anyway.
     ///
     /// [Crash recovery](../../docs/specs/crash-recovery.md#a-crashed-tab).
-    pub fn page_crashed(&mut self, slot: SlotId, cause: CrashCause) -> Vec<Effect> {
-        let Some(id) = self.occupant_of(slot) else {
+    pub fn page_crashed(&mut self, slot: SlotId, tab: TabId, cause: CrashCause) -> Vec<Effect> {
+        let Some(id) = self.occupant_of(slot).filter(|&id| id == tab) else {
             return Vec::new();
         };
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();

@@ -176,7 +176,6 @@ export const en = {
   "error.tabCrashed": "This page crashed",
   "error.tabCrashed.outOfMemory": "It ran out of memory.",
   "error.tabCrashed.ended": "Another program ended it.",
-  "error.tabCrashed.unknown": "Reload it to try again.",
   "error.details": "Details",
   "error.page": "This page ran into a problem",
   "error.page.help": "The rest of Haku is still working. Try again, or go to another page.",

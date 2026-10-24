@@ -127,7 +127,7 @@ pub enum PageSignal {
 /// A process behind a webview exited, of the kinds Haku answers.
 ///
 /// The engine restarts the others itself, or, for a frame's process, draws
-/// the failure in the frame. [Crash recovery](../../docs/specs/crash-recovery.md#what-fails).
+/// the failure in the frame. [Crash recovery](../../../docs/specs/crash-recovery.md#what-fails).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessFailure {
     /// The webview's own page process: its page is gone.

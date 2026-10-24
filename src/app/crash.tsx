@@ -25,10 +25,10 @@ export function PageCrash({ error, retry }: { error: unknown; retry: () => void 
   );
 }
 
-const CRASH_CAUSES: Record<CrashCause, TranslationKey> = {
+/** Why a page crashed, for the causes the engine names. */
+const CRASH_CAUSES: Partial<Record<CrashCause, TranslationKey>> = {
   outOfMemory: "error.tabCrashed.outOfMemory",
   ended: "error.tabCrashed.ended",
-  unknown: "error.tabCrashed.unknown",
 };
 
 /**
@@ -37,10 +37,11 @@ const CRASH_CAUSES: Record<CrashCause, TranslationKey> = {
  * the user's call.
  */
 export function TabCrash({ tabId, cause }: { tabId: TabId; cause: CrashCause }) {
+  const reason = CRASH_CAUSES[cause];
   return (
     <CrashNotice
       title={t("error.tabCrashed")}
-      description={t(CRASH_CAUSES[cause])}
+      description={reason && t(reason)}
       action={
         <button type="button" className={crashStyle.action} onClick={() => void commands.reloadTab(tabId)}>
           {t("error.reload")}
@@ -85,7 +86,8 @@ export function InterfaceCrash({ error }: { error: unknown }) {
 
 interface CrashNoticeProps {
   title: string;
-  description: string;
+  /** What to know about it, when there is anything. */
+  description?: string | undefined;
   action: ReactNode;
   /** What was thrown, when the interface itself failed. */
   error?: unknown;
@@ -98,7 +100,7 @@ function CrashNotice({ title, description, action, error }: CrashNoticeProps) {
       <div className={crashStyle.notice}>
         <i className={crashStyle.mark} aria-hidden="true" />
         <h1 className={crashStyle.title}>{title}</h1>
-        <p className={crashStyle.description}>{description}</p>
+        {description && <p className={crashStyle.description}>{description}</p>}
         {action}
         {error !== undefined && (
           <details className={crashStyle.details}>

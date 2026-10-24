@@ -1,7 +1,7 @@
 //! What Haku does when a process behind the interface or the engine exits.
 //!
 //! A page's own process is the browser model's to answer, as a crashed tab;
-//! this is the rest of [Crash recovery](../../docs/specs/crash-recovery.md).
+//! this is the rest of [Crash recovery](../../../docs/specs/crash-recovery.md).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -101,7 +101,12 @@ pub fn engine_failed(app: &tauri::AppHandle) {
                     .arg(format!("{RESTARTED_AT}{now}"))
                     .spawn()
             });
-            handle.exit(if restarted.is_ok() { 0 } else { 1 });
+            if restarted.is_err() {
+                platform::show_fatal("Haku's engine stopped, and Haku could not start again. Open it to continue.");
+                handle.exit(1);
+                return;
+            }
+            handle.exit(0);
         });
     });
 }

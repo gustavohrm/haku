@@ -2233,7 +2233,7 @@ fn a_popup_requested_from_outside_every_tab_keeps_no_tab_running() {
 
 fn crash(browser: &mut Browser, id: TabId) -> Vec<Effect> {
     let slot = slot_of(browser, id).expect("the tab holds a webview");
-    browser.page_crashed(slot, CrashCause::OutOfMemory)
+    browser.page_crashed(slot, id, CrashCause::OutOfMemory)
 }
 
 #[test]
@@ -2310,7 +2310,18 @@ fn a_crash_releases_the_dialog_the_page_was_waiting_on() {
 fn a_crash_in_a_slot_no_tab_holds_changes_nothing() {
     let (mut browser, _) = browser_with(2, &["https://a.test"]);
 
-    assert!(browser.page_crashed(SlotId(7), CrashCause::Unknown).is_empty());
+    assert!(browser
+        .page_crashed(SlotId(7), TabId(1), CrashCause::Unknown)
+        .is_empty());
+}
+
+#[test]
+fn a_crash_reported_after_the_slot_passed_to_another_tab_is_ignored() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
+    let slot = slot_of(&browser, ids[1]).unwrap();
+
+    assert!(browser.page_crashed(slot, ids[0], CrashCause::Unknown).is_empty());
+    assert_eq!(slot_of(&browser, ids[1]), Some(slot));
 }
 
 #[test]

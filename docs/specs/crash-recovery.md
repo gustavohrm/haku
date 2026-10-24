@@ -12,14 +12,15 @@ A page's renderer process can exit: it crashed, ran out of memory, or was ended 
 
 `ProcessFailed` names the kind of process and, on newer runtimes, a reason. Haku answers the kinds by what they take down:
 
-| Kind                                                        | What is lost                                           | Haku's answer                        |
-| ----------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------ |
-| `RENDER_PROCESS_EXITED` on a content webview                | That page                                              | [The tab is crashed](#a-crashed-tab) |
-| `RENDER_PROCESS_EXITED` on a chrome webview                 | That window's interface                                | [Reload it](#the-interface)          |
-| `BROWSER_PROCESS_EXITED`                                    | Every webview, the interface included                  | [Restart Haku](#the-engine)          |
-| `FRAME_RENDER_PROCESS_EXITED`                               | One frame inside a page; the engine draws its sad face | Nothing                              |
-| `GPU_PROCESS_EXITED`, utility, sandbox helper, plugin kinds | Nothing lasting; the engine starts them again          | Nothing                              |
-| `RENDER_PROCESS_UNRESPONSIVE`                               | Nothing yet: the page is hung, not gone                | [Not built](#not-built)              |
+| Kind                                           | What is lost                                           | Haku's answer                        |
+| ---------------------------------------------- | ------------------------------------------------------ | ------------------------------------ |
+| `RENDER_PROCESS_EXITED` on a content webview   | That page                                              | [The tab is crashed](#a-crashed-tab) |
+| `RENDER_PROCESS_EXITED` on a chrome webview    | That window's interface                                | [Reload it](#the-interface)          |
+| `BROWSER_PROCESS_EXITED`                       | Every webview, the interface included                  | [Restart Haku](#the-engine)          |
+| `FRAME_RENDER_PROCESS_EXITED`                  | One frame inside a page; the engine draws its sad face | Nothing                              |
+| `GPU_PROCESS_EXITED`, `UTILITY_PROCESS_EXITED` | Nothing lasting; the engine starts them again          | Nothing                              |
+| Sandbox helper, plugin and unknown kinds       | Not documented; nothing Haku can restore               | Nothing                              |
+| `RENDER_PROCESS_UNRESPONSIVE`                  | Nothing yet: the page is hung, not gone                | [Not built](#not-built)              |
 
 The reason, such as `OUT_OF_MEMORY` or `TERMINATED`, does not change the answer. It is kept on the tab to word the notice.
 
@@ -60,12 +61,13 @@ Restarting was chosen over rebuilding each window in place: rebuilding means rec
 
 - Tauri's restart starts the new process before the old one exits. The single-instance guard ([Windows and popups](new-windows.md#launching-again)) would take the new process for a second launch, hand it to the dying one and quit, leaving no Haku at all; the guard is released first, with the plugin's `destroy`.
 - A browser process that exits as it starts would restart forever. The restart passes its time to the new process as an argument, and a failure within a minute of it shows a native message box saying the engine keeps failing, then quits instead.
+- A new process that cannot be started at all shows a native message box saying Haku could not start again, and quits; opening Haku again restores the session saved before it.
 
 ## Testing
 
 - The browser model's rules are unit tests: a crash releases the slot and dismisses the dialog; a crashed tab stays unbound when visible and when capacity frees; reload, navigation and closing behave as on a discarded tab; the session stores it as a plain tab.
 - In the app, a renderer is made to crash with the DevTools protocol's `Page.crash` on a tab's webview, and its process can be ended from Task Manager. The interface's renderer is crashed the same way on the chrome webview, and the browser process by ending the `msedgewebview2.exe` started without `--type`.
-- Checked on 2026-10-23 with a debug build, on WebView2 for Windows: ending a page's renderer showed the notice and the warning in the strip, and Reload loaded the page again in the same slot, so blanking does recover it. Ending a renderer with `Stop-Process` was reported with no known reason, not as terminated. Ending the interface's renderer reloaded it within a second, the page untouched. Ending the browser process restarted Haku on the same tabs, and ending it again within the minute showed the message box and quit.
+- Checked on 2026-10-23 with a debug build, on WebView2 for Windows: ending a page's renderer showed the notice and the warning in the strip, and Reload loaded the page again in the same slot, so blanking does recover it. Ending a renderer with `Stop-Process` was reported with no known reason, not as terminated, so the notice named none. Ending the interface's renderer reloaded it within a second, the page untouched. Ending the browser process restarted Haku on the same tabs, and ending it again within the minute showed the message box and quit.
 
 ## Not built
 

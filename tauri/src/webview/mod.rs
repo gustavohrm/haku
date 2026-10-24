@@ -334,8 +334,8 @@ pub fn build_window<R: tauri::Runtime>(
     Ok(builder.build()?)
 }
 
-/// Lifts a window's chrome over the page content to come and starts taking
-/// its shortcuts.
+/// Lifts a window's chrome over the page content to come, starts taking its
+/// shortcuts, and starts reporting its process failures.
 ///
 /// Must not be called on the main thread: both wait on it.
 ///
@@ -345,8 +345,11 @@ pub fn build_window<R: tauri::Runtime>(
 pub fn prepare_chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>, window: WindowId, hooks: &Hooks<R>) -> Result<()> {
     let chrome = chrome_of(app, window)?;
     platform::raise_chrome(&chrome)?;
-    platform::intercept_keys(&chrome, (hooks.keys)(app, window))?;
-    platform::watch_failures(&chrome, (hooks.failures)(app, window))
+    // Both are attached even when one fails: a window without shortcuts
+    // should still recover from a crash, and the other way round.
+    let keys = platform::intercept_keys(&chrome, (hooks.keys)(app, window));
+    let failures = platform::watch_failures(&chrome, (hooks.failures)(app, window));
+    keys.and(failures)
 }
 
 /// The viewport a window that has not laid out yet is given, so the first

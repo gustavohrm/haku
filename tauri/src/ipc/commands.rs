@@ -142,10 +142,16 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 },
             ),
             PageSignal::ProcessFailed(ProcessFailure::Page(cause)) => {
+                // The tab whose page it was, read now: by the time the change
+                // runs, the slot may hold another tab's page.
+                let state = app.state::<AppState>();
+                let Some(tab) = state.browser.read().ok().and_then(|browser| browser.tab_in(slot)) else {
+                    return;
+                };
                 let app = app.clone();
                 std::thread::spawn(move || {
                     let state = app.state::<AppState>();
-                    let _ = mutate(&app, &state, |browser| Ok(browser.page_crashed(slot, cause)));
+                    let _ = mutate(&app, &state, |browser| Ok(browser.page_crashed(slot, tab, cause)));
                 });
             }
             PageSignal::ProcessFailed(ProcessFailure::Engine) => recovery::engine_failed(app),
