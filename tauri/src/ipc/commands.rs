@@ -775,10 +775,7 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
     let Some(report) = recorded else {
         return;
     };
-    record_visit(state, &report);
-    // The session should reopen where the page actually is, not where it was
-    // opened.
-    let _ = state.save_session();
+    queue_record(app, report);
 
     let states = state.browser.read().map(|browser| window_states(&browser));
     if let Ok(states) = states {
@@ -1344,6 +1341,34 @@ pub async fn set_layout(
 
 /// Records a visit, or retitles the last one, tolerating a failure rather than
 /// breaking navigation.
+/// Writes what a page change leaves on disk, the visit and the session, off
+/// the UI thread and in the order the pages changed.
+///
+/// Page reports arrive on the UI thread, and both writes wait on the disk: the
+/// session file is synced, and the history file may be held by another Haku.
+/// The session is written once for every report that queued up meanwhile, so
+/// a page pushing routes quickly costs one write, not one per route; it
+/// should reopen where the page actually is, not where it was opened.
+fn queue_record(app: &tauri::AppHandle, report: PageReport) {
+    static QUEUE: OnceLock<mpsc::Sender<PageReport>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<PageReport>();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let state = app.state::<AppState>();
+            while let Ok(report) = receiver.recv() {
+                record_visit(&state, &report);
+                for report in receiver.try_iter() {
+                    record_visit(&state, &report);
+                }
+                let _ = state.save_session();
+            }
+        });
+        sender
+    });
+    let _ = queue.send(report);
+}
+
 fn record_visit(state: &AppState, report: &PageReport) {
     let Ok(history) = state.history.lock() else { return };
     let _ = if report.visited {
