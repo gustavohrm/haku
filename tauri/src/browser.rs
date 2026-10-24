@@ -630,11 +630,10 @@ impl Browser {
     /// by the chrome and needs none.
     fn reserved(&self) -> usize {
         let visible = self.visible();
-        let shown = visible
-            .iter()
-            .filter(|&&id| self.tab(id).is_ok_and(|tab| !tab.is_internal()))
-            .count();
-        let fixed = self.tabs.iter().filter(|tab| tab.fixed && !tab.is_internal()).count();
+        // Neither an internal page nor a crashed tab takes a slot.
+        let takes_slot = |tab: &Tab| !tab.is_internal() && !tab.is_crashed();
+        let shown = visible.iter().filter(|&&id| self.tab(id).is_ok_and(takes_slot)).count();
+        let fixed = self.tabs.iter().filter(|tab| tab.fixed && takes_slot(tab)).count();
         let running = self
             .tabs
             .iter()

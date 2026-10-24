@@ -25,7 +25,7 @@ The price is that reloading becomes the common way a tab comes back, so the seco
 | Optimization › Signals (rewritten) | [Memory pressure](#memory-pressure)                               |
 | Scroll, Form contents (rewritten)  | [What a discarded tab gets back](#what-a-discarded-tab-gets-back) |
 
-Everything else there stands: the four states, what discarding is, freezing, parking on `about:blank`, fixed tabs, service workers, session restore. A tab opened in the background still takes no webview until it is first shown.
+Everything else there stands: the states, what discarding is, freezing, parking on `about:blank`, fixed tabs, service workers, session restore. A tab opened in the background still takes no webview until it is first shown.
 
 It also reverses one decision recorded there: _the pool is never resized with free memory_. That stays true for growing. For shrinking it is dropped, because a reload the user did not expect is better than a crash that also takes down whatever else was running.
 

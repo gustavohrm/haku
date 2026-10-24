@@ -2312,3 +2312,14 @@ fn a_crash_in_a_slot_no_tab_holds_changes_nothing() {
 
     assert!(browser.page_crashed(SlotId(7), CrashCause::Unknown).is_empty());
 }
+
+#[test]
+fn a_crashed_tab_reserves_no_slot() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test", "https://b.test"]);
+    browser.set_fixed(ids[0], true).unwrap();
+    let reserved = browser.reserved();
+
+    crash(&mut browser, ids[0]);
+
+    assert_eq!(browser.reserved(), reserved - 1);
+}
