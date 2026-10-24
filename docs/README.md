@@ -47,5 +47,6 @@ Start with [Architecture](architecture.md).
 | [Windows and popups](specs/new-windows.md)    | Browser windows, popups, and links that open them.      |
 | [Tests](specs/tests.md)                       | Test categories, locations, tooling, and coverage.      |
 | [Errors](specs/errors.md)                     | How failures are represented.                           |
+| [Crash recovery](specs/crash-recovery.md)     | Crashed pages, a crashed interface, a failed engine.    |
 | [Settings page](specs/settings-page.md)       | Sections, search and the row pattern of settings.       |
 | [Context menus](specs/context-menus.md)       | Page and interface menus; the menu component.           |

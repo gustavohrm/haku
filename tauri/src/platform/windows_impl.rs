@@ -34,6 +34,12 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
+    ICoreWebView2ProcessFailedEventArgs2, COREWEBVIEW2_PROCESS_FAILED_KIND,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED, COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+    COREWEBVIEW2_PROCESS_FAILED_REASON, COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY,
+    COREWEBVIEW2_PROCESS_FAILED_REASON_TERMINATED,
+};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
     COREWEBVIEW2_PHYSICAL_KEY_STATUS,
 };
@@ -43,7 +49,7 @@ use webview2_com::{
     DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
     ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
     NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
+    ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
     ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
     WindowCloseRequestedEventHandler,
 };
@@ -69,12 +75,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
-use super::{KeySink, PageSignal, PageSink, PhysicalRect, RoundedRect};
+use super::{FailureSink, KeySink, PageSignal, PageSink, PhysicalRect, ProcessFailure, RoundedRect};
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
 use crate::model::{
-    shortcut_for, Chord, Commit, DialogAnswer, DialogId, DialogKind, Key, MemoryStatus, NavigationKind, PageDialog,
-    Placement, SlotId, WindowRequestId,
+    shortcut_for, Chord, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Key, MemoryStatus, NavigationKind,
+    PageDialog, Placement, SlotId, WindowRequestId,
 };
 use crate::webview::inject;
 
@@ -516,6 +522,73 @@ pub fn set_input_mask<R: tauri::Runtime>(
     })
 }
 
+pub fn show_fatal(message: &str) {
+    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    unsafe {
+        MessageBoxW(
+            None,
+            &HSTRING::from(message),
+            &HSTRING::from("Haku"),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
+pub fn watch_failures<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: FailureSink) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+
+    webview
+        .with_webview(move |platform| {
+            let outcome = unsafe { platform.controller().CoreWebView2() }
+                .and_then(|core| unsafe { attach_failure_handler(&core, sink) })
+                .map_err(|error| HakuError::WindowMissing(error.to_string()));
+            let _ = sender.send(outcome);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+}
+
+unsafe fn attach_failure_handler(core: &ICoreWebView2, sink: FailureSink) -> windows::core::Result<()> {
+    let handler = ProcessFailedEventHandler::create(Box::new(move |_, args| {
+        let Some(args) = args else { return Ok(()) };
+        let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+        args.ProcessFailedKind(&mut kind)?;
+        // Older runtimes give no reason, and the failure is then of no known cause.
+        let reason = args
+            .cast::<ICoreWebView2ProcessFailedEventArgs2>()
+            .ok()
+            .and_then(|args| {
+                let mut reason = COREWEBVIEW2_PROCESS_FAILED_REASON::default();
+                args.Reason(&mut reason).ok().map(|()| reason)
+            });
+        if let Some(failure) = failure_of(kind, reason) {
+            sink(failure);
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    core.add_ProcessFailed(&handler, &mut token)
+}
+
+/// The failure Haku answers for a kind of process exiting, if any.
+fn failure_of(
+    kind: COREWEBVIEW2_PROCESS_FAILED_KIND,
+    reason: Option<COREWEBVIEW2_PROCESS_FAILED_REASON>,
+) -> Option<ProcessFailure> {
+    match kind {
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED => Some(ProcessFailure::Page(match reason {
+            Some(COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY) => CrashCause::OutOfMemory,
+            Some(COREWEBVIEW2_PROCESS_FAILED_REASON_TERMINATED) => CrashCause::Ended,
+            _ => CrashCause::Unknown,
+        })),
+        COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED => Some(ProcessFailure::Engine),
+        _ => None,
+    }
+}
+
 pub fn intercept_keys<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: KeySink) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
 
@@ -648,6 +721,11 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     attach_key_handler(
         controller,
         Arc::new(move |shortcut| keys(PageSignal::Shortcut(shortcut))),
+    )?;
+    let failures = sink.clone();
+    attach_failure_handler(
+        &core,
+        Arc::new(move |failure| failures(PageSignal::ProcessFailed(failure))),
     )?;
     // Handlers stay registered for the webview's whole life, so the tokens that
     // would unregister them are never needed.

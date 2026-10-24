@@ -135,6 +135,11 @@ export type BrowserState = {
 	liveCount: number,
 };
 
+/**  Why a tab's page crashed, as far as the engine says. */
+export type CrashCause = "outOfMemory" | 
+/**  Ended from outside, such as from Task Manager. */
+"ended" | "unknown";
+
 export type DialogAnswer = 
 /**  OK, or Leave. `text` is what a prompt's field held. */
 { action: "accept"; text: string | null } | 
@@ -461,7 +466,13 @@ export type TabPresence =
 /**  No webview. Reactivating reloads the page. */
 { status: "discarded" } | 
 /**  Rendered by the chrome itself; never consumes a slot. */
-{ status: "internal" };
+{ status: "internal" } | 
+/**
+ *  Its page's process exited. No webview, and none is given until the
+ *  user reloads or navigates it, so a page that crashes as it loads does
+ *  not crash again and again.
+ */
+{ status: "crashed"; cause: CrashCause };
 
 /**
  *  A process no slot accounts for: the browser, GPU and utility processes, and

@@ -1,7 +1,9 @@
 import { crashStyle, describeCrash } from "@app/crash-style";
+import { type CrashCause, type TabId } from "@bindings";
 import { useChromeLayout } from "@features/viewport/use-chrome-layout";
 import { WindowControls } from "@features/window-controls/window-controls";
-import { t } from "@shared/i18n";
+import { commands } from "@ipc/commands";
+import { t, type TranslationKey } from "@shared/i18n";
 import { useRef, type ReactNode } from "react";
 
 /**
@@ -17,6 +19,32 @@ export function PageCrash({ error, retry }: { error: unknown; retry: () => void 
       action={
         <button type="button" className={crashStyle.action} onClick={retry}>
           {t("error.retry")}
+        </button>
+      }
+    />
+  );
+}
+
+/** Why a page crashed, for the causes the engine names. */
+const CRASH_CAUSES: Partial<Record<CrashCause, TranslationKey>> = {
+  outOfMemory: "error.tabCrashed.outOfMemory",
+  ended: "error.tabCrashed.ended",
+};
+
+/**
+ * Shown in place of a page whose process exited. Haku does not load it again
+ * on its own, so a page that crashes as it loads does not loop; reloading is
+ * the user's call.
+ */
+export function TabCrash({ tabId, cause }: { tabId: TabId; cause: CrashCause }) {
+  const reason = CRASH_CAUSES[cause];
+  return (
+    <CrashNotice
+      title={t("error.tabCrashed")}
+      description={reason && t(reason)}
+      action={
+        <button type="button" className={crashStyle.action} onClick={() => void commands.reloadTab(tabId)}>
+          {t("error.reload")}
         </button>
       }
     />
@@ -58,24 +86,28 @@ export function InterfaceCrash({ error }: { error: unknown }) {
 
 interface CrashNoticeProps {
   title: string;
-  description: string;
+  /** What to know about it, when there is anything. */
+  description?: string | undefined;
   action: ReactNode;
-  error: unknown;
+  /** What was thrown, when the interface itself failed. */
+  error?: unknown;
 }
 
-/** What failed, what to do about it, and the error itself, folded away. */
+/** What failed, what to do about it, and any error, folded away. */
 function CrashNotice({ title, description, action, error }: CrashNoticeProps) {
   return (
     <div className={crashStyle.page}>
       <div className={crashStyle.notice}>
         <i className={crashStyle.mark} aria-hidden="true" />
         <h1 className={crashStyle.title}>{title}</h1>
-        <p className={crashStyle.description}>{description}</p>
+        {description && <p className={crashStyle.description}>{description}</p>}
         {action}
-        <details className={crashStyle.details}>
-          <summary className={crashStyle.summary}>{t("error.details")}</summary>
-          <pre className={crashStyle.error}>{describeCrash(error)}</pre>
-        </details>
+        {error !== undefined && (
+          <details className={crashStyle.details}>
+            <summary className={crashStyle.summary}>{t("error.details")}</summary>
+            <pre className={crashStyle.error}>{describeCrash(error)}</pre>
+          </details>
+        )}
       </div>
     </div>
   );

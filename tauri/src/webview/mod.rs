@@ -12,7 +12,7 @@ use crate::model::{
     popup_origin, popup_size, PageState, Placement, ScreenRect, Scroll, SlotId, TabId, WindowId, WindowKind,
     WindowRequestId, POPUP_MIN_SIZE,
 };
-use crate::platform::{self, KeySink, PageSignal, PageSink};
+use crate::platform::{self, FailureSink, KeySink, PageSignal, PageSink};
 use crate::storage::WindowBounds;
 use inject::ExtensionView;
 
@@ -126,10 +126,14 @@ pub type PageObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, SlotId, PageSignal) 
 /// has focus.
 pub type KeyObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, WindowId) -> KeySink + Send + Sync>;
 
+/// Makes the sink that receives a window chrome's process failures.
+pub type FailureObserver<R> = Arc<dyn Fn(&tauri::AppHandle<R>, WindowId) -> FailureSink + Send + Sync>;
+
 /// What the caller attaches to the webviews this module creates.
 pub struct Hooks<R: tauri::Runtime> {
     pub page: PageObserver<R>,
     pub keys: KeyObserver<R>,
+    pub failures: FailureObserver<R>,
 }
 
 /// How a window is first put on screen.
@@ -330,22 +334,22 @@ pub fn build_window<R: tauri::Runtime>(
     Ok(builder.build()?)
 }
 
-/// Lifts a window's chrome over the page content to come and starts taking
-/// its shortcuts.
+/// Lifts a window's chrome over the page content to come, starts taking its
+/// shortcuts, and starts reporting its process failures.
 ///
 /// Must not be called on the main thread: both wait on it.
 ///
 /// # Errors
 /// Returns [`HakuError::WindowMissing`] when the window has closed, and the
 /// platform's failure to attach to it.
-pub fn prepare_chrome<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    window: WindowId,
-    keys: &KeyObserver<R>,
-) -> Result<()> {
+pub fn prepare_chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>, window: WindowId, hooks: &Hooks<R>) -> Result<()> {
     let chrome = chrome_of(app, window)?;
     platform::raise_chrome(&chrome)?;
-    platform::intercept_keys(&chrome, keys(app, window))
+    // Both are attached even when one fails: a window without shortcuts
+    // should still recover from a crash, and the other way round.
+    let keys = platform::intercept_keys(&chrome, (hooks.keys)(app, window));
+    let failures = platform::watch_failures(&chrome, (hooks.failures)(app, window));
+    keys.and(failures)
 }
 
 /// The viewport a window that has not laid out yet is given, so the first
@@ -456,7 +460,7 @@ pub fn apply<R: tauri::Runtime>(
                 };
                 viewports.open(*window, *kind, guessed_viewport(frame, viewports));
                 build_window(app, *window, *kind, frame)?;
-                prepare_chrome(app, *window, &hooks.keys)?;
+                prepare_chrome(app, *window, hooks)?;
             }
             Effect::CloseWindow { window } => {
                 viewports.remove(*window);

@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-08
+last_updated: 2026-10-23
 scope: How tabs share a limited number of webviews.
 ---
 
@@ -24,12 +24,13 @@ Scroll position and form contents survive — see [Scroll and form contents](#sc
 
 ## States
 
-A tab is in exactly one of four states:
+A tab is in exactly one of five states:
 
 - **Live** — bound to a pool slot, backed by a real webview, running.
 - **Frozen** — bound to a pool slot, its page paused. Showing it resumes the page without a reload.
 - **Discarded** — no webview. Reactivating reloads the URL.
 - **Internal** — a `haku://` page drawn by the chrome. Never consumes a slot.
+- **Crashed** — its page's process exited. No webview, and none is given, even while it is visible, until it is reloaded or navigated. It reserves no slot. [Crash recovery](crash-recovery.md#a-crashed-tab).
 
 ## Capacity
 

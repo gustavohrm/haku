@@ -20,13 +20,15 @@ interface TabItemProps {
  * reload for no reason the user can see.
  *
  * Haku's own pages carry the Haku mark in the text's colour; a web page
- * carries its favicon.
+ * carries its favicon, and one that crashed carries a warning in its place.
  */
 export function TabItem({ tab, active }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
   const discarded = tab.presence.status === "discarded";
-  const state = { discarded: t("tabs.discarded"), frozen: t("tabs.frozen") }[tab.presence.status as string];
+  const state = { discarded: t("tabs.discarded"), frozen: t("tabs.frozen"), crashed: t("tabs.crashed") }[
+    tab.presence.status as string
+  ];
 
   return (
     <li className="flex w-50 min-w-10 shrink">
@@ -53,6 +55,9 @@ export function TabItem({ tab, active }: TabItemProps) {
         >
           {tab.presence.status === "internal" ? (
             <i className="ic-haku ic-md shrink-0" aria-hidden="true" />
+          ) : tab.presence.status === "crashed" ? (
+            // Found in the strip without opening every tab.
+            <i className="ic-triangle-alert ic-md text-destructive shrink-0" aria-hidden="true" />
           ) : (
             <Favicon key={visit?.favicon ?? ""} src={visit?.favicon ?? null} />
           )}

@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use super::memory::EngineSnapshot;
-use super::{KeySink, PageSink, PhysicalRect, RoundedRect};
+use super::{FailureSink, KeySink, PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
 use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId, WindowRequestId};
 
@@ -32,6 +32,13 @@ pub fn set_input_mask<R: tauri::Runtime>(
 
 pub fn observe_page<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: PageSink) -> Result<()> {
     Err(unsupported("observing page navigation"))
+}
+
+/// Nowhere native to say it yet; the caller quits either way.
+pub fn show_fatal(_message: &str) {}
+
+pub fn watch_failures<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: FailureSink) -> Result<()> {
+    Err(unsupported("watching process failures"))
 }
 
 pub fn intercept_keys<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: KeySink) -> Result<()> {
