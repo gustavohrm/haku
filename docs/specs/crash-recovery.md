@@ -1,5 +1,5 @@
 ---
-status: DRAFT
+status: APPROVED
 last_updated: 2026-10-23
 scope: What Haku does when a process behind a page, the interface or the whole engine fails, and what the user sees.
 ---
