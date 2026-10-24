@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 scope: Browser windows and popups, what happens when a page asks for a new window, by a link or by script, and when it asks to close one.
 ---
 
@@ -12,7 +12,7 @@ Haku has any number of browser windows, sharing one webview pool as [First relea
 
 There are two kinds of window.
 
-- A **browser window** has a tab strip and an address field. Ctrl+N opens one on the home page, and so does Shift+clicking a link.
+- A **browser window** has a tab strip and an address field. Ctrl+N opens one on the home page, and so do Shift+clicking a link and launching Haku again once it has started.
 - A **popup** shows the one page a page opened in it, under a bar with that page's address, read-only, and the window controls. It never takes another tab: a tab opened from a popup, by a link or by a shortcut, opens in the browser window used last, which is brought to the front.
 
 Every tab belongs to one window. Each window shows its own active tab, so every window's visible tab is protected as [Webview pool § Capacity](webview-pool.md#capacity) protects the active one, and capacity grows with the number of windows rather than starving one of them. A webview stays in the window it was last used in. When a tab in another window takes it, it is moved there with `Webview::reparent`, and that window's chrome is raised over it, as when a webview is created.
@@ -66,6 +66,16 @@ A page opened by script may close itself with `window.close()`, as a sign-in pop
 Closing a browser window closes its tabs, which are not remembered for reopening, and destroys the webviews in it. A browser window's last tab closing opens the home page in its place, as it always has; the window stays.
 
 Closing the last browser window quits Haku, popups included, and keeps that window's tabs for the next launch.
+
+## Launching again
+
+One Haku runs at a time, through `tauri-plugin-single-instance`, registered before anything else so a second launch exits before it opens the profile, the session or the history file. Two processes would otherwise share all three: each would write the session over the other's, and one would find the history file locked ([Errors](errors.md#failures-that-must-not-propagate)).
+
+Once it has started, the running Haku answers a second launch by opening a browser window on the home page, as Ctrl+N does (decided 2026-10-23). Launches answered close together open their windows one after another, so the last launch's window ends up in front. A launch while Haku is still starting opens nothing: it is most often the same launch repeated while Haku is slow to appear, and the windows starting up already answer it. It is what Chrome, Edge and Firefox do, and launching a browser again asks for a browser: a new window is an answer the user sees. Bringing the last window used to the front was rejected, because that window may be on another screen or virtual desktop, where the launch would seem to do nothing.
+
+The arguments of a second launch are ignored. Nothing passes Haku an address yet; opening one as a tab belongs with registering Haku as a browser other applications can open links in.
+
+`pnpm tauri dev` and an installed Haku share the guard, so while one runs, starting the other opens a window in the running one instead.
 
 ## The session
 

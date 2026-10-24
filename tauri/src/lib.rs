@@ -48,6 +48,11 @@ pub fn run() {
     let ipc = ipc::builder();
 
     tauri::Builder::default()
+        // First, so a second launch exits before anything below opens the
+        // profile, the session or the history file.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            ipc::commands::launched_again(app);
+        }))
         .invoke_handler(ipc.invoke_handler())
         .on_window_event(ipc::commands::on_window_event)
         .setup(move |app| {
@@ -104,6 +109,7 @@ pub fn run() {
                 for (window, _) in &windows {
                     let _ = webview::prepare_chrome(&handle, *window, &keys);
                 }
+                ipc::commands::answer_launches();
                 if let Ok(chrome) = webview::chrome(&handle) {
                     let _ = platform::stop_idle_workers(&chrome);
                     ipc::commands::sync_extensions(&handle);
