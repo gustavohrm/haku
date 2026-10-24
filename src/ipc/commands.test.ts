@@ -6,6 +6,7 @@ vi.mock("@bindings", () => ({
   commands: {
     selectTab: vi.fn(async () => ({ status: "error", error: failure })),
     getState: vi.fn(async () => ({ status: "ok", data: { tabs: [] } })),
+    goBack: vi.fn(async () => ({ status: "error", error: { kind: "Unknown", detail: 1 } })),
     closeTab: vi.fn(async () => ({ status: "error", error: "invalid args `id` for command `close_tab`" })),
     openTab: vi.fn(async () => {
       throw new TypeError("IPC is unavailable");
@@ -48,6 +49,14 @@ describe("commands", () => {
     const result = await commands.openTab("https://a.test", false);
 
     const error = { kind: "Tauri", message: "IPC is unavailable" };
+    expect(reported).toHaveBeenCalledWith(error);
+    expect(result).toEqual({ status: "error", error });
+  });
+
+  it("reports a failure of a kind Haku does not have as a Tauri error", async () => {
+    const result = await commands.goBack(7);
+
+    const error = { kind: "Tauri", message: '{"kind":"Unknown","detail":1}' };
     expect(reported).toHaveBeenCalledWith(error);
     expect(result).toEqual({ status: "error", error });
   });

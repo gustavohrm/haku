@@ -100,13 +100,17 @@ export async function connect(): Promise<() => void> {
 
 /**
  * Reads the settings again, for a page that could not show them because
- * loading them failed.
+ * loading them failed. Settings a change in another window delivered while
+ * this was being read are newer, and are kept.
  *
  * @throws {HakuFailure} When they still cannot be read; the command wrapper
  *   has already reported it.
  */
 export async function reloadSettings(): Promise<void> {
-  settingsStore.set(await unwrap(commands.getSettings()));
+  const settings = await unwrap(commands.getSettings());
+  if (settingsStore.get() === null) {
+    settingsStore.set(settings);
+  }
 }
 
 /** The last change queued, which the next one waits for. */

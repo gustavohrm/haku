@@ -374,21 +374,18 @@ fn guessed_viewport(frame: Frame, viewports: &Viewports) -> Viewport {
 /// never blocks it.
 ///
 /// @returns What each page that was left held and showed, for
-///   [`crate::browser::Browser::report_state`] and the preview store.
-///
-/// # Errors
-/// Returns [`HakuError::WindowMissing`] when a window an effect puts a
-/// webview in is gone, and propagates Tauri failures from the individual
-/// operations. The first failure is returned once every effect has been
-/// tried.
+///   [`crate::browser::Browser::report_state`] and the preview store, even
+///   when an effect failed; and the first failure, once every effect has
+///   been tried: [`HakuError::WindowMissing`] when a window an effect puts a
+///   webview in is gone, or a Tauri failure from an individual operation.
 pub fn apply<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     effects: &[Effect],
     viewports: &Viewports,
     hooks: &Hooks<R>,
-) -> Result<Vec<Departure>> {
+) -> (Vec<Departure>, Result<()>) {
     let mut departures = Vec::new();
-    each_effect(effects, |effect| {
+    let applied = each_effect(effects, |effect| {
         match effect {
             Effect::EnsureSlot { slot, url, window } => {
                 set_pending(*slot, None);
@@ -477,8 +474,8 @@ pub fn apply<R: tauri::Runtime>(
             }
         }
         Ok(())
-    })?;
-    Ok(departures)
+    });
+    (departures, applied)
 }
 
 /// Runs `apply` on every effect, even after one fails, and returns the first

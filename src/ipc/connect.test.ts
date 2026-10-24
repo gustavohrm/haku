@@ -35,8 +35,20 @@ describe("connect", () => {
     await expect(connect()).rejects.toThrow("locked");
 
     expect(browserStore.get()).toBe(STATE);
-    expect(extensionsStore.get()).not.toBeNull();
+    expect(extensionsStore.get()).toEqual({ installed: [] });
     expect(settingsStore.get()).toBeNull();
+  });
+
+  it("keeps settings that arrived while they were being read again", async () => {
+    const newer = { theme: "light" } as Settings;
+    vi.mocked(commands.getSettings).mockImplementationOnce(async () => {
+      settingsStore.set(newer);
+      return { status: "ok", data: SETTINGS };
+    });
+
+    await reloadSettings();
+
+    expect(settingsStore.get()).toBe(newer);
   });
 
   it("loads the settings again on request", async () => {

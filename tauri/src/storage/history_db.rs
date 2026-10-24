@@ -6,7 +6,7 @@
 //! feature has data to show when it arrives.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, ErrorCode};
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,9 @@ pub struct HistoryEntry {
 
 pub struct HistoryDb {
     connection: Connection,
+    /// The file history could not be opened from, while it is kept in memory
+    /// instead.
+    unopened: Option<PathBuf>,
 }
 
 impl HistoryDb {
@@ -90,13 +93,17 @@ impl HistoryDb {
     ///
     /// The browser is still usable without its history file, and Haku has no
     /// window yet to say why it would not start. A file another Haku holds
-    /// locked, or one that cannot be read, is left untouched for the next run.
+    /// locked, or one that cannot be read, is left untouched for the next run,
+    /// except by [`Self::clear`].
+    ///
+    /// # Panics
+    /// Panics if SQLite cannot create an in-memory database with the fixed
+    /// schema, which leaves nothing to fall back to.
     pub fn open_or_in_memory(path: &Path) -> Self {
-        Self::open_or_set_aside(path)
-            .or_else(|_| Self::in_memory())
-            .unwrap_or_else(|_| Self {
-                connection: Connection::open_in_memory().expect("SQLite cannot open an in-memory database"),
-            })
+        Self::open_or_set_aside(path).unwrap_or_else(|_| Self {
+            unopened: Some(path.to_path_buf()),
+            ..Self::in_memory().expect("an in-memory history database could not be created")
+        })
     }
 
     fn connect(path: &Path) -> rusqlite::Result<Self> {
@@ -104,7 +111,10 @@ impl HistoryDb {
         // A write by another Haku holds the file for milliseconds; waiting
         // briefly is better than failing a visit, or startup, over it.
         connection.busy_timeout(BUSY_TIMEOUT)?;
-        let mut database = Self { connection };
+        let mut database = Self {
+            connection,
+            unopened: None,
+        };
         database.migrate()?;
         Ok(database)
     }
@@ -116,6 +126,7 @@ impl HistoryDb {
     pub fn in_memory() -> Result<Self> {
         let mut database = Self {
             connection: Connection::open_in_memory()?,
+            unopened: None,
         };
         database.migrate()?;
         Ok(database)
@@ -208,10 +219,19 @@ impl HistoryDb {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
+    /// Removes every visit.
+    ///
+    /// While history is kept in memory, the file it could not be opened from
+    /// is cleared too, or the visits in it would come back on the next run.
+    ///
     /// # Errors
-    /// Returns [`crate::error::HakuError::Storage`] when the delete fails.
+    /// Returns [`crate::error::HakuError::Storage`] when the delete fails, or
+    /// when the file history could not be opened from still cannot be.
     pub fn clear(&self) -> Result<()> {
         self.connection.execute("DELETE FROM visits", [])?;
+        if let Some(path) = &self.unopened {
+            Self::connect(path)?.clear()?;
+        }
         Ok(())
     }
 }
@@ -295,6 +315,26 @@ mod tests {
 
         assert_eq!(database.recent(10).unwrap().len(), 1);
         assert!(path.is_dir());
+    }
+
+    #[test]
+    fn a_file_another_connection_holds_locked_leaves_history_in_memory_and_is_cleared_once_free() {
+        let path = temp_path("locked");
+        HistoryDb::open(&path)
+            .unwrap()
+            .record("https://a.test", "A", 1)
+            .unwrap();
+        let holder = Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+
+        let database = HistoryDb::open_or_in_memory(&path);
+        database.record("https://b.test", "B", 2).unwrap();
+        assert_eq!(database.recent(10).unwrap().len(), 1);
+        assert!(database.clear().is_err());
+
+        holder.execute_batch("ROLLBACK").unwrap();
+        database.clear().unwrap();
+        assert!(HistoryDb::open(&path).unwrap().recent(10).unwrap().is_empty());
     }
 
     #[test]

@@ -813,9 +813,13 @@ fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
 }
 
 /// Applies effects to real webviews and tells every window what changed.
+///
+/// What the browser decided is shown and saved even when an effect failed,
+/// since the browser already holds it; the first failure is returned after.
 fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<()> {
     let hooks = hooks();
-    let mut readings = keep_previews(state, webview::apply(app, effects, &state.viewports, &hooks)?);
+    let (departures, mut applied) = webview::apply(app, effects, &state.viewports, &hooks);
+    let mut readings = keep_previews(state, departures);
     // A page read as it was left may turn out to be capturing, which changes
     // what should happen to it. Bounded, though a reading only ever leads to
     // freezing or resuming one tab.
@@ -824,7 +828,9 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
             break;
         }
         let effects = report_readings(state, readings)?;
-        readings = keep_previews(state, webview::apply(app, &effects, &state.viewports, &hooks)?);
+        let (departures, more) = webview::apply(app, &effects, &state.viewports, &hooks);
+        readings = keep_previews(state, departures);
+        applied = applied.and(more);
     }
 
     let states = {
@@ -840,7 +846,7 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
     };
     emit_states(app, states);
     let _ = state.save_session();
-    Ok(())
+    applied
 }
 
 /// Stores the captures taken as pages were left, and passes on what each
