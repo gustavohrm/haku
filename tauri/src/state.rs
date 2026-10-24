@@ -182,6 +182,9 @@ pub struct AppState {
     /// What the extensions folder installed at startup.
     pub extensions: RwLock<Extensions>,
     pub paths: Paths,
+    /// Held from capturing the session to writing it, so saves land in the
+    /// order they captured and an older session never overwrites a newer one.
+    session_saves: Mutex<()>,
 }
 
 impl AppState {
@@ -197,6 +200,7 @@ impl AppState {
             previews: Mutex::new(Previews::default()),
             extensions: RwLock::new(Extensions::default()),
             paths,
+            session_saves: Mutex::new(()),
         }
     }
 
@@ -212,15 +216,21 @@ impl AppState {
     /// # Errors
     /// Returns [`HakuError::Storage`] when the session file cannot be written.
     pub fn save_session(&self) -> Result<()> {
-        let browser = self
-            .browser
-            .read()
-            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        let bounds = self
-            .bounds
-            .read()
-            .map_err(|_| HakuError::Storage("bounds lock poisoned".into()))?;
-        crate::storage::write_json(&self.paths.session, &Session::capture(&browser, &bounds))
+        let _turn = self.session_saves.lock().unwrap_or_else(PoisonError::into_inner);
+        // Captured under the browser's lock and written after it is released,
+        // so a page report waiting on the browser does not wait on the disk.
+        let session = {
+            let browser = self
+                .browser
+                .read()
+                .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+            let bounds = self
+                .bounds
+                .read()
+                .map_err(|_| HakuError::Storage("bounds lock poisoned".into()))?;
+            Session::capture(&browser, &bounds)
+        };
+        crate::storage::write_json(&self.paths.session, &session)
     }
 
     /// # Errors

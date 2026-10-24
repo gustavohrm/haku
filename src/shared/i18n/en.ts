@@ -90,6 +90,8 @@ export const en = {
   "settings.policy.always": "Always",
   "settings.disabledByDiscard": "Has no effect while background tabs are always discarded.",
   "settings.browsing": "Browsing",
+  "settings.unavailable": "Settings could not be loaded",
+  "settings.unavailable.help": "Nothing was changed. Try loading them again.",
   "settings.search": "Search engine URL",
   "settings.search.help":
     "Searches typed in the address field go to this address, in place of %s, or added to its end when it has none.",

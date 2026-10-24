@@ -1,8 +1,10 @@
+import { crashStyle } from "@app/crash-style";
 import { InternalPage } from "@app/internal-page";
 import { type InternalPageProps } from "@app/router";
+import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { useSettings } from "@ipc/hooks";
-import { updateSettings } from "@ipc/store";
+import { reloadSettings, updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useState } from "react";
@@ -30,7 +32,7 @@ export function SettingsPage({ tabId, url }: InternalPageProps) {
   const settings = useSettings();
   const [query, setQuery] = useState("");
   if (!settings) {
-    return null;
+    return <SettingsUnavailable />;
   }
 
   const update: UpdateSettings = (change) =>
@@ -134,5 +136,34 @@ function AboutHeader() {
         mask: `url("${logoUrl}") center / contain no-repeat`,
       }}
     />
+  );
+}
+
+/**
+ * Shown when the settings could not be read, which leaves nothing to draw the
+ * rows from. Why was already reported when loading failed.
+ */
+function SettingsUnavailable() {
+  return (
+    <div className={crashStyle.page}>
+      <div className={crashStyle.notice}>
+        <i className={crashStyle.mark} aria-hidden="true" />
+        <h1 className={crashStyle.title}>{t("settings.unavailable")}</h1>
+        <p className={crashStyle.description}>{t("settings.unavailable.help")}</p>
+        <button
+          type="button"
+          className={crashStyle.action}
+          onClick={async () => {
+            try {
+              await reloadSettings();
+            } catch (error) {
+              reportUnexpected(error);
+            }
+          }}
+        >
+          {t("error.retry")}
+        </button>
+      </div>
+    </div>
   );
 }

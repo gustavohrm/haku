@@ -64,7 +64,7 @@ pub fn run() {
                 settings = settings.with_preset(Preset::Balanced);
             }
             let session: Session = storage::read_json(&paths.session);
-            let history = HistoryDb::open_or_set_aside(&paths.history).expect("could not open the history database");
+            let history = HistoryDb::open_or_in_memory(&paths.history);
 
             let (browser, restored) = session.restore(settings.pool_capacity(), &settings.home_url);
             let browser = browser

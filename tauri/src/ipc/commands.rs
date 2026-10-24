@@ -775,10 +775,7 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
     let Some(report) = recorded else {
         return;
     };
-    record_visit(state, &report);
-    // The session should reopen where the page actually is, not where it was
-    // opened.
-    let _ = state.save_session();
+    queue_record(app, report);
 
     let states = state.browser.read().map(|browser| window_states(&browser));
     if let Ok(states) = states {
@@ -816,9 +813,13 @@ fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
 }
 
 /// Applies effects to real webviews and tells every window what changed.
+///
+/// What the browser decided is shown and saved even when an effect failed,
+/// since the browser already holds it; the first failure is returned after.
 fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<()> {
     let hooks = hooks();
-    let mut readings = keep_previews(state, webview::apply(app, effects, &state.viewports, &hooks)?);
+    let (departures, mut applied) = webview::apply(app, effects, &state.viewports, &hooks);
+    let mut readings = keep_previews(state, departures);
     // A page read as it was left may turn out to be capturing, which changes
     // what should happen to it. Bounded, though a reading only ever leads to
     // freezing or resuming one tab.
@@ -827,7 +828,9 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
             break;
         }
         let effects = report_readings(state, readings)?;
-        readings = keep_previews(state, webview::apply(app, &effects, &state.viewports, &hooks)?);
+        let (departures, more) = webview::apply(app, &effects, &state.viewports, &hooks);
+        readings = keep_previews(state, departures);
+        applied = applied.and(more);
     }
 
     let states = {
@@ -843,7 +846,7 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
     };
     emit_states(app, states);
     let _ = state.save_session();
-    Ok(())
+    applied
 }
 
 /// Stores the captures taken as pages were left, and passes on what each
@@ -1344,6 +1347,34 @@ pub async fn set_layout(
 
 /// Records a visit, or retitles the last one, tolerating a failure rather than
 /// breaking navigation.
+/// Writes what a page change leaves on disk, the visit and the session, off
+/// the UI thread and in the order the pages changed.
+///
+/// Page reports arrive on the UI thread, and both writes wait on the disk: the
+/// session file is synced, and the history file may be held by another Haku.
+/// The session is written once for every report that queued up meanwhile, so
+/// a page pushing routes quickly costs one write, not one per route; it
+/// should reopen where the page actually is, not where it was opened.
+fn queue_record(app: &tauri::AppHandle, report: PageReport) {
+    static QUEUE: OnceLock<mpsc::Sender<PageReport>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<PageReport>();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let state = app.state::<AppState>();
+            while let Ok(report) = receiver.recv() {
+                record_visit(&state, &report);
+                for report in receiver.try_iter() {
+                    record_visit(&state, &report);
+                }
+                let _ = state.save_session();
+            }
+        });
+        sender
+    });
+    let _ = queue.send(report);
+}
+
 fn record_visit(state: &AppState, report: &PageReport) {
     let Ok(history) = state.history.lock() else { return };
     let _ = if report.visited {

@@ -1,8 +1,9 @@
 /**
  * Classes of the screens shown when something fails to render or to start.
  *
- * Shared by the React screens in `crash.tsx` and the startup failure screen,
- * which is built without React because React may be what failed. The frame
+ * Shared by the React screens in `crash.tsx`, the settings page when its
+ * settings could not be loaded, and the startup failure screen, which is built
+ * without React because React may be what failed. The frame
  * matches the interface's own: a drag bar holding the window controls, around
  * the rounded page surface.
  */

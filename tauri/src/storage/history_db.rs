@@ -6,7 +6,7 @@
 //! feature has data to show when it arrives.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, ErrorCode};
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,9 @@ use crate::storage::corrupt_path;
 
 /// Suffixes of the SQLite files that belong to the main database file.
 const COMPANION_SUFFIXES: &[&str] = &["", "-wal", "-shm"];
+
+/// How long a statement waits for a lock another connection holds.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Schema revisions, applied in order to whatever version a database is on.
 ///
@@ -47,6 +50,9 @@ pub struct HistoryEntry {
 
 pub struct HistoryDb {
     connection: Connection,
+    /// The file history could not be opened from, while it is kept in memory
+    /// instead.
+    unopened: Option<PathBuf>,
 }
 
 impl HistoryDb {
@@ -82,9 +88,32 @@ impl HistoryDb {
         }
     }
 
+    /// Opens the database at `path` as [`Self::open_or_set_aside`] does, or
+    /// keeps history in memory for this run when the file cannot be opened.
+    ///
+    /// The browser is still usable without its history file, and Haku has no
+    /// window yet to say why it would not start. A file another Haku holds
+    /// locked, or one that cannot be read, is left untouched for the next run,
+    /// except by [`Self::clear`].
+    ///
+    /// # Panics
+    /// Panics if SQLite cannot create an in-memory database with the fixed
+    /// schema, which leaves nothing to fall back to.
+    pub fn open_or_in_memory(path: &Path) -> Self {
+        Self::open_or_set_aside(path).unwrap_or_else(|_| Self {
+            unopened: Some(path.to_path_buf()),
+            ..Self::in_memory().expect("an in-memory history database could not be created")
+        })
+    }
+
     fn connect(path: &Path) -> rusqlite::Result<Self> {
+        let connection = Connection::open(path)?;
+        // A write by another Haku holds the file for milliseconds; waiting
+        // briefly is better than failing a visit, or startup, over it.
+        connection.busy_timeout(BUSY_TIMEOUT)?;
         let mut database = Self {
-            connection: Connection::open(path)?,
+            connection,
+            unopened: None,
         };
         database.migrate()?;
         Ok(database)
@@ -97,6 +126,7 @@ impl HistoryDb {
     pub fn in_memory() -> Result<Self> {
         let mut database = Self {
             connection: Connection::open_in_memory()?,
+            unopened: None,
         };
         database.migrate()?;
         Ok(database)
@@ -189,10 +219,19 @@ impl HistoryDb {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
+    /// Removes every visit.
+    ///
+    /// While history is kept in memory, the file it could not be opened from
+    /// is cleared too, or the visits in it would come back on the next run.
+    ///
     /// # Errors
-    /// Returns [`crate::error::HakuError::Storage`] when the delete fails.
+    /// Returns [`crate::error::HakuError::Storage`] when the delete fails, or
+    /// when the file history could not be opened from still cannot be.
     pub fn clear(&self) -> Result<()> {
         self.connection.execute("DELETE FROM visits", [])?;
+        if let Some(path) = &self.unopened {
+            Self::connect(path)?.clear()?;
+        }
         Ok(())
     }
 }
@@ -264,6 +303,38 @@ mod tests {
             fs::read_to_string(corrupt_path(&path)).unwrap(),
             "this is not a database, just bytes\n"
         );
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_opened_leaves_history_in_memory() {
+        let path = temp_path("unopenable");
+        fs::create_dir_all(&path).unwrap();
+
+        let database = HistoryDb::open_or_in_memory(&path);
+        database.record("https://a.test", "A", 1).unwrap();
+
+        assert_eq!(database.recent(10).unwrap().len(), 1);
+        assert!(path.is_dir());
+    }
+
+    #[test]
+    fn a_file_another_connection_holds_locked_leaves_history_in_memory_and_is_cleared_once_free() {
+        let path = temp_path("locked");
+        HistoryDb::open(&path)
+            .unwrap()
+            .record("https://a.test", "A", 1)
+            .unwrap();
+        let holder = Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+
+        let database = HistoryDb::open_or_in_memory(&path);
+        database.record("https://b.test", "B", 2).unwrap();
+        assert_eq!(database.recent(10).unwrap().len(), 1);
+        assert!(database.clear().is_err());
+
+        holder.execute_batch("ROLLBACK").unwrap();
+        database.clear().unwrap();
+        assert!(HistoryDb::open(&path).unwrap().recent(10).unwrap().is_empty());
     }
 
     #[test]

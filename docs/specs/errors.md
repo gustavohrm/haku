@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-09-24
+last_updated: 2026-10-23
 ---
 
 # Errors
@@ -56,5 +56,6 @@ Some operations are best-effort by nature and must never break the flow around t
 - Recording a visit. Losing a history row is better than failing a navigation.
 - Reading a JSON store. A corrupt settings file yields defaults rather than refusing to start.
 - Saving the session. It is rewritten on the next change.
+- Opening the history file at startup. A file another Haku holds locked, or one that cannot be read, would otherwise stop Haku before it has a window to say why, so history is kept in memory for that run. Clearing history then clears the file too, and reports the failure when it still cannot be opened, so cleared visits never come back unannounced. Telling the user at startup needs a way to send it to the interface, which does not exist yet.
 
 These swallow their error deliberately, each with a comment saying why.
