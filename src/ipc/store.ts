@@ -55,7 +55,8 @@ export const extensionsStore = createStore<Extensions | null>(null);
  * Subscribes to Rust's state events and loads the first snapshot.
  *
  * Listeners are attached before the snapshot is fetched so that a change landing
- * during startup is not lost between the two.
+ * during startup is not lost between the two. What loads is kept even when
+ * another part fails, and the first failure is then thrown.
  *
  * Browser state is this window's own, so it is listened for on this webview
  * only: a listener for any target also receives what Rust sends every other
@@ -71,17 +72,23 @@ export async function connect(): Promise<() => void> {
     events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
   ]);
 
-  const [state, settings, extensions] = await Promise.all([
-    unwrap(commands.getState()),
-    unwrap(commands.getSettings()),
-    unwrap(commands.extensions()),
+  // Each part is kept as it arrives, so one that fails to load does not take
+  // the others with it: the tab strip still shows when the settings could not
+  // be read.
+  const loaded = await Promise.allSettled([
+    unwrap(commands.getState()).then((state) => browserStore.set(state)),
+    unwrap(commands.getSettings()).then((settings) => settingsStore.set(settings)),
+    unwrap(commands.extensions()).then((extensions) => {
+      // Installing can finish between the snapshot being read and arriving,
+      // and its event is then the newer of the two.
+      if (extensionsStore.get() === null) {
+        extensionsStore.set(extensions);
+      }
+    }),
   ]);
-  browserStore.set(state);
-  settingsStore.set(settings);
-  // Installing can finish between the snapshot being read and arriving, and
-  // its event is then the newer of the two.
-  if (extensionsStore.get() === null) {
-    extensionsStore.set(extensions);
+  const failed = loaded.find((part) => part.status === "rejected");
+  if (failed) {
+    throw failed.reason;
   }
 
   return () => {
@@ -89,6 +96,17 @@ export async function connect(): Promise<() => void> {
     stopSettings();
     stopExtensions();
   };
+}
+
+/**
+ * Reads the settings again, for a page that could not show them because
+ * loading them failed.
+ *
+ * @throws {HakuFailure} When they still cannot be read; the command wrapper
+ *   has already reported it.
+ */
+export async function reloadSettings(): Promise<void> {
+  settingsStore.set(await unwrap(commands.getSettings()));
 }
 
 /** The last change queued, which the next one waits for. */
