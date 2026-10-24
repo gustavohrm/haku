@@ -193,7 +193,7 @@ export type HakuError = { kind: "TabNotFound"; message: string } | { kind: "NoSl
  * 
  *  The stack behaves like a browser's: navigating from anywhere other than the
  *  end truncates the forward entries, exactly as pressing back then following a
- *  link does in any browser.
+ *  link does in any browser. Past [`MAX_ENTRIES`], the oldest entry is dropped.
  */
 export type History = {
 	entries: Visit[],

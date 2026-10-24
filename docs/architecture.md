@@ -61,7 +61,7 @@ Every mutation ends by calling `realize()`, which reconciles the whole state, ra
 
 ### `model/` — the pieces
 
-`tab.rs`, `history.rs` and `pool.rs` hold the data and the rules that belong to it alone. `WebviewPool` is deliberately ignorant of tabs beyond their identity: the caller decides which tabs may not be displaced and what the effective capacity is, which keeps the eviction policy independently testable.
+`tab.rs`, `history.rs` and `pool.rs` hold the data and the rules that belong to it alone. A tab's back/forward stack keeps at most 50 entries, as many as the engine's own, dropping the oldest: every `StateChanged` carries each tab's whole stack, and a page that pushes a route on every scroll or keystroke would otherwise grow it without end. Sending only the current entry was rejected because a back button's list of earlier pages would then need a command of its own. `WebviewPool` is deliberately ignorant of tabs beyond their identity: the caller decides which tabs may not be displaced and what the effective capacity is, which keeps the eviction policy independently testable.
 
 ### `webview/` — the Tauri side
 

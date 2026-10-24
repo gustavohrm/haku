@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 scope: How the boundary between web pages and the application is kept in code, for anyone writing or reviewing a change.
 ---
 
@@ -55,7 +55,7 @@ Content webviews load arbitrary remote pages, and they are given nothing. The ru
 ## Persisted files
 
 - Settings, the open-tab session and history are files a user may edit by hand, JSON for the first two and SQLite for history ([Architecture § storage](../architecture.md#storage--what-survives-a-restart)). Read them as untrusted input.
-- `read_json` layers a stored document over the defaults. A file that does not parse is set aside and replaced by the defaults. Nothing else in a file is trusted: `Settings::sanitized` makes a hand-edited value survivable, such as a pool capacity of zero, and a stored home page must have a scheme Haku opens.
+- `read_json` layers a stored document over the defaults. A file that does not parse is set aside and replaced by the defaults. Nothing else in a file is trusted: `Settings::sanitized` makes a hand-edited value survivable, such as a pool capacity of zero, a stored home page must have a scheme Haku opens, and a search URL must be a web address. A restored tab whose address has any other scheme is left out of the session.
 - A draft is never written to the session file. Tabs skip it when serialised.
 
 ## Secrets and logging

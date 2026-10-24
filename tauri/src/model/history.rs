@@ -55,11 +55,17 @@ pub struct Commit {
     pub kind: NavigationKind,
 }
 
+/// How many entries a tab's stack keeps, as many as the engine's own.
+///
+/// A page that pushes a route on every scroll or keystroke would otherwise
+/// grow it without end, and every state change sends it to the interface.
+pub const MAX_ENTRIES: usize = 50;
+
 /// A tab's navigation stack.
 ///
 /// The stack behaves like a browser's: navigating from anywhere other than the
 /// end truncates the forward entries, exactly as pressing back then following a
-/// link does in any browser.
+/// link does in any browser. Past [`MAX_ENTRIES`], the oldest entry is dropped.
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct History {
     entries: Vec<Visit>,
@@ -109,6 +115,9 @@ impl History {
             return;
         }
         self.entries.truncate(self.index + 1);
+        if self.entries.len() == MAX_ENTRIES {
+            self.entries.remove(0);
+        }
         self.entries.push(visit);
         self.index = self.entries.len() - 1;
     }
@@ -205,6 +214,19 @@ mod tests {
 
         assert_eq!(history.entries().len(), 2);
         assert_eq!(history.index(), 1);
+    }
+
+    #[test]
+    fn a_full_stack_drops_its_oldest_entry() {
+        let mut history = History::new(Visit::new("https://a.test/0"));
+        for n in 1..=MAX_ENTRIES {
+            history.push(Visit::new(format!("https://a.test/{n}")));
+        }
+
+        assert_eq!(history.entries().len(), MAX_ENTRIES);
+        assert_eq!(history.index(), MAX_ENTRIES - 1);
+        assert_eq!(history.entries()[0].url, "https://a.test/1");
+        assert_eq!(history.current().url, format!("https://a.test/{MAX_ENTRIES}"));
     }
 
     #[test]

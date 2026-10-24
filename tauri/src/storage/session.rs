@@ -5,6 +5,7 @@ use specta::Type;
 
 use crate::browser::Browser;
 use crate::model::{WindowId, WindowKind};
+use crate::storage::settings::OPENABLE_SCHEMES;
 
 /// One tab as it is remembered across restarts.
 ///
@@ -47,6 +48,28 @@ pub struct SessionWindow {
     /// Nothing when the window was never placed, which reopens it maximized.
     #[serde(default)]
     pub bounds: Option<WindowBounds>,
+}
+
+impl SessionWindow {
+    /// The window without the tabs Haku does not open, its active tab still
+    /// active, or the one after it when it was left out. An index past the
+    /// tabs is dropped, so restoring falls back to the first tab, as before.
+    fn openable(self) -> Self {
+        let active = self
+            .active
+            .filter(|&active| active < self.tabs.len())
+            .map(|active| self.tabs.iter().take(active).filter(|tab| opens(&tab.url)).count());
+        let tabs: Vec<SessionTab> = self.tabs.into_iter().filter(|tab| opens(&tab.url)).collect();
+        Self {
+            active: active.map(|active| active.min(tabs.len().saturating_sub(1))),
+            tabs,
+            ..self
+        }
+    }
+}
+
+fn opens(url: &str) -> bool {
+    tauri::Url::parse(url).is_ok_and(|url| OPENABLE_SCHEMES.contains(&url.scheme()))
 }
 
 /// The open windows, the one used most recently last.
@@ -104,6 +127,9 @@ impl Session {
     /// The windows to reopen, a session stored before windows existed read as
     /// one, and an empty one as a single window on the home page, so Haku never
     /// opens with nothing in it.
+    ///
+    /// The file may have been edited by hand, so a tab whose address has no
+    /// scheme Haku opens is left out, as a stored home page would be.
     pub fn windows_or_home(&self, home_url: &str) -> Vec<SessionWindow> {
         let windows: Vec<SessionWindow> = if self.windows.is_empty() {
             vec![SessionWindow {
@@ -114,7 +140,11 @@ impl Session {
         } else {
             self.windows.clone()
         };
-        let windows: Vec<SessionWindow> = windows.into_iter().filter(|window| !window.tabs.is_empty()).collect();
+        let windows: Vec<SessionWindow> = windows
+            .into_iter()
+            .map(SessionWindow::openable)
+            .filter(|window| !window.tabs.is_empty())
+            .collect();
         if !windows.is_empty() {
             return windows;
         }
@@ -343,5 +373,42 @@ mod tests {
 
         assert_eq!(captured.windows.len(), 1);
         assert_eq!(captured.windows[0].tabs.len(), 1);
+    }
+
+    #[test]
+    fn a_tab_with_an_address_haku_does_not_open_is_not_restored() {
+        let windows = session_of(
+            &["https://a.test", "javascript:alert(1)", "not a url", "haku://settings"],
+            Some(3),
+        )
+        .windows_or_home("haku://new-tab");
+
+        let urls: Vec<&str> = windows[0].tabs.iter().map(|tab| tab.url.as_str()).collect();
+        assert_eq!(urls, vec!["https://a.test", "haku://settings"]);
+        assert_eq!(windows[0].active, Some(1));
+    }
+
+    #[test]
+    fn an_active_index_past_the_tabs_still_falls_back_to_the_first_tab() {
+        let windows = session_of(&["https://a.test", "javascript:alert(1)", "https://b.test"], Some(9))
+            .windows_or_home("haku://new-tab");
+
+        assert_eq!(windows[0].active, None);
+    }
+
+    #[test]
+    fn a_window_left_with_no_tab_it_can_open_is_not_restored() {
+        let session = Session {
+            windows: vec![
+                window_of(&["javascript:alert(1)"], Some(0)),
+                window_of(&["https://a.test"], Some(0)),
+            ],
+            ..Session::default()
+        };
+
+        let windows = session.windows_or_home("haku://new-tab");
+
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].tabs[0].url, "https://a.test");
     }
 }
