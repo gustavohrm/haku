@@ -473,6 +473,21 @@ where
     opened.map_or(Ok(()), |id| focus_address(app, id))
 }
 
+/// Answers Haku being launched while it already runs: the second launch has
+/// exited, and this one opens a browser window on the home page, as Ctrl+N
+/// does and as other browsers do when launched again.
+///
+/// Called on the UI thread, so the window is opened off it. A launch that
+/// lands before startup has finished finds no browser yet and opens nothing.
+pub fn launched_again(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Some(state) = app.try_state::<AppState>() {
+            let _ = open_home(&app, &state, Browser::open_window);
+        }
+    });
+}
+
 /// Moves keyboard focus to the interface and asks it to focus the address
 /// field for `tab`, which may not have rendered yet. A popup has no address
 /// field, so its page keeps focus.
