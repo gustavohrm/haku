@@ -379,7 +379,8 @@ fn guessed_viewport(frame: Frame, viewports: &Viewports) -> Viewport {
 /// # Errors
 /// Returns [`HakuError::WindowMissing`] when a window an effect puts a
 /// webview in is gone, and propagates Tauri failures from the individual
-/// operations.
+/// operations. The first failure is returned once every effect has been
+/// tried.
 pub fn apply<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     effects: &[Effect],
@@ -387,7 +388,7 @@ pub fn apply<R: tauri::Runtime>(
     hooks: &Hooks<R>,
 ) -> Result<Vec<Departure>> {
     let mut departures = Vec::new();
-    for effect in effects {
+    each_effect(effects, |effect| {
         match effect {
             Effect::EnsureSlot { slot, url, window } => {
                 set_pending(*slot, None);
@@ -475,8 +476,26 @@ pub fn apply<R: tauri::Runtime>(
                 }
             }
         }
-    }
+        Ok(())
+    })?;
     Ok(departures)
+}
+
+/// Runs `apply` on every effect, even after one fails, and returns the first
+/// failure.
+///
+/// The browser recorded every effect as done when it decided them, so one
+/// that fails must not keep the rest from happening: a dialog answered after
+/// a webview that could not be moved would otherwise be left open, its page
+/// paused for good.
+fn each_effect<T>(effects: &[T], mut apply: impl FnMut(&T) -> Result<()>) -> Result<()> {
+    let mut failure = None;
+    for effect in effects {
+        if let Err(error) = apply(effect) {
+            failure.get_or_insert(error);
+        }
+    }
+    failure.map_or(Ok(()), Err)
 }
 
 fn leave_page<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, tab: TabId, capture: bool) -> Departure {
@@ -953,6 +972,23 @@ fn parse_url(url: &str) -> Result<tauri::Url> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_effect_that_fails_does_not_stop_the_ones_after_it() {
+        let mut applied = Vec::new();
+
+        let result = each_effect(&[1, 2, 3], |&effect| {
+            applied.push(effect);
+            match effect {
+                1 => Err(HakuError::InvalidUrl("first".into())),
+                2 => Err(HakuError::InvalidUrl("second".into())),
+                _ => Ok(()),
+            }
+        });
+
+        assert_eq!(applied, vec![1, 2, 3]);
+        assert!(matches!(result, Err(HakuError::InvalidUrl(url)) if url == "first"));
+    }
 
     fn waiting() -> Option<Waiting> {
         WAITING_FOR_EXTENSIONS.lock().unwrap().clone()
