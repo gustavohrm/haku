@@ -2759,7 +2759,24 @@ fn split_page_opens_show_alone_and_background_opens_preserve_focus() {
     assert!(browser.connected.contains(&opened));
     assert_eq!(browser.openers[&opened], left);
     let ids: Vec<_> = browser.tabs_in(window).map(|tab| tab.id).collect();
-    assert_eq!(ids, [left, right, opened, background]);
+    assert_eq!(ids, [left, right, background, opened]);
+}
+
+#[test]
+fn repeated_background_opens_from_either_pair_member_keep_click_order() {
+    for half in [0, 1] {
+        let (mut browser, _) = browser_with(4, &["https://left.test"]);
+        let (window, left, right) = split_pair(&mut browser);
+        let source = slot_of(&browser, [left, right][half]).unwrap();
+        let mut expected = vec![left, right];
+        for url in ["https://c.test", "https://d.test", "https://e.test"] {
+            let (child, _) = browser.open_from(source, url, Opening::Background);
+            expected.push(child);
+            assert_eq!(browser.tabs_in(window).map(|tab| tab.id).collect::<Vec<_>>(), expected);
+            assert_eq!(pane_tabs(&browser, window), [left, right]);
+            assert_eq!(browser.active(), Some(right));
+        }
+    }
 }
 
 #[test]

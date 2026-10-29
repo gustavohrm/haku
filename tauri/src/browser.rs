@@ -1052,7 +1052,11 @@ impl Browser {
         let Some(at) = parent.and_then(|parent| self.index_of(parent).ok()) else {
             return self.tabs.len();
         };
-        let mut index = at + 1;
+        // Skip the partner before scanning children, otherwise a left member's
+        // later opens would be inserted ahead of its existing children.
+        let mut index = self
+            .window_of(self.tabs[at].id)
+            .map_or(at + 1, |window| self.legal_insertion(window, at + 1));
         while self
             .tabs
             .get(index)
