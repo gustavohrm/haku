@@ -27,7 +27,7 @@ export function ViewportPanes() {
     .map((pane) => tabs.find((tab) => tab.id === pane.tab))
     .map((tab) => (tab ? pageName(tab) : t("tabs.untitled")));
   return (
-    <main ref={containerRef} className={cx("mx-1 mb-1 grid min-h-0 min-w-0 flex-1", isSplit && "haku-split")}>
+    <main ref={containerRef} className={cx("mx-1 mt-px mb-1 grid min-h-0 min-w-0 flex-1", isSplit && "haku-split")}>
       {viewports.map((pane, index) => {
         const tab = tabs.find((candidate) => candidate.id === pane.tab);
         return (

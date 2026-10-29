@@ -13,13 +13,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("clamps to the ratio range and 240 pixels per pane, using equal widths below 484", () => {
-  expect(clampSplitRatio(0.1, 1204)).toBe(0.2);
-  expect(clampSplitRatio(0.9, 1204)).toBe(0.8);
-  expect(clampSplitRatio(0.2, 604)).toBe(0.4);
-  expect(clampSplitRatio(0.8, 604)).toBe(0.6);
-  expect(clampSplitRatio(0.8, 483)).toBe(0.5);
-  expect(splitLimits(483)).toEqual({ min: 0.5, max: 0.5 });
+it("clamps to the ratio range and 240 pixels per pane, using equal widths below 485", () => {
+  expect(clampSplitRatio(0.1, 1205)).toBe(0.2);
+  expect(clampSplitRatio(0.9, 1205)).toBe(0.8);
+  expect(clampSplitRatio(0.2, 605)).toBe(0.4);
+  expect(clampSplitRatio(0.8, 605)).toBe(0.6);
+  expect(clampSplitRatio(0.8, 484)).toBe(0.5);
+  expect(splitLimits(484)).toEqual({ min: 0.5, max: 0.5 });
 });
 
 it("supports five-point steps, limits and equal widths with accessible separator values", async () => {
@@ -30,7 +30,7 @@ it("supports five-point steps, limits and equal widths with accessible separator
       disconnect() {}
     },
   );
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1204, left: 0 } as DOMRect);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1205, left: 0 } as DOMRect);
   const ref = createRef<HTMLDivElement>();
   const host = document.createElement("div");
   const root = createRoot(host);
@@ -77,7 +77,7 @@ it("captures a drag, restores geometry on cancel and commits only once on releas
       disconnect() {}
     },
   );
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1204, left: 0 } as DOMRect);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1205, left: 0 } as DOMRect);
   const capture = vi.fn();
   vi.stubGlobal("PointerEvent", MouseEvent);
   HTMLElement.prototype.setPointerCapture = capture;
@@ -136,7 +136,7 @@ it("captures a drag, restores geometry on cancel and commits only once on releas
 });
 
 it("coalesces observation without writes, retains drags across resize and restores the preferred ratio", async () => {
-  let width = 1204;
+  let width = 1205;
   let resize!: () => void;
   const frames = new Map<number, FrameRequestCallback>();
   let nextFrame = 0;
@@ -194,7 +194,7 @@ it("coalesces observation without writes, retains drags across resize and restor
       act(async () => divider.dispatchEvent(new MouseEvent(type, { clientX: x, button: 0, bubbles: true })));
     const writes = vi.spyOn(ref.current!.style, "setProperty");
     vi.mocked(commands.setSplitRatio).mockClear();
-    width = 604;
+    width = 605;
     resize();
     resize();
     resize();
@@ -208,7 +208,7 @@ it("coalesces observation without writes, retains drags across resize and restor
     expect(writes).not.toHaveBeenCalled();
     await pointer("pointerdown");
     await pointer("pointermove", 300);
-    width = 1204;
+    width = 1205;
     resize();
     await flush();
     expect(isCaptured).toBe(true);
@@ -219,7 +219,7 @@ it("coalesces observation without writes, retains drags across resize and restor
     expect(commands.setSplitRatio).not.toHaveBeenCalled();
     await pointer("pointerdown");
     await pointer("pointermove", 840);
-    width = 1004;
+    width = 1005;
     resize();
     await flush();
     expect(isCaptured).toBe(true);
@@ -229,7 +229,7 @@ it("coalesces observation without writes, retains drags across resize and restor
     expect(commands.setSplitRatio).toHaveBeenCalledExactlyOnceWith(1, 0.7);
     vi.mocked(commands.setSplitRatio).mockClear();
     await pointer("pointerdown");
-    width = 483;
+    width = 484;
     resize();
     await flush();
     expect(divider.getAttribute("aria-disabled")).toBe("true");
