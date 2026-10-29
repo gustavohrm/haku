@@ -43,7 +43,7 @@ Overlays are rounded the same way, from the other side. Each one is reported wit
 
 ## The contract with the interface
 
-Each assigned viewport has a stable window-local id owned by Rust. Slice 1 of [Split view](split-view.md#implementation-slices) retains exactly one viewport per populated window and one content element in `features/viewport`. `useChromeLayout` measures it and registered overlays and sends the entire report in a **single** async `set_layout({ layout })` call:
+Each assigned viewport has a stable window-local id owned by Rust. [Split view slice 4b](split-view.md#implementation-slices) shows one viewport for an unpaired tab or two for a selected pair in a normal window; popups retain one. Each pane has a content element in `features/viewport`. `useChromeLayout` measures all panes and registered overlays and sends the entire report in a **single** async `set_layout({ layout })` call:
 
 ```ts
 type Layout = {
@@ -57,7 +57,7 @@ Coordinates and radii are in chrome CSS pixels. Every assignment is reported, in
 
 A report whose revision does not match current state is ignored and returns current state. Before any geometry changes, Rust rejects duplicate/unknown ids, missing assignments, non-finite geometry, negative sizes/radii and intersecting positive-area pane rectangles through the existing error result (`Unsupported`). Negative origins are allowed. Invalid reports apply nothing. Zero-sized panes cut no hole and hide their native surface while retaining assignment/protection and last measured size. As before, subpixel dimensions below one CSS pixel are treated as collapsed. Covered panes cut no hole but keep real bounds and native geometry. A newly assigned slot stays hidden until usable geometry for its current revision arrives.
 
-Placement resolves each visible slot to its current `(window, viewport)`; hidden background slots cut no holes. Every accepted layout updates bounds for all slots in its window: assigned slots use their pane's cached rectangle, and background slots use the focused pane's, retaining the last measured bounds for collapsed panes. Slice 3 revisits background placement when two panes are enabled. The mask subtracts each uncovered rounded pane rectangle, then adds registered rounded overlays back. Cached bounds are keyed by the same window/pane pair.
+Placement resolves each visible slot to its current `(window, viewport)`; hidden background slots cut no holes. Every accepted layout updates bounds for all slots in its window: assigned slots use their pane's cached rectangle, and background slots use the focused pane's, retaining the last measured bounds for collapsed panes. The mask subtracts each uncovered rounded pane rectangle, then adds registered rounded overlays back. Cached bounds are keyed by the same window/pane pair.
 
 All panes and overlays travel in one report. Reports are coalesced per animation frame, with one IPC call in flight and only the latest pending layout retained. Divider dragging writes temporary geometry through refs; its ratio is committed once on release.
 
@@ -80,7 +80,7 @@ useOverlay(ref, isOpen);
 
 `useOverlay` measures the element when it opens, as it resizes, and again when a transition or animation on it ends: a transform is not a resize, so a tooltip scaling up would otherwise stay registered at its starting size. While it is still animating, the part of it beyond what was measured is hidden under the page.
 
-A cover over the whole viewport needs no overlay of its own. `useChromeLayout` measures all assigned pane surfaces together, including each pane's covered state. Internal pages, crashed-page notices and previews keep only their own pane solid. Split pane controls and the 4 CSS-pixel divider sit outside the measured page holes. The whole-interface failure screen covers every assignment. A preview over a reloading page uses the same per-pane cover ([Tab optimization § Previews](tab-optimization.md#previews)).
+A cover over the whole viewport needs no overlay of its own. `useChromeLayout` measures all assigned pane surfaces together, including each pane's covered state. Internal pages, crashed-page notices and previews keep only their own pane solid. Split pane controls and the 5 CSS-pixel divider sit outside the measured page holes. The whole-interface failure screen covers every assignment. A preview over a reloading page uses the same per-pane cover ([Tab optimization § Previews](tab-optimization.md#previews)).
 
 Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its own and registers each toast stack and open dialog in it as they appear, resize and animate. Show notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
 

@@ -457,12 +457,12 @@ pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()
 /// Restricts which parts of the chrome webview receive input.
 ///
 /// The chrome covers the whole window, so without this it would swallow every
-/// click meant for the page. The mask removes `viewport` from the chrome's
+/// click meant for the page. The mask removes each of `viewports` from the chrome's
 /// input area, letting clicks, scrolling and hover reach the content webview
 /// underneath, then adds `overlays` back for anything currently drawn above the
 /// page, such as an open menu.
 ///
-/// Passing no viewport makes the chrome solid again, which is what an internal
+/// Passing an empty viewport slice makes the chrome solid again, which is what an internal
 /// page or a fully covering overlay wants.
 ///
 /// # Errors

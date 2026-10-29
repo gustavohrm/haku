@@ -102,7 +102,7 @@ effective_capacity = max(configured_capacity,
                          max(1, visible_web_count) + fixed_web_count + other_must_run_count)
 ```
 
-Every visible external, non-crashed viewport assignment counts, independently of focus. `fixed_web_count` includes visible fixed tabs; `other_must_run_count` counts non-fixed background web tabs currently playing audio or capturing, or with a connected tab open. Internal and crashed tabs count in none of these reservations. The one-slot floor and fixed overlap preserve the existing policy under [Split view D5](split-view.md#decisions). Music therefore survives a tab switch at a configured capacity of 1. A tab that starts playing while frozen cannot exist; one that starts while visible is already in a slot, so the reservation never has to find a webview for a page mid-playback.
+Every visible external, non-crashed viewport assignment counts, independently of focus. `fixed_web_count` includes visible fixed tabs; `other_must_run_count` counts non-fixed background web tabs currently playing audio or capturing (unless Freeze or Discard is set to Always), or with a connected tab open. Internal and crashed tabs count in none of these reservations. The one-slot floor and fixed overlap preserve the existing policy under [Split view D5](split-view.md#decisions). Unless either policy is Always, music therefore survives a tab switch at a configured capacity of 1. A tab that starts playing while frozen cannot exist; one that starts while visible is already in a slot, so the reservation never has to find a webview for a page mid-playback.
 
 ### Eviction
 

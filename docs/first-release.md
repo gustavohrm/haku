@@ -33,7 +33,7 @@ effective_capacity = max(configured_capacity,
 
 Split view is built on this. No other feature may assume there is exactly one page on screen.
 
-The first slice of [Split view](specs/split-view.md#implementation-slices) now tracks one named viewport per populated window, with a focused assignment and revisioned geometry. The one-viewport invariant remains until slice 3; multiple panes and their controls are not implemented. New commands name the tab they act on rather than reading the active one, so they need no change when there are several visible tabs.
+[Split view slice 4b](specs/split-view.md#implementation-slices) implements persistent in-memory tab pairs, showing the selected unpaired tab alone or both members of its pair, with focused assignments, revisioned geometry and pane controls. Commands name the tab they act on. Session persistence and restoration of pairs remain pending in slice 5.
 
 ### Keyboard input while a page has focus
 
