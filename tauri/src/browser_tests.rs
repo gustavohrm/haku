@@ -3070,7 +3070,7 @@ fn native_creation_and_adoption_failures_are_retryable_in_a_single_pane() {
 }
 
 #[test]
-fn split_explicit_focus_targets_only_the_chosen_page_without_reconciling_background_tabs() {
+fn split_explicit_focus_emits_only_the_chosen_page_effect_and_repeating_is_a_noop() {
     let (mut browser, _) = browser_with(3, &["https://left.test"]);
     let (window, left, _) = split_pair(&mut browser);
     let effects = browser.focus_pane(window, left).unwrap();
