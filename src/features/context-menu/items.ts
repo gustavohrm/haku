@@ -10,7 +10,9 @@ import { tidySeparators, type MenuItem } from "@features/overlays/menu-model";
 import { t } from "@shared/i18n";
 import { invoke } from "@tauri-apps/api/core";
 
-const separator = (id: string): MenuItem => ({ kind: "separator", id });
+// Prefixed, because a separator is often named after the item it introduces
+// and the menu keys its rows by id.
+const separator = (id: string): MenuItem => ({ kind: "separator", id: `separator:${id}` });
 
 /** The longest selection a "Search for" label quotes in full. */
 const QUOTED_LENGTH = 32;

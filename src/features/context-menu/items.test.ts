@@ -101,6 +101,12 @@ describe("tabMenu", () => {
     select(find(items, "keep"));
     expect(acts.setFixed).toHaveBeenCalledWith(1, false);
   });
+
+  it("gives every item its own id, since the menu keys its rows by id", () => {
+    const tabs = [tab(1), tab(2)];
+    const items = tabMenu(tabs[0]!, tabs, tabActions());
+    expect(new Set(ids(items)).size).toBe(items.length);
+  });
 });
 
 describe("fieldMenu", () => {
