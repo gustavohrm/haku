@@ -19,7 +19,7 @@ Nothing in Haku handles a right click today.
 
 Every menu Haku draws uses one component, `features/overlays/menu.tsx`. The site menu and the extensions menu are panels, not menus, and keep their own markup, but share its positioning and dismissal.
 
-- **Items**: command, checkbox, radio, separator, submenu; each with an optional icon, a shortcut hint shown with `.kbd`, and a disabled state.
+- **Items**: command, checkbox, radio, separator, submenu; each with an optional icon, a shortcut hint shown as muted text, and a disabled state.
 - **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox`, `menuitemradio` and `separator`. Native radio items, such as a spell-check language choice, keep their group: choosing one checks it and unchecks the others in its run between separators.
 - **Dismissal**: `useMenuDismiss`, as the site menu closes now.
 - **Placement**: opens at the pointer, down and to the right; flips left or up when it would leave the window, and then clamps to the window. A submenu opens beside its item and flips the same way.
@@ -62,7 +62,6 @@ type ContextMenuRequested = {
     sourceUrl: string | null; // the image or media
     selection: string | null;
     editable: boolean;
-    mainFrame: boolean;
   };
   items: NativeMenuItem[]; // allowed native items only, in the engine's order
 };
@@ -79,17 +78,21 @@ type NativeMenuItem = {
 };
 ```
 
-Command `answer_context_menu(request: number, choice: number | null)`. An answer to an unknown or already answered request is ignored, not an error, because a menu can close from several causes at once.
+Command `answer_context_menu(request: number, choice: number | null, refocus: boolean)`. An answer to an unknown or already answered request is ignored, not an error, because a menu can close from several causes at once.
 
-A request the chrome never answers, say because its window closed, would hold the deferral forever. Rust completes any pending request with no choice when a newer request arrives, when the tab closes or changes slot, and after 60 seconds.
+Showing the menu moves keyboard focus from the page to the chrome, so the answer says where it goes next. A native item gets the page back its focus, since it acts on the page. `refocus` does the same for a menu closed from inside with nothing chosen, by Escape or Tab, so the keyboard is back where it was before the right-click. A menu closed by a click elsewhere, or by one of Haku's items, passes `false`: focus is already where the person or the item put it.
+
+A request the chrome never answers, say because its window closed, would hold the deferral forever. Rust completes any pending request with no choice when a newer request arrives, and after 60 seconds. An answer that comes after the tab has left the slot that asked runs nothing, and the chrome closes a page's menu when its tab stops being the active one.
 
 ### Items
 
 Native items are kept by their `Name`, against an allowlist rather than a blocklist, so an item a future WebView2 adds stays hidden until someone decides on it:
 
-| Kept native items                                                                                                                                                       | Dropped native items, and why                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| undo, redo, cut, copy, paste, pasteAsPlainText, selectAll, spell-check suggestions and settings, emoji, copyImage, copyImageLocation, copyLinkLocation, extension items | back, forward, reload: Haku's own items run them through Haku's commands. inspectElement: replaced by Haku's **Inspect**, below. openLinkInNewWindow and the like: replaced by Haku's items. saveImageAs, saveLinkAs, saveAs, print: they start downloads or dialogs Haku does not handle yet; added back with Downloads and Print. share, webCapture, readAloud and other Edge features. |
+| Kept native items                                                                                                                                                         | Dropped native items, and why                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| undo, redo, cut, copy, paste, pasteAndMatchStyle, selectAll, spell-check suggestions and settings, emoji, copyImage, copyImageLocation, copyLinkLocation, extension items | back, forward, reload: Haku's own items run them through Haku's commands. inspectElement: replaced by Haku's **Inspect**, below. openLinkInNewWindow and the like: replaced by Haku's items. saveImageAs, saveLinkAs, saveAs, print: they start downloads or dialogs Haku does not handle yet; added back with Downloads and Print. share, webCapture, readAloud and other Edge features. |
+
+The names above are the ones WebView2 reported in the app; **Paste as plain text** is `pasteAndMatchStyle`. Items with no name of their own, such as **Writing direction**, **Import passwords** and **Voice typing**, and every separator, arrive as `other`, so an allowlist by name drops them; separators are kept by kind and tidied by the interface. Debug builds log each request's item names to the terminal with the prefix `[context menu]`.
 
 Haku's items, by what was clicked:
 
@@ -97,7 +100,7 @@ Haku's items, by what was clicked:
 | --------- | ------------------------------------------------------------------------------------------------ |
 | Page      | Back, Forward, Reload; then **Inspect**, which opens the tab's DevTools with `open_tab_devtools` |
 | Link      | Open link in new tab, Open link in new window                                                    |
-| Image     | Open image in new tab                                                                            |
+| Image     | Open image in new tab, when the engine gives the image's address                                 |
 | Selection | Search for "…" (the search engine's name is not known, so the label does not name one)           |
 
 Native items follow in their own groups. Extension items stay in their own group at the bottom, as Chrome shows them.
@@ -116,9 +119,13 @@ The chrome's own default menu is turned off from the interface: a `contextmenu` 
 
 Duplicate opens the tab's current URL with `open_tab`, without its back history; a true duplicate needs a new command and is left for later. Close other tabs and Close tabs to the right call `close_tab` per tab.
 
-## Open questions
+## Findings
 
-- **Paste in the interface's text fields.** `navigator.clipboard.readText` in the chrome webview may raise WebView2's clipboard permission prompt. Whether Tauri answers it, or Haku needs `@tauri-apps/plugin-clipboard-manager`, which is a new dependency and capability, is checked when this is built.
-- **Extension items.** Whether WebView2 includes `chrome.contextMenus` items from extensions in `MenuItems` is to be checked with Bitwarden. If it does not, extension items are out of scope until it does.
-- **Open link in new window.** `open_tab` opens a tab in the calling window only, and no command opens a window on a URL, so the item needs a new command, such as `open_window(url)`, which opens a browser window whose one tab loads the URL, as Shift+clicking a link does ([Windows and popups](new-windows.md)). Until it exists, the link menu has only Open link in new tab.
-- **Reopen closed tab.** [Shortcuts](shortcuts.md) handles Ctrl+Shift+T in Rust, and no command exposes it to the interface, so the menu item needs a new command, `reopen_closed_tab`. Without it, the tab strip menu has only New tab.
+Settled while building it:
+
+- **Paste in the interface's text fields** uses `navigator.clipboard.readText` from the chrome, with no new dependency. WebView2 asked the user for clipboard access on first use, so `platform::allow_clipboard_read` allows clipboard reads for the chrome webview only; pages keep the engine's prompt. A refusal is reported, not dropped.
+- **Open link in new window** and **Reopen closed tab** have their commands, `open_window(url)` and `reopen_closed_tab()`.
+- **Where the menu opens.** WebView2's `Location` is in physical pixels relative to the webview; Rust divides it by the window's scale factor and adds the viewport's origin.
+- **No `mainFrame` in the target.** WebView2's `IsRequestedForMainFrame` reported `false` for every request tried, top-level pages such as example.com included. Nothing needed it, so the event leaves it out rather than carry a value nobody can rely on.
+- **Inspect interface** calls Tauri's `plugin:webview|internal_toggle_devtools`, which `core:default` already grants to the chrome; no capability changes. It is shown only when Vite's `import.meta.env.DEV` is set.
+- **Image addresses.** An image in a subframe can arrive with no `sourceUrl`; it then gets the engine's image items but not **Open image in new tab**.
