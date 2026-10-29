@@ -105,6 +105,7 @@ it.each([0, 1])("moves a background pair from half %i to the leading edge with p
   await pointer(source, "pointerup", -10);
   expect(commands.reorderTab).toHaveBeenCalledExactlyOnceWith(3, 0);
   expect(release).toHaveBeenCalledWith(1);
+  await act(async () => browserStore.set({ ...initial, tabs: [3, 4, 1, 2, 5].map(tab) }));
   await act(async () => source.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
   expect(commands.selectTab).not.toHaveBeenCalled();
 });

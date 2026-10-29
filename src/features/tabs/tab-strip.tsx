@@ -41,7 +41,9 @@ export function TabStrip() {
   const clearDrag = () => {
     const current = drag.current;
     drag.current = null;
-    suppressClick.current = false;
+    if (current) {
+      suppressClick.current = false;
+    }
     if (current?.target.hasPointerCapture(current.pointerId)) {
       current.target.releasePointerCapture(current.pointerId);
     }
