@@ -59,6 +59,8 @@ React interface  →  generated bindings  →  Tauri commands  →  Browser  →
 
 That separation is what makes tab and pool behaviour testable without a window, a webview, or an event loop. Every rule about eviction, pinning, discarding and history is exercised by ordinary unit tests.
 
+Each populated window stores disjoint adjacent tab pairs with individual ratios. Selecting a tab projects its pair or the tab alone into an ordered viewport assignment list with a focused viewport; `active` is derived from that assignment. [Split view slice 4b](specs/split-view.md#implementation-slices) permits several background pairs and at most two on-screen viewports in normal windows; popups keep one. The strip joins pair members and moves them as a unit; header-free panes show a focused outline, with waiting-dialog badges on tabs. The interface renders assignments with per-pane covers and internal-page boundaries; the shared toolbar and window-modal dialogs follow the focused tab. Visibility, pool protection and optimization follow assignments, not focus, and geometry is revisioned separately from session state.
+
 Every mutation ends by calling `realize()`, which reconciles the whole state, rather than emitting effects itself. There is therefore exactly one description of what "correct" looks like, and no operation can forget a step another one remembers.
 
 ### `model/` — the pieces
@@ -111,7 +113,7 @@ The host names the page; a path, query or fragment after it belongs to the page,
 
 ## Where this is heading
 
-[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool and native keyboard handling while a page has focus are built; several viewports and webviews keyed by profile are not. Read it before building anything it lists.
+[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool and native keyboard handling while a page has focus are built; two viewport assignments are supported by the backend; pane rendering is built; split session restoration and webviews keyed by profile are not. Read it before building anything it lists.
 
 ## Threading
 

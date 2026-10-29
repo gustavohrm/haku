@@ -13,6 +13,7 @@ interface ItemBase {
   /** The key that does the same, shown as a hint. */
   shortcut?: string | null;
   disabled?: boolean;
+  disabledReason?: string | undefined;
 }
 
 export type MenuItem =

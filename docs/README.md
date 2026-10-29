@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 scope: Index of the project documentation.
 ---
 
@@ -39,6 +39,7 @@ Start with [Architecture](architecture.md).
 | Document                                      | Contains                                                |
 | --------------------------------------------- | ------------------------------------------------------- |
 | [Webview pool](specs/webview-pool.md)         | How tabs share webviews; discarding, pinning, eviction. |
+| [Split view](specs/split-view.md)             | Panes, focus, layout and session restoration.           |
 | [Tab optimization](specs/tab-optimization.md) | Which tabs keep a webview, and why; previews on reload. |
 | [Chrome layering](specs/chrome-layering.md)   | How the interface renders above page content.           |
 | [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.         |

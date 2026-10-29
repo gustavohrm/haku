@@ -100,3 +100,15 @@ dialog[data-toast-instance]::backdrop {
   border-radius: var(--haku-viewport-radius);
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-border) 45%, transparent);
 }
+
+.haku-split {
+  grid-template-columns: minmax(0, calc((100% - 5px) * var(--split-ratio, 0.5))) 5px minmax(0, 1fr);
+}
+
+/* The same width as the ring it replaces, so focus moving between panes never
+   changes the space around them. Pane margins and the divider leave 3px clear
+   outside each ring, matching the gap between the tabs and the toolbar. */
+.haku-pane-focused {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 0;
+}

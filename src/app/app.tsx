@@ -1,5 +1,3 @@
-import { PageCrash, TabCrash } from "@app/crash";
-import { renderInternal } from "@app/router";
 import { applyTheme, isThemePreference } from "@app/theme";
 import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
@@ -7,29 +5,15 @@ import { usePageDialog } from "@features/feedback/use-page-dialog";
 import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
 import { Toolbar } from "@features/toolbar/toolbar";
-import { PreviewCover, usePreviewCover } from "@features/viewport/preview-cover";
-import { useChromeLayout } from "@features/viewport/use-chrome-layout";
+import { ViewportPanes } from "@features/viewport/viewport-panes";
 import { WindowControls } from "@features/window-controls/window-controls";
 import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
-import { ErrorBoundary } from "@shared/error-boundary";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 export function App() {
   const { kind } = useBrowserState();
   const tab = useActiveTab();
   const settings = useSettings();
-  const viewportRef = useRef<HTMLDivElement>(null);
-
-  const internal = tab?.presence.status === "internal";
-  const crash = tab?.presence.status === "crashed" ? tab.presence.cause : null;
-  const activeUrl = tab?.history.entries[tab.history.index]?.url ?? "";
-  const internalPage = internal && tab ? renderInternal(activeUrl, tab.id) : null;
-  const cover = usePreviewCover(tab);
-
-  // An internal page is drawn by the chrome itself, and so are a crashed
-  // page's notice and the cover over a reloading page, so nothing should show
-  // through and the chrome stays solid over the whole surface.
-  useChromeLayout(viewportRef, internal || crash !== null || cover !== null);
   usePageDialog(tab);
   usePageMenu(tab);
 
@@ -58,26 +42,7 @@ export function App() {
         </>
       )}
 
-      {/*
-        The page surface. When a web page is showing this is an empty element:
-        Rust cuts a hole in the chrome's input mask exactly here so the content
-        webview underneath receives clicks. Its rounded frame is drawn by the
-        chrome on top, which is why the corners look right over any page.
-      */}
-      <main ref={viewportRef} className="haku-viewport relative mx-1 mb-1 min-h-0 flex-1 overflow-hidden">
-        {internalPage !== null && (
-          // Keyed by tab and address, so leaving a page that failed gives the
-          // next one a fresh start.
-          <ErrorBoundary
-            key={`${tab?.id}:${activeUrl}`}
-            fallback={(error, retry) => <PageCrash error={error} retry={retry} />}
-          >
-            {internalPage}
-          </ErrorBoundary>
-        )}
-        {crash !== null && tab && <TabCrash tabId={tab.id} cause={crash} />}
-        {cover !== null && <PreviewCover src={cover} />}
-      </main>
+      <ViewportPanes />
       <ContextMenuHost />
     </div>
   );

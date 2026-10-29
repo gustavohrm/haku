@@ -1,13 +1,16 @@
-import { type Settings } from "@bindings";
+import { type BrowserState, type Settings } from "@bindings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { commands } from "./commands";
 import { browserStore, connect, EMPTY_STATE, extensionsStore, reloadSettings, settingsStore } from "./store";
 
 const listen = vi.hoisted(() => vi.fn(async () => () => {}));
+const stateListen = vi.hoisted(() =>
+  vi.fn<(callback: (event: { payload: BrowserState }) => void) => Promise<() => void>>(async () => () => {}),
+);
 vi.mock("@bindings", () => ({
   events: {
-    stateChanged: () => ({ listen }),
+    stateChanged: () => ({ listen: stateListen }),
     settingsChanged: { listen },
     extensionsChanged: { listen },
   },
@@ -37,6 +40,19 @@ describe("connect", () => {
     expect(browserStore.get()).toBe(STATE);
     expect(extensionsStore.get()).toEqual({ installed: [] });
     expect(settingsStore.get()).toBeNull();
+  });
+
+  it.each([1, 2])("keeps a state event at revision %s over a delayed startup snapshot", async (layoutRevision) => {
+    const newer = { ...STATE, capacity: 4, layoutRevision };
+    vi.mocked(commands.getSettings).mockResolvedValueOnce({ status: "ok", data: SETTINGS });
+    vi.mocked(commands.getState).mockImplementationOnce(async () => {
+      stateListen.mock.calls.at(-1)![0]({ payload: newer });
+      return { status: "ok", data: { ...STATE, layoutRevision: 1 } };
+    });
+
+    const stop = await connect();
+    expect(browserStore.get()).toBe(newer);
+    stop();
   });
 
   it("keeps settings that arrived while they were being read again", async () => {

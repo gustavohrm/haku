@@ -41,6 +41,30 @@ export const commands = {
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
 	/**
+	 *  Pairs a distinct unpaired tab with the selected unpaired tab.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	splitTab: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("split_tab", { tab })),
+	/**
+	 *  Separates the named tab's pair, retaining both tabs.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	separateTabs: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("separate_tabs", { tab })),
+	/**
+	 *  Commits the ratio of the named tab's pair, including background pairs.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	setSplitRatio: (tab: TabId, ratio: number) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("set_split_ratio", { tab, ratio })),
+	/**
+	 *  Focuses the named visible pane.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	focusPane: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("focus_pane", { tab })),
+	/**
 	 *  Navigates a tab to whatever the user typed.
 	 * 
 	 *  The input is resolved here rather than in the interface so that the same
@@ -106,7 +130,7 @@ export const commands = {
 	 */
 	openExtensionsFolder: () => typedError<null, HakuError>(__TAURI_INVOKE("open_extensions_folder")),
 	/**
-	 *  Opens an extension's toolbar popup, for the active tab of the window that
+	 *  Opens an extension's toolbar popup, for the named visible tab of the window that
 	 *  called, just below `anchor`: the button it was opened from, in the
 	 *  interface's logical pixels.
 	 * 
@@ -115,10 +139,11 @@ export const commands = {
 	 * 
 	 *  # Errors
 	 *  Returns [`HakuError::Unsupported`] for an extension that is not
-	 *  installed, has no popup or is switched off, and propagates the failure to
+	 *  installed, has no popup or is switched off, or a hidden/foreign tab;
+	 *  [`HakuError::TabNotFound`] for an unknown tab, and propagates the failure to
 	 *  open the popup's window.
 	 */
-	openExtensionPopup: (id: string, anchor: Viewport) => typedError<null, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, anchor })),
+	openExtensionPopup: (id: string, tab: TabId, anchor: Viewport) => typedError<null, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, tab, anchor })),
 };
 
 /** Events */
@@ -146,6 +171,10 @@ export type BrowserState = {
 	/**  The window's tabs, in order. */
 	tabs: Tab[],
 	active: TabId | null,
+	viewports: ViewportAssignment[],
+	focusedViewport: string,
+	splits: TabPair[],
+	layoutRevision: number,
 	/**
 	 *  Exported as a JavaScript number: every value here is a counter, a
 	 *  small capacity, or a millisecond timestamp, all far inside the range a
@@ -282,26 +311,11 @@ export type HistoryEntry = {
 	visitedAt: number,
 };
 
-/**  What the interface currently occupies, in logical pixels. */
+/**  A complete measurement of the assignments at one browser revision. */
 export type Layout = {
-	/**
-	 *  Where page content is shown. `None` means the chrome covers everything,
-	 *  which is the case for an internal page or a full-screen overlay.
-	 */
-	viewport: Viewport | null,
-	/**
-	 *  Regions drawn above the page right now, such as an open menu. These are
-	 *  added back to the chrome's input area so they remain clickable.
-	 */
-	overlays?: Overlay[],
-	/**
-	 *  Corner radius of the viewport, in logical pixels.
-	 * 
-	 *  The page is a native view and cannot be clipped by CSS, so the hole cut
-	 *  in the chrome is rounded instead. The interface reports what its own
-	 *  stylesheet uses, keeping CSS the single source of that number.
-	 */
-	radius?: number,
+	revision: number,
+	viewports: PaneLayout[],
+	overlays: Overlay[],
 };
 
 /**  What discarding a tab would cost, from least to most. */
@@ -381,6 +395,14 @@ export type PageDialog = {
 	defaultText: string,
 	/**  The page that asked, so the interface can say who is asking. */
 	url: string,
+};
+
+/**  Geometry for one assigned pane, in chrome CSS pixels. */
+export type PaneLayout = {
+	id: string,
+	rect: Viewport,
+	covered: boolean,
+	radius: number,
 };
 
 /**  How eagerly one optimization is applied to background tabs. */
@@ -528,6 +550,12 @@ export type Tab = {
 
 export type TabId = number;
 
+/**  A persistent, ordered relationship; only the selected pair owns viewports. */
+export type TabPair = {
+	tabs: [TabId, TabId],
+	ratio: number,
+};
+
 /**
  *  Whether a tab currently holds a webview, and whether it is running.
  * 
@@ -567,6 +595,12 @@ export type Viewport = {
 	y: number,
 	width: number,
 	height: number,
+};
+
+/**  A stable window-local pane and the tab it shows. */
+export type ViewportAssignment = {
+	id: string,
+	tab: TabId,
 };
 
 /**  One entry in a tab's back/forward stack. */

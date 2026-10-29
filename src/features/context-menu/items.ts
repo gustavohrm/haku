@@ -4,7 +4,7 @@
  * [Context menus](../../../docs/specs/context-menus.md).
  */
 
-import type { ContextMenuRequested, NativeMenuItem, Tab, TabId } from "@bindings";
+import type { BrowserState, ContextMenuRequested, NativeMenuItem, Tab, TabId } from "@bindings";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { tidySeparators, type MenuItem } from "@features/overlays/menu-model";
 import { t } from "@shared/i18n";
@@ -51,6 +51,8 @@ export interface TabActions {
   duplicate: (url: string) => void;
   setFixed: (id: TabId, fixed: boolean) => void;
   close: (ids: TabId[]) => void;
+  split: (id: TabId) => void;
+  separate: (id: TabId) => void;
 }
 
 /**
@@ -59,11 +61,25 @@ export interface TabActions {
  * @param tab - The tab right-clicked.
  * @param tabs - Every tab in the window, in strip order.
  */
-export function tabMenu(tab: Tab, tabs: readonly Tab[], actions: TabActions): MenuItem[] {
+export function tabMenu(
+  tab: Tab,
+  tabs: readonly Tab[],
+  actions: TabActions,
+  { active, splits }: Pick<BrowserState, "active" | "splits"> = { active: null, splits: [] },
+): MenuItem[] {
   const url = tab.history.entries[tab.history.index]?.url ?? null;
   const index = tabs.findIndex((other) => other.id === tab.id);
   const others = tabs.filter((other) => other.id !== tab.id).map((other) => other.id);
   const right = tabs.slice(index + 1).map((other) => other.id);
+  const isPaired = splits.some((split) => split.tabs.includes(tab.id));
+  const isSelectedPaired = active !== null && splits.some((split) => split.tabs.includes(active));
+  const disabledReason = isSelectedPaired
+    ? t("split.selectedPaired")
+    : isPaired
+      ? t("split.alreadyPaired")
+      : active === null || active === tab.id
+        ? t("split.self")
+        : undefined;
   return interfaceMenu([
     {
       kind: "command",
@@ -86,6 +102,24 @@ export function tabMenu(tab: Tab, tabs: readonly Tab[], actions: TabActions): Me
       onSelect: () => actions.setFixed(tab.id, !tab.fixed),
     },
     separator("close"),
+    {
+      kind: "command",
+      id: "split",
+      label: t("split.open"),
+      disabled: disabledReason !== undefined,
+      disabledReason,
+      onSelect: () => actions.split(tab.id),
+    },
+    ...(isPaired
+      ? [
+          {
+            kind: "command" as const,
+            id: "separate",
+            label: t("split.separate"),
+            onSelect: () => actions.separate(tab.id),
+          },
+        ]
+      : []),
     { kind: "command", id: "close", label: t("menu.close"), onSelect: () => actions.close([tab.id]) },
     {
       kind: "command",

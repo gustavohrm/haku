@@ -5,6 +5,135 @@ use crate::model::Loss;
 const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
 
+#[test]
+fn reselecting_the_current_tab_reconciles_background_grace_under_fresh_pressure() {
+    let (mut browser, ids) = browser_with(3, &["https://background.test", "https://current.test"]);
+    browser.set_optimization(3, Policy::Smart, Policy::Smart);
+    assert!(slot_of(&browser, ids[0]).is_some());
+    browser.set_pressure(Pressure::Tight);
+    browser.select_tab(ids[1], 1).unwrap();
+    assert_eq!(browser.tab(ids[0]).unwrap().presence, TabPresence::Discarded);
+    assert!(slot_of(&browser, ids[1]).is_some());
+}
+
+#[test]
+fn selecting_a_visible_sibling_reconciles_background_without_leaving_either_pane() {
+    let (mut browser, ids) = browser_with(4, &["https://background.test", "https://left.test"]);
+    let (_, left, right) = split_pair(&mut browser);
+    browser.set_optimization(4, Policy::Smart, Policy::Smart);
+    let visible_slots = [slot_of(&browser, left).unwrap(), slot_of(&browser, right).unwrap()];
+    browser.set_pressure(Pressure::Tight);
+    let effects = browser.select_tab(left, 1).unwrap();
+    assert_eq!(browser.tab(ids[0]).unwrap().presence, TabPresence::Discarded);
+    assert!(effects.iter().all(|effect| !matches!(effect,
+        Effect::Leave { slot, .. } | Effect::Blank { slot } | Effect::Freeze { slot }
+        if visible_slots.contains(slot)
+    )));
+}
+
+#[test]
+fn native_focus_maps_a_slot_to_its_window_and_viewport() {
+    let (mut browser, _) = browser_with(2, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(tab).unwrap();
+    let slot = slot_of(&browser, tab).unwrap();
+    let before = browser.state_in(window).unwrap();
+    let target = browser.focus_slot(slot).unwrap();
+    assert_eq!(target.window, window);
+    assert_eq!(target.id, before.viewports[0].id);
+    let after = browser.state_in(window).unwrap();
+    assert_eq!(after.focused_viewport, target.id);
+    assert_eq!(after.active, Some(tab));
+    assert_eq!(after.layout_revision, before.layout_revision);
+}
+
+#[test]
+fn native_focus_ignores_unknown_parked_and_hidden_slots() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.open_tab("https://b.test", true);
+    assert!(browser.focus_slot(slot).is_none(), "a hidden tab has no assignment");
+    browser.close_tab(ids[0], HOME).unwrap();
+    assert!(browser.slot_ids().contains(&slot));
+    assert!(browser.focus_slot(slot).is_none(), "a parked slot has no assignment");
+    assert!(browser.focus_slot(SlotId(usize::MAX)).is_none());
+}
+
+#[test]
+fn extension_popup_accepts_a_visible_tab_in_the_calling_window() {
+    let (browser, ids) = browser_with(1, &[HOME]);
+    assert_eq!(
+        browser.visible_tab_in(browser.main_window(), ids[0]).unwrap().id,
+        ids[0]
+    );
+}
+
+#[test]
+fn extension_popup_rejects_foreign_hidden_and_unknown_tabs_without_mutation() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let window = browser.main_window();
+    let (hidden, _) = browser.open_tab("https://hidden.test", false);
+    let (foreign, _) = browser.open_window("https://foreign.test");
+    let before = serde_json::to_value(browser.state_in(window)).unwrap();
+    for tab in [foreign, hidden, TabId(u64::MAX)] {
+        assert!(browser.visible_tab_in(window, tab).is_err(), "accepted {tab:?}");
+        assert_eq!(serde_json::to_value(browser.state_in(window)).unwrap(), before);
+    }
+    assert!(browser.visible_tab_in(window, ids[0]).is_ok());
+}
+
+fn assert_single_viewport(browser: &Browser, expected: TabId) -> (String, u64) {
+    let state = serde_json::to_value(browser.state()).unwrap();
+    let panes = state["viewports"].as_array().expect("export viewport assignments");
+    assert_eq!(panes.len(), 1);
+    assert_eq!(panes[0]["tab"], serde_json::to_value(expected).unwrap());
+    assert_eq!(state["active"], panes[0]["tab"]);
+    assert_eq!(state["focusedViewport"], panes[0]["id"]);
+    (
+        panes[0]["id"].as_str().unwrap().into(),
+        state["layoutRevision"].as_u64().unwrap(),
+    )
+}
+
+#[test]
+fn one_viewport_tracks_open_select_and_close_without_changing_its_id_or_revision() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let (pane, revision) = assert_single_viewport(&browser, ids[0]);
+    let (background, _) = browser.open_tab("https://b.test", false);
+    assert_eq!(assert_single_viewport(&browser, ids[0]), (pane.clone(), revision));
+    browser.select_tab(background, 0).unwrap();
+    let (selected_pane, selected_revision) = assert_single_viewport(&browser, background);
+    assert_eq!(selected_pane, pane);
+    assert_eq!(selected_revision, revision);
+    browser.select_tab(background, 1).unwrap();
+    assert_eq!(assert_single_viewport(&browser, background).1, selected_revision);
+    browser.close_tab(background, HOME).unwrap();
+    assert_eq!(assert_single_viewport(&browser, ids[0]).0, pane);
+    let (foreground, _) = browser.open_tab("https://c.test", true);
+    assert_eq!(assert_single_viewport(&browser, foreground).0, pane);
+}
+
+#[test]
+fn closing_the_last_tab_keeps_the_viewport_assigned_to_the_home_replacement() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let (pane, revision) = assert_single_viewport(&browser, ids[0]);
+    browser.close_tab(ids[0], HOME).unwrap();
+    let replacement = browser.active().unwrap();
+    assert_ne!(replacement, ids[0]);
+    assert_eq!(browser.tab(replacement).unwrap().url(), HOME);
+    let (new_pane, new_revision) = assert_single_viewport(&browser, replacement);
+    assert_eq!(new_pane, pane);
+    assert_eq!(new_revision, revision);
+}
+
+#[test]
+fn assigning_the_first_tab_advances_the_layout_revision() {
+    let mut browser = Browser::new(1);
+    let revision = browser.state().layout_revision;
+    browser.open_tab("https://a.test", true);
+    assert_eq!(browser.state().layout_revision, revision + 1);
+}
+
 fn browser_with(capacity: usize, urls: &[&str]) -> (Browser, Vec<TabId>) {
     let mut browser = Browser::new(capacity);
     let ids = urls.iter().map(|url| browser.open_tab(*url, true).0).collect();
@@ -2333,4 +2462,910 @@ fn a_crashed_tab_reserves_no_slot() {
     crash(&mut browser, ids[0]);
 
     assert_eq!(browser.reserved(), reserved - 1);
+}
+
+// Split policy is exercised through the same window-scoped intents as IPC.
+fn split_pair(browser: &mut Browser) -> (WindowId, TabId, TabId) {
+    let window = browser.main_window();
+    let left = browser.active_in(window).unwrap();
+    let (right, _) = browser.open_tab_in(window, "https://right.test", false);
+    browser.split_tab(window, right).unwrap();
+    (window, left, right)
+}
+
+fn pane_tabs(browser: &Browser, window: WindowId) -> Vec<TabId> {
+    browser
+        .state_in(window)
+        .unwrap()
+        .viewports
+        .iter()
+        .map(|pane| pane.tab)
+        .collect()
+}
+
+#[test]
+fn split_and_separate_handoff_native_focus_after_geometry_is_ready() {
+    let (mut browser, _) = browser_with(2, &["https://left.test"]);
+    let window = browser.main_window();
+    let (right, _) = browser.open_tab("https://right.test", false);
+    let split = browser.split_tab(window, right).unwrap();
+    assert!(split.contains(&Effect::FocusPane {
+        window,
+        slot: slot_of(&browser, right)
+    }));
+    assert!(browser
+        .resolve_pane_focus(&split, |_| false)
+        .iter()
+        .all(|effect| !matches!(effect, Effect::FocusPane { .. })));
+    assert_eq!(
+        browser.resolve_pane_focus(&[], |_| true),
+        vec![Effect::FocusPane {
+            window,
+            slot: slot_of(&browser, right)
+        }]
+    );
+    assert!(browser.resolve_pane_focus(&[], |_| true).is_empty());
+    let close = browser.separate_tabs(window, right).unwrap();
+    assert!(close.contains(&Effect::FocusPane {
+        window,
+        slot: slot_of(&browser, right)
+    }));
+    browser.resolve_pane_focus(&close, |_| false);
+    assert_eq!(
+        browser.resolve_pane_focus(&[], |_| true),
+        vec![Effect::FocusPane {
+            window,
+            slot: slot_of(&browser, right)
+        }]
+    );
+}
+
+#[test]
+fn explicit_pane_focus_waits_for_geometry_and_is_applied_once() {
+    use crate::chrome::{Layout, PaneLayout};
+    use crate::webview::{Viewport, Viewports};
+
+    for select in [false, true] {
+        let (mut browser, _) = browser_with(2, &["https://left.test"]);
+        let (window, left, _) = split_pair(&mut browser);
+        let effects = if select {
+            browser.select_tab(left, 1).unwrap()
+        } else {
+            browser.focus_pane(window, left).unwrap()
+        };
+        let viewports = Viewports::default();
+        let ready = |target: &ViewportTarget| viewports.can_show(target);
+        assert!(browser
+            .resolve_pane_focus(&effects, ready)
+            .iter()
+            .all(|effect| !matches!(effect, Effect::FocusPane { .. })));
+        let current = browser.state();
+        let mut layout = Layout {
+            revision: current.layout_revision - 1,
+            viewports: current
+                .viewports
+                .iter()
+                .enumerate()
+                .map(|(index, pane)| PaneLayout {
+                    id: pane.id.clone(),
+                    rect: Viewport {
+                        x: index as f64 * 404.0,
+                        y: 80.0,
+                        width: 400.0,
+                        height: 600.0,
+                    },
+                    covered: false,
+                    radius: 0.0,
+                })
+                .collect(),
+            overlays: Vec::new(),
+        };
+        assert!(!viewports
+            .record(window, &layout, &current.viewports, current.layout_revision)
+            .unwrap());
+        assert!(browser.resolve_pane_focus(&[], ready).is_empty());
+        layout.revision = current.layout_revision;
+        layout.viewports[0].rect.width = 0.0;
+        viewports
+            .record(window, &layout, &current.viewports, current.layout_revision)
+            .unwrap();
+        assert!(browser.resolve_pane_focus(&[], ready).is_empty());
+        layout.viewports[0].rect.width = 400.0;
+        viewports
+            .record(window, &layout, &current.viewports, current.layout_revision)
+            .unwrap();
+        let show = browser.reconcile();
+        let applied = browser.resolve_pane_focus(&show, ready);
+        let slot = slot_of(&browser, left);
+        assert_eq!(applied.last(), Some(&Effect::FocusPane { window, slot }));
+        assert!(applied[..applied.len() - 1].contains(&Effect::Show { slot: slot.unwrap() }));
+        assert!(browser.resolve_pane_focus(&[], ready).is_empty());
+    }
+}
+
+#[test]
+fn deferred_pane_focus_is_dropped_when_assignment_or_focus_changes() {
+    for replace in [false, true] {
+        let (mut browser, _) = browser_with(3, &["https://left.test"]);
+        let (window, left, right) = split_pair(&mut browser);
+        let effects = browser.focus_pane(window, left).unwrap();
+        browser.resolve_pane_focus(&effects, |_| false);
+        if replace {
+            browser.open_tab("https://replacement.test", true);
+        } else {
+            browser.focus_slot(slot_of(&browser, right).unwrap());
+        }
+        assert!(browser.resolve_pane_focus(&[], |_| true).is_empty());
+    }
+}
+
+#[test]
+fn split_intents_export_ratio_focus_and_stable_surviving_pane_ids() {
+    let (mut browser, _) = browser_with(1, &[HOME]);
+    let original = browser.state();
+    let (window, left, right) = split_pair(&mut browser);
+    let split = browser.state();
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(split.active, Some(right));
+    assert_eq!(split.splits[0].ratio, 0.5);
+    assert_eq!(split.layout_revision, original.layout_revision + 1);
+    for ratio in [0.2, 0.8, 0.5] {
+        let before = browser.state().layout_revision;
+        browser.set_split_ratio(window, left, ratio).unwrap();
+        assert_eq!(browser.state().splits[0].ratio, ratio);
+        assert_eq!(browser.state().layout_revision, before + 1);
+        browser.set_split_ratio(window, right, ratio).unwrap();
+        assert_eq!(browser.state().layout_revision, before + 1);
+    }
+    browser.focus_pane(window, left).unwrap();
+    assert_eq!(browser.active(), Some(left));
+    assert_eq!(browser.state().layout_revision, split.layout_revision + 3);
+    assert!(browser.focus_pane(window, left).unwrap().is_empty());
+    browser.separate_tabs(window, right).unwrap();
+    let survivor = browser.state();
+    assert_eq!(survivor.viewports[0].id, split.viewports[0].id);
+    assert_eq!(survivor.active, Some(left));
+    assert_eq!(survivor.splits.len(), 0);
+    assert!(browser.tab(left).is_ok());
+    browser.split_tab(window, right).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_ne!(browser.state().viewports[1].id, original.viewports[0].id);
+    assert_eq!(browser.state().splits[0].ratio, 0.5);
+}
+
+#[test]
+fn split_intents_reject_invalid_targets_without_mutation() {
+    let (mut browser, ids) = browser_with(1, &[HOME]);
+    let window = browser.main_window();
+    let (hidden, _) = browser.open_tab("https://hidden.test", false);
+    let (foreign, _) = browser.open_window("https://foreign.test");
+    let foreign_window = browser.window_of(foreign).unwrap();
+    let (popup, _) = browser.open_from(
+        slot_of(&browser, foreign).unwrap(),
+        "https://popup.test",
+        Opening::Popup {
+            request: WindowRequestId(30),
+            placement: Placement::default(),
+        },
+    );
+    let popup_window = browser.window_of(popup).unwrap();
+    for split in [false, true] {
+        if split {
+            browser.split_tab(window, hidden).unwrap();
+        }
+        let (other_hidden, _) = browser.open_tab_in(window, "https://other.test", false);
+        for command in ["split", "close", "ratio", "focus"] {
+            let mut cases = vec![
+                (window, foreign),
+                (window, popup),
+                (window, TabId(u64::MAX)),
+                (popup_window, popup),
+                (WindowId(999), ids[0]),
+            ];
+            if command == "split" {
+                cases.push((window, ids[0])); // duplicate assignment
+                if split {
+                    cases.push((window, other_hidden));
+                } // third pane
+            } else {
+                cases.push((window, other_hidden));
+                if !split && command != "focus" {
+                    cases.push((window, ids[0]));
+                }
+            }
+            for (caller, tab) in cases {
+                let before = serde_json::to_value([
+                    browser.state_in(window),
+                    browser.state_in(foreign_window),
+                    browser.state_in(popup_window),
+                ])
+                .unwrap();
+                let result = match command {
+                    "split" => browser.split_tab(caller, tab),
+                    "close" => browser.separate_tabs(caller, tab),
+                    "ratio" => browser.set_split_ratio(caller, tab, 0.5),
+                    _ => browser.focus_pane(caller, tab),
+                };
+                assert!(result.is_err(), "accepted {command}({caller:?}, {tab:?})");
+                assert_eq!(
+                    serde_json::to_value([
+                        browser.state_in(window),
+                        browser.state_in(foreign_window),
+                        browser.state_in(popup_window)
+                    ])
+                    .unwrap(),
+                    before
+                );
+            }
+        }
+    }
+    for ratio in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.199, 0.801] {
+        let before = serde_json::to_value(browser.state_in(window)).unwrap();
+        assert!(browser.set_split_ratio(window, ids[0], ratio).is_err());
+        assert_eq!(serde_json::to_value(browser.state_in(window)).unwrap(), before);
+    }
+}
+
+#[test]
+fn split_selection_leaves_pairs_intact_and_only_focuses_visible_members() {
+    let (mut browser, _) = browser_with(3, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let revision = browser.state().layout_revision;
+    let slots = [slot_of(&browser, left), slot_of(&browser, right)];
+    let effects = browser.select_tab(left, 10).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(browser.active(), Some(left));
+    assert!(effects.iter().all(|effect| !matches!(
+        effect,
+        Effect::Leave { .. } | Effect::Blank { .. } | Effect::Freeze { .. } | Effect::EnsureSlot { .. }
+    )));
+    assert_eq!([slot_of(&browser, left), slot_of(&browser, right)], slots);
+    let (hidden, _) = browser.open_tab("https://hidden.test", false);
+    browser.select_tab(hidden, 11).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [hidden]);
+    assert_eq!(browser.state().layout_revision, revision + 1);
+    browser.select_tab(right, 12).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    browser.select_tab(hidden, 13).unwrap();
+    assert!(!browser.is_visible(left));
+    assert_eq!(browser.pick_in(window, Pick::Previous), Some(right));
+}
+
+#[test]
+fn split_foreground_and_reopened_tabs_show_alone_preserving_pairs() {
+    let (mut browser, _) = browser_with(3, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let (opened, _) = browser.open_tab("https://opened.test", true);
+    assert_eq!(pane_tabs(&browser, window), [opened]);
+    browser.close_tab(opened, HOME).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    browser.reopen_closed_tab();
+    let reopened = browser.active().unwrap();
+    assert_eq!(browser.tab(reopened).unwrap().url(), "https://opened.test");
+    assert_eq!(pane_tabs(&browser, window), [reopened]);
+}
+
+#[test]
+fn split_page_opens_show_alone_and_background_opens_preserve_focus() {
+    let (mut browser, _) = browser_with(4, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let source = slot_of(&browser, left).unwrap();
+    let (background, _) = browser.open_from(source, "https://background.test", Opening::Background);
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(browser.active(), Some(right));
+    let (opened, _) = browser.open_from(source, "https://opened.test", Opening::Connected(WindowRequestId(5)));
+    assert_eq!(pane_tabs(&browser, window), [opened]);
+    assert_eq!(browser.active(), Some(opened));
+    assert!(browser.connected.contains(&opened));
+    assert_eq!(browser.openers[&opened], left);
+    let ids: Vec<_> = browser.tabs_in(window).map(|tab| tab.id).collect();
+    assert_eq!(ids, [left, right, background, opened]);
+}
+
+#[test]
+fn repeated_background_opens_from_either_pair_member_keep_click_order() {
+    for half in [0, 1] {
+        let (mut browser, _) = browser_with(4, &["https://left.test"]);
+        let (window, left, right) = split_pair(&mut browser);
+        let source = slot_of(&browser, [left, right][half]).unwrap();
+        let mut expected = vec![left, right];
+        for url in ["https://c.test", "https://d.test", "https://e.test"] {
+            let (child, _) = browser.open_from(source, url, Opening::Background);
+            expected.push(child);
+            assert_eq!(browser.tabs_in(window).map(|tab| tab.id).collect::<Vec<_>>(), expected);
+            assert_eq!(pane_tabs(&browser, window), [left, right]);
+            assert_eq!(browser.active(), Some(right));
+        }
+    }
+}
+
+#[test]
+fn split_closing_either_member_focuses_the_survivor_even_with_other_candidates() {
+    for close_left in [false, true] {
+        let (mut browser, _) = browser_with(4, &["https://other.test", "https://left.test"]);
+        let (window, left, right) = split_pair(&mut browser);
+        let revision = browser.state().layout_revision;
+        let (closed, survivor) = if close_left { (left, right) } else { (right, left) };
+        browser.close_tab(closed, HOME).unwrap();
+        assert_eq!(pane_tabs(&browser, window), [survivor]);
+        assert_eq!(browser.active(), Some(survivor));
+        assert!(browser.state().splits.is_empty());
+        assert_eq!(browser.state().layout_revision, revision + 1);
+    }
+}
+
+#[test]
+fn split_closing_a_tab_with_a_visible_opener_collapses_to_that_opener() {
+    let (mut browser, _) = browser_with(3, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    browser.open_tab("https://hidden.test", false);
+    browser.openers.insert(left, right);
+    let survivor = browser.state().viewports[1].id.clone();
+    browser.close_tab(left, HOME).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [right]);
+    assert_eq!(browser.state().focused_viewport, survivor);
+}
+
+#[test]
+fn split_closing_hidden_tabs_preserves_assignments_and_focus_and_last_visible_collapses() {
+    let (mut browser, _) = browser_with(3, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let (hidden, _) = browser.open_tab("https://hidden.test", false);
+    let revision = browser.state().layout_revision;
+    browser.close_tab(hidden, HOME).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(browser.active(), Some(right));
+    assert_eq!(browser.state().layout_revision, revision);
+    browser.close_tab(right, HOME).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [left]);
+    assert_eq!(browser.active(), Some(left));
+    assert_eq!(browser.state().layout_revision, revision + 1);
+}
+
+#[test]
+fn split_native_focus_switches_between_panes_without_leaving_or_freezing_either() {
+    let (mut browser, _) = browser_with(1, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    browser.set_optimization(1, Policy::Always, Policy::Always);
+    for tab in [left, right, left] {
+        let before = browser.state().layout_revision;
+        let slot = slot_of(&browser, tab).unwrap();
+        let target = browser.focus_slot(slot).unwrap();
+        assert_eq!(browser.active(), Some(tab));
+        assert_eq!(target.revision, before);
+        assert!(browser.focus_pane(window, tab).unwrap().is_empty());
+        let effects = browser.reconcile();
+        assert!(effects.iter().all(|effect| !matches!(
+            effect,
+            Effect::Leave { .. } | Effect::Blank { .. } | Effect::Freeze { .. }
+        )));
+    }
+}
+
+#[test]
+fn split_reservations_cover_two_windows_and_a_popup_at_capacity_one() {
+    let (mut browser, _) = browser_with(1, &["https://first.test"]);
+    let (first_window, left, right) = split_pair(&mut browser);
+    let (other, _) = browser.open_window("https://other.test");
+    let (popup, _) = browser.open_from(
+        slot_of(&browser, other).unwrap(),
+        "https://popup.test",
+        Opening::Popup {
+            request: WindowRequestId(9),
+            placement: Placement::default(),
+        },
+    );
+    assert_eq!(browser.reserved(), 4);
+    browser.set_capacity(1);
+    for tab in [left, right, other, popup] {
+        assert!(slot_of(&browser, tab).is_some());
+        assert_eq!(browser.position(tab), Some(Position::Visible));
+    }
+    assert_eq!(browser.state_in(first_window).unwrap().viewports.len(), 2);
+    assert_eq!(
+        browser
+            .state_in(browser.window_of(popup).unwrap())
+            .unwrap()
+            .viewports
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn split_reservations_preserve_fixed_overlap_and_other_must_run_counts() {
+    let (mut browser, ids) = browser_with(
+        8,
+        &[
+            "https://audio.test",
+            "https://capture.test",
+            "https://fixed.test",
+            "https://left.test",
+        ],
+    );
+    browser.report_audio(slot_of(&browser, ids[0]).unwrap(), true, 1);
+    browser.report_state(
+        ids[1],
+        Some(PageState {
+            url: "https://capture.test".into(),
+            capturing: true,
+            ..PageState::default()
+        }),
+    );
+    browser.set_fixed(ids[2], true).unwrap();
+    let (window, left, right) = split_pair(&mut browser);
+    browser.set_fixed(left, true).unwrap();
+    assert_eq!(browser.reserved(), 2 + 2 + 2);
+    browser.set_capacity(1);
+    assert_eq!(browser.effective_capacity(), 6);
+    for tab in [ids[0], ids[1], ids[2], left, right] {
+        assert!(slot_of(&browser, tab).is_some());
+    }
+    browser.separate_tabs(window, right).unwrap();
+    assert_eq!(browser.reserved(), 1 + 2 + 2);
+}
+
+#[test]
+fn split_always_policies_keep_both_visible_pages_and_connected_openers_running() {
+    for (freeze, discard) in [(Policy::Always, Policy::Never), (Policy::Never, Policy::Always)] {
+        let (mut browser, ids) = browser_with(
+            8,
+            &[
+                "https://audio.test",
+                "https://capture.test",
+                "https://opener.test",
+                "https://left.test",
+            ],
+        );
+        browser.report_audio(slot_of(&browser, ids[0]).unwrap(), true, 1);
+        browser.report_state(
+            ids[1],
+            Some(PageState {
+                url: "https://capture.test".into(),
+                capturing: true,
+                ..PageState::default()
+            }),
+        );
+        browser.open_from(
+            slot_of(&browser, ids[2]).unwrap(),
+            "https://connected.test",
+            Opening::Background,
+        );
+        let child = *browser.openers.keys().next().unwrap();
+        browser.connected.insert(child);
+        let (_, left, right) = split_pair(&mut browser);
+        browser.set_optimization(1, freeze, discard);
+        assert_eq!(browser.reserved(), 3);
+        for tab in [left, right, ids[2]] {
+            assert!(matches!(browser.tab(tab).unwrap().presence, TabPresence::Live { .. }));
+        }
+        for tab in [ids[0], ids[1]] {
+            assert!(!matches!(browser.tab(tab).unwrap().presence, TabPresence::Live { .. }));
+        }
+    }
+}
+
+#[test]
+fn split_pressure_discards_background_work_but_preserves_both_panes() {
+    let (mut browser, ids) = browser_with(5, &["https://work.test", "https://left.test"]);
+    browser.report_state(
+        ids[0],
+        Some(PageState {
+            url: "https://work.test".into(),
+            unsaved: true,
+            ..PageState::default()
+        }),
+    );
+    let (_, left, right) = split_pair(&mut browser);
+    browser.set_optimization(5, Policy::Smart, Policy::Smart);
+    browser.tick(100_000, Pressure::Critical, HashMap::new());
+    assert_eq!(browser.tab(ids[0]).unwrap().presence, TabPresence::Discarded);
+    assert!(browser.tab(ids[0]).unwrap().relieved);
+    for tab in [left, right] {
+        assert!(matches!(browser.tab(tab).unwrap().presence, TabPresence::Live { .. }));
+    }
+}
+
+#[test]
+fn split_crash_releases_only_the_failed_panes_reservation_until_reload() {
+    let (mut browser, _) = browser_with(1, &["https://left.test"]);
+    let (_, left, right) = split_pair(&mut browser);
+    let healthy = slot_of(&browser, left).unwrap();
+    let failed = slot_of(&browser, right).unwrap();
+    let effects = browser.page_crashed(failed, right, CrashCause::Ended);
+    assert!(browser.tab(right).unwrap().is_crashed());
+    assert_eq!(browser.reserved(), 1);
+    assert_eq!(slot_of(&browser, left), Some(healthy));
+    assert!(effects
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Blank {slot} | Effect::Freeze {slot} if *slot == healthy)));
+    browser.reload(right).unwrap();
+    assert_eq!(browser.reserved(), 2);
+    assert!(slot_of(&browser, right).is_some());
+}
+
+#[test]
+fn split_failed_acquisition_keeps_the_assignment_and_healthy_sibling() {
+    let (mut browser, _) = browser_with(1, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let healthy = slot_of(&browser, left).unwrap();
+    browser.pool.release(right);
+    browser.tab_mut(right).unwrap().lose_page();
+    // Force the pool's defensive refusal: all resident slots are protected.
+    // Ordinary reservation arithmetic prevents this saturation.
+    let parked = browser
+        .pool
+        .slots()
+        .iter()
+        .find(|slot| slot.occupant.is_none())
+        .unwrap()
+        .id;
+    browser.pool.remove(parked);
+    browser.pool.acquire_new(left);
+    assert_eq!(browser.pool.acquire(right, 2, None), Err(HakuError::NoSlotAvailable));
+    assert!(browser.bind(right).is_empty());
+    assert_eq!(browser.tab(right).unwrap().presence, TabPresence::Discarded);
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(slot_of(&browser, left), Some(healthy));
+}
+
+#[test]
+fn native_creation_failure_keeps_the_split_assigned_and_reload_recreates_only_its_slot() {
+    let (mut browser, ids) = browser_with(1, &["https://left.test"]);
+    let window = browser.main_window();
+    let left = ids[0];
+    let healthy = slot_of(&browser, left).unwrap();
+    let (right, _) = browser.open_tab("https://right.test", false);
+    let effects = browser.split_tab(window, right).unwrap();
+    let failed = slot_of(&browser, right).unwrap();
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::EnsureSlot { slot, .. } if *slot == failed)));
+    // Simulate the native executor reporting that EnsureSlot failed.
+    assert_eq!(browser.slot_failed(failed), vec![Effect::Destroy { slot: failed }]);
+    assert_eq!(browser.tab(right).unwrap().presence, TabPresence::Discarded);
+    assert!(!browser.tab(right).unwrap().restoring);
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(browser.active(), Some(right));
+    assert_eq!(slot_of(&browser, left), Some(healthy));
+    assert!(!browser.slot_urls.contains_key(&failed));
+    assert!(!browser.slot_windows.contains_key(&failed));
+    assert!(!browser.awaiting.contains(&failed));
+    assert!(!browser.slots().iter().any(|slot| slot.id == failed));
+    let retry = browser.reload(right).unwrap();
+    assert!(retry
+        .iter()
+        .any(|effect| matches!(effect, Effect::EnsureSlot { url, .. } if url == "https://right.test")));
+    assert!(retry.iter().all(|effect| !matches!(effect,
+        Effect::EnsureSlot { slot, .. } | Effect::Blank { slot } | Effect::Destroy { slot } | Effect::Freeze { slot }
+        if *slot == healthy
+    )));
+}
+
+#[test]
+fn native_creation_and_adoption_failures_are_retryable_in_a_single_pane() {
+    for adopt in [false, true] {
+        let (mut browser, ids) = browser_with(2, &["https://opener.test"]);
+        let opener = slot_of(&browser, ids[0]).unwrap();
+        let (tab, effects) = if adopt {
+            browser.open_from(opener, "https://retry.test", Opening::Connected(WindowRequestId(1)))
+        } else {
+            browser.open_tab("https://retry.test", true)
+        };
+        assert!(effects.iter().any(|effect| if adopt {
+            matches!(effect, Effect::Adopt { .. })
+        } else {
+            matches!(effect, Effect::EnsureSlot { .. })
+        }));
+        let failed = slot_of(&browser, tab).unwrap();
+        browser.slot_failed(failed);
+        assert_eq!(browser.tab(tab).unwrap().presence, TabPresence::Discarded);
+        assert!(!browser.connected.contains(&tab));
+        assert_eq!(browser.active(), Some(tab));
+        let retry = browser.reload(tab).unwrap();
+        assert!(retry
+            .iter()
+            .any(|effect| matches!(effect, Effect::EnsureSlot { url, .. } if url == "https://retry.test")));
+    }
+}
+
+#[test]
+fn split_explicit_focus_emits_only_the_chosen_page_effect_and_repeating_is_a_noop() {
+    let (mut browser, _) = browser_with(3, &["https://left.test"]);
+    let (window, left, _) = split_pair(&mut browser);
+    let effects = browser.focus_pane(window, left).unwrap();
+    assert_eq!(
+        effects,
+        vec![Effect::FocusPane {
+            window,
+            slot: slot_of(&browser, left)
+        }]
+    );
+    assert!(browser.focus_pane(window, left).unwrap().is_empty());
+}
+
+#[test]
+fn split_closing_a_visible_tab_trims_the_removed_panes_surplus_slot() {
+    let (mut browser, _) = browser_with(1, &["https://left.test"]);
+    let (_, left, right) = split_pair(&mut browser);
+    let healthy = slot_of(&browser, left).unwrap();
+    browser.close_tab(right, HOME).unwrap();
+    assert_eq!(browser.slots().len(), 1);
+    assert_eq!(slot_of(&browser, left), Some(healthy));
+}
+
+#[test]
+fn background_pairs_keep_independent_ratios_without_geometry_or_focus_changes() {
+    let (mut browser, _) = browser_with(1, &["https://a.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let (single, _) = browser.open_tab("https://single.test", true);
+    let (_, second_left, second_right) = split_pair(&mut browser);
+    let shown = browser.state();
+    browser.set_split_ratio(window, left, 0.7).unwrap();
+    assert_eq!(browser.state().layout_revision, shown.layout_revision);
+    assert_eq!(pane_tabs(&browser, window), [second_left, second_right]);
+    assert_eq!(browser.state().splits[0].ratio, 0.7);
+    assert_eq!(browser.state().splits[1].ratio, 0.5);
+    browser.select_tab(right, 1).unwrap();
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(browser.state().layout_revision, shown.layout_revision + 1);
+    let ids: Vec<_> = browser.state().viewports.iter().map(|pane| pane.id.clone()).collect();
+    assert!(ids.iter().all(|id| shown.viewports.iter().all(|pane| pane.id != *id)));
+    browser.separate_tabs(window, second_left).unwrap();
+    assert_eq!(browser.state().layout_revision, shown.layout_revision + 1);
+    assert_eq!(browser.active(), Some(right));
+    browser.select_tab(single, 2).unwrap();
+    assert_eq!(browser.state().splits.len(), 1);
+    assert_eq!(browser.reserved(), 1);
+}
+
+#[test]
+fn reordering_either_half_moves_the_pair_and_normalizes_illegal_gaps() {
+    for half in [0, 1] {
+        let (mut browser, ids) = browser_with(
+            5,
+            &[
+                "https://a.test",
+                "https://b.test",
+                "https://c.test",
+                "https://d.test",
+                "https://e.test",
+            ],
+        );
+        let window = browser.main_window();
+        browser.select_tab(ids[0], 0).unwrap();
+        browser.split_tab(window, ids[1]).unwrap();
+        browser.select_tab(ids[2], 0).unwrap();
+        browser.split_tab(window, ids[3]).unwrap();
+        browser.reorder_tab(ids[half], 1).unwrap();
+        assert_eq!(
+            browser.tabs_in(window).map(|tab| tab.id).collect::<Vec<_>>(),
+            [ids[2], ids[3], ids[0], ids[1], ids[4]]
+        );
+        browser.reorder_tab(ids[half], 0).unwrap();
+        assert_eq!(browser.tabs_in(window).map(|tab| tab.id).collect::<Vec<_>>(), ids);
+    }
+}
+
+#[test]
+fn selecting_a_background_pair_requests_native_focus_after_its_new_geometry() {
+    let (mut browser, _) = browser_with(2, &["https://left.test"]);
+    let (window, left, _) = split_pair(&mut browser);
+    browser.open_tab("haku://settings", true);
+    let effects = browser.select_tab(left, 1).unwrap();
+    assert!(effects.contains(&Effect::FocusPane {
+        window,
+        slot: slot_of(&browser, left)
+    }));
+    assert!(!browser
+        .resolve_pane_focus(&effects, |_| false)
+        .iter()
+        .any(|effect| matches!(effect, Effect::FocusPane { .. })));
+    assert!(browser.resolve_pane_focus(&[], |_| true).contains(&Effect::FocusPane {
+        window,
+        slot: slot_of(&browser, left)
+    }));
+}
+
+#[test]
+fn leaving_a_pair_starts_grace_for_both_members() {
+    let (mut browser, _) = browser_with(3, &["https://left.test"]);
+    let (_, left, right) = split_pair(&mut browser);
+    let (single, _) = browser.open_tab("haku://settings", false);
+    browser.set_optimization(3, Policy::Smart, Policy::Smart);
+    browser.tick(120_000, Pressure::Normal, HashMap::new());
+    browser.select_tab(single, 124_000).unwrap();
+    browser.tick(180_000, Pressure::Normal, HashMap::new());
+    for member in [left, right] {
+        assert_eq!(browser.tab(member).unwrap().active_at, 124_000);
+        assert!(
+            slot_of(&browser, member).is_some(),
+            "member should get grace when leaving visibility"
+        );
+    }
+    browser.tick(124_000 + GRACE_MS, Pressure::Normal, HashMap::new());
+    for member in [left, right] {
+        assert!(
+            slot_of(&browser, member).is_none(),
+            "grace should expire from departure"
+        );
+    }
+}
+
+#[test]
+fn leaving_a_pair_trims_surplus_slots_when_discard_is_disabled() {
+    for transition in ["select", "open", "page open", "separate", "close"] {
+        let (mut browser, _) = browser_with(1, &["https://left.test"]);
+        browser.set_optimization(1, Policy::Never, Policy::Never);
+        let (window, left, right) = split_pair(&mut browser);
+        assert_eq!(browser.slots().len(), 2);
+        let effects = match transition {
+            "select" => {
+                let (single, _) = browser.open_tab("https://single.test", false);
+                browser.select_tab(single, 1).unwrap()
+            }
+            "open" => browser.open_tab("https://single.test", true).1,
+            "page open" => {
+                browser
+                    .open_from(
+                        slot_of(&browser, left).unwrap(),
+                        "https://single.test",
+                        Opening::Foreground,
+                    )
+                    .1
+            }
+            "separate" => browser.separate_tabs(window, right).unwrap(),
+            "close" => browser.close_tab(left, HOME).unwrap(),
+            _ => unreachable!(),
+        };
+        assert_eq!(browser.reserved(), 1);
+        assert_eq!(browser.slots().len(), 1, "{transition} should trim the surplus slot");
+        assert_eq!(browser.state().live_count, 1);
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Destroy { .. })));
+        assert!(slot_of(&browser, browser.active().unwrap()).is_some());
+    }
+}
+
+#[test]
+fn background_pair_close_and_separation_keep_the_shown_layout_and_selection() {
+    for close in [false, true] {
+        for half in [0, 1] {
+            let (mut browser, _) = browser_with(4, &["https://left.test"]);
+            let (window, left, right) = split_pair(&mut browser);
+            let (single, _) = browser.open_tab("haku://settings", true);
+            let before = browser.state();
+            let member = [left, right][half];
+            if close {
+                browser.close_tab(member, HOME).unwrap();
+            } else {
+                browser.separate_tabs(window, member).unwrap();
+            }
+            assert_eq!(browser.active(), Some(single));
+            assert_eq!(pane_tabs(&browser, window), [single]);
+            assert_eq!(browser.state().layout_revision, before.layout_revision);
+            assert!(browser.state().splits.is_empty());
+            assert!(browser.tab([left, right][1 - half]).is_ok());
+            assert_eq!(browser.tab(member).is_ok(), !close);
+        }
+    }
+}
+
+#[test]
+fn creation_revalidates_a_background_paired_target_without_mutation() {
+    let (mut browser, _) = browser_with(1, &[HOME]);
+    let (window, left, _) = split_pair(&mut browser);
+    browser.open_tab(HOME, true);
+    let before = serde_json::to_value(browser.state()).unwrap();
+    assert!(browser.split_tab(window, left).is_err());
+    assert_eq!(serde_json::to_value(browser.state()).unwrap(), before);
+}
+
+#[test]
+fn page_insertion_from_either_half_and_reopen_never_break_adjacency() {
+    for half in [0, 1] {
+        let (mut browser, ids) = browser_with(5, &["https://left.test", "https://closed.test", "https://right.test"]);
+        let window = browser.main_window();
+        browser.close_tab(ids[1], HOME).unwrap();
+        browser.select_tab(ids[0], 0).unwrap();
+        browser.split_tab(window, ids[2]).unwrap();
+        let member = [ids[0], ids[2]][half];
+        browser.open_from(
+            slot_of(&browser, member).unwrap(),
+            "https://child.test",
+            Opening::Background,
+        );
+        assert_eq!(
+            browser.tabs_in(window).take(2).map(|tab| tab.id).collect::<Vec<_>>(),
+            [ids[0], ids[2]]
+        );
+        browser.reopen_closed_tab();
+        assert_eq!(
+            browser.tabs_in(window).take(2).map(|tab| tab.id).collect::<Vec<_>>(),
+            [ids[0], ids[2]]
+        );
+        assert_eq!(pane_tabs(&browser, window), [browser.active().unwrap()]);
+        assert_eq!(browser.state().splits.len(), 1);
+    }
+}
+
+#[test]
+fn background_pair_members_have_no_visible_reservation_across_windows_and_popup() {
+    let (mut browser, _) = browser_with(1, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let (single, _) = browser.open_tab("https://single.test", true);
+    let (other, _) = browser.open_window("https://other.test");
+    let (popup, _) = browser.open_from(
+        slot_of(&browser, other).unwrap(),
+        "https://popup.test",
+        Opening::Popup {
+            request: WindowRequestId(82),
+            placement: Placement::default(),
+        },
+    );
+    browser.set_capacity(1);
+    assert_eq!(browser.reserved(), 3);
+    for member in [left, right] {
+        assert!(!browser.is_visible(member));
+        assert_eq!(slot_of(&browser, member), None);
+    }
+    for member in [single, other, popup] {
+        assert!(slot_of(&browser, member).is_some());
+    }
+    assert_eq!(browser.state_in(window).unwrap().splits.len(), 1);
+}
+
+#[test]
+fn foreground_page_opens_from_either_member_leave_the_pair_and_close_back_to_its_opener() {
+    for half in [0, 1] {
+        let (mut browser, _) = browser_with(4, &["https://left.test"]);
+        let (window, left, right) = split_pair(&mut browser);
+        let parent = [left, right][half];
+        let (opened, _) = browser.open_from(
+            slot_of(&browser, parent).unwrap(),
+            "https://child.test",
+            Opening::Foreground,
+        );
+        assert_eq!(pane_tabs(&browser, window), [opened]);
+        assert_eq!(browser.openers[&opened], parent);
+        assert_eq!(browser.state().splits.len(), 1);
+        browser.close_tab(opened, HOME).unwrap();
+        assert_eq!(pane_tabs(&browser, window), [left, right]);
+        assert_eq!(browser.active(), Some(parent));
+    }
+}
+
+#[test]
+fn reopening_a_closed_member_restores_only_an_unpaired_tab() {
+    for half in [0, 1] {
+        let (mut browser, _) = browser_with(2, &["https://left.test"]);
+        let (window, left, right) = split_pair(&mut browser);
+        let closed = [left, right][half];
+        let url = browser.tab(closed).unwrap().url().to_owned();
+        browser.close_tab(closed, HOME).unwrap();
+        browser.reopen_closed_tab();
+        assert!(browser.state().splits.is_empty());
+        let reopened = browser.active().unwrap();
+        assert_eq!(browser.tab(reopened).unwrap().url(), url);
+        assert_eq!(pane_tabs(&browser, window), [reopened]);
+    }
+}
+
+#[test]
+fn creating_a_pair_moves_a_left_partner_to_the_selected_tabs_right() {
+    let (mut browser, ids) = browser_with(
+        3,
+        &["https://partner.test", "https://middle.test", "https://selected.test"],
+    );
+    let window = browser.main_window();
+    browser.split_tab(window, ids[0]).unwrap();
+    assert_eq!(
+        browser.tabs_in(window).map(|tab| tab.id).collect::<Vec<_>>(),
+        [ids[1], ids[2], ids[0]]
+    );
+    assert_eq!(pane_tabs(&browser, window), [ids[2], ids[0]]);
+    browser.reorder_tab(ids[1], 1).unwrap();
+    assert_eq!(
+        browser.tabs_in(window).map(|tab| tab.id).collect::<Vec<_>>(),
+        [ids[2], ids[0], ids[1]]
+    );
 }

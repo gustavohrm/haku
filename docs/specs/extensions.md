@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 scope: How unpacked Chrome extensions are installed and uninstalled, switched on and off, pinned, and opened from the toolbar.
 ---
 
@@ -61,7 +61,7 @@ An extension's popup opens in a borderless window of its own, owned by the brows
 
 It closes when it loses focus, as in other browsers: on a click anywhere else, on switching windows, or when the page calls `window.close()`. Clicking the button of the popup that is open closes it instead of reopening it. That click reaches the button only after the popup has lost focus, so a request to open the popup that closed in the last 400 milliseconds is taken as that click. One popup is open at a time. A page opened from the popup, such as uBlock Origin Lite's dashboard, opens as a tab in the browser window used last, and the popup closes.
 
-The popup acts on the active tab of the window it was opened from. The engine gives each webview a Chromium window of its own with one tab, the popup's included, so "the current window" in an extension's popup would be the popup itself. Haku asks the engine for the window of the active tab's webview, with `Browser.getWindowForTarget` through the DevTools protocol, and tells the popup.
+The toolbar captures its focused tab and passes it explicitly as `tab: TabId` to `open_extension_popup`, alongside the extension id and anchor rectangle. Rust rejects an unknown tab, a tab from another window, or a tab without a visible viewport assignment through the existing error channel before changing popup state. The popup acts on that captured tab and closes when its pane loses logical focus or its source assignment changes, including while it is still loading hidden. Its existing fitting loop revalidates the captured pane and tab before showing and while open; closing still waits for pending new-window requests. The engine gives each webview a Chromium window of its own with one tab, the popup's included, so "the current window" in an extension's popup would be the popup itself. Haku asks the engine for the window of the named tab's webview, with `Browser.getWindowForTarget` through the DevTools protocol, and tells the popup. An internal or crashed tab supplies no engine page, preserving the existing absent engine-window behavior. The explicit argument does not change the one-popup-at-a-time application limit or the native popup window.
 
 ### Adjustments injected into extension pages
 

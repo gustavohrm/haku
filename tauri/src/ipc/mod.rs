@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod events;
 pub mod recovery;
+mod shortcuts;
 
 use tauri_specta::{collect_commands, collect_events, Builder};
 
@@ -24,6 +25,10 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::open_tab,
             commands::close_tab,
             commands::select_tab,
+            commands::split_tab,
+            commands::separate_tabs,
+            commands::set_split_ratio,
+            commands::focus_pane,
             commands::navigate_tab,
             commands::go_back,
             commands::go_forward,

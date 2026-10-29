@@ -44,7 +44,17 @@ export function createStore<T>(initial: T): ExternalStore<T> {
   };
 }
 
-export const EMPTY_STATE: BrowserState = { kind: "normal", tabs: [], active: null, capacity: 1, liveCount: 0 };
+export const EMPTY_STATE: BrowserState = {
+  kind: "normal",
+  tabs: [],
+  active: null,
+  viewports: [],
+  focusedViewport: "",
+  splits: [],
+  layoutRevision: 0,
+  capacity: 1,
+  liveCount: 0,
+};
 
 export const browserStore = createStore<BrowserState>(EMPTY_STATE);
 export const settingsStore = createStore<Settings | null>(null);
@@ -65,8 +75,12 @@ export const extensionsStore = createStore<Extensions | null>(null);
  * @returns A function that detaches every listener.
  */
 export async function connect(): Promise<() => void> {
+  let hasStateEvent = false;
   const [stopState, stopSettings, stopExtensions] = await Promise.all([
-    events.stateChanged(getCurrentWebview()).listen((event) => browserStore.set(event.payload)),
+    events.stateChanged(getCurrentWebview()).listen((event) => {
+      hasStateEvent = true;
+      browserStore.set(event.payload);
+    }),
     events.settingsChanged.listen((event) => settingsStore.set(event.payload)),
     // The folder is installed after startup, possibly once this has loaded.
     events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
@@ -76,7 +90,12 @@ export async function connect(): Promise<() => void> {
   // the others with it: the tab strip still shows when the settings could not
   // be read.
   const loaded = await Promise.allSettled([
-    unwrap(commands.getState()).then((state) => browserStore.set(state)),
+    unwrap(commands.getState()).then((state) => {
+      // An event delivered during startup takes precedence over the snapshot.
+      if (!hasStateEvent) {
+        browserStore.set(state);
+      }
+    }),
     unwrap(commands.getSettings()).then((settings) => settingsStore.set(settings)),
     unwrap(commands.extensions()).then((extensions) => {
       // Installing can finish between the snapshot being read and arriving,

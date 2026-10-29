@@ -58,12 +58,12 @@ use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
     BrowserExtensionRemoveCompletedHandler, CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
     ContextMenuRequestedEventHandler, DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler,
-    IsDocumentPlayingAudioChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler,
-    ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
-    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
-    WindowCloseRequestedEventHandler,
+    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, FocusChangedEventHandler,
+    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    PermissionRequestedEventHandler, ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler,
+    ProfileGetBrowserExtensionsCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
+    TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
@@ -82,7 +82,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    GetClientRect, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOWNA,
 };
 
 use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
@@ -489,6 +489,28 @@ pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()
     })
 }
 
+pub fn set_visible<R: tauri::Runtime>(webview: &tauri::Webview<R>, visible: bool) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+    webview
+        .with_webview(move |platform| {
+            let outcome = unsafe {
+                let controller = platform.controller();
+                let mut hwnd = HWND::default();
+                controller.ParentWindow(&mut hwnd).and_then(|()| {
+                    // Wry's show uses SW_SHOW, which may activate the container.
+                    let _ = ShowWindow(hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
+                    controller.SetIsVisible(visible)
+                })
+            }
+            .map_err(|error| HakuError::WindowMissing(error.to_string()));
+            let _ = sender.send(outcome);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+}
+
 /// A region covering `rect`, with its corners rounded to `radius` when above zero.
 ///
 /// The caller owns the region and must delete it.
@@ -503,19 +525,19 @@ unsafe fn rounded_region(rect: PhysicalRect, radius: i32) -> HRGN {
 
 pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
-    viewport: Option<PhysicalRect>,
-    radius: i32,
+    viewports: &[RoundedRect],
     overlays: &[RoundedRect],
 ) -> Result<()> {
     let overlays = overlays.to_vec();
+    let viewports = viewports.to_vec();
 
     with_hwnd(webview, move |hwnd| unsafe {
         // No viewport means nothing should show through: drop the region so the
         // chrome is a whole window again.
-        let Some(viewport) = viewport else {
+        if viewports.is_empty() {
             SetWindowRgn(hwnd, None, true);
             return Ok(());
-        };
+        }
 
         let mut client = Default::default();
         GetClientRect(hwnd, &mut client).map_err(|error| HakuError::WindowMissing(error.to_string()))?;
@@ -523,9 +545,11 @@ pub fn set_input_mask<R: tauri::Runtime>(
         let region = CreateRectRgn(0, 0, client.right, client.bottom);
         // A rounded hole is what gives the page rounded corners: the chrome
         // keeps painting the corner, and the page shows through the curve.
-        let hole = rounded_region(viewport, radius);
-        CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
-        let _ = DeleteObject(hole.into());
+        for pane in &viewports {
+            let hole = rounded_region(pane.rect, pane.radius);
+            CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
+            let _ = DeleteObject(hole.into());
+        }
 
         // A rounded overlay is added back rounded for the same reason the other
         // way round: a square patch would paint chrome over the page at its
@@ -785,6 +809,15 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     // Handlers stay registered for the webview's whole life, so the tokens that
     // would unregister them are never needed.
     let mut token = 0i64;
+
+    let on_focus = {
+        let sink = sink.clone();
+        FocusChangedEventHandler::create(Box::new(move |_, _| {
+            sink(PageSignal::Focused);
+            Ok(())
+        }))
+    };
+    controller.add_GotFocus(&on_focus, &mut token)?;
 
     let on_starting = {
         let sink = sink.clone();

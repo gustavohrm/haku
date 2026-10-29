@@ -25,5 +25,6 @@ export function useExtensions(): Extensions | null {
 
 export function useActiveTab(): Tab | null {
   const state = useBrowserState();
-  return state.tabs.find((tab) => tab.id === state.active) ?? null;
+  const focused = state.viewports.find((pane) => pane.id === state.focusedViewport);
+  return state.tabs.find((tab) => tab.id === focused?.tab) ?? null;
 }

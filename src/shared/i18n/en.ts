@@ -6,6 +6,18 @@
  * that silently falls back at runtime.
  */
 export const en = {
+  "split.open": "Open in split view",
+  "split.separate": "Separate tabs",
+  "split.self": "Select another tab to pair",
+  "split.selectedPaired": "Separate the selected pair first",
+  "split.alreadyPaired": "Separate this pair first",
+  "split.membership": "Paired tabs",
+  "split.waitingTab": "Dialog waiting: {title}",
+  "split.left": "Left pane",
+  "split.right": "Right pane",
+  "split.current": "Current pane",
+  "split.waiting": "Dialog waiting",
+  "split.divider": "Resize panes: {left} and {right}",
   "tabs.list": "Open tabs",
   "tabs.new": "New tab",
   "tabs.close": "Close tab",

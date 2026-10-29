@@ -22,7 +22,7 @@ describe("Menu", () => {
   const chosen: string[] = [];
   const onClose = vi.fn();
 
-  const command = (id: string, label: string, disabled = false): MenuItem => ({
+  const command = (id: string, label: string, disabled = false): Extract<MenuItem, { kind: "command" }> => ({
     kind: "command",
     id,
     label,
@@ -71,6 +71,17 @@ describe("Menu", () => {
     await act(async () => root.unmount());
     container.remove();
     opener.remove();
+  });
+
+  it("reserves extra label padding only for rows with a disabled reason", async () => {
+    await render([
+      command("back", "Back"),
+      { ...command("split", "Open in split view", true), disabledReason: "Already paired" },
+    ]);
+    const labels = [...document.querySelectorAll('[role="menuitem"]')].map((row) => row.querySelector("span"));
+    expect(labels[0]!.classList.contains("py-1")).toBe(false);
+    expect(labels[1]!.classList.contains("py-1")).toBe(true);
+    expect(labels[1]!.textContent).toContain("Already paired");
   });
 
   it("takes focus on the menu itself when it opens", async () => {

@@ -1,39 +1,71 @@
-import { events, type Tab } from "@bindings";
+import { events, type Tab, type TabId } from "@bindings";
+import { paneGeometryStore } from "@features/viewport/use-chrome-layout";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { t } from "@shared/i18n";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 
 import { pageMenu } from "./items";
 import { openMenu } from "./store";
+
+/** The page menu on screen, and what it was opened from. */
+interface OpenPageMenu {
+  tab: TabId;
+  pane: string;
+  /** The focused tab when it opened, which may not have caught up with the right-click yet. */
+  focusedAtOpen: TabId | undefined;
+  geometry: string;
+  close: () => void;
+}
+
+const geometryOf = (pane: string) => JSON.stringify(paneGeometryStore.get().find((each) => each.id === pane));
 
 /**
  * Draws the menu a page in this window asked for, and answers it.
  *
  * The page waits until it is answered: with the engine's item chosen, or with
  * nothing when the choice was one of Haku's own items or the menu closed
- * without one. Switching tabs closes it, since it belongs to the page that
- * was showing. [Context menus § Page menus](../../../docs/specs/context-menus.md#page-menus).
+ * without one. The menu belongs to the page that asked, so it closes when
+ * another tab takes focus, when that page's pane is given another tab, or
+ * when that pane moves or resizes.
+ * [Context menus § Page menus](../../../docs/specs/context-menus.md#page-menus).
  *
- * @param tab - The active tab.
+ * @param tab - The focused tab.
  */
 export function usePageMenu(tab: Tab | null): void {
-  const { tabs } = useBrowserState();
+  const { tabs, viewports } = useBrowserState();
   const tabId = tab?.id;
+  const open = useRef<OpenPageMenu | null>(null);
   const tabOf = useEffectEvent((id: number) => tabs.find((candidate) => candidate.id === id) ?? null);
-  const activeTab = useEffectEvent(() => tabId);
+  const paneOf = useEffectEvent((id: number) => viewports.find((pane) => pane.tab === id)?.id);
+  const focusedTab = useEffectEvent(() => tabId);
 
+  // One listener for the window's lifetime: subscribing again on every focus
+  // change would leave a gap in which a right-click on the other pane, which
+  // moves focus to it, has its request dropped.
   useEffect(() => {
     let isMounted = true;
     let unlisten: (() => void) | null = null;
-    let closeOpen: (() => void) | null = null;
+    const stopGeometry = paneGeometryStore.subscribe(() => {
+      const current = open.current;
+      if (current && geometryOf(current.pane) !== current.geometry) {
+        current.close();
+      }
+    });
 
     const listen = async () => {
       const stop = await events.contextMenuRequested(getCurrentWebview()).listen(({ payload: request }) => {
-        if (request.tab !== activeTab()) {
+        const id = request.tab;
+        const pane = paneOf(id);
+        if (pane === undefined) {
           void commands.answerContextMenu(request.request, null, false);
           return;
+        }
+        const focusedAtOpen = focusedTab();
+        // Native focus observation normally got there first; this is a no-op then.
+        if (id !== focusedAtOpen) {
+          void commands.focusPane(id);
         }
         let choice: number | null = null;
         let ranOwnItem = false;
@@ -43,7 +75,6 @@ export function usePageMenu(tab: Tab | null): void {
             ranOwnItem = true;
             action(...args);
           };
-        const id = request.tab;
         const close = openMenu({
           at: { x: request.x, y: request.y },
           label: t("menu.page"),
@@ -60,15 +91,15 @@ export function usePageMenu(tab: Tab | null): void {
             },
           }),
           onClose: (fromInside) => {
-            if (closeOpen === close) {
-              closeOpen = null;
+            if (open.current?.close === close) {
+              open.current = null;
             }
             // Escape or Tab puts the keyboard back on the page; one of Haku's
             // items, or a click elsewhere, has already put focus where it goes.
             void commands.answerContextMenu(request.request, choice, fromInside && !ranOwnItem);
           },
         });
-        closeOpen = close;
+        open.current = { tab: id, pane, focusedAtOpen, geometry: geometryOf(pane), close };
       });
       if (isMounted) {
         unlisten = stop;
@@ -81,8 +112,20 @@ export function usePageMenu(tab: Tab | null): void {
     return () => {
       isMounted = false;
       unlisten?.();
-      closeOpen?.();
+      stopGeometry();
+      open.current?.close();
     };
-    // Resubscribed per tab, so leaving the tab closes its page's menu.
-  }, [tabId]);
+  }, []);
+
+  useEffect(() => {
+    const current = open.current;
+    if (!current) {
+      return;
+    }
+    const isReassigned = !viewports.some((pane) => pane.id === current.pane && pane.tab === current.tab);
+    const isRefocused = tabId !== current.tab && tabId !== current.focusedAtOpen;
+    if (isReassigned || isRefocused) {
+      current.close();
+    }
+  }, [tabId, viewports]);
 }

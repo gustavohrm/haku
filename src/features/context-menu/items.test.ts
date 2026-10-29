@@ -73,7 +73,41 @@ const select = (item: MenuItem | undefined) => {
 };
 
 describe("tabMenu", () => {
-  const tabActions = () => ({ reload: vi.fn(), duplicate: vi.fn(), setFixed: vi.fn(), close: vi.fn() });
+  const tabActions = () => ({
+    reload: vi.fn(),
+    duplicate: vi.fn(),
+    setFixed: vi.fn(),
+    close: vi.fn(),
+    split: vi.fn(),
+    separate: vi.fn(),
+  });
+
+  it("pairs distinct unpaired tabs and separates a background pair by either member", () => {
+    const tabs = [tab(1), tab(2), tab(3)];
+    const acts = tabActions();
+    select(find(tabMenu(tabs[1]!, tabs, acts, { active: 1, splits: [] }), "split"));
+    expect(acts.split).toHaveBeenCalledWith(2);
+    for (const member of [tabs[0]!, tabs[1]!]) {
+      select(find(tabMenu(member, tabs, acts, { active: 3, splits: [{ tabs: [1, 2], ratio: 0.5 }] }), "separate"));
+    }
+    expect(acts.separate.mock.calls).toEqual([[1], [2]]);
+    expect(acts.close).not.toHaveBeenCalled();
+  });
+
+  it("explains self-pairing, a paired target and a paired selection", () => {
+    const tabs = [tab(1), tab(2), tab(3)];
+    const reason = (target: number, active: number, splits: { tabs: [number, number]; ratio: number }[]) =>
+      find(tabMenu(tabs[target - 1]!, tabs, tabActions(), { active, splits }), "split");
+    expect(reason(1, 1, [])).toMatchObject({ disabled: true, disabledReason: "Select another tab to pair" });
+    expect(reason(3, 1, [{ tabs: [1, 2], ratio: 0.5 }])).toMatchObject({
+      disabled: true,
+      disabledReason: "Separate the selected pair first",
+    });
+    expect(reason(1, 3, [{ tabs: [1, 2], ratio: 0.5 }])).toMatchObject({
+      disabled: true,
+      disabledReason: "Separate this pair first",
+    });
+  });
 
   it("closes the other tabs and the tabs to the right in strip order", () => {
     const tabs = [tab(1), tab(2), tab(3)];

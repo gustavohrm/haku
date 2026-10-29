@@ -96,6 +96,8 @@ pub enum PageSignal {
     /// A browser shortcut was pressed while the page had focus. The page never
     /// saw the key.
     Shortcut(Shortcut),
+    /// The native content webview gained keyboard focus.
+    Focused,
     /// The navigation finished, after the document's `load`, on `url`. Not
     /// sent for a navigation cancelled by the next one, which says nothing
     /// about the page that replaced it.
@@ -203,6 +205,15 @@ pub fn show_fatal(message: &str) {
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
     backend::observe_page(webview, sink)
+}
+
+/// Shows or hides a content surface without activating it or moving focus.
+/// Explicit focus is a separate operation.
+///
+/// # Errors
+/// Propagates native failures; returns [`HakuError::Unsupported`] off Windows.
+pub fn set_visible<R: tauri::Runtime>(webview: &tauri::Webview<R>, visible: bool) -> Result<()> {
+    backend::set_visible(webview, visible)
 }
 
 /// Starts reporting an extension's toolbar popup asking for a new window or
@@ -446,23 +457,22 @@ pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()
 /// Restricts which parts of the chrome webview receive input.
 ///
 /// The chrome covers the whole window, so without this it would swallow every
-/// click meant for the page. The mask removes `viewport` from the chrome's
+/// click meant for the page. The mask removes each of `viewports` from the chrome's
 /// input area, letting clicks, scrolling and hover reach the content webview
 /// underneath, then adds `overlays` back for anything currently drawn above the
 /// page, such as an open menu.
 ///
-/// Passing no viewport makes the chrome solid again, which is what an internal
+/// Passing an empty viewport slice makes the chrome solid again, which is what an internal
 /// page or a fully covering overlay wants.
 ///
 /// # Errors
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
-    viewport: Option<PhysicalRect>,
-    radius: i32,
+    viewports: &[RoundedRect],
     overlays: &[RoundedRect],
 ) -> Result<()> {
-    backend::set_input_mask(webview, viewport, radius, overlays)
+    backend::set_input_mask(webview, viewports, overlays)
 }
 
 #[cfg(test)]

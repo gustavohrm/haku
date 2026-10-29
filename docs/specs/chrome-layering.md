@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-07
+last_updated: 2026-10-29
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -25,7 +25,7 @@ The way through is `Webview::with_webview`, which hands out the platform handle.
 Two native operations, both in `platform/`:
 
 1. **Raise.** `SetWindowPos(chrome, HWND_TOP, …)` lifts the interface above every content webview. It must be re-applied whenever a content webview is created, because a new one is placed on top.
-2. **Mask.** The chrome covers the whole window, so without help it would swallow every click meant for the page. `SetWindowRgn` gives it a region equal to the window minus the viewport, plus any overlay currently drawn over the page. Where the chrome is not in its region its HWND is not there at all, so clicks, scrolling and hover fall through to the content webview beneath.
+2. **Mask.** The chrome covers the whole window, so without help it would swallow every click meant for the page. `SetWindowRgn` gives it a region equal to the window minus the union of uncovered viewport rectangles, plus any overlay currently drawn over the page. Where the chrome is not in its region its HWND is not there at all, so clicks, scrolling and hover fall through to the content webview beneath.
 
 ### Why not transparency
 
@@ -43,11 +43,31 @@ Overlays are rounded the same way, from the other side. Each one is reported wit
 
 ## The contract with the interface
 
-One element — `features/viewport` — marks where page content goes. `useChromeLayout` observes its rectangle, collects any registered overlays, each a rectangle and a corner radius, and pushes both to Rust in a **single** `set_layout` call.
+Each assigned viewport has a stable window-local id owned by Rust. [Split view slice 4b](split-view.md#implementation-slices) shows one viewport for an unpaired tab or two for a selected pair in a normal window; popups retain one. Each pane has a content element in `features/viewport`. `useChromeLayout` measures all panes and registered overlays and sends the entire report in a **single** async `set_layout({ layout })` call:
+
+```ts
+type Layout = {
+  revision: number; // BrowserState.layoutRevision being rendered
+  viewports: { id: string; rect: Viewport; covered: boolean; radius: number }[];
+  overlays: Overlay[];
+};
+```
+
+Coordinates and radii are in chrome CSS pixels. Every assignment is reported, including internal/crashed pages and preview covers (`covered: true`), with real bounds instead of a null rectangle. `BrowserState` exposes `viewports: { id, tab }[]`, `focusedViewport`, `splits: { tabs: [TabId, TabId], ratio }[]` (including background pairs) and `layoutRevision`; `active` is derived from the focused assignment. The revision advances only when the set of panes or committed split ratio changes, including creation of the first pane. Ordinary single-tab replacement keeps the revision because its geometry is still valid; switching pairs replaces pane identities even at equal ratios, while focus-only and background-pair edits preserve the revision; [Split view, D1](split-view.md#decisions) records why.
+
+A report whose revision does not match current state is ignored and returns current state. Before any geometry changes, Rust rejects duplicate/unknown ids, missing assignments, non-finite geometry, negative sizes/radii and intersecting positive-area pane rectangles through the existing error result (`Unsupported`). Negative origins are allowed. Invalid reports apply nothing. Zero-sized panes cut no hole and hide their native surface while retaining assignment/protection and last measured size. As before, subpixel dimensions below one CSS pixel are treated as collapsed. Covered panes cut no hole but keep real bounds and native geometry. A newly assigned slot stays hidden until usable geometry for its current revision arrives.
+
+Placement resolves each visible slot to its current `(window, viewport)`; hidden background slots cut no holes. Every accepted layout updates bounds for all slots in its window: assigned slots use their pane's cached rectangle, and background slots use the focused pane's, retaining the last measured bounds for collapsed panes. The mask subtracts each uncovered rounded pane rectangle, then adds registered rounded overlays back. Cached bounds are keyed by the same window/pane pair.
+
+All panes and overlays travel in one report. Reports are coalesced per animation frame, with one IPC call in flight and only the latest pending layout retained. Divider dragging writes temporary geometry through refs; its ratio is committed once on release.
 
 Both halves travel together deliberately. Setting the webview bounds and the input mask separately would let them disagree for a frame, which shows as a flickering strip along the edge of the page.
 
+Validation, bounds, the input mask and reconciliation share the serialized change path in `state.rs`, so a layout cannot race a tab switch. This does not guarantee atomic painting between native child windows.
+
 `set_layout` also reconciles the browser. A restored session has tabs but no webviews, because until the interface reports its geometry there is nowhere on screen to put one; this is what loads the page the window opens on.
+
+Background slots use the focused pane's last measured rectangle, including when the surviving pane no longer has the initial id. Both layout updates and effect application resolve bounds this way. Visible sibling slots retain their own pane bounds.
 
 ### Registering an overlay
 
@@ -60,7 +80,7 @@ useOverlay(ref, isOpen);
 
 `useOverlay` measures the element when it opens, as it resizes, and again when a transition or animation on it ends: a transform is not a resize, so a tooltip scaling up would otherwise stay registered at its starting size. While it is still animating, the part of it beyond what was measured is hidden under the page.
 
-A cover over the whole viewport needs no overlay of its own. `useChromeLayout` takes a `covered` flag that keeps the chrome solid over the viewport, which internal pages use, and so does the preview over a reloading page ([Tab optimization § Previews](tab-optimization.md#previews)).
+A cover over the whole viewport needs no overlay of its own. `useChromeLayout` measures all assigned pane surfaces together, including each pane's covered state. Internal pages, crashed-page notices and previews keep only their own pane solid. Split pane controls and the 5 CSS-pixel divider sit outside the measured page holes. The whole-interface failure screen covers every assignment. A preview over a reloading page uses the same per-pane cover ([Tab optimization § Previews](tab-optimization.md#previews)).
 
 Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its own and registers each toast stack and open dialog in it as they appear, resize and animate. Show notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
 

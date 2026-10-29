@@ -49,6 +49,11 @@ pub enum Effect {
     Hide {
         slot: SlotId,
     },
+    /// Explicit pane choice, separate from showing sibling surfaces.
+    FocusPane {
+        window: WindowId,
+        slot: Option<SlotId>,
+    },
     Reload {
         slot: SlotId,
     },
@@ -198,6 +203,11 @@ pub struct BrowserState {
     /// The window's tabs, in order.
     pub tabs: Vec<Tab>,
     pub active: Option<TabId>,
+    pub viewports: Vec<ViewportAssignment>,
+    pub focused_viewport: String,
+    pub splits: Vec<TabPair>,
+    #[specta(type = specta_typescript::Number)]
+    pub layout_revision: u64,
     /// Exported as a JavaScript number: every value here is a counter, a
     /// small capacity, or a millisecond timestamp, all far inside the range a
     /// double represents exactly.
@@ -208,11 +218,121 @@ pub struct BrowserState {
     pub live_count: usize,
 }
 
-/// One browser window, and the tab it shows.
+/// A persistent, ordered relationship; only the selected pair owns viewports.
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct TabPair {
+    pub tabs: [TabId; 2],
+    #[specta(type = specta_typescript::Number)]
+    pub ratio: f64,
+}
+
+/// A stable window-local pane and the tab it shows.
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct ViewportAssignment {
+    pub id: String,
+    pub tab: TabId,
+}
+
+/// The initial pane's window-local identity, retained through tab replacement.
+pub const INITIAL_VIEWPORT: &str = "1";
+
+/// A visible slot's current placement, captured before applying native effects.
+#[derive(Clone, Debug)]
+pub struct ViewportTarget {
+    pub window: WindowId,
+    pub id: String,
+    pub revision: u64,
+}
+
 struct Window {
     id: WindowId,
     kind: WindowKind,
-    active: Option<TabId>,
+    viewports: Vec<ViewportAssignment>,
+    focused_viewport: String,
+    layout_revision: u64,
+    splits: Vec<TabPair>,
+    next_viewport: u64,
+    /// Explicit native focus waits for geometry, tied to this pane and tab.
+    pending_focus: Option<(String, TabId)>,
+}
+
+impl Window {
+    fn new(id: WindowId, kind: WindowKind) -> Self {
+        Self {
+            id,
+            kind,
+            viewports: Vec::new(),
+            focused_viewport: INITIAL_VIEWPORT.into(),
+            layout_revision: 0,
+            splits: Vec::new(),
+            next_viewport: 2,
+            pending_focus: None,
+        }
+    }
+
+    fn active(&self) -> Option<TabId> {
+        self.viewports
+            .iter()
+            .find(|pane| pane.id == self.focused_viewport)
+            .map(|pane| pane.tab)
+    }
+
+    fn pair(&self, tab: TabId) -> Option<&TabPair> {
+        self.splits.iter().find(|pair| pair.tabs.contains(&tab))
+    }
+
+    fn assign(&mut self, tab: TabId) {
+        let desired = self.pair(tab).map_or_else(|| vec![tab], |pair| pair.tabs.to_vec());
+        if self.viewports.iter().map(|pane| pane.tab).eq(desired.iter().copied()) {
+            self.focused_viewport.clone_from(
+                &self
+                    .viewports
+                    .iter()
+                    .find(|pane| pane.tab == tab)
+                    .expect("assignment")
+                    .id,
+            );
+            return;
+        }
+        let previous: Vec<String> = self.viewports.iter().map(|pane| pane.id.clone()).collect();
+        let replacing_pair = self.viewports.len() == 2 && desired.len() == 2;
+        let panes = desired
+            .iter()
+            .map(|&member| {
+                let retained = if replacing_pair {
+                    None
+                } else if desired.len() == 1 {
+                    self.viewports
+                        .iter()
+                        .find(|pane| pane.tab == member)
+                        .or_else(|| self.viewports.iter().find(|pane| pane.id == self.focused_viewport))
+                } else {
+                    self.viewports.iter().find(|pane| pane.tab == member)
+                };
+                let id = retained.map(|pane| pane.id.clone()).unwrap_or_else(|| {
+                    if self.layout_revision == 0 {
+                        INITIAL_VIEWPORT.into()
+                    } else {
+                        let id = self.next_viewport.to_string();
+                        self.next_viewport += 1;
+                        id
+                    }
+                });
+                ViewportAssignment { id, tab: member }
+            })
+            .collect::<Vec<_>>();
+        if !panes.iter().map(|pane| &pane.id).eq(previous.iter()) {
+            self.layout_revision += 1;
+        }
+        self.focused_viewport.clone_from(
+            &panes
+                .iter()
+                .find(|pane| pane.tab == tab)
+                .expect("selected assignment")
+                .id,
+        );
+        self.viewports = panes;
+    }
 }
 
 /// A window's tabs as they are remembered, for [`Browser::restored`]: each
@@ -286,11 +406,7 @@ impl Browser {
         Self {
             tabs: Vec::new(),
             homes: HashMap::new(),
-            windows: vec![Window {
-                id: WindowId(1),
-                kind: WindowKind::Normal,
-                active: None,
-            }],
+            windows: vec![Window::new(WindowId(1), WindowKind::Normal)],
             next_window: 2,
             pool: WebviewPool::new(capacity),
             slot_windows: HashMap::new(),
@@ -368,7 +484,9 @@ impl Browser {
                 .or_else(|| restored.first())
                 .map(|tab| tab.id);
             if let Some(entry) = browser.window_mut(window) {
-                entry.active = active;
+                if let Some(tab) = active {
+                    entry.assign(tab);
+                }
             }
         }
         if browser.windows.is_empty() {
@@ -386,10 +504,29 @@ impl Browser {
     /// What one window shows, or nothing when no window has this id.
     pub fn state_in(&self, window: WindowId) -> Option<BrowserState> {
         let entry = self.window(window)?;
+        debug_assert!(entry.viewports.len() <= if entry.kind == WindowKind::Popup { 1 } else { 2 });
+        debug_assert_eq!(entry.viewports.is_empty(), self.tabs_in(window).next().is_none());
+        debug_assert!(entry
+            .viewports
+            .iter()
+            .all(|pane| self.window_of(pane.tab) == Some(window)));
+        debug_assert_eq!(
+            entry
+                .viewports
+                .iter()
+                .map(|pane| pane.tab)
+                .collect::<HashSet<_>>()
+                .len(),
+            entry.viewports.len()
+        );
         Some(BrowserState {
             kind: entry.kind,
             tabs: self.tabs_in(window).cloned().collect(),
-            active: entry.active,
+            active: entry.active(),
+            viewports: entry.viewports.clone(),
+            focused_viewport: entry.focused_viewport.clone(),
+            splits: entry.splits.clone(),
+            layout_revision: entry.layout_revision,
             capacity: self.pool.capacity(),
             live_count: self.tabs.iter().filter(|tab| tab.slot().is_some()).count(),
         })
@@ -406,7 +543,59 @@ impl Browser {
     }
 
     pub fn active_in(&self, window: WindowId) -> Option<TabId> {
-        self.window(window)?.active
+        self.window(window)?.active()
+    }
+
+    /// The named tab, only while assigned to a viewport in `window`.
+    ///
+    /// # Errors
+    /// Returns [`HakuError::TabNotFound`] for an unknown tab, or
+    /// [`HakuError::Unsupported`] for a hidden or foreign-window tab.
+    pub fn visible_tab_in(&self, window: WindowId, tab: TabId) -> Result<&Tab> {
+        let entry = self.tab(tab)?;
+        if self.window_of(tab) != Some(window)
+            || !self
+                .window(window)
+                .is_some_and(|window| window.viewports.iter().any(|pane| pane.tab == tab))
+        {
+            return Err(HakuError::Unsupported(
+                "tab is not visible in the calling window".into(),
+            ));
+        }
+        Ok(entry)
+    }
+
+    /// Records native page focus only for a slot currently assigned to a pane.
+    /// Unknown, parked and background slots cannot choose logical focus.
+    pub fn focus_slot(&mut self, slot: SlotId) -> Option<ViewportTarget> {
+        let tab = self.tab_in(slot)?;
+        let window = self.window_mut(self.window_of(tab)?)?;
+        let pane = window.viewports.iter().find(|pane| pane.tab == tab)?;
+        window.focused_viewport.clone_from(&pane.id);
+        Some(ViewportTarget {
+            window: window.id,
+            id: pane.id.clone(),
+            revision: window.layout_revision,
+        })
+    }
+
+    /// Resolves visible slots to their current pane, never to a former occupant.
+    pub fn slot_viewports(&self) -> HashMap<SlotId, ViewportTarget> {
+        self.windows
+            .iter()
+            .flat_map(|window| {
+                window.viewports.iter().filter_map(|pane| {
+                    Some((
+                        self.tab(pane.tab).ok()?.slot()?,
+                        ViewportTarget {
+                            window: window.id,
+                            id: pane.id.clone(),
+                            revision: window.layout_revision,
+                        },
+                    ))
+                })
+            })
+            .collect()
     }
 
     /// Open windows, the one used most recently last.
@@ -468,7 +657,7 @@ impl Browser {
     fn add_window(&mut self, kind: WindowKind) -> WindowId {
         let id = WindowId(self.next_window);
         self.next_window += 1;
-        self.windows.push(Window { id, kind, active: None });
+        self.windows.push(Window::new(id, kind));
         id
     }
 
@@ -478,13 +667,18 @@ impl Browser {
             .filter(move |tab| self.homes.get(&tab.id) == Some(&window))
     }
 
-    /// The tab each window shows.
+    /// All assigned tabs, whether or not their pane has focus.
     fn visible(&self) -> Vec<TabId> {
-        self.windows.iter().filter_map(|window| window.active).collect()
+        self.windows
+            .iter()
+            .flat_map(|window| window.viewports.iter().map(|pane| pane.tab))
+            .collect()
     }
 
     fn is_visible(&self, id: TabId) -> bool {
-        self.windows.iter().any(|window| window.active == Some(id))
+        self.windows
+            .iter()
+            .any(|window| window.viewports.iter().any(|pane| pane.tab == id))
     }
 
     /// The window tabs opened from `window` go in: itself, unless it is a
@@ -565,13 +759,20 @@ impl Browser {
     fn activate(&mut self, id: TabId) {
         let clock = self.clock;
         let Some(window) = self.window_of(id) else { return };
-        if let Some(previous) = self.active_in(window).filter(|&previous| previous != id) {
-            if let Ok(tab) = self.tab_mut(previous) {
-                tab.active_at = tab.active_at.max(clock);
-            }
-        }
+        let previous: Vec<TabId> = self
+            .window(window)
+            .into_iter()
+            .flat_map(|entry| entry.viewports.iter().map(|pane| pane.tab))
+            .collect();
         if let Some(window) = self.window_mut(window) {
-            window.active = Some(id);
+            window.assign(id);
+        }
+        for previous in previous {
+            if !self.is_visible(previous) {
+                if let Ok(tab) = self.tab_mut(previous) {
+                    tab.active_at = tab.active_at.max(clock);
+                }
+            }
         }
     }
 
@@ -594,6 +795,24 @@ impl Browser {
     fn drop_slot(&mut self, slot: SlotId) {
         self.forget_slot(slot);
         self.slot_windows.remove(&slot);
+    }
+
+    /// Repairs bookkeeping after native slot creation or adoption failed.
+    pub fn slot_failed(&mut self, slot: SlotId) -> Vec<Effect> {
+        let Some(removed) = self.pool.remove(slot) else {
+            return Vec::new();
+        };
+        if let Some(id) = removed.occupant {
+            if let Ok(tab) = self.tab_mut(id) {
+                tab.lose_page();
+            }
+            self.connected.remove(&id);
+        }
+        self.drop_slot(slot);
+        self.shown.retain(|&(shown, _)| shown != slot);
+        // Creation may have failed after adding the native child. Clean up that
+        // partial surface too, without parking or touching any sibling slot.
+        vec![Effect::Destroy { slot }]
     }
 
     /// Releases a tab's pending dialog because its page is going away.
@@ -625,7 +844,7 @@ impl Browser {
     }
 
     /// Slots that must exist whatever the configured capacity: one for each
-    /// window's visible web page, one per fixed tab, and one per background
+    /// visible web page, one per fixed tab, and one per background
     /// tab that must run for another reason. A visible internal page is drawn
     /// by the chrome and needs none.
     fn reserved(&self) -> usize {
@@ -721,10 +940,23 @@ impl Browser {
     fn add_tab(&mut self, index: usize, window: WindowId, url: impl Into<String>) -> TabId {
         let id = TabId(self.next_id);
         self.next_id += 1;
+        let index = self.legal_insertion(window, index);
         self.tabs.insert(index, Tab::new(id, url));
         self.homes.insert(id, window);
         self.navigated.insert(id);
         id
+    }
+
+    fn legal_insertion(&self, window: WindowId, index: usize) -> usize {
+        let Some(tab) = self.tabs.get(index) else { return index };
+        if self
+            .window(window)
+            .is_some_and(|entry| entry.splits.iter().any(|pair| pair.tabs[1] == tab.id))
+        {
+            index + 1
+        } else {
+            index
+        }
     }
 
     /// Brings `to` to the front when what the user did in `from` opened
@@ -798,7 +1030,16 @@ impl Browser {
         let home = self.window_of(id).unwrap_or(source);
         match opening {
             Opening::Background if self.active_in(home).is_some() => {}
-            _ => self.activate(id),
+            _ => {
+                if let Some(parent) = parent.filter(|&parent| self.window_of(parent) == Some(home)) {
+                    if let Some(entry) = self.window_mut(home) {
+                        if let Some(pane) = entry.viewports.iter().find(|pane| pane.tab == parent) {
+                            entry.focused_viewport.clone_from(&pane.id);
+                        }
+                    }
+                }
+                self.activate(id);
+            }
         }
         if let Some(request) = request {
             self.adopting.insert(id, request);
@@ -815,7 +1056,11 @@ impl Browser {
         let Some(at) = parent.and_then(|parent| self.index_of(parent).ok()) else {
             return self.tabs.len();
         };
-        let mut index = at + 1;
+        // Skip the partner before scanning children, otherwise a left member's
+        // later opens would be inserted ahead of its existing children.
+        let mut index = self
+            .window_of(self.tabs[at].id)
+            .map_or(at + 1, |window| self.legal_insertion(window, at + 1));
         while self
             .tabs
             .get(index)
@@ -881,22 +1126,33 @@ impl Browser {
 
         let remaining: Vec<TabId> = self.tabs_in(window).map(|tab| tab.id).collect();
         if remaining.is_empty() {
-            if let Some(entry) = self.window_mut(window) {
-                entry.active = None;
-            }
             let (_, opened) = self.open_tab_in(window, replacement, true);
             effects.extend(opened);
             return Ok(effects);
         }
 
-        if self.active_in(window) == Some(id) {
-            let next = opener.or_else(|| remaining.get(place).or_else(|| remaining.last()).copied());
-            if let Some(entry) = self.window_mut(window) {
-                entry.active = next;
-            }
+        let was_visible = self.is_visible(id);
+        let survivor = self.window(window).and_then(|entry| entry.pair(id)).map(|pair| {
+            *pair
+                .tabs
+                .iter()
+                .find(|&&member| member != id)
+                .expect("distinct members")
+        });
+        self.window_mut(window)
+            .expect("tab window")
+            .splits
+            .retain(|pair| !pair.tabs.contains(&id));
+        if was_visible {
+            let next = survivor
+                .or(opener)
+                .unwrap_or_else(|| remaining[place.min(remaining.len() - 1)]);
+            self.activate(next);
         }
-
         effects.extend(self.realize());
+        if let Some(survivor) = survivor.filter(|_| was_visible) {
+            effects.push(self.pane_focus_effect(window, survivor));
+        }
         Ok(effects)
     }
 
@@ -959,7 +1215,7 @@ impl Browser {
         tab.id = TabId(self.next_id);
         self.next_id += 1;
         let id = tab.id;
-        let at = self.index_in(window, place);
+        let at = self.legal_insertion(window, self.index_in(window, place));
         self.tabs.insert(at, tab);
         self.homes.insert(id, window);
         self.activate(id);
@@ -1007,17 +1263,168 @@ impl Browser {
         tabs.get(index).copied()
     }
 
+    /// Validates a split intent's caller and tab before changing anything.
+    fn normal_tab_in(&self, window: WindowId, tab: TabId) -> Result<()> {
+        self.tab(tab)?;
+        if self.window_of(tab) != Some(window) || self.kind(window) != Some(WindowKind::Normal) {
+            return Err(HakuError::Unsupported(
+                "split intents require a tab in the calling normal window".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Pairs the selected tab with a distinct unpaired tab, moved to its right.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign tabs, popups, self-pairing and paired operands.
+    pub fn split_tab(&mut self, window: WindowId, tab: TabId) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        let entry = self.window(window).expect("validated window");
+        let selected = entry.active().expect("populated window");
+        if selected == tab || entry.pair(selected).is_some() || entry.pair(tab).is_some() {
+            return Err(HakuError::Unsupported(
+                "split requires two distinct unpaired tabs".into(),
+            ));
+        }
+        let partner = self.tabs.remove(self.index_of(tab)?);
+        let at = self.index_of(selected)? + 1;
+        self.tabs.insert(at, partner);
+        self.window_mut(window).expect("validated window").splits.push(TabPair {
+            tabs: [selected, tab],
+            ratio: 0.5,
+        });
+        self.activate(tab);
+        let mut effects = self.realize();
+        effects.push(self.pane_focus_effect(window, tab));
+        Ok(effects)
+    }
+
+    /// Dissolves a pair without closing or reordering either tab.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign tabs, popups and unpaired tabs.
+    pub fn separate_tabs(&mut self, window: WindowId, tab: TabId) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        let entry = self.window_mut(window).expect("validated window");
+        if entry.pair(tab).is_none() {
+            return Err(HakuError::Unsupported("tab is not paired".into()));
+        }
+        let is_visible = entry.viewports.iter().any(|pane| pane.tab == tab);
+        let active = entry.active().expect("populated window");
+        entry.splits.retain(|pair| !pair.tabs.contains(&tab));
+        if !is_visible {
+            return Ok(Vec::new());
+        }
+        self.activate(active);
+        let mut effects = self.realize();
+        effects.push(self.pane_focus_effect(window, active));
+        Ok(effects)
+    }
+
+    /// Commits a pair's preferred first-pane share, including background pairs.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign/unpaired tabs, popups and non-finite ratios or
+    /// ratios outside the inclusive 0.2 to 0.8 range.
+    pub fn set_split_ratio(&mut self, window: WindowId, tab: TabId, ratio: f64) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        let entry = self.window_mut(window).expect("validated window");
+        if !ratio.is_finite() || !(0.2..=0.8).contains(&ratio) {
+            return Err(HakuError::Unsupported(
+                "split ratio must be finite and from 0.2 to 0.8".into(),
+            ));
+        }
+        let is_visible = entry.viewports.iter().any(|pane| pane.tab == tab);
+        let pair = entry
+            .splits
+            .iter_mut()
+            .find(|pair| pair.tabs.contains(&tab))
+            .ok_or_else(|| HakuError::Unsupported("tab is not paired".into()))?;
+        if pair.ratio == ratio {
+            return Ok(Vec::new());
+        }
+        pair.ratio = ratio;
+        if !is_visible {
+            return Ok(Vec::new());
+        }
+        entry.layout_revision += 1;
+        Ok(self.realize())
+    }
+
+    fn pane_focus_effect(&mut self, window: WindowId, tab: TabId) -> Effect {
+        let entry = self.window_mut(window).expect("focused window");
+        entry.pending_focus = Some((entry.focused_viewport.clone(), tab));
+        Effect::FocusPane {
+            window,
+            slot: self.tab(tab).ok().and_then(Tab::slot),
+        }
+    }
+
+    /// Defers explicit focus until current geometry is ready, appending it after
+    /// the batch's shows. Drops requests whose pane assignment or focus changed.
+    pub fn resolve_pane_focus(&mut self, effects: &[Effect], ready: impl Fn(&ViewportTarget) -> bool) -> Vec<Effect> {
+        let mut resolved: Vec<Effect> = effects
+            .iter()
+            .filter(|effect| !matches!(effect, Effect::FocusPane { .. }))
+            .cloned()
+            .collect();
+        for index in 0..self.windows.len() {
+            let entry = &self.windows[index];
+            let Some((pane, tab)) = &entry.pending_focus else {
+                continue;
+            };
+            if entry.focused_viewport != *pane || entry.active() != Some(*tab) {
+                self.windows[index].pending_focus = None;
+                continue;
+            }
+            let Ok(tab) = self.tab(*tab) else { continue };
+            let target = ViewportTarget {
+                window: entry.id,
+                id: pane.clone(),
+                revision: entry.layout_revision,
+            };
+            let slot = tab.slot();
+            if !tab.is_internal() && !tab.is_crashed() && (slot.is_none() || !ready(&target)) {
+                continue;
+            }
+            resolved.push(Effect::FocusPane { window: entry.id, slot });
+            self.windows[index].pending_focus = None;
+        }
+        resolved
+    }
+
+    /// Chooses an existing pane, independently of native toolbar focus.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign/hidden tabs and popups.
+    pub fn focus_pane(&mut self, window: WindowId, tab: TabId) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        self.visible_tab_in(window, tab)?;
+        if self.active_in(window) == Some(tab) {
+            return Ok(Vec::new());
+        }
+        self.window_mut(window).expect("validated window").assign(tab);
+        Ok(vec![self.pane_focus_effect(window, tab)])
+    }
+
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn select_tab(&mut self, id: TabId, now: u64) -> Result<Vec<Effect>> {
         self.index_of(id)?;
         self.advance(now);
+        let window = self.window_of(id).expect("validated tab");
+        let focus_changed = self.active_in(window) != Some(id);
         self.activate(id);
         self.pool.touch(id);
         // Viewing a tab is the activity signal available without giving remote
         // pages a channel back into the application.
         self.tab_mut(id)?.active_at = now;
-        Ok(self.realize())
+        let mut effects = self.realize();
+        if focus_changed {
+            effects.push(self.pane_focus_effect(window, id));
+        }
+        Ok(effects)
     }
 
     /// # Errors
@@ -1113,17 +1520,19 @@ impl Browser {
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn reorder_tab(&mut self, id: TabId, to: usize) -> Result<()> {
-        let from = self.index_of(id)?;
-        let window = self.window_of(id);
-        let tab = self.tabs.remove(from);
-        let places: Vec<usize> = (0..self.tabs.len())
-            .filter(|&index| self.homes.get(&self.tabs[index].id) == window.as_ref())
-            .collect();
-        let at = match places.get(to) {
-            Some(&at) => at,
-            None => places.last().map_or(self.tabs.len(), |&last| last + 1),
-        };
-        self.tabs.insert(at, tab);
+        self.index_of(id)?;
+        let window = self.window_of(id).expect("validated tab");
+        let members = self
+            .window(window)
+            .and_then(|entry| entry.pair(id))
+            .map_or_else(|| vec![id], |pair| pair.tabs.to_vec());
+        let mut moved = Vec::new();
+        for member in members {
+            let index = self.index_of(member)?;
+            moved.push(self.tabs.remove(index));
+        }
+        let at = self.legal_insertion(window, self.index_in(window, to));
+        self.tabs.splice(at..at, moved);
         Ok(())
     }
 
@@ -1478,6 +1887,8 @@ impl Browser {
 
         // After hiding: a webview can only be frozen while it is hidden.
         effects.extend(self.settle_background());
+        // Visibility changes may release reservations even with discard off.
+        effects.extend(self.trim());
         self.just_left.clear();
         effects
     }

@@ -2,6 +2,7 @@
 
 ## Traps
 
+- External file, link and text drops can navigate the IPC-holding chrome webview when its Tauri drag-drop handler is disabled: enabling HTML drops also removes wry's `AllowExternalDrop(false)`. Prefer pointer-driven strip dragging with the native handler enabled. Held on Tauri 2.12.5 and wry 0.57.0 (`Cargo.lock`); see wry's `webview2::InnerWebView::new_in_hwnd` drag-drop setup and [Security](../docs/guidelines/security.md).
 - A webview is created but never navigates, with no error anywhere, when the command driving it is synchronous. Tauri runs synchronous commands on the main thread, and creating, moving or raising a webview dispatches to that same thread and waits, deadlocking the event loop. Prefer an `async` command for anything that drives a webview. [Architecture § Threading](../docs/architecture.md#threading) records the rule. Held on Tauri 2.
 - The browser believes restored tabs are already loaded when session restore goes through open or select. Those return effects meant for real webviews; at startup there are none, so the effects are discarded while the state records them as applied. Prefer `Browser::restored`.
 - A tab returns to an older page after a single-page-app route change when the URL is taken from a page-load hook alone, because route changes fire no load. Content webviews have no IPC, so the page cannot report it either. Prefer `platform::observe_page`, which [Page observation](../docs/specs/page-observation.md) describes. Granting remote pages IPC is a security decision, not a fix for this.

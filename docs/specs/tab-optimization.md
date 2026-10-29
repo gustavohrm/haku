@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-08
+last_updated: 2026-10-29
 scope: Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a discarded tab gets back when it reloads.
 ---
 
@@ -98,10 +98,11 @@ With _Discard: never_ nothing is discarded by this rule, pressure included; only
 ### Effective capacity
 
 ```
-effective_capacity = max(configured_capacity, visible_count + fixed_count + must_run_count)
+effective_capacity = max(configured_capacity,
+                         max(1, visible_web_count) + fixed_web_count + other_must_run_count)
 ```
 
-`must_run_count` is the background tabs currently playing audio or capturing, or with a connected tab open. Music therefore survives a tab switch at a configured capacity of 1. A tab that starts playing while frozen cannot exist; one that starts while visible is already in a slot, so the reservation never has to find a webview for a page mid-playback.
+Every visible external, non-crashed viewport assignment counts, independently of focus. `fixed_web_count` includes visible fixed tabs; `other_must_run_count` counts non-fixed background web tabs currently playing audio or capturing (unless Freeze or Discard is set to Always), or with a connected tab open. Internal and crashed tabs count in none of these reservations. The one-slot floor and fixed overlap preserve the existing policy under [Split view D5](split-view.md#decisions). Unless either policy is Always, music therefore survives a tab switch at a configured capacity of 1. A tab that starts playing while frozen cannot exist; one that starts while visible is already in a slot, so the reservation never has to find a webview for a page mid-playback.
 
 ### Eviction
 
