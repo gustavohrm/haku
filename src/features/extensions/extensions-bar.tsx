@@ -90,7 +90,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
           className="btn icon ghost shrink-0"
           aria-label={extension.name}
           title={extension.name}
-          disabled={extension.popup === null}
+          disabled={extension.popup === null || tab === undefined}
           onClick={(event) => openPopup(extension, event.currentTarget)}
         >
           <ExtensionIcon extension={extension} />
@@ -138,7 +138,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
                     type="button"
                     className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px] disabled:opacity-50"
                     title={extension.popup === null ? t("extensions.noPopup") : extension.name}
-                    disabled={extension.popup === null}
+                    disabled={extension.popup === null || tab === undefined}
                     onClick={() => openPopup(extension, pinnedRefs.current.get(extension.id) ?? buttonRef.current)}
                   >
                     <ExtensionIcon extension={extension} />

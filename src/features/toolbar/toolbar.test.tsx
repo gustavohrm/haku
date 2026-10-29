@@ -40,6 +40,13 @@ describe("toolbar extension popups", () => {
 
   beforeEach(() => {
     openExtensionPopup.mockClear();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -48,14 +55,27 @@ describe("toolbar extension popups", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("passes the focused tab to a pinned extension popup, including after selection changes", async () => {
     const openFor = async (id: number) => {
       await act(async () => root.render(<Toolbar tab={tab(id)} />));
       const button = container.querySelector<HTMLButtonElement>('[aria-label="Example extension"]')!;
+      vi.spyOn(button, "getBoundingClientRect").mockReturnValue({
+        left: id * 10,
+        top: 31,
+        width: 28,
+        height: 27,
+      } as DOMRect);
       await act(async () => button.click());
-      expect(openExtensionPopup).toHaveBeenLastCalledWith("extension", id, { x: 0, y: 0, width: 0, height: 0 });
+      expect(openExtensionPopup).toHaveBeenLastCalledWith("extension", id, {
+        x: id * 10,
+        y: 31,
+        width: 28,
+        height: 27,
+      });
     };
     await openFor(7);
     await openFor(9);
@@ -65,6 +85,14 @@ describe("toolbar extension popups", () => {
     await act(async () => root.render(<Toolbar tab={null} />));
     const button = container.querySelector<HTMLButtonElement>('[aria-label="Example extension"]')!;
     await act(async () => button.click());
+    expect(button.disabled).toBe(true);
+    expect(openExtensionPopup).not.toHaveBeenCalled();
+    const menu = container.querySelector<HTMLButtonElement>('[aria-label="Extensions"]')!;
+    await act(async () => menu.click());
+    const entry = document.querySelector<HTMLButtonElement>('section button[title="Example extension"]')!;
+    expect(entry.disabled).toBe(true);
+    await act(async () => entry.click());
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
     expect(openExtensionPopup).not.toHaveBeenCalled();
   });
 });
