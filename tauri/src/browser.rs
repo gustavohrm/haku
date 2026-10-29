@@ -1,5 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
+use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -151,6 +152,9 @@ pub enum Opening {
 
 /// How many closed tabs are remembered for reopening.
 pub const CLOSED_LIMIT: usize = 25;
+
+/// The committed first-pane shares a pair may hold, also enforced on restore.
+pub const SPLIT_RATIOS: RangeInclusive<f64> = 0.2..=0.8;
 
 /// A tab chosen by its place in the tab strip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1344,7 +1348,7 @@ impl Browser {
     pub fn set_split_ratio(&mut self, window: WindowId, tab: TabId, ratio: f64) -> Result<Vec<Effect>> {
         self.normal_tab_in(window, tab)?;
         let entry = self.window_mut(window).expect("validated window");
-        if !ratio.is_finite() || !(0.2..=0.8).contains(&ratio) {
+        if !ratio.is_finite() || !SPLIT_RATIOS.contains(&ratio) {
             return Err(HakuError::Unsupported(
                 "split ratio must be finite and from 0.2 to 0.8".into(),
             ));

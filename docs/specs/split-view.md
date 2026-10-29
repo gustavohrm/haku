@@ -155,7 +155,7 @@ Fresh tab and pane ids are assigned on restore. Older binaries ignore the additi
 
 Deserialize the optional list and each entry tolerantly: a wrong list type acts as no pairs; a malformed entry drops only that pair, never the entire session or other valid pairs. Validate distinct in-range integer indices, stored left/right adjacency, no member reused by another accepted pair, and a finite ratio in 0.2–0.8. Accept entries in stored order; the first valid pair claims its members and a later overlapping entry is dropped. Map indices through URL filtering before assignments: if either member is filtered out, drop only that pair; never substitute another tab. Retain existing active-index filtering/fallback independently, so an invalid pair does not discard the selected tab. Empty-window and home-page fallback rules remain unchanged.
 
-Build through `Browser::restored`, with external tabs discarded and no slot state. Reconcile only the selected single tab or pair when each window reports matching geometry; background pairs do not eagerly load. A chrome renderer reload reads all committed pairs from Rust; engine restart uses persisted pairs. Splits do not change what counts as a visit.
+Build through `Browser::restored`, with external tabs discarded and no slot state. Reconcile when each window reports matching geometry: its selected single tab or pair loads, and background pairs load nothing beyond what existing fixed-tab policy already loads (D5). A chrome renderer reload reads all committed pairs from Rust; engine restart uses persisted pairs. Splits do not change what counts as a visit.
 
 ## Implementation slices
 

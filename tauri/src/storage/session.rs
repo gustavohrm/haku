@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::browser::Browser;
+use crate::browser::{Browser, SPLIT_RATIOS};
 use crate::model::{WindowId, WindowKind};
 use crate::storage::settings::OPENABLE_SCHEMES;
 
@@ -97,7 +97,7 @@ impl SessionWindow {
                 if left.checked_add(1) != Some(right)
                     || right >= indices.len()
                     || !pair.ratio.is_finite()
-                    || !(0.2..=0.8).contains(&pair.ratio)
+                    || !SPLIT_RATIOS.contains(&pair.ratio)
                 {
                     return None;
                 }

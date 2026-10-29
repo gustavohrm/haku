@@ -206,6 +206,9 @@ impl AppState {
 
     /// Validates and records layout under the same serialized turn as its effects.
     ///
+    /// An accepted layout also releases a restored window's startup hold, so
+    /// its shown pages may load; the caller must reconcile afterward for them to.
+    ///
     /// # Errors
     /// Returns [`HakuError::WindowMissing`] for an unknown window, or the layout
     /// validation error without changing any cached geometry.
