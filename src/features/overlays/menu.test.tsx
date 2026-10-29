@@ -22,7 +22,7 @@ describe("Menu", () => {
   const chosen: string[] = [];
   const onClose = vi.fn();
 
-  const command = (id: string, label: string, disabled = false): MenuItem => ({
+  const command = (id: string, label: string, disabled = false): Extract<MenuItem, { kind: "command" }> => ({
     kind: "command",
     id,
     label,
