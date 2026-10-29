@@ -35,12 +35,21 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
   const separatorRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ pointer: number; ratio: number; provisional: number } | null>(null);
   const renderedRatio = useRef(ratio);
+  const pendingRatio = useRef<number | null>(null);
+  const committedRatio = useRef(ratio);
+  const request = useRef(0);
   const [width, setWidth] = useState(0);
   const [percent, setPercent] = useState(Math.round(ratio * 100));
   const { min, max } = splitLimits(width);
   const isDisabled = min === max;
 
   useEffect(() => {
+    pendingRatio.current = null;
+    request.current++;
+  }, [assignments, tabId]);
+
+  useEffect(() => {
+    committedRatio.current = ratio;
     const container = containerRef.current;
     const separator = separatorRef.current;
     if (!container || !separator) {
@@ -51,7 +60,7 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
       frame = 0;
       const nextWidth = container.getBoundingClientRect().width;
       setWidth((previous) => (previous === nextWidth ? previous : nextWidth));
-      renderedRatio.current = clampSplitRatio(drag.current?.provisional ?? ratio, nextWidth);
+      renderedRatio.current = clampSplitRatio(drag.current?.provisional ?? pendingRatio.current ?? ratio, nextWidth);
       const value = String(renderedRatio.current);
       if (container.style.getPropertyValue("--split-ratio") !== value) {
         container.style.setProperty("--split-ratio", value);
@@ -100,15 +109,24 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
       separatorRef.current.releasePointerCapture(current.pointer);
     }
   };
+  const commitRatio = async () => {
+    const current = ++request.current;
+    pendingRatio.current = renderedRatio.current;
+    const result = await commands.setSplitRatio(tabId, renderedRatio.current);
+    if (current === request.current) {
+      pendingRatio.current = null;
+      if (result.status === "error") {
+        applyRatio(committedRatio.current);
+      }
+    }
+  };
   return (
     <div
       ref={separatorRef}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- This is an interactive window splitter, not a thematic break.
       role="separator"
       tabIndex={0}
-      aria-label={t("split.divider")
-        .replace("{left}", () => names[0])
-        .replace("{right}", () => names[1])}
+      aria-label={t("split.divider").replace(/\{(left|right)\}/g, (_, side: string) => names[side === "left" ? 0 : 1])}
       aria-orientation="vertical"
       aria-valuemin={Math.round(min * 100)}
       aria-valuemax={Math.round(max * 100)}
@@ -135,7 +153,8 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
           return;
         }
         event.preventDefault();
-        void commands.setSplitRatio(tabId, clampSplitRatio(next, width));
+        applyRatio(next);
+        void commitRatio();
       }}
       onPointerDown={(event) => {
         if (event.button !== 0 || isDisabled || drag.current) {
@@ -160,7 +179,7 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
         }
         drag.current = null;
         event.currentTarget.releasePointerCapture(event.pointerId);
-        void commands.setSplitRatio(tabId, renderedRatio.current);
+        void commitRatio();
       }}
       onPointerCancel={cancel}
       onLostPointerCapture={cancel}
