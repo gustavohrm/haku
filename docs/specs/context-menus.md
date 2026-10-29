@@ -109,15 +109,15 @@ Native items follow in their own groups, then extension items in a group of thei
 
 The chrome's own default menu is turned off from the interface: a `contextmenu` listener on the document calls `preventDefault`, which suppresses WebView2's menu, and draws Haku's menu where there is one. No Rust is needed.
 
-| Where             | Menu                                                                                                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A tab             | Reload, Duplicate, Keep loaded (checkbox, `set_tab_fixed`), Open in split view, Close pane (visible split tabs only), then Close, Close other tabs, Close tabs to the right |
-| The tab strip     | New tab, Reopen closed tab                                                                                                                                                  |
-| A text field      | Cut, Copy, Paste, Select all                                                                                                                                                |
-| Anywhere else     | Nothing                                                                                                                                                                     |
-| Debug builds only | **Inspect interface** appended to every interface menu, so developing Haku keeps its DevTools                                                                               |
+| Where             | Menu                                                                                                                                                                                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A tab             | Reload, Duplicate, Keep loaded (checkbox, `set_tab_fixed`), Open in split view, Separate tabs (paired tabs, including background pairs), then Close, Close other tabs, Close tabs to the right |
+| The tab strip     | New tab, Reopen closed tab                                                                                                                                                                     |
+| A text field      | Cut, Copy, Paste, Select all                                                                                                                                                                   |
+| Anywhere else     | Nothing                                                                                                                                                                                        |
+| Debug builds only | **Inspect interface** appended to every interface menu, so developing Haku keeps its DevTools                                                                                                  |
 
-**Open in split view** calls `split_tab` for a hidden tab. It is disabled with a visible, accessible reason on an already-visible tab or when two panes are open. **Close pane** calls `close_pane`, retaining the tab in the strip. Splitting has no dedicated shortcut; [Split view](split-view.md#ui) owns the pane controls and selection rules.
+**Open in split view** calls `split_tab` to pair two distinct unpaired tabs, with eligibility and accessible disabled reasons owned by [Split view](split-view.md#ui). **Separate tabs** calls `separate_tabs` for either member of a pair, retaining both tabs. The built Close pane action remains until slice 4b replaces it. Splitting has no dedicated shortcut. The split-view spec owns pair selection, joining and separation behavior.
 
 Duplicate opens the tab's current URL with `open_tab`, without its back history; a true duplicate needs a new command and is left for later. Close other tabs and Close tabs to the right call `close_tab` per tab.
 
