@@ -20,6 +20,7 @@ import { useEffect, type RefObject } from "react";
  */
 export function useChromeLayout(ref: RefObject<HTMLElement | null>, covered: boolean): void {
   const { focusedViewport, layoutRevision, viewports } = useBrowserState();
+  const viewportIds = viewports.map(({ id }) => id).join(",");
   const hasViewport = viewports.some((pane) => pane.id === focusedViewport);
   useEffect(() => {
     const element = ref.current;
@@ -42,7 +43,14 @@ export function useChromeLayout(ref: RefObject<HTMLElement | null>, covered: boo
       // and every push crosses the IPC boundary and rebuilds a native region.
       const layout: Layout = {
         revision: layoutRevision,
-        viewports: [{ id: focusedViewport, rect, covered, radius }],
+        // Until pane rendering lands, only the focused assignment has a surface.
+        viewports: viewportIds
+          .split(",")
+          .map((id) =>
+            id === focusedViewport
+              ? { id, rect, covered, radius }
+              : { id, rect: { x: 0, y: 0, width: 0, height: 0 }, covered: true, radius: 0 },
+          ),
         overlays,
       };
       const signature = JSON.stringify(layout);
@@ -74,5 +82,5 @@ export function useChromeLayout(ref: RefObject<HTMLElement | null>, covered: boo
       window.removeEventListener("resize", schedule);
       stopOverlays();
     };
-  }, [covered, ref, focusedViewport, layoutRevision, hasViewport]);
+  }, [covered, ref, focusedViewport, layoutRevision, hasViewport, viewportIds]);
 }

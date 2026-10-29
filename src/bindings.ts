@@ -41,6 +41,30 @@ export const commands = {
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
 	/**
+	 *  Opens a hidden tab beside the focused pane.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	splitTab: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("split_tab", { tab })),
+	/**
+	 *  Closes a pane, keeping its tab open.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	closePane: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_pane", { tab })),
+	/**
+	 *  Commits the first pane's share of split width.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	setSplitRatio: (tab: TabId, ratio: number) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("set_split_ratio", { tab, ratio })),
+	/**
+	 *  Focuses the named visible pane.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
+	 */
+	focusPane: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("focus_pane", { tab })),
+	/**
 	 *  Navigates a tab to whatever the user typed.
 	 * 
 	 *  The input is resolved here rather than in the interface so that the same

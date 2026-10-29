@@ -65,6 +65,8 @@ Validation, bounds, the input mask and reconciliation share the serialized chang
 
 `set_layout` also reconciles the browser. A restored session has tabs but no webviews, because until the interface reports its geometry there is nowhere on screen to put one; this is what loads the page the window opens on.
 
+Background slots use the focused pane's last measured rectangle, including when the surviving pane no longer has the initial id. Both layout updates and effect application resolve bounds this way. Visible sibling slots retain their own pane bounds.
+
 ### Registering an overlay
 
 Anything that floats over the viewport **must** call `useOverlay`, or it will paint correctly and be completely unclickable. This is the single easiest mistake to make in this codebase.

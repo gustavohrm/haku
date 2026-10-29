@@ -100,3 +100,48 @@ it("recovers a stale startup snapshot using state returned by setLayout", async 
     await act(async () => root.unmount());
   }
 });
+
+it("reports the unrendered split sibling as covered and collapsed while focus changes", async () => {
+  const rect = { x: 4, y: 80, width: 900, height: 600 };
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect as DOMRect);
+  browserStore.set({
+    ...EMPTY_STATE,
+    viewports: [
+      { id: "left", tab: 1 },
+      { id: "right", tab: 2 },
+    ],
+    focusedViewport: "right",
+    layoutRevision: 2,
+  });
+  function Surface() {
+    const ref = useRef<HTMLDivElement>(null);
+    useChromeLayout(ref, false);
+    return <div ref={ref} />;
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Surface />));
+    await act(async () => vi.runAllTimers());
+    expect(commands.setLayout).toHaveBeenLastCalledWith({
+      revision: 2,
+      viewports: [
+        { id: "left", rect: { x: 0, y: 0, width: 0, height: 0 }, covered: true, radius: 0 },
+        { id: "right", rect, covered: false, radius: 0 },
+      ],
+      overlays: [],
+    });
+    await act(async () => browserStore.set({ ...browserStore.get(), focusedViewport: "left" }));
+    await act(async () => vi.runAllTimers());
+    expect(commands.setLayout).toHaveBeenLastCalledWith({
+      revision: 2,
+      viewports: [
+        { id: "left", rect, covered: false, radius: 0 },
+        { id: "right", rect: { x: 0, y: 0, width: 0, height: 0 }, covered: true, radius: 0 },
+      ],
+      overlays: [],
+    });
+    expect(commands.setLayout).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -59,7 +59,7 @@ React interface  →  generated bindings  →  Tauri commands  →  Browser  →
 
 That separation is what makes tab and pool behaviour testable without a window, a webview, or an event loop. Every rule about eviction, pinning, discarding and history is exercised by ordinary unit tests.
 
-Each populated window has an ordered viewport assignment list and a focused viewport; `active` is only a projection of that assignment. [Split view slice 1](specs/split-view.md#implementation-slices) enforces exactly one viewport for now. Visibility, pool protection and optimization follow assignments, not focus, and geometry is revisioned separately from session state.
+Each populated window has an ordered viewport assignment list and a focused viewport; `active` is only a projection of that assignment. [Split view slice 3](specs/split-view.md#implementation-slices) permits at most two viewports in normal windows through model and IPC intents; popups keep one. The interface still renders only the focused pane until slice 4. Visibility, pool protection and optimization follow assignments, not focus, and geometry is revisioned separately from session state.
 
 Every mutation ends by calling `realize()`, which reconciles the whole state, rather than emitting effects itself. There is therefore exactly one description of what "correct" looks like, and no operation can forget a step another one remembers.
 
@@ -113,7 +113,7 @@ The host names the page; a path, query or fragment after it belongs to the page,
 
 ## Where this is heading
 
-[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool and native keyboard handling while a page has focus are built; several viewports and webviews keyed by profile are not. Read it before building anything it lists.
+[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool and native keyboard handling while a page has focus are built; two viewport assignments are supported by the backend; pane rendering and webviews keyed by profile are not. Read it before building anything it lists.
 
 ## Threading
 

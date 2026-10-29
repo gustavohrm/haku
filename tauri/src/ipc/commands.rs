@@ -968,6 +968,14 @@ fn slot_viewports(state: &AppState) -> Result<HashMap<SlotId, crate::browser::Vi
         .slot_viewports())
 }
 
+fn slot_bounds(state: &AppState) -> Result<HashMap<SlotId, webview::Viewport>> {
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    Ok(state.viewports.all_slot_bounds(&browser))
+}
+
 /// Applies effects to real webviews and tells every window what changed.
 ///
 /// What the browser decided is shown and saved even when an effect failed,
@@ -975,7 +983,8 @@ fn slot_viewports(state: &AppState) -> Result<HashMap<SlotId, crate::browser::Vi
 fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<()> {
     let hooks = hooks();
     let placements = slot_viewports(state)?;
-    let (departures, mut applied) = webview::apply(app, effects, &state.viewports, &hooks, &placements);
+    let bounds = slot_bounds(state)?;
+    let (departures, mut applied) = webview::apply(app, effects, &state.viewports, &hooks, &placements, &bounds);
     let mut readings = keep_previews(state, departures);
     // A page read as it was left may turn out to be capturing, which changes
     // what should happen to it. Bounded, though a reading only ever leads to
@@ -986,7 +995,8 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
         }
         let effects = report_readings(state, readings)?;
         let placements = slot_viewports(state)?;
-        let (departures, more) = webview::apply(app, &effects, &state.viewports, &hooks, &placements);
+        let bounds = slot_bounds(state)?;
+        let (departures, more) = webview::apply(app, &effects, &state.viewports, &hooks, &placements, &bounds);
         readings = keep_previews(state, departures);
         applied = applied.and(more);
     }
@@ -1371,6 +1381,83 @@ pub async fn select_tab(
         browser.set_pressure(pressure);
         browser.select_tab(id, now_ms())
     })
+}
+
+/// A numeric IPC argument; specta otherwise exports f64 as number | null.
+#[derive(serde::Deserialize, specta::Type)]
+#[serde(transparent)]
+#[specta(inline)]
+pub struct SplitRatio(#[specta(type = specta_typescript::Number)] f64);
+
+/// Opens a hidden tab beside the focused pane.
+/// # Errors
+/// Rejects non-chrome callers and invalid model targets; propagates effect failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn split_tab(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    let current = mutate_in(&app, &state, window, |browser| browser.split_tab(window, tab))?;
+    if current
+        .tabs
+        .iter()
+        .any(|entry| entry.id == tab && entry.presence == crate::model::TabPresence::Discarded)
+    {
+        return Err(HakuError::NoSlotAvailable);
+    }
+    Ok(current)
+}
+
+/// Closes a pane, keeping its tab open.
+/// # Errors
+/// Rejects non-chrome callers and invalid model targets; propagates effect failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn close_pane(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| browser.close_pane(window, tab))
+}
+
+/// Commits the first pane's share of split width.
+/// # Errors
+/// Rejects non-chrome callers and invalid model targets; propagates effect failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_split_ratio(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+    ratio: SplitRatio,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| {
+        browser.set_split_ratio(window, tab, ratio.0)
+    })
+}
+
+/// Focuses the named visible pane.
+/// # Errors
+/// Rejects non-chrome callers and invalid model targets; propagates effect failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn focus_pane(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| browser.focus_pane(window, tab))
 }
 
 /// Navigates a tab to whatever the user typed.

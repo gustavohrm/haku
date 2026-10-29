@@ -116,3 +116,33 @@ fn covered_and_zero_size_panes_make_no_holes() {
     report.viewports[0].rect.width = 0.0;
     assert!(mask_rects(&report, 1.0).0.is_empty());
 }
+
+#[test]
+fn two_disjoint_holes_preserve_a_cross_pane_overlay_and_solid_divider() {
+    let mut report = layout();
+    report.viewports.push(pane("2", rect(104.0, 100.0)));
+    let mut assigned = assignments();
+    assigned.push(ViewportAssignment {
+        id: "2".into(),
+        tab: TabId(2),
+    });
+    report.overlays.push(Overlay {
+        rect: rect(80.0, 45.0),
+        radius: 4.0,
+    });
+    report.validate(&assigned).unwrap();
+    let (holes, overlays) = mask_rects(&report, 1.25);
+    assert_eq!(holes.len(), 2);
+    assert_eq!(holes[0].rect.x + holes[0].rect.width, 125);
+    assert_eq!(holes[1].rect.x, 130);
+    assert_eq!(overlays[0].rect.x, 100);
+    assert_eq!(overlays[0].rect.width, 56);
+    assert_eq!(overlays[0].radius, 5);
+    report.viewports[1].covered = true;
+    let (covered, _) = mask_rects(&report, 1.25);
+    assert_eq!(covered, holes[..1]);
+    report.viewports[1].covered = false;
+    report.viewports[0].covered = true;
+    let (covered, _) = mask_rects(&report, 1.25);
+    assert_eq!(covered, holes[1..]);
+}

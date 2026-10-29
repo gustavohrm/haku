@@ -49,6 +49,11 @@ pub enum Effect {
     Hide {
         slot: SlotId,
     },
+    /// Explicit pane choice, separate from showing sibling surfaces.
+    FocusPane {
+        window: WindowId,
+        slot: Option<SlotId>,
+    },
     Reload {
         slot: SlotId,
     },
@@ -238,6 +243,8 @@ struct Window {
     viewports: Vec<ViewportAssignment>,
     focused_viewport: String,
     layout_revision: u64,
+    split_ratio: Option<f64>,
+    next_viewport: u64,
 }
 
 impl Window {
@@ -248,6 +255,8 @@ impl Window {
             viewports: Vec::new(),
             focused_viewport: INITIAL_VIEWPORT.into(),
             layout_revision: 0,
+            split_ratio: None,
+            next_viewport: 2,
         }
     }
 
@@ -259,10 +268,11 @@ impl Window {
     }
 
     fn assign(&mut self, tab: TabId) {
-        // Slice 3 of docs/specs/split-view.md enables a second viewport.
-        // Empty windows exist only before their first tab is assigned.
-        debug_assert!(self.viewports.len() <= 1);
-        if let Some(pane) = self.viewports.first_mut() {
+        if let Some(pane) = self.viewports.iter().find(|pane| pane.tab == tab) {
+            self.focused_viewport.clone_from(&pane.id);
+            return;
+        }
+        if let Some(pane) = self.viewports.iter_mut().find(|pane| pane.id == self.focused_viewport) {
             pane.tab = tab;
             return;
         }
@@ -270,6 +280,13 @@ impl Window {
             id: self.focused_viewport.clone(),
             tab,
         }];
+        self.layout_revision += 1;
+    }
+
+    fn remove_pane(&mut self, tab: TabId) {
+        self.viewports.retain(|pane| pane.tab != tab);
+        self.focused_viewport.clone_from(&self.viewports[0].id);
+        self.split_ratio = None;
         self.layout_revision += 1;
     }
 }
@@ -443,10 +460,20 @@ impl Browser {
     /// What one window shows, or nothing when no window has this id.
     pub fn state_in(&self, window: WindowId) -> Option<BrowserState> {
         let entry = self.window(window)?;
-        // Slice 3 of docs/specs/split-view.md relaxes the one-pane invariant.
+        debug_assert!(entry.viewports.len() <= if entry.kind == WindowKind::Popup { 1 } else { 2 });
+        debug_assert_eq!(entry.viewports.is_empty(), self.tabs_in(window).next().is_none());
+        debug_assert!(entry
+            .viewports
+            .iter()
+            .all(|pane| self.window_of(pane.tab) == Some(window)));
         debug_assert_eq!(
-            entry.viewports.len(),
-            usize::from(self.tabs_in(window).next().is_some())
+            entry
+                .viewports
+                .iter()
+                .map(|pane| pane.tab)
+                .collect::<HashSet<_>>()
+                .len(),
+            entry.viewports.len()
         );
         Some(BrowserState {
             kind: entry.kind,
@@ -454,7 +481,7 @@ impl Browser {
             active: entry.active(),
             viewports: entry.viewports.clone(),
             focused_viewport: entry.focused_viewport.clone(),
-            split_ratio: None,
+            split_ratio: entry.split_ratio,
             layout_revision: entry.layout_revision,
             capacity: self.pool.capacity(),
             live_count: self.tabs.iter().filter(|tab| tab.slot().is_some()).count(),
@@ -688,7 +715,10 @@ impl Browser {
     fn activate(&mut self, id: TabId) {
         let clock = self.clock;
         let Some(window) = self.window_of(id) else { return };
-        if let Some(previous) = self.active_in(window).filter(|&previous| previous != id) {
+        if let Some(previous) = self
+            .active_in(window)
+            .filter(|&previous| previous != id && !self.is_visible(id))
+        {
             if let Ok(tab) = self.tab_mut(previous) {
                 tab.active_at = tab.active_at.max(clock);
             }
@@ -921,7 +951,16 @@ impl Browser {
         let home = self.window_of(id).unwrap_or(source);
         match opening {
             Opening::Background if self.active_in(home).is_some() => {}
-            _ => self.activate(id),
+            _ => {
+                if let Some(parent) = parent.filter(|&parent| self.window_of(parent) == Some(home)) {
+                    if let Some(entry) = self.window_mut(home) {
+                        if let Some(pane) = entry.viewports.iter().find(|pane| pane.tab == parent) {
+                            entry.focused_viewport.clone_from(&pane.id);
+                        }
+                    }
+                }
+                self.activate(id);
+            }
         }
         if let Some(request) = request {
             self.adopting.insert(id, request);
@@ -1009,16 +1048,32 @@ impl Browser {
             return Ok(effects);
         }
 
-        if self.active_in(window) == Some(id) {
-            let next = opener.or_else(|| remaining.get(place).or_else(|| remaining.last()).copied());
+        let mut removed_pane = false;
+        if self.is_visible(id) {
+            let visible_opener = opener.filter(|&tab| self.is_visible(tab));
+            let next = opener.filter(|&tab| !self.is_visible(tab)).or_else(|| {
+                remaining[place.min(remaining.len())..]
+                    .iter()
+                    .chain(remaining[..place.min(remaining.len())].iter().rev())
+                    .copied()
+                    .find(|&tab| !self.is_visible(tab))
+            });
             if let Some(entry) = self.window_mut(window) {
-                if let Some(tab) = next {
-                    entry.assign(tab);
+                if let Some(tab) = next.filter(|_| visible_opener.is_none()) {
+                    if let Some(pane) = entry.viewports.iter_mut().find(|pane| pane.tab == id) {
+                        pane.tab = tab;
+                    }
+                } else {
+                    entry.remove_pane(id);
+                    removed_pane = true;
                 }
             }
         }
 
         effects.extend(self.realize());
+        if removed_pane {
+            effects.extend(self.trim());
+        }
         Ok(effects)
     }
 
@@ -1129,16 +1184,121 @@ impl Browser {
         tabs.get(index).copied()
     }
 
+    /// Validates a split intent's caller and tab before changing anything.
+    fn normal_tab_in(&self, window: WindowId, tab: TabId) -> Result<()> {
+        self.tab(tab)?;
+        if self.window_of(tab) != Some(window) || self.kind(window) != Some(WindowKind::Normal) {
+            return Err(HakuError::Unsupported(
+                "split intents require a tab in the calling normal window".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Adds a hidden tab to the right of the existing pane and focuses it.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign tabs, popups, visible targets and existing splits.
+    pub fn split_tab(&mut self, window: WindowId, tab: TabId) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        let entry = self.window(window).expect("validated window");
+        if entry.viewports.len() != 1 || self.is_visible(tab) {
+            return Err(HakuError::Unsupported(
+                "split requires one pane and a hidden target".into(),
+            ));
+        }
+        let entry = self.window_mut(window).expect("validated window");
+        let id = entry.next_viewport.to_string();
+        entry.next_viewport += 1;
+        entry.viewports.push(ViewportAssignment { id: id.clone(), tab });
+        entry.focused_viewport = id;
+        entry.split_ratio = Some(0.5);
+        entry.layout_revision += 1;
+        Ok(self.realize())
+    }
+
+    /// Removes a pane, retaining its tab and focusing the survivor.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign/hidden tabs, popups and unsplit windows.
+    pub fn close_pane(&mut self, window: WindowId, tab: TabId) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        self.visible_tab_in(window, tab)?;
+        let entry = self.window_mut(window).expect("validated window");
+        if entry.viewports.len() != 2 {
+            return Err(HakuError::Unsupported("window is not split".into()));
+        }
+        entry.remove_pane(tab);
+        let clock = self.clock;
+        self.tab_mut(tab)?.active_at = clock;
+        let mut effects = self.realize();
+        effects.extend(self.trim());
+        Ok(effects)
+    }
+
+    /// Commits the preferred first-pane share without accepting drag geometry.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign/hidden tabs, popups, unsplit windows and ratios
+    /// outside the finite inclusive 0.2 to 0.8 range.
+    pub fn set_split_ratio(&mut self, window: WindowId, tab: TabId, ratio: f64) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        self.visible_tab_in(window, tab)?;
+        let entry = self.window_mut(window).expect("validated window");
+        if entry.viewports.len() != 2 || !ratio.is_finite() || !(0.2..=0.8).contains(&ratio) {
+            return Err(HakuError::Unsupported(
+                "split ratio requires two panes and a finite share from 0.2 to 0.8".into(),
+            ));
+        }
+        if entry.split_ratio == Some(ratio) {
+            return Ok(Vec::new());
+        }
+        entry.split_ratio = Some(ratio);
+        entry.layout_revision += 1;
+        Ok(self.realize())
+    }
+
+    fn pane_focus_effect(&self, window: WindowId, tab: TabId) -> Effect {
+        Effect::FocusPane {
+            window,
+            slot: self.tab(tab).ok().and_then(Tab::slot),
+        }
+    }
+
+    /// Chooses an existing pane, independently of native toolbar focus.
+    ///
+    /// # Errors
+    /// Rejects missing/foreign/hidden tabs and popups.
+    pub fn focus_pane(&mut self, window: WindowId, tab: TabId) -> Result<Vec<Effect>> {
+        self.normal_tab_in(window, tab)?;
+        self.visible_tab_in(window, tab)?;
+        if self.active_in(window) == Some(tab) {
+            return Ok(Vec::new());
+        }
+        self.window_mut(window).expect("validated window").assign(tab);
+        Ok(vec![self.pane_focus_effect(window, tab)])
+    }
+
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn select_tab(&mut self, id: TabId, now: u64) -> Result<Vec<Effect>> {
         self.index_of(id)?;
         self.advance(now);
+        let already_visible = self.is_visible(id);
+        let window = self.window_of(id).expect("validated tab");
+        let focus_changed = self.active_in(window) != Some(id);
         self.activate(id);
         self.pool.touch(id);
         // Viewing a tab is the activity signal available without giving remote
         // pages a channel back into the application.
         self.tab_mut(id)?.active_at = now;
+        if already_visible {
+            return Ok(if focus_changed {
+                vec![self.pane_focus_effect(window, id)]
+            } else {
+                Vec::new()
+            });
+        }
         Ok(self.realize())
     }
 

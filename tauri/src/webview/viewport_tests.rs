@@ -175,3 +175,77 @@ fn geometry_and_readiness_are_local_to_the_window_and_viewport() {
         ..target()
     }));
 }
+
+#[test]
+fn split_geometry_rejects_removed_assignments_and_preserves_covered_sibling_bounds() {
+    let mut browser = Browser::new(4);
+    let (left, _) = browser.open_tab("https://left.test", true);
+    let (background, _) = browser.open_tab("https://background.test", true);
+    browser.select_tab(left, 1).unwrap();
+    let (right, _) = browser.open_tab("https://right.test", false);
+    let window = browser.main_window();
+    browser.split_tab(window, right).unwrap();
+    let current = browser.state();
+    let mut layout = report();
+    layout.revision = current.layout_revision;
+    layout.viewports[0].rect.width = 400.0;
+    let mut sibling = layout.viewports[0].clone();
+    sibling.id = current.viewports[1].id.clone();
+    sibling.rect.x = 408.0;
+    sibling.covered = true;
+    layout.viewports.push(sibling);
+    let viewports = Viewports::default();
+    viewports
+        .record(window, &layout, &current.viewports, current.layout_revision)
+        .unwrap();
+    let bounds = viewports.slot_bounds(&browser, window);
+    assert!(bounds.contains(&(browser.tab(left).unwrap().slot().unwrap(), layout.viewports[0].rect)));
+    assert!(bounds.contains(&(browser.tab(right).unwrap().slot().unwrap(), layout.viewports[1].rect)));
+    assert!(bounds.contains(&(
+        browser.tab(background).unwrap().slot().unwrap(),
+        layout.viewports[1].rect
+    )));
+    browser.focus_pane(window, left).unwrap();
+    assert!(viewports.slot_bounds(&browser, window).contains(&(
+        browser.tab(background).unwrap().slot().unwrap(),
+        layout.viewports[0].rect
+    )));
+    browser.close_pane(window, left).unwrap();
+    let closed = browser.state();
+    assert!(!viewports
+        .record(window, &layout, &closed.viewports, closed.layout_revision)
+        .unwrap());
+    assert!(!viewports.can_show(&browser.slot_viewports()[&browser.tab(right).unwrap().slot().unwrap()]));
+    let mut resized = layout.clone();
+    resized.revision = closed.layout_revision;
+    resized.viewports.remove(0);
+    resized.viewports[0].rect.width = 900.0;
+    viewports
+        .record(window, &resized, &closed.viewports, closed.layout_revision)
+        .unwrap();
+    assert_eq!(viewports.get(window, &closed.viewports[0].id).width, 900.0);
+}
+
+#[test]
+fn background_effect_bounds_follow_focus_after_the_initial_pane_is_removed() {
+    let mut browser = Browser::new(4);
+    let (left, _) = browser.open_tab("https://left.test", true);
+    browser.set_fixed(left, true).unwrap();
+    let (right, _) = browser.open_tab("https://right.test", false);
+    let window = browser.main_window();
+    browser.split_tab(window, right).unwrap();
+    browser.close_pane(window, left).unwrap();
+    let current = browser.state();
+    let mut layout = report();
+    layout.revision = current.layout_revision;
+    layout.viewports[0].id.clone_from(&current.focused_viewport);
+    let viewports = Viewports::default();
+    viewports
+        .record(window, &layout, &current.viewports, current.layout_revision)
+        .unwrap();
+    let bounds = viewports.all_slot_bounds(&browser);
+    assert_eq!(
+        bounds[&browser.tab(left).unwrap().slot().unwrap()],
+        layout.viewports[0].rect
+    );
+}

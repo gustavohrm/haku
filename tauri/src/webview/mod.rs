@@ -87,13 +87,21 @@ impl Viewports {
             .slots_in(window)
             .into_iter()
             .map(|slot| {
-                // Background slots follow the focused pane in slice 1.
-                // Slice 3 revisits their placement when two panes are enabled.
+                // Background slots retain the focused pane's last measured bounds.
                 let id = placements
                     .get(&slot)
                     .map_or(current.focused_viewport.as_str(), |target| target.id.as_str());
                 (slot, self.get(window, id))
             })
+            .collect()
+    }
+
+    /// Bounds for effect application, including hidden slots in the focused pane.
+    pub fn all_slot_bounds(&self, browser: &Browser) -> HashMap<SlotId, Viewport> {
+        browser
+            .window_ids()
+            .into_iter()
+            .flat_map(|window| self.slot_bounds(browser, window))
             .collect()
     }
 
@@ -451,12 +459,20 @@ pub fn apply<R: tauri::Runtime>(
     viewports: &Viewports,
     hooks: &Hooks<R>,
     placements: &HashMap<SlotId, ViewportTarget>,
+    bounds: &HashMap<SlotId, Viewport>,
 ) -> (Vec<Departure>, Result<()>) {
+    // Newly opened windows receive their initial guess in OpenWindow below.
     let bounds_for = |slot: &SlotId, window| {
-        let id = placements
+        bounds
             .get(slot)
-            .map_or(INITIAL_VIEWPORT, |target| target.id.as_str());
-        viewports.get(window, id)
+            .copied()
+            .filter(|rect| rect.width >= 1.0 && rect.height >= 1.0)
+            .unwrap_or_else(|| {
+                placements.get(slot).map_or_else(
+                    || viewports.get(window, INITIAL_VIEWPORT),
+                    |target| viewports.get(window, &target.id),
+                )
+            })
     };
     let mut departures = Vec::new();
     let applied = each_effect(effects, |effect| {
@@ -488,6 +504,16 @@ pub fn apply<R: tauri::Runtime>(
                 set_visible(app, *slot, visible)?;
             }
             Effect::Hide { slot } => set_visible(app, *slot, false)?,
+            Effect::FocusPane { window, slot } => {
+                let page = slot.and_then(|slot| {
+                    placements.get(&slot).filter(|target| viewports.can_show(target))?;
+                    app.get_webview(&slot.label())
+                });
+                match page {
+                    Some(page) => page.set_focus()?,
+                    None => chrome_of(app, *window)?.set_focus()?,
+                }
+            }
             Effect::Reload { slot } => reload(app, *slot)?,
             // A page that fails to freeze keeps running, which costs memory but
             // nothing else, so it must not stop the effects after it.
