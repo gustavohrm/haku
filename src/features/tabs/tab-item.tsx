@@ -93,11 +93,11 @@ export function TabItem({ tab, active, pairPosition = -1, onMenu }: TabItemProps
         {!active && tab.dialog !== null && (
           <button
             type="button"
-            className="btn ghost shrink-0 text-xs"
+            className="btn ghost min-w-0 shrink text-xs"
             aria-label={t("split.waitingTab").replace("{title}", () => title)}
             onClick={() => void commands.selectTab(tab.id)}
           >
-            {t("split.waiting")}
+            <span className="truncate">{t("split.waiting")}</span>
           </button>
         )}
         {tab.relieved && (

@@ -211,6 +211,10 @@ it("marks a waiting dialog accessibly and focuses its pane before presenting the
   expect(alert).not.toHaveBeenCalled();
   const marker = host.querySelector<HTMLButtonElement>('[aria-label="Dialog waiting: Page 2"]')!;
   expect(marker).not.toBeNull();
+  // jsdom does not lay out flex items; retain the constraints that bound this badge.
+  expect(marker.classList.contains("min-w-0")).toBe(true);
+  expect(marker.classList.contains("shrink")).toBe(true);
+  expect(marker.querySelector(".truncate")?.textContent).toBe("Dialog waiting");
   expect(marker.closest("[data-viewport]")).toBeNull();
   await act(async () => marker.click());
   expect(commands.selectTab).toHaveBeenCalledWith(2);
