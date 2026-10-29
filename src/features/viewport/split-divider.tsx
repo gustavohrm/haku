@@ -33,9 +33,10 @@ interface SplitDividerProps {
 /** Temporary drag geometry lives in refs; Rust receives one intent on release. */
 export function SplitDivider({ containerRef, ratio, tabId, revision, assignments, names }: SplitDividerProps) {
   const separatorRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ pointer: number; ratio: number } | null>(null);
+  const drag = useRef<{ pointer: number; ratio: number; provisional: number } | null>(null);
   const renderedRatio = useRef(ratio);
   const [width, setWidth] = useState(0);
+  const [percent, setPercent] = useState(Math.round(ratio * 100));
   const { min, max } = splitLimits(width);
   const isDisabled = min === max;
 
@@ -45,23 +46,32 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
     if (!container || !separator) {
       return;
     }
+    let frame = 0;
     const apply = () => {
+      frame = 0;
       const nextWidth = container.getBoundingClientRect().width;
-      const current = drag.current;
-      drag.current = null;
-      if (current && separator.hasPointerCapture?.(current.pointer)) {
-        separator.releasePointerCapture(current.pointer);
+      setWidth((previous) => (previous === nextWidth ? previous : nextWidth));
+      renderedRatio.current = clampSplitRatio(drag.current?.provisional ?? ratio, nextWidth);
+      const value = String(renderedRatio.current);
+      if (container.style.getPropertyValue("--split-ratio") !== value) {
+        container.style.setProperty("--split-ratio", value);
       }
-      setWidth(nextWidth);
-      renderedRatio.current = clampSplitRatio(ratio, nextWidth);
-      container.style.setProperty("--split-ratio", String(renderedRatio.current));
-      separator.setAttribute("aria-valuenow", String(Math.round(renderedRatio.current * 100)));
+      const percent = String(Math.round(renderedRatio.current * 100));
+      setPercent(Number(percent));
+      if (separator.getAttribute("aria-valuenow") !== percent) {
+        separator.setAttribute("aria-valuenow", percent);
+      }
     };
     apply();
-    const observer = new ResizeObserver(apply);
+    const observer = new ResizeObserver(() => {
+      if (!frame) {
+        frame = requestAnimationFrame(apply);
+      }
+    });
     observer.observe(container);
     return () => {
       observer.disconnect();
+      cancelAnimationFrame(frame);
       const current = drag.current;
       drag.current = null;
       if (current && separator.hasPointerCapture?.(current.pointer)) {
@@ -102,7 +112,7 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
       aria-orientation="vertical"
       aria-valuemin={Math.round(min * 100)}
       aria-valuemax={Math.round(max * 100)}
-      aria-valuenow={Math.round(clampSplitRatio(ratio, width) * 100)}
+      aria-valuenow={percent}
       aria-disabled={isDisabled || undefined}
       className="bg-chrome focus-visible:bg-text-secondary relative w-[4px] cursor-col-resize touch-none outline-offset-[-2px] aria-disabled:cursor-default"
       onKeyDown={(event) => {
@@ -134,7 +144,7 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
         event.preventDefault();
         event.currentTarget.focus();
         event.currentTarget.setPointerCapture(event.pointerId);
-        drag.current = { pointer: event.pointerId, ratio: renderedRatio.current };
+        drag.current = { pointer: event.pointerId, ratio, provisional: renderedRatio.current };
       }}
       onPointerMove={(event) => {
         if (!drag.current || drag.current.pointer !== event.pointerId) {
@@ -142,6 +152,7 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
         }
         const rect = containerRef.current!.getBoundingClientRect();
         applyRatio((event.clientX - rect.left) / (rect.width - DIVIDER_WIDTH));
+        drag.current.provisional = renderedRatio.current;
       }}
       onPointerUp={(event) => {
         if (!drag.current || drag.current.pointer !== event.pointerId) {

@@ -135,9 +135,22 @@ it("captures a drag, restores geometry on cancel and commits only once on releas
   }
 });
 
-it("disables resizing below 484 pixels without committing away the preferred ratio", async () => {
+it("coalesces observation without writes, retains drags across resize and restores the preferred ratio", async () => {
   let width = 1204;
   let resize!: () => void;
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++nextFrame, callback);
+    return nextFrame;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  const flush = async () =>
+    act(async () => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      callbacks.forEach((callback) => callback(0));
+    });
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -149,6 +162,15 @@ it("disables resizing below 484 pixels without committing away the preferred rat
     },
   );
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({ width, left: 0 }) as DOMRect);
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  let isCaptured = false;
+  HTMLElement.prototype.setPointerCapture = vi.fn(() => {
+    isCaptured = true;
+  });
+  HTMLElement.prototype.hasPointerCapture = () => isCaptured;
+  HTMLElement.prototype.releasePointerCapture = vi.fn(() => {
+    isCaptured = false;
+  });
   const ref = createRef<HTMLDivElement>();
   const host = document.createElement("div");
   const root = createRoot(host);
@@ -158,7 +180,7 @@ it("disables resizing below 484 pixels without committing away the preferred rat
         <div ref={ref}>
           <SplitDivider
             containerRef={ref}
-            ratio={0.7}
+            ratio={0.8}
             tabId={1}
             revision={1}
             assignments="left:1,right:2"
@@ -168,20 +190,57 @@ it("disables resizing below 484 pixels without committing away the preferred rat
       ),
     );
     const divider = host.querySelector('[role="separator"]')!;
+    const pointer = async (type: string, x = 0) =>
+      act(async () => divider.dispatchEvent(new MouseEvent(type, { clientX: x, button: 0, bubbles: true })));
+    const writes = vi.spyOn(ref.current!.style, "setProperty");
     vi.mocked(commands.setSplitRatio).mockClear();
-    await act(async () => divider.dispatchEvent(new MouseEvent("pointerdown", { button: 0, bubbles: true })));
-    width = 483;
-    await act(async () => resize());
-    expect(divider.getAttribute("aria-disabled")).toBe("true");
-    expect(ref.current!.style.getPropertyValue("--split-ratio")).toBe("0.5");
-    await act(async () => divider.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
-    await act(async () => divider.dispatchEvent(new MouseEvent("pointerup", { button: 0, bubbles: true })));
-    expect(commands.setSplitRatio).not.toHaveBeenCalled();
+    width = 604;
+    resize();
+    resize();
+    resize();
+    expect(writes).not.toHaveBeenCalled();
+    expect(frames.size).toBe(1);
+    await flush();
+    expect(ref.current!.style.getPropertyValue("--split-ratio")).toBe("0.6");
+    writes.mockClear();
+    resize();
+    await flush();
+    expect(writes).not.toHaveBeenCalled();
+    await pointer("pointerdown");
+    await pointer("pointermove", 300);
     width = 1204;
-    await act(async () => resize());
+    resize();
+    await flush();
+    expect(isCaptured).toBe(true);
+    expect(ref.current!.style.getPropertyValue("--split-ratio")).toBe("0.5");
+    await act(async () => divider.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(ref.current!.style.getPropertyValue("--split-ratio")).toBe("0.8");
+    await pointer("pointerup");
+    expect(commands.setSplitRatio).not.toHaveBeenCalled();
+    await pointer("pointerdown");
+    await pointer("pointermove", 840);
+    width = 1004;
+    resize();
+    await flush();
+    expect(isCaptured).toBe(true);
     expect(ref.current!.style.getPropertyValue("--split-ratio")).toBe("0.7");
-    expect(divider.getAttribute("aria-disabled")).toBeNull();
+    await pointer("pointerup");
+    await pointer("pointerup");
+    expect(commands.setSplitRatio).toHaveBeenCalledExactlyOnceWith(1, 0.7);
+    vi.mocked(commands.setSplitRatio).mockClear();
+    await pointer("pointerdown");
+    width = 483;
+    resize();
+    await flush();
+    expect(divider.getAttribute("aria-disabled")).toBe("true");
+    expect(isCaptured).toBe(true);
+    expect(ref.current!.style.getPropertyValue("--split-ratio")).toBe("0.5");
+    await pointer("pointerup");
+    expect(commands.setSplitRatio).toHaveBeenCalledExactlyOnceWith(1, 0.5);
+    resize();
+    expect(frames.size).toBe(1);
   } finally {
     await act(async () => root.unmount());
   }
+  expect(frames.size).toBe(0);
 });
