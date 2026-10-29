@@ -28,7 +28,7 @@ thiserror = "2"
 specta = "=2.0.0-rc.25"
 specta-typescript = "0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 # A second launch hands over to the running Haku instead of sharing its
 # profile, session and history files with it.
 tauri-plugin-single-instance = "2"
