@@ -169,3 +169,34 @@ it("reports both real pane rectangles in one serialized layout and sends only th
     await act(async () => root.unmount());
   }
 });
+
+it("ignores a layout reply older than the latest stateChanged revision", async () => {
+  const old = { ...EMPTY_STATE, viewports: [{ id: "pane", tab: 1 }], focusedViewport: "pane", layoutRevision: 1 };
+  const current = { ...old, layoutRevision: 2 };
+  browserStore.set(old);
+  let reply!: () => void;
+  vi.mocked(commands.setLayout).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        reply = () => resolve({ status: "ok", data: old });
+      }),
+  );
+  function Surface() {
+    const ref = useRef<HTMLDivElement>(null);
+    useChromeLayout(ref);
+    return <div ref={ref} />;
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Surface />));
+    await act(async () => vi.runAllTimers());
+    await act(async () => {
+      browserStore.set(current);
+      reply();
+    });
+    expect(browserStore.get()).toBe(current);
+    await act(async () => vi.runAllTimers());
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

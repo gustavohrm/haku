@@ -26,7 +26,7 @@ async function sendLayout(layout: Layout): Promise<void> {
       // oxlint-disable-next-line no-await-in-loop -- Layout IPC must stay serialized so older geometry cannot win.
       const result = await commands.setLayout(next);
       // A pending report was measured from newer state than this response.
-      if (result.status === "ok" && !pendingLayout) {
+      if (result.status === "ok" && !pendingLayout && result.data.layoutRevision >= browserStore.get().layoutRevision) {
         browserStore.set(result.data);
       }
     }
