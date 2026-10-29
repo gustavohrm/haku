@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -151,9 +151,9 @@ There is no store. Extensions are installed from disk, at the user's own risk, i
 | New windows and popups               | **Implemented.** WebView2's new-window event. A popup opens in a window of its own, with a fresh slot handed back to the request, so `window.opener` survives — sign-in popups depend on it. See [Windows and popups](specs/new-windows.md).  |
 | Permissions                          | Camera, microphone, location, notifications and the rest, asked by a chrome-drawn prompt titled with the site, as page dialogs are. Decisions stored per site.                                                                                |
 | Fullscreen                           | A page entering fullscreen hides the bars and its viewport fills the window.                                                                                                                                                                  |
-| Context menu                         | WebView2's context-menu event, drawn by the chrome with Haku's own items.                                                                                                                                                                     |
+| Context menu                         | **Implemented.** WebView2's context-menu event, drawn by the chrome with Haku's own items. See [Context menus](specs/context-menus.md).                                                                                                       |
 | HTTP login, certificates             | Login prompts and certificate errors drawn by the chrome, never by the page.                                                                                                                                                                  |
-| Crashed pages                        | A webview whose process dies leaves its tab in a crashed state with a reload, not a blank viewport.                                                                                                                                           |
+| Crashed pages                        | **Implemented.** A webview whose process dies leaves its tab in a crashed state with a reload, not a blank viewport. See [Crash recovery](specs/crash-recovery.md).                                                                           |
 | Private tabs, containers, workspaces | See [Webviews belong to a profile](#webviews-belong-to-a-profile).                                                                                                                                                                            |
 | Windows and tab tear-off             | See [One pool across windows](#one-pool-across-windows).                                                                                                                                                                                      |
 | Tab optimization, site menu          | See [Tab optimization](#tab-optimization).                                                                                                                                                                                                    |
