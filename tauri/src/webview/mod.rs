@@ -345,11 +345,12 @@ pub fn build_window<R: tauri::Runtime>(
 pub fn prepare_chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>, window: WindowId, hooks: &Hooks<R>) -> Result<()> {
     let chrome = chrome_of(app, window)?;
     platform::raise_chrome(&chrome)?;
-    // Both are attached even when one fails: a window without shortcuts
+    // Each is attached even when another fails: a window without shortcuts
     // should still recover from a crash, and the other way round.
     let keys = platform::intercept_keys(&chrome, (hooks.keys)(app, window));
     let failures = platform::watch_failures(&chrome, (hooks.failures)(app, window));
-    keys.and(failures)
+    let clipboard = platform::allow_clipboard_read(&chrome);
+    keys.and(failures).and(clipboard)
 }
 
 /// The viewport a window that has not laid out yet is given, so the first

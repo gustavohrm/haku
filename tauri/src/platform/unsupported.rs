@@ -11,7 +11,7 @@ use std::path::Path;
 use super::memory::EngineSnapshot;
 use super::{FailureSink, KeySink, PageSink, PhysicalRect, RoundedRect};
 use crate::error::{HakuError, Result};
-use crate::model::{DialogAnswer, DialogId, MemoryStatus, SlotId, WindowRequestId};
+use crate::model::{ContextMenuRequestId, DialogAnswer, DialogId, MemoryStatus, SlotId, WindowRequestId};
 
 fn unsupported(operation: &str) -> HakuError {
     HakuError::Unsupported(format!("{operation} is only implemented on Windows"))
@@ -39,6 +39,10 @@ pub fn show_fatal(_message: &str) {}
 
 pub fn watch_failures<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: FailureSink) -> Result<()> {
     Err(unsupported("watching process failures"))
+}
+
+pub fn allow_clipboard_read<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<()> {
+    Err(unsupported("allowing clipboard reads"))
 }
 
 pub fn intercept_keys<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _sink: KeySink) -> Result<()> {
@@ -107,6 +111,14 @@ pub fn answer_dialog<R: tauri::Runtime>(
     _answer: DialogAnswer,
 ) -> Result<()> {
     Err(unsupported("answering page dialogs"))
+}
+
+pub fn answer_context_menu<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _request: ContextMenuRequestId,
+    _choice: Option<i32>,
+) -> Result<()> {
+    Err(unsupported("answering context menus"))
 }
 
 pub fn adopt_window<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _request: WindowRequestId) -> Result<bool> {

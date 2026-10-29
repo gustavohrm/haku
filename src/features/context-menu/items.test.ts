@@ -1,0 +1,196 @@
+import type { ContextMenuRequested, ContextMenuTarget, NativeMenuItem, Tab } from "@bindings";
+import type { MenuItem } from "@features/overlays/menu-model";
+import { describe, expect, it, vi } from "vitest";
+
+import { fieldMenu, interfaceMenu, pageMenu, stripMenu, tabMenu, type PageActions } from "./items";
+
+function tab(id: number, urls: string[] = ["https://example.com/"], index = urls.length - 1): Tab {
+  return {
+    id,
+    history: { entries: urls.map((url) => ({ url, title: "", favicon: null })), index },
+    fixed: false,
+    activeAt: 0,
+    dialog: null,
+    audible: false,
+    relieved: false,
+    restoring: false,
+  } as unknown as Tab;
+}
+
+function native(id: number, name: string, extra: Partial<NativeMenuItem> = {}): NativeMenuItem {
+  return {
+    id,
+    name,
+    label: name,
+    kind: "command",
+    enabled: true,
+    checked: false,
+    shortcut: null,
+    children: [],
+    ...extra,
+  };
+}
+
+function request(target: Partial<ContextMenuTarget>, items: NativeMenuItem[] = []): ContextMenuRequested {
+  return {
+    request: 1,
+    tab: 1,
+    x: 0,
+    y: 0,
+    target: {
+      kind: "page",
+      pageUrl: "https://example.com/",
+      linkUrl: null,
+      linkText: null,
+      sourceUrl: null,
+      selection: null,
+      editable: false,
+      ...target,
+    },
+    items,
+  };
+}
+
+function actions(): PageActions {
+  return {
+    back: vi.fn(),
+    forward: vi.fn(),
+    reload: vi.fn(),
+    inspect: vi.fn(),
+    openInTab: vi.fn(),
+    openInWindow: vi.fn(),
+    search: vi.fn(),
+    choose: vi.fn(),
+  };
+}
+
+const ids = (items: MenuItem[]) => items.map((item) => item.id);
+const find = (items: MenuItem[], id: string) => items.find((item) => item.id === id);
+const select = (item: MenuItem | undefined) => {
+  if (item && "onSelect" in item) {
+    item.onSelect();
+  }
+};
+
+describe("tabMenu", () => {
+  const tabActions = () => ({ reload: vi.fn(), duplicate: vi.fn(), setFixed: vi.fn(), close: vi.fn() });
+
+  it("closes the other tabs and the tabs to the right in strip order", () => {
+    const tabs = [tab(1), tab(2), tab(3)];
+    const acts = tabActions();
+    const items = tabMenu(tabs[1]!, tabs, acts);
+    select(find(items, "closeOthers"));
+    select(find(items, "closeRight"));
+    expect(acts.close).toHaveBeenNthCalledWith(1, [1, 3]);
+    expect(acts.close).toHaveBeenNthCalledWith(2, [3]);
+  });
+
+  it("disables what has nothing to act on", () => {
+    const only = tab(1, []);
+    const items = tabMenu(only, [only], tabActions());
+    expect(find(items, "closeOthers")).toMatchObject({ disabled: true });
+    expect(find(items, "closeRight")).toMatchObject({ disabled: true });
+    expect(find(items, "duplicate")).toMatchObject({ disabled: true });
+  });
+
+  it("toggles keeping the tab loaded", () => {
+    const fixed = { ...tab(1), fixed: true };
+    const acts = tabActions();
+    const items = tabMenu(fixed, [fixed], acts);
+    expect(find(items, "keep")).toMatchObject({ kind: "checkbox", checked: true });
+    select(find(items, "keep"));
+    expect(acts.setFixed).toHaveBeenCalledWith(1, false);
+  });
+});
+
+describe("fieldMenu", () => {
+  it("offers cut and copy only with a selection, and paste only when editable", () => {
+    const acts = { cut: vi.fn(), copy: vi.fn(), paste: vi.fn(), selectAll: vi.fn() };
+    const readOnly = fieldMenu(true, false, acts);
+    expect(find(readOnly, "cut")).toMatchObject({ disabled: true });
+    expect(find(readOnly, "copy")).toMatchObject({ disabled: false });
+    expect(find(readOnly, "paste")).toMatchObject({ disabled: true });
+    const empty = fieldMenu(false, true, acts);
+    expect(find(empty, "copy")).toMatchObject({ disabled: true });
+    expect(find(empty, "paste")).toMatchObject({ disabled: false });
+  });
+});
+
+describe("interfaceMenu", () => {
+  it("ends every interface menu with Inspect interface in development", () => {
+    const acts = { cut: vi.fn(), copy: vi.fn(), paste: vi.fn(), selectAll: vi.fn() };
+    for (const items of [fieldMenu(true, true, acts), stripMenu({ newTab: vi.fn(), reopen: vi.fn() })]) {
+      expect(items.at(-1)).toMatchObject({ id: "inspectInterface" });
+      expect(items.at(-2)).toMatchObject({ kind: "separator" });
+    }
+  });
+
+  it("leaves the menu alone outside development", () => {
+    vi.stubEnv("DEV", false);
+    try {
+      expect(interfaceMenu([]).length).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("pageMenu", () => {
+  it("offers navigation on the page itself, from the tab's history", () => {
+    const items = pageMenu(request({}), tab(1, ["a", "b"], 1), actions());
+    expect(ids(items).slice(0, 3)).toEqual(["back", "forward", "reload"]);
+    expect(find(items, "back")).toMatchObject({ disabled: false });
+    expect(find(items, "forward")).toMatchObject({ disabled: true });
+  });
+
+  it("drops navigation over a link, and opens the link", () => {
+    const acts = actions();
+    const items = pageMenu(request({ linkUrl: "https://link/" }), tab(1), acts);
+    expect(find(items, "back")).toBeUndefined();
+    select(find(items, "linkWindow"));
+    expect(acts.openInWindow).toHaveBeenCalledWith("https://link/");
+  });
+
+  it("drops navigation in an editable field", () => {
+    expect(find(pageMenu(request({ editable: true }), tab(1), actions()), "back")).toBeUndefined();
+  });
+
+  it("opens an image in a tab", () => {
+    const acts = actions();
+    select(find(pageMenu(request({ kind: "image", sourceUrl: "https://img/" }), tab(1), acts), "imageTab"));
+    expect(acts.openInTab).toHaveBeenCalledWith("https://img/");
+  });
+
+  it("quotes a long selection shortened, and searches for all of it", () => {
+    const acts = actions();
+    const text = "a ".repeat(40).trim();
+    const search = find(pageMenu(request({ kind: "selection", selection: `  ${text} ` }), tab(1), acts), "search");
+    expect(search && "label" in search && search.label).toContain("…");
+    select(search);
+    expect(acts.search).toHaveBeenCalledWith(text);
+  });
+
+  it("hands a native item back by its engine id", () => {
+    const acts = actions();
+    const items = pageMenu(request({ kind: "selection", selection: "x" }, [native(7, "copy")]), tab(1), acts);
+    select(find(items, "native-7-copy"));
+    expect(acts.choose).toHaveBeenCalledWith(7);
+  });
+
+  it("groups extension items at the bottom, above Inspect", () => {
+    const items = pageMenu(
+      request({ editable: true }, [native(1, "extension"), native(2, "paste")]),
+      tab(1),
+      actions(),
+    );
+    const order = items.filter((item) => item.kind !== "separator").map((item) => item.id);
+    expect(order).toEqual(["native-2-paste", "native-1-extension", "inspect"]);
+    expect(items.at(-2)?.kind).toBe("separator");
+  });
+
+  it("maps a native submenu with its children", () => {
+    const sub = native(3, "spellCheck", { kind: "submenu", children: [native(4, "spellCheck")] });
+    const item = find(pageMenu(request({ editable: true }, [sub]), tab(1), actions()), "native-3-spellCheck");
+    expect(item).toMatchObject({ kind: "submenu", items: [{ id: "native-4-spellCheck" }] });
+  });
+});

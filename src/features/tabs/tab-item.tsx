@@ -8,6 +8,8 @@ import { useState } from "react";
 interface TabItemProps {
   tab: Tab;
   active: boolean;
+  /** Opens the tab's menu at the pointer. */
+  onMenu: (at: { x: number; y: number }) => void;
 }
 
 /**
@@ -22,7 +24,7 @@ interface TabItemProps {
  * Haku's own pages carry the Haku mark in the text's colour; a web page
  * carries its favicon, and one that crashed carries a warning in its place.
  */
-export function TabItem({ tab, active }: TabItemProps) {
+export function TabItem({ tab, active, onMenu }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
   const discarded = tab.presence.status === "discarded";
@@ -32,7 +34,13 @@ export function TabItem({ tab, active }: TabItemProps) {
 
   return (
     <li className="flex w-50 min-w-10 shrink">
+      {/* The whole tab, close button included, answers a right-click; the
+          keyboard reaches the same menu from the tab's button. */}
       <div
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onMenu({ x: event.clientX, y: event.clientY });
+        }}
         className={cx(
           "group flex h-(--control-height) w-full min-w-0 items-center gap-1 rounded-(--radius-control) pr-1 pl-2 transition-colors",
           active ? "bg-chrome-raised text-text" : "text-text-secondary hover:bg-text/6 hover:text-text",

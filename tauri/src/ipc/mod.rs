@@ -4,7 +4,9 @@ pub mod recovery;
 
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-use events::{AddressFocusRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
+use events::{
+    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged,
+};
 
 /// The single description of Haku's IPC surface.
 ///
@@ -26,6 +28,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::go_back,
             commands::go_forward,
             commands::reload_tab,
+            commands::open_window,
+            commands::reopen_closed_tab,
             commands::set_tab_fixed,
             commands::reorder_tab,
             commands::set_layout,
@@ -33,6 +37,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::clear_history,
             commands::open_tab_devtools,
             commands::answer_dialog,
+            commands::answer_context_menu,
             commands::memory_report,
             commands::tab_preview,
             commands::extensions,
@@ -44,7 +49,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             SettingsChanged,
             MemoryChanged,
             AddressFocusRequested,
-            ExtensionsChanged
+            ExtensionsChanged,
+            ContextMenuRequested
         ])
 }
 

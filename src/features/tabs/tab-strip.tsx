@@ -1,4 +1,6 @@
 import { type Tab } from "@bindings";
+import { stripMenu, tabMenu } from "@features/context-menu/items";
+import { openMenu } from "@features/context-menu/store";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { t } from "@shared/i18n";
@@ -17,11 +19,41 @@ import { TabItem } from "./tab-item";
 export function TabStrip() {
   const { tabs, active } = useBrowserState();
 
+  const openTabMenu = (tab: Tab, at: { x: number; y: number }) =>
+    openMenu({
+      at,
+      label: t("menu.tab"),
+      items: tabMenu(tab, tabs, {
+        reload: (id) => void commands.reloadTab(id),
+        duplicate: (url) => void commands.openTab(url, true),
+        setFixed: (id, fixed) => void commands.setTabFixed(id, fixed),
+        close: (ids) => void closeTabs(ids),
+      }),
+    });
+
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1.5" data-tauri-drag-region>
+    <div
+      className="flex min-w-0 flex-1 items-center gap-1.5"
+      data-tauri-drag-region
+      onContextMenu={(event) => {
+        // A tab answers with its own menu first.
+        if (event.defaultPrevented) {
+          return;
+        }
+        event.preventDefault();
+        openMenu({
+          at: { x: event.clientX, y: event.clientY },
+          label: t("menu.tabs"),
+          items: stripMenu({
+            newTab: () => void commands.openTab(null, true),
+            reopen: () => void commands.reopenClosedTab(),
+          }),
+        });
+      }}
+    >
       <ul className="flex min-w-0 shrink items-center gap-0.5" aria-label={t("tabs.list")}>
         {tabs.map((tab: Tab) => (
-          <TabItem key={tab.id} tab={tab} active={tab.id === active} />
+          <TabItem key={tab.id} tab={tab} active={tab.id === active} onMenu={(at) => openTabMenu(tab, at)} />
         ))}
       </ul>
       <button
@@ -35,4 +67,13 @@ export function TabStrip() {
       </button>
     </div>
   );
+}
+
+/** Closes tabs one after another, as each close reshapes the strip. */
+async function closeTabs(ids: readonly number[]) {
+  for (const id of ids) {
+    // In turn on purpose: each close moves the active tab and the slots.
+    // oxlint-disable-next-line no-await-in-loop
+    await commands.closeTab(id);
+  }
 }

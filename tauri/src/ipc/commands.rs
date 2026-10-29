@@ -19,8 +19,9 @@
 //! not. What a page is showing is observed from Rust instead, through
 //! [`page_observer`].
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, OnceLock};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use tauri::{Manager, State};
@@ -30,8 +31,9 @@ use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, O
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    data_url, icon_file, is_internal, jpeg_data_url, popup_url, DialogAnswer, DialogId, Extension, Extensions,
-    Placement, Preset, Pressure, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    data_url, icon_file, is_internal, jpeg_data_url, popup_url, ContextMenuRequestId, DialogAnswer, DialogId,
+    Extension, Extensions, PageMenu, Placement, Preset, Pressure, ScreenRect, Shortcut, SlotId, TabId, WindowId,
+    WindowKind, WindowRequestId,
 };
 use crate::platform::{self, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -40,7 +42,9 @@ use crate::storage::{self, InstalledExtension, InstalledExtensions, Settings, Wi
 use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
-use super::events::{AddressFocusRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged};
+use super::events::{
+    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged,
+};
 use super::recovery;
 
 /// Rejects a command that only the interface may issue.
@@ -166,6 +170,10 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     });
                 });
             }
+            PageSignal::ContextMenuRequested(menu) => {
+                let app = app.clone();
+                std::thread::spawn(move || offer_context_menu(&app, slot, menu));
+            }
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -177,6 +185,71 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             }
         },
     )
+}
+
+/// How long a page's context menu may go unanswered, say because its window
+/// closed, before the page is released with no choice.
+const MENU_EXPIRY: Duration = Duration::from_secs(60);
+
+/// The tab each open page menu was asked for, and the slot that held it, so
+/// an answer that arrives after the slot moved on to another tab's page
+/// runs nothing there.
+fn menu_owners() -> std::sync::MutexGuard<'static, HashMap<ContextMenuRequestId, (SlotId, TabId)>> {
+    static OWNERS: OnceLock<Mutex<HashMap<ContextMenuRequestId, (SlotId, TabId)>>> = OnceLock::new();
+    OWNERS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Sends a page's context menu to its tab's window, which draws it, and gives
+/// that window's interface keyboard focus so the menu can be used from the
+/// keyboard and closes when focus leaves it. Off the UI thread: it drives
+/// webviews.
+fn offer_context_menu(app: &tauri::AppHandle, slot: SlotId, menu: PageMenu) {
+    let request = menu.request;
+    let state = app.state::<AppState>();
+    let owner = state.browser.read().ok().and_then(|browser| {
+        let tab = browser.tab_in(slot)?;
+        Some((tab, browser.window_of(tab)?))
+    });
+    let Some((tab, window)) = owner else {
+        let _ = platform::answer_context_menu(app, request, None);
+        return;
+    };
+    let sent = (|| -> Result<()> {
+        let chrome = webview::chrome_of(app, window)?;
+        let scale = chrome.window().scale_factor()?;
+        let viewport = state.viewports.get(window);
+        menu_owners().insert(request, (slot, tab));
+        chrome.set_focus()?;
+        ContextMenuRequested {
+            request,
+            tab,
+            x: viewport.x + f64::from(menu.x) / scale,
+            y: viewport.y + f64::from(menu.y) / scale,
+            target: menu.target,
+            items: menu.items,
+        }
+        .emit_to(app, window.label())
+        .map_err(HakuError::from)
+    })();
+    if sent.is_err() {
+        release_menu(app, request);
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(MENU_EXPIRY);
+        release_menu(&app, request);
+    });
+}
+
+/// Releases a page waiting on its context menu, with no choice. Does nothing
+/// for a menu already answered.
+fn release_menu(app: &tauri::AppHandle, request: ContextMenuRequestId) {
+    menu_owners().remove(&request);
+    let _ = platform::answer_context_menu(app, request, None);
 }
 
 /// A page's request for a new window, as [`PageSignal::WindowRequested`]
@@ -1331,6 +1404,44 @@ pub async fn reload_tab(
     mutate_in(&app, &state, window, |browser| browser.reload(id))
 }
 
+/// Opens a browser window whose one tab loads `url`, as Shift+clicking a link
+/// does. `url` is resolved as the address field resolves it.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_window(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    let target = {
+        let settings = state
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        resolve_target(&url, &settings.search_url)
+    };
+    let pressure = read_pressure(&state);
+    mutate_in(&app, &state, window, |browser| {
+        browser.set_pressure(pressure);
+        Ok(browser.open_window(target).1)
+    })
+}
+
+/// Reopens the most recently closed tab, as Ctrl+Shift+T does. Acts on the
+/// whole browser: the tab goes back to the window it was closed in.
+#[tauri::command]
+#[specta::specta]
+pub async fn reopen_closed_tab(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| Ok(browser.reopen_closed_tab()))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn set_tab_fixed(
@@ -1482,6 +1593,44 @@ pub fn clear_history(webview: tauri::Webview, state: State<'_, AppState>) -> Res
         .lock()
         .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
     history.clear()
+}
+
+/// Answers the context menu a page is waiting on, with the native item
+/// chosen, or with nothing when the choice was one of Haku's own items or the
+/// menu was dismissed. An answer to an unknown or already answered request is
+/// ignored, because a menu can close from several causes at once.
+///
+/// The page gets keyboard focus back for a native item, and when `refocus`
+/// asks for it: the menu closed from inside with nothing chosen.
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_context_menu(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    request: ContextMenuRequestId,
+    choice: Option<i32>,
+    refocus: bool,
+) -> Result<()> {
+    ensure_chrome(&webview)?;
+    let Some((slot, tab)) = menu_owners().remove(&request) else {
+        return Ok(());
+    };
+    let still_there = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
+        .tab_in(slot)
+        == Some(tab);
+    let choice = choice.filter(|_| still_there);
+    // A native item acts on the page, which has to have focus for it, as it
+    // had when it was right-clicked.
+    if still_there && (choice.is_some() || refocus) {
+        if let Some(page) = app.get_webview(&slot.label()) {
+            let _ = page.set_focus();
+        }
+    }
+    platform::answer_context_menu(&app, request, choice)
 }
 
 /// Answers the dialog a page is paused on.
