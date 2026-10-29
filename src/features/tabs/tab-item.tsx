@@ -61,6 +61,7 @@ export function TabItem({ tab, active, pairPosition = -1, onMenu }: TabItemProps
       >
         <button
           type="button"
+          data-tab-drag-handle
           className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left outline-offset-[-2px]"
           aria-current={active ? "page" : undefined}
           aria-describedby={pairPosition >= 0 ? membershipId : undefined}
@@ -165,5 +166,5 @@ function Favicon({ src }: { src: string | null }) {
   if (!src || broken) {
     return <i className="ic-globe ic-md shrink-0" aria-hidden="true" />;
   }
-  return <img src={src} alt="" className="size-4 shrink-0" onError={() => setBroken(true)} />;
+  return <img src={src} alt="" draggable={false} className="size-4 shrink-0" onError={() => setBroken(true)} />;
 }
