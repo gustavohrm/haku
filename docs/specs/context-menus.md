@@ -1,6 +1,6 @@
 ---
-status: APPROVED
-last_updated: 2026-10-23
+status: IMPLEMENTED
+last_updated: 2026-10-29
 scope: Right-click menus over pages and over the interface, and the shared menu component they are drawn with.
 ---
 
@@ -10,17 +10,17 @@ Approved on 2026-10-23. It adds an IPC event and a command, so it is a contract 
 
 ## Problem
 
-Nothing in Haku handles a right click today.
+Before this spec was built, nothing in Haku handled a right click.
 
-- **Over a page**, WebView2 draws its own menu, in Edge's style rather than Haku's, with Edge features such as Share and Read aloud that Haku does not support, and **Save as** and **Print**, which start downloads and dialogs Haku does not handle yet.
-- **Over the interface**, the chrome webview draws the same default menu: Back, Reload, Save as, Print and **Inspect**. Back and Reload act on the interface document itself, and Reload drops the interface's state. Inspect opens DevTools on the one webview that holds IPC, in release builds too, because Tauri's `devtools` feature is on for `open_devtools` ([`tauri/AGENTS.md`](../../tauri/AGENTS.md)). It needs local access to use, so the realistic harm is a confused user, not an attacker, but it is not a browser feature.
+- **Over a page**, WebView2 drew its own menu, in Edge's style rather than Haku's, with Edge features such as Share and Read aloud that Haku does not support, and **Save as** and **Print**, which start downloads and dialogs Haku does not handle yet.
+- **Over the interface**, the chrome webview drew the same default menu: Back, Reload, Save as, Print and **Inspect**. Back and Reload acted on the interface document itself, and Reload dropped the interface's state. Inspect opened DevTools on the one webview that holds IPC, in release builds too, because Tauri's `devtools` feature is on for `open_devtools` ([`tauri/AGENTS.md`](../../tauri/AGENTS.md)). It needs local access to use, so the realistic harm is a confused user, not an attacker, but it was not a browser feature.
 
 ## The menu component
 
 Every menu Haku draws uses one component, `features/overlays/menu.tsx`. The site menu and the extensions menu are panels, not menus, and keep their own markup, but share its positioning and dismissal.
 
 - **Items**: command, checkbox, radio, separator, submenu; each with an optional icon, a shortcut hint shown as muted text, and a disabled state.
-- **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox`, `menuitemradio` and `separator`. Native radio items, such as a spell-check language choice, keep their group: choosing one checks it and unchecks the others in its run between separators.
+- **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox`, `menuitemradio` and `separator`. Choosing a native radio item, such as a spell-check language, closes the menu and hands the choice to WebView2, which keeps which item of the group is checked; the menu does not group radio items itself.
 - **Dismissal**: `useMenuDismiss`, as the site menu closes now.
 - **Placement**: opens at the pointer, down and to the right; flips left or up when it would leave the window, and then clamps to the window. A submenu opens beside its item and flips the same way.
 - **Over the page**: registered with `useOverlay`, opaque, no shadow, rounded corners cut from its own style, as [Chrome layering](chrome-layering.md#registering-an-overlay) requires. One consequence: the menu cannot extend past Haku's window, where a native menu can. In a small window a long menu is clamped and scrolls.
@@ -96,14 +96,14 @@ The names above are the ones WebView2 reported in the app; **Paste as plain text
 
 Haku's items, by what was clicked:
 
-| Target    | Haku's items                                                                                     |
-| --------- | ------------------------------------------------------------------------------------------------ |
-| Page      | Back, Forward, Reload; then **Inspect**, which opens the tab's DevTools with `open_tab_devtools` |
-| Link      | Open link in new tab, Open link in new window                                                    |
-| Image     | Open image in new tab, when the engine gives the image's address                                 |
-| Selection | Search for "…" (the search engine's name is not known, so the label does not name one)           |
+| Target    | Haku's items                                                                           |
+| --------- | -------------------------------------------------------------------------------------- |
+| Page      | Back, Forward, Reload                                                                  |
+| Link      | Open link in new tab, Open link in new window                                          |
+| Image     | Open image in new tab, when the engine gives the image's address                       |
+| Selection | Search for "…" (the search engine's name is not known, so the label does not name one) |
 
-Native items follow in their own groups. Extension items stay in their own group at the bottom, as Chrome shows them.
+Native items follow in their own groups, then extension items in a group of their own, as Chrome shows them. Every page menu, whatever was clicked, ends with **Inspect**, which opens the tab's DevTools with `open_tab_devtools`, in place of the engine's inspectElement.
 
 ## Interface menus
 

@@ -1,12 +1,12 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 scope: What Haku does when a process behind a page, the interface or the whole engine fails, and what the user sees.
 ---
 
 # Crash recovery
 
-A page's renderer process can exit: it crashed, ran out of memory, or was ended from Task Manager. WebView2 reports it on the webview with `ProcessFailed`, and today nothing in Haku listens. The tab keeps claiming a live page, its slot holds a dead one, and the only way back is closing the tab.
+A page's renderer process can exit: it crashed, ran out of memory, or was ended from Task Manager. WebView2 reports it on the webview with `ProcessFailed`. Before this spec was built, nothing in Haku listened: the tab kept claiming a live page, its slot held a dead one, and the only way back was closing the tab.
 
 ## What fails
 
