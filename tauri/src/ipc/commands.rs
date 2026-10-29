@@ -960,20 +960,37 @@ fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
     });
 }
 
-fn slot_viewports(state: &AppState) -> Result<HashMap<SlotId, crate::browser::ViewportTarget>> {
-    Ok(state
-        .browser
-        .read()
-        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
-        .slot_viewports())
-}
-
-fn slot_bounds(state: &AppState) -> Result<HashMap<SlotId, webview::Viewport>> {
-    let browser = state
-        .browser
-        .read()
-        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-    Ok(state.viewports.all_slot_bounds(&browser))
+/// Resolves explicit focus and repairs failed bindings within the change turn.
+fn apply_effects(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<(Vec<Departure>, Result<()>)> {
+    let (effects, placements, bounds) = {
+        let mut browser = state
+            .browser
+            .write()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        (
+            browser.resolve_pane_focus(effects, |target| state.viewports.can_show(target)),
+            browser.slot_viewports(),
+            state.viewports.all_slot_bounds(&browser),
+        )
+    };
+    let hooks = hooks();
+    let (departures, failed_slots, mut applied) =
+        webview::apply(app, &effects, &state.viewports, &hooks, &placements, &bounds);
+    if !failed_slots.is_empty() {
+        let cleanup: Vec<Effect> = {
+            let mut browser = state
+                .browser
+                .write()
+                .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+            failed_slots
+                .into_iter()
+                .flat_map(|slot| browser.slot_failed(slot))
+                .collect()
+        };
+        let (_, _, cleaned) = webview::apply(app, &cleanup, &state.viewports, &hooks, &placements, &bounds);
+        applied = applied.and(cleaned);
+    }
+    Ok((departures, applied))
 }
 
 /// Applies effects to real webviews and tells every window what changed.
@@ -981,10 +998,7 @@ fn slot_bounds(state: &AppState) -> Result<HashMap<SlotId, webview::Viewport>> {
 /// What the browser decided is shown and saved even when an effect failed,
 /// since the browser already holds it; the first failure is returned after.
 fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<()> {
-    let hooks = hooks();
-    let placements = slot_viewports(state)?;
-    let bounds = slot_bounds(state)?;
-    let (departures, mut applied) = webview::apply(app, effects, &state.viewports, &hooks, &placements, &bounds);
+    let (departures, mut applied) = apply_effects(app, state, effects)?;
     let mut readings = keep_previews(state, departures);
     // A page read as it was left may turn out to be capturing, which changes
     // what should happen to it. Bounded, though a reading only ever leads to
@@ -994,9 +1008,7 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
             break;
         }
         let effects = report_readings(state, readings)?;
-        let placements = slot_viewports(state)?;
-        let bounds = slot_bounds(state)?;
-        let (departures, more) = webview::apply(app, &effects, &state.viewports, &hooks, &placements, &bounds);
+        let (departures, more) = apply_effects(app, state, &effects)?;
         readings = keep_previews(state, departures);
         applied = applied.and(more);
     }

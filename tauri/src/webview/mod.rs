@@ -450,7 +450,8 @@ fn guessed_viewport(frame: Frame, viewports: &Viewports) -> Viewport {
 ///
 /// @returns What each page that was left held and showed, for
 ///   [`crate::browser::Browser::report_state`] and the preview store, even
-///   when an effect failed; and the first failure, once every effect has
+///   when an effect failed; slots whose creation or adoption failed, for model
+///   repair; and the first failure, once every effect has
 ///   been tried: [`HakuError::WindowMissing`] when a window an effect puts a
 ///   webview in is gone, or a Tauri failure from an individual operation.
 pub fn apply<R: tauri::Runtime>(
@@ -460,7 +461,7 @@ pub fn apply<R: tauri::Runtime>(
     hooks: &Hooks<R>,
     placements: &HashMap<SlotId, ViewportTarget>,
     bounds: &HashMap<SlotId, Viewport>,
-) -> (Vec<Departure>, Result<()>) {
+) -> (Vec<Departure>, Vec<SlotId>, Result<()>) {
     // Newly opened windows receive their initial guess in OpenWindow below.
     let bounds_for = |slot: &SlotId, window| {
         bounds
@@ -475,7 +476,7 @@ pub fn apply<R: tauri::Runtime>(
             })
     };
     let mut departures = Vec::new();
-    let applied = each_effect(effects, |effect| {
+    let (failed_slots, applied) = each_effect(effects, |effect| {
         match effect {
             Effect::EnsureSlot { slot, url, window } => {
                 set_pending(*slot, None);
@@ -598,24 +599,28 @@ pub fn apply<R: tauri::Runtime>(
         }
         Ok(())
     });
-    (departures, applied)
+    (departures, failed_slots, applied)
 }
 
-/// Runs `apply` on every effect, even after one fails, and returns the first
-/// failure.
+/// Runs `apply` on every effect, even after one fails, and returns failed slot
+/// bindings alongside the first failure.
 ///
 /// The browser recorded every effect as done when it decided them, so one
 /// that fails must not keep the rest from happening: a dialog answered after
 /// a webview that could not be moved would otherwise be left open, its page
 /// paused for good.
-fn each_effect<T>(effects: &[T], mut apply: impl FnMut(&T) -> Result<()>) -> Result<()> {
+fn each_effect(effects: &[Effect], mut apply: impl FnMut(&Effect) -> Result<()>) -> (Vec<SlotId>, Result<()>) {
     let mut failure = None;
+    let mut failed_slots = Vec::new();
     for effect in effects {
         if let Err(error) = apply(effect) {
+            if let Effect::EnsureSlot { slot, .. } | Effect::Adopt { slot, .. } = effect {
+                failed_slots.push(*slot);
+            }
             failure.get_or_insert(error);
         }
     }
-    failure.map_or(Ok(()), Err)
+    (failed_slots, failure.map_or(Ok(()), Err))
 }
 
 fn leave_page<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, tab: TabId, capture: bool) -> Departure {
@@ -1095,18 +1100,51 @@ mod tests {
     #[test]
     fn an_effect_that_fails_does_not_stop_the_ones_after_it() {
         let mut applied = Vec::new();
-
-        let result = each_effect(&[1, 2, 3], |&effect| {
-            applied.push(effect);
+        let effects = [
+            Effect::Reload { slot: SlotId(1) },
+            Effect::Reload { slot: SlotId(2) },
+            Effect::Show { slot: SlotId(3) },
+        ];
+        let (failed_slots, result) = each_effect(&effects, |effect| {
+            applied.push(effect.clone());
             match effect {
-                1 => Err(HakuError::InvalidUrl("first".into())),
-                2 => Err(HakuError::InvalidUrl("second".into())),
+                Effect::Reload { slot: SlotId(1) } => Err(HakuError::InvalidUrl("first".into())),
+                Effect::Reload { .. } => Err(HakuError::InvalidUrl("second".into())),
                 _ => Ok(()),
             }
         });
-
-        assert_eq!(applied, vec![1, 2, 3]);
+        assert_eq!(applied, effects);
+        assert!(failed_slots.is_empty());
         assert!(matches!(result, Err(HakuError::InvalidUrl(url)) if url == "first"));
+    }
+
+    #[test]
+    fn failed_native_creation_and_adoption_are_reported_for_model_repair() {
+        let effects = [
+            Effect::EnsureSlot {
+                slot: SlotId(1),
+                url: "https://create.test".into(),
+                window: WindowId(1),
+            },
+            Effect::Adopt {
+                slot: SlotId(2),
+                request: WindowRequestId(1),
+                url: "https://adopt.test".into(),
+                window: WindowId(1),
+            },
+            Effect::Show { slot: SlotId(3) },
+        ];
+        let mut shown = false;
+        let (failed_slots, result) = each_effect(&effects, |effect| match effect {
+            Effect::Show { .. } => {
+                shown = true;
+                Ok(())
+            }
+            _ => Err(HakuError::Unsupported("native creation failed".into())),
+        });
+        assert!(shown, "the healthy sibling still gets its effects");
+        assert!(result.is_err());
+        assert_eq!(failed_slots, [SlotId(1), SlotId(2)]);
     }
 
     fn waiting() -> Option<Waiting> {

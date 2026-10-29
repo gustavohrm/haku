@@ -6,6 +6,32 @@ import { useBrowserState } from "@ipc/hooks";
 import { browserStore } from "@ipc/store";
 import { useEffect, type RefObject } from "react";
 
+// Chrome runs in one JS context per window. Keep the queue across effect restarts.
+let pendingLayout: Layout | undefined;
+let isSending = false;
+
+async function sendLayout(layout: Layout): Promise<void> {
+  pendingLayout = layout;
+  if (isSending) {
+    return;
+  }
+  isSending = true;
+  try {
+    while (pendingLayout) {
+      const next = pendingLayout;
+      pendingLayout = undefined;
+      // oxlint-disable-next-line no-await-in-loop -- Layout IPC must stay serialized so older geometry cannot win.
+      const result = await commands.setLayout(next);
+      // A pending report was measured from newer state than this response.
+      if (result.status === "ok" && !pendingLayout) {
+        browserStore.set(result.data);
+      }
+    }
+  } finally {
+    isSending = false;
+  }
+}
+
 /**
  * Reports the interface's geometry to Rust, which positions the content webview
  * and masks the chrome's input area to match.
@@ -58,10 +84,7 @@ export function useChromeLayout(ref: RefObject<HTMLElement | null>, covered: boo
         return;
       }
       previous = signature;
-      const result = await commands.setLayout(layout);
-      if (result.status === "ok") {
-        browserStore.set(result.data);
-      }
+      await sendLayout(layout);
     };
 
     const schedule = () => {

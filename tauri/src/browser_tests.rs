@@ -6,6 +6,32 @@ const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
 
 #[test]
+fn reselecting_the_current_tab_reconciles_background_grace_under_fresh_pressure() {
+    let (mut browser, ids) = browser_with(3, &["https://background.test", "https://current.test"]);
+    browser.set_optimization(3, Policy::Smart, Policy::Smart);
+    assert!(slot_of(&browser, ids[0]).is_some());
+    browser.set_pressure(Pressure::Tight);
+    browser.select_tab(ids[1], 1).unwrap();
+    assert_eq!(browser.tab(ids[0]).unwrap().presence, TabPresence::Discarded);
+    assert!(slot_of(&browser, ids[1]).is_some());
+}
+
+#[test]
+fn selecting_a_visible_sibling_reconciles_background_without_leaving_either_pane() {
+    let (mut browser, ids) = browser_with(4, &["https://background.test", "https://left.test"]);
+    let (_, left, right) = split_pair(&mut browser);
+    browser.set_optimization(4, Policy::Smart, Policy::Smart);
+    let visible_slots = [slot_of(&browser, left).unwrap(), slot_of(&browser, right).unwrap()];
+    browser.set_pressure(Pressure::Tight);
+    let effects = browser.select_tab(left, 1).unwrap();
+    assert_eq!(browser.tab(ids[0]).unwrap().presence, TabPresence::Discarded);
+    assert!(effects.iter().all(|effect| !matches!(effect,
+        Effect::Leave { slot, .. } | Effect::Blank { slot } | Effect::Freeze { slot }
+        if visible_slots.contains(slot)
+    )));
+}
+
+#[test]
 fn native_focus_maps_a_slot_to_its_window_and_viewport() {
     let (mut browser, _) = browser_with(2, &["https://a.test"]);
     let (tab, _) = browser.open_window("https://b.test");
@@ -2459,6 +2485,123 @@ fn pane_tabs(browser: &Browser, window: WindowId) -> Vec<TabId> {
 }
 
 #[test]
+fn split_and_close_handoff_native_focus_after_geometry_is_ready() {
+    let (mut browser, ids) = browser_with(2, &["https://left.test"]);
+    let window = browser.main_window();
+    let left = ids[0];
+    let (right, _) = browser.open_tab("https://right.test", false);
+    let split = browser.split_tab(window, right).unwrap();
+    assert!(split.contains(&Effect::FocusPane {
+        window,
+        slot: slot_of(&browser, right)
+    }));
+    assert!(browser
+        .resolve_pane_focus(&split, |_| false)
+        .iter()
+        .all(|effect| !matches!(effect, Effect::FocusPane { .. })));
+    assert_eq!(
+        browser.resolve_pane_focus(&[], |_| true),
+        vec![Effect::FocusPane {
+            window,
+            slot: slot_of(&browser, right)
+        }]
+    );
+    assert!(browser.resolve_pane_focus(&[], |_| true).is_empty());
+    let close = browser.close_pane(window, right).unwrap();
+    assert!(close.contains(&Effect::FocusPane {
+        window,
+        slot: slot_of(&browser, left)
+    }));
+    browser.resolve_pane_focus(&close, |_| false);
+    assert_eq!(
+        browser.resolve_pane_focus(&[], |_| true),
+        vec![Effect::FocusPane {
+            window,
+            slot: slot_of(&browser, left)
+        }]
+    );
+}
+
+#[test]
+fn explicit_pane_focus_waits_for_geometry_and_is_applied_once() {
+    use crate::chrome::{Layout, PaneLayout};
+    use crate::webview::{Viewport, Viewports};
+
+    for select in [false, true] {
+        let (mut browser, _) = browser_with(2, &["https://left.test"]);
+        let (window, left, _) = split_pair(&mut browser);
+        let effects = if select {
+            browser.select_tab(left, 1).unwrap()
+        } else {
+            browser.focus_pane(window, left).unwrap()
+        };
+        let viewports = Viewports::default();
+        let ready = |target: &ViewportTarget| viewports.can_show(target);
+        assert!(browser
+            .resolve_pane_focus(&effects, ready)
+            .iter()
+            .all(|effect| !matches!(effect, Effect::FocusPane { .. })));
+        let current = browser.state();
+        let mut layout = Layout {
+            revision: current.layout_revision - 1,
+            viewports: current
+                .viewports
+                .iter()
+                .enumerate()
+                .map(|(index, pane)| PaneLayout {
+                    id: pane.id.clone(),
+                    rect: Viewport {
+                        x: index as f64 * 404.0,
+                        y: 80.0,
+                        width: 400.0,
+                        height: 600.0,
+                    },
+                    covered: false,
+                    radius: 0.0,
+                })
+                .collect(),
+            overlays: Vec::new(),
+        };
+        assert!(!viewports
+            .record(window, &layout, &current.viewports, current.layout_revision)
+            .unwrap());
+        assert!(browser.resolve_pane_focus(&[], ready).is_empty());
+        layout.revision = current.layout_revision;
+        layout.viewports[0].rect.width = 0.0;
+        viewports
+            .record(window, &layout, &current.viewports, current.layout_revision)
+            .unwrap();
+        assert!(browser.resolve_pane_focus(&[], ready).is_empty());
+        layout.viewports[0].rect.width = 400.0;
+        viewports
+            .record(window, &layout, &current.viewports, current.layout_revision)
+            .unwrap();
+        let show = browser.reconcile();
+        let applied = browser.resolve_pane_focus(&show, ready);
+        let slot = slot_of(&browser, left);
+        assert_eq!(applied.last(), Some(&Effect::FocusPane { window, slot }));
+        assert!(applied[..applied.len() - 1].contains(&Effect::Show { slot: slot.unwrap() }));
+        assert!(browser.resolve_pane_focus(&[], ready).is_empty());
+    }
+}
+
+#[test]
+fn deferred_pane_focus_is_dropped_when_assignment_or_focus_changes() {
+    for replace in [false, true] {
+        let (mut browser, _) = browser_with(3, &["https://left.test"]);
+        let (window, left, right) = split_pair(&mut browser);
+        let effects = browser.focus_pane(window, left).unwrap();
+        browser.resolve_pane_focus(&effects, |_| false);
+        if replace {
+            browser.open_tab("https://replacement.test", true);
+        } else {
+            browser.focus_slot(slot_of(&browser, right).unwrap());
+        }
+        assert!(browser.resolve_pane_focus(&[], |_| true).is_empty());
+    }
+}
+
+#[test]
 fn split_intents_export_ratio_focus_and_stable_surviving_pane_ids() {
     let (mut browser, _) = browser_with(1, &[HOME]);
     let original = browser.state();
@@ -2856,6 +2999,66 @@ fn split_failed_acquisition_keeps_the_assignment_and_healthy_sibling() {
     assert_eq!(browser.tab(right).unwrap().presence, TabPresence::Discarded);
     assert_eq!(pane_tabs(&browser, window), [left, right]);
     assert_eq!(slot_of(&browser, left), Some(healthy));
+}
+
+#[test]
+fn native_creation_failure_keeps_the_split_assigned_and_reload_recreates_only_its_slot() {
+    let (mut browser, ids) = browser_with(1, &["https://left.test"]);
+    let window = browser.main_window();
+    let left = ids[0];
+    let healthy = slot_of(&browser, left).unwrap();
+    let (right, _) = browser.open_tab("https://right.test", false);
+    let effects = browser.split_tab(window, right).unwrap();
+    let failed = slot_of(&browser, right).unwrap();
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::EnsureSlot { slot, .. } if *slot == failed)));
+    // Simulate the native executor reporting that EnsureSlot failed.
+    assert_eq!(browser.slot_failed(failed), vec![Effect::Destroy { slot: failed }]);
+    assert_eq!(browser.tab(right).unwrap().presence, TabPresence::Discarded);
+    assert!(!browser.tab(right).unwrap().restoring);
+    assert_eq!(pane_tabs(&browser, window), [left, right]);
+    assert_eq!(browser.active(), Some(right));
+    assert_eq!(slot_of(&browser, left), Some(healthy));
+    assert!(!browser.slot_urls.contains_key(&failed));
+    assert!(!browser.slot_windows.contains_key(&failed));
+    assert!(!browser.awaiting.contains(&failed));
+    assert!(!browser.slots().iter().any(|slot| slot.id == failed));
+    let retry = browser.reload(right).unwrap();
+    assert!(retry
+        .iter()
+        .any(|effect| matches!(effect, Effect::EnsureSlot { url, .. } if url == "https://right.test")));
+    assert!(retry.iter().all(|effect| !matches!(effect,
+        Effect::EnsureSlot { slot, .. } | Effect::Blank { slot } | Effect::Destroy { slot } | Effect::Freeze { slot }
+        if *slot == healthy
+    )));
+}
+
+#[test]
+fn native_creation_and_adoption_failures_are_retryable_in_a_single_pane() {
+    for adopt in [false, true] {
+        let (mut browser, ids) = browser_with(2, &["https://opener.test"]);
+        let opener = slot_of(&browser, ids[0]).unwrap();
+        let (tab, effects) = if adopt {
+            browser.open_from(opener, "https://retry.test", Opening::Connected(WindowRequestId(1)))
+        } else {
+            browser.open_tab("https://retry.test", true)
+        };
+        assert!(effects.iter().any(|effect| if adopt {
+            matches!(effect, Effect::Adopt { .. })
+        } else {
+            matches!(effect, Effect::EnsureSlot { .. })
+        }));
+        let failed = slot_of(&browser, tab).unwrap();
+        browser.slot_failed(failed);
+        assert_eq!(browser.tab(tab).unwrap().presence, TabPresence::Discarded);
+        assert!(!browser.connected.contains(&tab));
+        assert_eq!(browser.active(), Some(tab));
+        let retry = browser.reload(tab).unwrap();
+        assert!(retry
+            .iter()
+            .any(|effect| matches!(effect, Effect::EnsureSlot { url, .. } if url == "https://retry.test")));
+    }
 }
 
 #[test]

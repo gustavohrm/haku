@@ -245,6 +245,8 @@ struct Window {
     layout_revision: u64,
     split_ratio: Option<f64>,
     next_viewport: u64,
+    /// Explicit native focus waits for geometry, tied to this pane and tab.
+    pending_focus: Option<(String, TabId)>,
 }
 
 impl Window {
@@ -257,6 +259,7 @@ impl Window {
             layout_revision: 0,
             split_ratio: None,
             next_viewport: 2,
+            pending_focus: None,
         }
     }
 
@@ -749,6 +752,24 @@ impl Browser {
         self.slot_windows.remove(&slot);
     }
 
+    /// Repairs bookkeeping after native slot creation or adoption failed.
+    pub fn slot_failed(&mut self, slot: SlotId) -> Vec<Effect> {
+        let Some(removed) = self.pool.remove(slot) else {
+            return Vec::new();
+        };
+        if let Some(id) = removed.occupant {
+            if let Ok(tab) = self.tab_mut(id) {
+                tab.lose_page();
+            }
+            self.connected.remove(&id);
+        }
+        self.drop_slot(slot);
+        self.shown.retain(|&(shown, _)| shown != slot);
+        // Creation may have failed after adding the native child. Clean up that
+        // partial surface too, without parking or touching any sibling slot.
+        vec![Effect::Destroy { slot }]
+    }
+
     /// Releases a tab's pending dialog because its page is going away.
     fn dismiss_dialog(&mut self, id: TabId) -> Option<Effect> {
         let dialog = self.tab_mut(id).ok()?.dialog.take()?;
@@ -1214,7 +1235,9 @@ impl Browser {
         entry.focused_viewport = id;
         entry.split_ratio = Some(0.5);
         entry.layout_revision += 1;
-        Ok(self.realize())
+        let mut effects = self.realize();
+        effects.push(self.pane_focus_effect(window, tab));
+        Ok(effects)
     }
 
     /// Removes a pane, retaining its tab and focusing the survivor.
@@ -1233,6 +1256,7 @@ impl Browser {
         self.tab_mut(tab)?.active_at = clock;
         let mut effects = self.realize();
         effects.extend(self.trim());
+        effects.push(self.pane_focus_effect(window, self.active_in(window).expect("surviving pane")));
         Ok(effects)
     }
 
@@ -1258,11 +1282,46 @@ impl Browser {
         Ok(self.realize())
     }
 
-    fn pane_focus_effect(&self, window: WindowId, tab: TabId) -> Effect {
+    fn pane_focus_effect(&mut self, window: WindowId, tab: TabId) -> Effect {
+        let entry = self.window_mut(window).expect("focused window");
+        entry.pending_focus = Some((entry.focused_viewport.clone(), tab));
         Effect::FocusPane {
             window,
             slot: self.tab(tab).ok().and_then(Tab::slot),
         }
+    }
+
+    /// Defers explicit focus until current geometry is ready, appending it after
+    /// the batch's shows. Drops requests whose pane assignment or focus changed.
+    pub fn resolve_pane_focus(&mut self, effects: &[Effect], ready: impl Fn(&ViewportTarget) -> bool) -> Vec<Effect> {
+        let mut resolved: Vec<Effect> = effects
+            .iter()
+            .filter(|effect| !matches!(effect, Effect::FocusPane { .. }))
+            .cloned()
+            .collect();
+        for index in 0..self.windows.len() {
+            let entry = &self.windows[index];
+            let Some((pane, tab)) = &entry.pending_focus else {
+                continue;
+            };
+            if entry.focused_viewport != *pane || entry.active() != Some(*tab) {
+                self.windows[index].pending_focus = None;
+                continue;
+            }
+            let Ok(tab) = self.tab(*tab) else { continue };
+            let target = ViewportTarget {
+                window: entry.id,
+                id: pane.clone(),
+                revision: entry.layout_revision,
+            };
+            let slot = tab.slot();
+            if !tab.is_internal() && !tab.is_crashed() && (slot.is_none() || !ready(&target)) {
+                continue;
+            }
+            resolved.push(Effect::FocusPane { window: entry.id, slot });
+            self.windows[index].pending_focus = None;
+        }
+        resolved
     }
 
     /// Chooses an existing pane, independently of native toolbar focus.
@@ -1292,14 +1351,11 @@ impl Browser {
         // Viewing a tab is the activity signal available without giving remote
         // pages a channel back into the application.
         self.tab_mut(id)?.active_at = now;
-        if already_visible {
-            return Ok(if focus_changed {
-                vec![self.pane_focus_effect(window, id)]
-            } else {
-                Vec::new()
-            });
+        let mut effects = self.realize();
+        if already_visible && focus_changed {
+            effects.push(self.pane_focus_effect(window, id));
         }
-        Ok(self.realize())
+        Ok(effects)
     }
 
     /// # Errors
