@@ -326,8 +326,32 @@ fn new_split_slots_use_measured_window_bounds_until_their_panes_arrive() {
     for tab in [left, right] {
         let slot = browser.tab(tab).unwrap().slot().unwrap();
         assert_eq!(bounds[&slot], layout.viewports[0].rect);
-        assert!(!viewports.can_show(&browser.slot_viewports()[&slot]));
     }
+
+    // The current revision with only the left pane measurable: the right
+    // slot keeps the window's usable bounds but must still stay hidden.
+    let split = browser.state();
+    let pane_of = |tab| split.viewports.iter().find(|pane| pane.tab == tab).unwrap().id.clone();
+    let mut measured = layout.clone();
+    measured.revision = split.layout_revision;
+    measured.viewports[0].id = pane_of(left);
+    measured.viewports[0].rect.width = 448.0;
+    let mut unmeasured = measured.viewports[0].clone();
+    unmeasured.id = pane_of(right);
+    unmeasured.rect.x = 456.0;
+    unmeasured.rect.width = 0.0;
+    measured.viewports.push(unmeasured);
+    assert!(viewports
+        .record(window, &measured, &split.viewports, split.layout_revision)
+        .unwrap());
+    let bounds = viewports.all_slot_bounds(&browser);
+    let placements = browser.slot_viewports();
+    let left_slot = browser.tab(left).unwrap().slot().unwrap();
+    let right_slot = browser.tab(right).unwrap().slot().unwrap();
+    assert!(viewports.can_show(&placements[&left_slot]));
+    assert_eq!(bounds[&left_slot], measured.viewports[0].rect);
+    assert!(!viewports.can_show(&placements[&right_slot]));
+    assert!(bounds[&right_slot].width >= 1.0 && bounds[&right_slot].height >= 1.0);
 }
 
 #[test]
