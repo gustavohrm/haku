@@ -8,6 +8,7 @@ import { useState } from "react";
 interface TabItemProps {
   tab: Tab;
   active: boolean;
+  panePosition: number;
   /** Opens the tab's menu at the pointer. */
   onMenu: (at: { x: number; y: number }) => void;
 }
@@ -24,7 +25,7 @@ interface TabItemProps {
  * Haku's own pages carry the Haku mark in the text's colour; a web page
  * carries its favicon, and one that crashed carries a warning in its place.
  */
-export function TabItem({ tab, active, onMenu }: TabItemProps) {
+export function TabItem({ tab, active, panePosition, onMenu }: TabItemProps) {
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
   const discarded = tab.presence.status === "discarded";
@@ -77,6 +78,14 @@ export function TabItem({ tab, active, onMenu }: TabItemProps) {
             <Favicon key={visit?.favicon ?? ""} src={visit?.favicon ?? null} />
           )}
           <span className="truncate">{title}</span>
+          {panePosition >= 0 && (
+            <span
+              className="text-text-secondary shrink-0 text-xs"
+              aria-label={t(panePosition === 0 ? "split.left" : "split.right")}
+            >
+              {panePosition + 1}
+            </span>
+          )}
         </button>
 
         {tab.relieved && (

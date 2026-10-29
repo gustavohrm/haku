@@ -73,7 +73,52 @@ const select = (item: MenuItem | undefined) => {
 };
 
 describe("tabMenu", () => {
-  const tabActions = () => ({ reload: vi.fn(), duplicate: vi.fn(), setFixed: vi.fn(), close: vi.fn() });
+  const tabActions = () => ({
+    reload: vi.fn(),
+    duplicate: vi.fn(),
+    setFixed: vi.fn(),
+    close: vi.fn(),
+    split: vi.fn(),
+    closePane: vi.fn(),
+  });
+
+  it("opens a hidden tab in split view and closes a visible pane without closing its tab", () => {
+    const tabs = [tab(1), tab(2)];
+    const acts = tabActions();
+    select(find(tabMenu(tabs[1]!, tabs, acts, [{ id: "left", tab: 1 }]), "split"));
+    expect(acts.split).toHaveBeenCalledWith(2);
+    select(
+      find(
+        tabMenu(tabs[1]!, tabs, acts, [
+          { id: "left", tab: 1 },
+          { id: "right", tab: 2 },
+        ]),
+        "closePane",
+      ),
+    );
+    expect(acts.closePane).toHaveBeenCalledWith(2);
+    expect(acts.close).not.toHaveBeenCalled();
+  });
+
+  it("explains why visible tabs and a full split cannot be split again", () => {
+    const tabs = [tab(1), tab(2), tab(3)];
+    expect(find(tabMenu(tabs[0]!, tabs, tabActions(), [{ id: "left", tab: 1 }]), "split")).toMatchObject({
+      disabled: true,
+      disabledReason: "This tab is already visible",
+    });
+    expect(
+      find(
+        tabMenu(tabs[2]!, tabs, tabActions(), [
+          { id: "left", tab: 1 },
+          { id: "right", tab: 2 },
+        ]),
+        "split",
+      ),
+    ).toMatchObject({
+      disabled: true,
+      disabledReason: "Two panes are already open",
+    });
+  });
 
   it("closes the other tabs and the tabs to the right in strip order", () => {
     const tabs = [tab(1), tab(2), tab(3)];

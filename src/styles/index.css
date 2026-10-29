@@ -100,3 +100,12 @@ dialog[data-toast-instance]::backdrop {
   border-radius: var(--haku-viewport-radius);
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-border) 45%, transparent);
 }
+
+.haku-split {
+  grid-template-columns: minmax(0, calc((100% - 4px) * var(--split-ratio, 0.5))) 4px minmax(0, 1fr);
+}
+
+.haku-bar .btn.haku-pane-close {
+  inline-size: 24px;
+  block-size: 24px;
+}

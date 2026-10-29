@@ -19,7 +19,7 @@ Before this spec was built, nothing in Haku handled a right click.
 
 Every menu Haku draws uses one component, `features/overlays/menu.tsx`. The site menu and the extensions menu are panels, not menus, and keep their own markup, but share its positioning and dismissal.
 
-- **Items**: command, checkbox, radio, separator, submenu; each with an optional icon, a shortcut hint shown as muted text, and a disabled state.
+- **Items**: command, checkbox, radio, separator, submenu; each with an optional icon, a shortcut hint shown as muted text, and a disabled state. A disabled item can show a reason below its label, linked with `aria-describedby`.
 - **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox`, `menuitemradio` and `separator`. Choosing a native radio item, such as a spell-check language, closes the menu and hands the choice to WebView2, which keeps which item of the group is checked; the menu does not group radio items itself.
 - **Dismissal**: `useMenuDismiss`, as the site menu closes now.
 - **Placement**: opens at the pointer, down and to the right; flips left or up when it would leave the window, and then clamps to the window. A submenu opens beside its item and flips the same way.
@@ -52,7 +52,7 @@ Event `contextMenuRequested`, sent with `emit_to` to the tab's window only; list
 type ContextMenuRequested = {
   request: number; // answers pair with requests
   tab: TabId;
-  x: number; // in the chrome's CSS pixels, already offset by the viewport
+  x: number; // in the chrome's CSS pixels, already offset by the source pane
   y: number;
   target: {
     kind: "page" | "image" | "selection" | "audio" | "video";
@@ -82,7 +82,7 @@ Command `answer_context_menu(request: number, choice: number | null, refocus: bo
 
 Showing the menu moves keyboard focus from the page to the chrome, so the answer says where it goes next. A native item gets the page back its focus, since it acts on the page. `refocus` does the same for a menu closed from inside with nothing chosen, by Escape or Tab, so the keyboard is back where it was before the right-click. A menu closed by a click elsewhere, or by one of Haku's items, passes `false`: focus is already where the person or the item put it.
 
-A request the chrome never answers, say because its window closed, would hold the deferral forever. Rust completes any pending request with no choice when a newer request arrives, and after 60 seconds. An answer that comes after the tab has left the slot that asked runs nothing, and the chrome closes a page's menu when its tab stops being the active one.
+A request the chrome never answers, say because its window closed, would hold the deferral forever. Rust completes any pending request with no choice when a newer request arrives, and after 60 seconds. An answer that comes after the tab has left the slot that asked runs nothing, and the chrome closes a page's menu on focused-tab change, source-pane reassignment or a change to that pane's measured rectangle, radius or covered state. Geometry changes are observed before their layout report is sent; sibling-only changes leave the menu open. Right-clicking a page focuses its source pane through native focus observation; the chrome accepts a request from any visible tab of its window and calls `focus_pane` when its state has not caught up yet, so a menu opened from the other pane is not dropped. It listens once per window rather than per focused tab for the same reason. Escape and native actions refocus that same still-visible page.
 
 ### Items
 
@@ -109,13 +109,15 @@ Native items follow in their own groups, then extension items in a group of thei
 
 The chrome's own default menu is turned off from the interface: a `contextmenu` listener on the document calls `preventDefault`, which suppresses WebView2's menu, and draws Haku's menu where there is one. No Rust is needed.
 
-| Where             | Menu                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
-| A tab             | Reload, Duplicate, Keep loaded (checkbox, `set_tab_fixed`), then Close, Close other tabs, Close tabs to the right |
-| The tab strip     | New tab, Reopen closed tab                                                                                        |
-| A text field      | Cut, Copy, Paste, Select all                                                                                      |
-| Anywhere else     | Nothing                                                                                                           |
-| Debug builds only | **Inspect interface** appended to every interface menu, so developing Haku keeps its DevTools                     |
+| Where             | Menu                                                                                                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A tab             | Reload, Duplicate, Keep loaded (checkbox, `set_tab_fixed`), Open in split view, Close pane (visible split tabs only), then Close, Close other tabs, Close tabs to the right |
+| The tab strip     | New tab, Reopen closed tab                                                                                                                                                  |
+| A text field      | Cut, Copy, Paste, Select all                                                                                                                                                |
+| Anywhere else     | Nothing                                                                                                                                                                     |
+| Debug builds only | **Inspect interface** appended to every interface menu, so developing Haku keeps its DevTools                                                                               |
+
+**Open in split view** calls `split_tab` for a hidden tab. It is disabled with a visible, accessible reason on an already-visible tab or when two panes are open. **Close pane** calls `close_pane`, retaining the tab in the strip. Splitting has no dedicated shortcut; [Split view](split-view.md#ui) owns the pane controls and selection rules.
 
 Duplicate opens the tab's current URL with `open_tab`, without its back history; a true duplicate needs a new command and is left for later. Close other tabs and Close tabs to the right call `close_tab` per tab.
 
@@ -125,7 +127,7 @@ Settled while building it:
 
 - **Paste in the interface's text fields** uses `navigator.clipboard.readText` from the chrome, with no new dependency. WebView2 asked the user for clipboard access on first use, so `platform::allow_clipboard_read` allows clipboard reads for the chrome webview only; pages keep the engine's prompt. A refusal is reported, not dropped.
 - **Open link in new window** and **Reopen closed tab** have their commands, `open_window(url)` and `reopen_closed_tab()`.
-- **Where the menu opens.** WebView2's `Location` is in physical pixels relative to the webview; Rust divides it by the window's scale factor and adds the viewport's origin.
+- **Where the menu opens.** WebView2's `Location` is in physical pixels relative to the webview; Rust divides it by the window's scale factor and adds the source pane's origin. The menu remains clamped to the window, not the pane.
 - **No `mainFrame` in the target.** WebView2's `IsRequestedForMainFrame` reported `false` for every request tried, top-level pages such as example.com included. Nothing needed it, so the event leaves it out rather than carry a value nobody can rely on.
 - **Inspect interface** calls Tauri's `plugin:webview|internal_toggle_devtools`, which `core:default` already grants to the chrome; no capability changes. It is shown only when Vite's `import.meta.env.DEV` is set.
 - **Image addresses.** An image in a subframe can arrive with no `sourceUrl`; it then gets the engine's image items but not **Open image in new tab**.

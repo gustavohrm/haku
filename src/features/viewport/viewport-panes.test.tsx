@@ -1,0 +1,173 @@
+import type { Tab } from "@bindings";
+import { usePageDialog } from "@features/feedback/use-page-dialog";
+import { TabStrip } from "@features/tabs/tab-strip";
+import { commands } from "@ipc/commands";
+import { useActiveTab } from "@ipc/hooks";
+import { browserStore, EMPTY_STATE } from "@ipc/store";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
+
+import { ViewportPanes } from "./viewport-panes";
+
+const { alert, dismiss } = vi.hoisted(() => ({ alert: vi.fn(), dismiss: vi.fn() }));
+vi.mock("@bindings", () => ({ events: {} }));
+vi.mock("@ipc/commands", () => ({
+  commands: {
+    focusPane: vi.fn(),
+    closePane: vi.fn(),
+    selectTab: vi.fn(),
+    tabPreview: vi.fn(),
+    setLayout: vi.fn(),
+    answerDialog: vi.fn(),
+    reloadTab: vi.fn(),
+  },
+}));
+vi.mock("@features/feedback/feedback", () => ({ feedback: () => ({ dialog: { alert } }) }));
+vi.mock("@features/settings/settings-page", () => ({
+  SettingsPage: ({ url, tabId }: { url: string; tabId: number }) => (
+    <input aria-label={`${tabId}:${url}`} defaultValue="" />
+  ),
+}));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const tab = (id: number, extra: Partial<Tab> = {}): Tab => ({
+  id,
+  history: { entries: [{ url: "https://example.com", title: `Page ${id}`, favicon: null }], index: 0 },
+  presence: { status: "live", slot: id },
+  scroll: { x: 0, y: 0 },
+  fixed: false,
+  activeAt: 0,
+  dialog: null,
+  audible: false,
+  relieved: false,
+  restoring: false,
+  ...extra,
+});
+let host: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal("requestAnimationFrame", () => 1);
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  vi.mocked(commands.tabPreview).mockResolvedValue({ status: "ok", data: "data:image/png;base64,preview" });
+  alert.mockReturnValue(Object.assign(new Promise(() => {}), { dismiss }));
+  browserStore.set({
+    ...EMPTY_STATE,
+    tabs: [tab(1), tab(2)],
+    viewports: [
+      { id: "left", tab: 1 },
+      { id: "right", tab: 2 },
+    ],
+    focusedViewport: "left",
+    active: 1,
+    splitRatio: 0.5,
+  });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+  browserStore.set(EMPTY_STATE);
+  vi.unstubAllGlobals();
+});
+
+it("keeps explicit internal routes and their local state separate in each pane", async () => {
+  const internal = (id: number) =>
+    tab(id, {
+      presence: { status: "internal" },
+      history: { entries: [{ url: `haku://settings/${id}`, title: "", favicon: null }], index: 0 },
+    });
+  browserStore.set({ ...browserStore.get(), tabs: [internal(1), internal(2)] });
+  await act(async () => root.render(<ViewportPanes />));
+  const inputs = host.querySelectorAll("input");
+  expect([...inputs].map((input) => input.getAttribute("aria-label"))).toEqual([
+    "1:haku://settings/1",
+    "2:haku://settings/2",
+  ]);
+  inputs[0]!.value = "left search";
+  await act(async () => browserStore.set({ ...browserStore.get(), focusedViewport: "right", active: 2 }));
+  expect(inputs[0]!.value).toBe("left search");
+  expect(inputs[1]!.value).toBe("");
+  expect([...host.querySelectorAll<HTMLElement>("[data-viewport]")].map((pane) => pane.dataset.covered)).toEqual([
+    "true",
+    "true",
+  ]);
+});
+
+it("covers crashed and restoring panes independently and reloads the named crashed tab", async () => {
+  browserStore.set({
+    ...browserStore.get(),
+    tabs: [tab(1, { presence: { status: "crashed", cause: "unknown" } }), tab(2, { restoring: true })],
+  });
+  await act(async () => root.render(<ViewportPanes />));
+  const panes = host.querySelectorAll<HTMLElement>("[data-viewport]");
+  await act(async () => panes[0]!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(commands.reloadTab).toHaveBeenCalledWith(1);
+  expect(panes[0]!.textContent).toContain("This page crashed");
+  expect(panes[1]!.querySelector("img")?.src).toContain("preview");
+  expect([...panes].map((pane) => pane.dataset.covered)).toEqual(["true", "true"]);
+  await act(async () => browserStore.set({ ...browserStore.get(), tabs: [browserStore.get().tabs[0]!, tab(2)] }));
+  expect(host.querySelector('[data-viewport="right"]')?.getAttribute("data-covered")).toBe("false");
+});
+
+it("marks a waiting dialog accessibly and focuses its pane before presenting the window-modal dialog", async () => {
+  browserStore.set({
+    ...browserStore.get(),
+    tabs: [
+      tab(1),
+      tab(2, { dialog: { id: 20, kind: "alert", url: "https://example.com", message: "Waiting", defaultText: "" } }),
+    ],
+  });
+  vi.mocked(commands.focusPane).mockImplementation(async () => {
+    browserStore.set({ ...browserStore.get(), active: 2, focusedViewport: "right" });
+    return { status: "ok", data: browserStore.get() };
+  });
+  function Window() {
+    usePageDialog(useActiveTab());
+    return <ViewportPanes />;
+  }
+  await act(async () => root.render(<Window />));
+  expect(alert).not.toHaveBeenCalled();
+  const marker = host.querySelector<HTMLButtonElement>('[aria-label="Dialog waiting"]')!;
+  expect(marker).not.toBeNull();
+  expect(marker.closest("[data-viewport]")).toBeNull();
+  await act(async () => marker.click());
+  expect(commands.focusPane).toHaveBeenCalledWith(2);
+  expect(alert).toHaveBeenCalledExactlyOnceWith(
+    "Waiting",
+    expect.objectContaining({ title: "example.com says", backdropDismiss: false }),
+  );
+  expect(host.querySelector('[aria-label="Dialog waiting"]')).toBeNull();
+  await act(async () => browserStore.set({ ...browserStore.get(), active: 1, focusedViewport: "left" }));
+  expect(dismiss).toHaveBeenCalledTimes(1);
+});
+
+it("provides persistent pane controls and marks both strip tabs while selecting the named tab", async () => {
+  await act(async () =>
+    root.render(
+      <>
+        <TabStrip />
+        <ViewportPanes />
+      </>,
+    ),
+  );
+  expect(host.querySelectorAll('[aria-label="Close pane"]')).toHaveLength(2);
+  expect(host.querySelectorAll('button[aria-current="page"]')).toHaveLength(1);
+  expect(host.querySelector('span[aria-label="Left pane"]')).not.toBeNull();
+  expect(host.querySelector('span[aria-label="Right pane"]')).not.toBeNull();
+  await act(async () => host.querySelectorAll<HTMLButtonElement>("ul button")[2]!.click());
+  expect(commands.selectTab).toHaveBeenCalledWith(2);
+  const close = host.querySelectorAll<HTMLButtonElement>('[aria-label="Close pane"]')[1]!;
+  await act(async () => close.click());
+  expect(commands.closePane).toHaveBeenCalledWith(2);
+});

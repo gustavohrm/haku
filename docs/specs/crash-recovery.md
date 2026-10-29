@@ -41,7 +41,7 @@ Crashed is a presence rather than a flag on a discarded tab because it answers a
 
 ### What the user sees
 
-- **The active tab**: in place of the page, a notice in the style of the other failure screens ([`crash-style.ts`](../../src/app/crash-style.ts)): "This page crashed", one line naming why when the reason says (out of memory, or ended by another program), and a Reload button. The chrome is solid over the viewport while it shows, as for an internal page.
+- **Each visible tab**: in place of that pane's page, a notice in the style of the other failure screens ([`crash-style.ts`](../../src/app/crash-style.ts)): "This page crashed", one line naming why when the reason says (out of memory, or ended by another program), and a Reload button. The chrome is solid over that pane's viewport while it shows, as for an internal page; its healthy sibling remains usable. Reload names the crashed tab.
 - **In the tab strip**: the tab's icon is replaced by a warning icon, so a tab that crashed in the background is found without opening every tab.
 - Nothing else announces it: no toast. A background tab crashing is not urgent, and the strip shows it.
 

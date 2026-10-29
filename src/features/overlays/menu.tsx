@@ -336,10 +336,11 @@ function MenuRow({ ref, id, item, highlighted, expanded, showsMarks, onHover, on
       tabIndex={-1}
       aria-checked={checked}
       aria-disabled={item.disabled || undefined}
+      aria-describedby={item.disabledReason ? `${id}-reason` : undefined}
       aria-haspopup={item.kind === "submenu" ? "menu" : undefined}
       aria-expanded={item.kind === "submenu" ? expanded : undefined}
       className={cx(
-        "flex h-6 shrink-0 items-center gap-2 rounded-(--radius-small) px-2 text-left outline-none",
+        "flex min-h-6 shrink-0 items-center gap-2 rounded-(--radius-small) px-2 text-left outline-none",
         (highlighted || expanded) && "bg-text/8",
         item.disabled && "text-text-secondary opacity-60",
       )}
@@ -351,7 +352,14 @@ function MenuRow({ ref, id, item, highlighted, expanded, showsMarks, onHover, on
           {mark && <i className={cx(mark, "ic-xs")} />}
         </span>
       )}
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      <span className="min-w-0 flex-1 py-1">
+        <span className="block truncate">{item.label}</span>
+        {item.disabledReason && (
+          <span id={`${id}-reason`} className="block text-xs">
+            {item.disabledReason}
+          </span>
+        )}
+      </span>
       {item.shortcut && <span className="text-text-secondary ml-4 shrink-0 text-xs">{item.shortcut}</span>}
       {item.kind === "submenu" && (
         <i className="ic-chevron-right ic-xs text-text-secondary ml-2 shrink-0" aria-hidden="true" />

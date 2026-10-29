@@ -4,7 +4,7 @@
  * [Context menus](../../../docs/specs/context-menus.md).
  */
 
-import type { ContextMenuRequested, NativeMenuItem, Tab, TabId } from "@bindings";
+import type { BrowserState, ContextMenuRequested, NativeMenuItem, Tab, TabId } from "@bindings";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { tidySeparators, type MenuItem } from "@features/overlays/menu-model";
 import { t } from "@shared/i18n";
@@ -49,6 +49,8 @@ export interface TabActions {
   duplicate: (url: string) => void;
   setFixed: (id: TabId, fixed: boolean) => void;
   close: (ids: TabId[]) => void;
+  split: (id: TabId) => void;
+  closePane: (id: TabId) => void;
 }
 
 /**
@@ -57,11 +59,18 @@ export interface TabActions {
  * @param tab - The tab right-clicked.
  * @param tabs - Every tab in the window, in strip order.
  */
-export function tabMenu(tab: Tab, tabs: readonly Tab[], actions: TabActions): MenuItem[] {
+export function tabMenu(
+  tab: Tab,
+  tabs: readonly Tab[],
+  actions: TabActions,
+  viewports: BrowserState["viewports"] = [],
+): MenuItem[] {
   const url = tab.history.entries[tab.history.index]?.url ?? null;
   const index = tabs.findIndex((other) => other.id === tab.id);
   const others = tabs.filter((other) => other.id !== tab.id).map((other) => other.id);
   const right = tabs.slice(index + 1).map((other) => other.id);
+  const isVisible = viewports.some((pane) => pane.tab === tab.id);
+  const disabledReason = isVisible ? t("split.alreadyVisible") : viewports.length === 2 ? t("split.full") : undefined;
   return interfaceMenu([
     {
       kind: "command",
@@ -84,6 +93,24 @@ export function tabMenu(tab: Tab, tabs: readonly Tab[], actions: TabActions): Me
       onSelect: () => actions.setFixed(tab.id, !tab.fixed),
     },
     separator("close"),
+    {
+      kind: "command",
+      id: "split",
+      label: t("split.open"),
+      disabled: disabledReason !== undefined,
+      disabledReason,
+      onSelect: () => actions.split(tab.id),
+    },
+    ...(isVisible && viewports.length === 2
+      ? [
+          {
+            kind: "command" as const,
+            id: "closePane",
+            label: t("split.close"),
+            onSelect: () => actions.closePane(tab.id),
+          },
+        ]
+      : []),
     { kind: "command", id: "close", label: t("menu.close"), onSelect: () => actions.close([tab.id]) },
     {
       kind: "command",

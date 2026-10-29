@@ -17,18 +17,25 @@ import { TabItem } from "./tab-item";
  * and whatever width the tabs leave free stays a drag region for the window.
  */
 export function TabStrip() {
-  const { tabs, active } = useBrowserState();
+  const { tabs, active, viewports } = useBrowserState();
 
   const openTabMenu = (tab: Tab, at: { x: number; y: number }) =>
     openMenu({
       at,
       label: t("menu.tab"),
-      items: tabMenu(tab, tabs, {
-        reload: (id) => void commands.reloadTab(id),
-        duplicate: (url) => void commands.openTab(url, true),
-        setFixed: (id, fixed) => void commands.setTabFixed(id, fixed),
-        close: (ids) => void closeTabs(ids),
-      }),
+      items: tabMenu(
+        tab,
+        tabs,
+        {
+          reload: (id) => void commands.reloadTab(id),
+          duplicate: (url) => void commands.openTab(url, true),
+          setFixed: (id, fixed) => void commands.setTabFixed(id, fixed),
+          close: (ids) => void closeTabs(ids),
+          split: (id) => void commands.splitTab(id),
+          closePane: (id) => void commands.closePane(id),
+        },
+        viewports,
+      ),
     });
 
   return (
@@ -53,7 +60,13 @@ export function TabStrip() {
     >
       <ul className="flex min-w-0 shrink items-center gap-0.5" aria-label={t("tabs.list")}>
         {tabs.map((tab: Tab) => (
-          <TabItem key={tab.id} tab={tab} active={tab.id === active} onMenu={(at) => openTabMenu(tab, at)} />
+          <TabItem
+            key={tab.id}
+            tab={tab}
+            active={tab.id === active}
+            panePosition={viewports.length === 2 ? viewports.findIndex((pane) => pane.tab === tab.id) : -1}
+            onMenu={(at) => openTabMenu(tab, at)}
+          />
         ))}
       </ul>
       <button
