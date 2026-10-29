@@ -139,6 +139,12 @@ it.each(["membership", "order"])("cancels stale pointer drags when %s changes", 
   expect(release).toHaveBeenCalledWith(1);
   await pointer(source, "pointerup", 10);
   expect(commands.reorderTab).not.toHaveBeenCalled();
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>("[data-tab-drag-handle]")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })),
+  );
+  expect(commands.selectTab).toHaveBeenCalledExactlyOnceWith(change === "order" ? 5 : 1);
 });
 
 it.each(["Escape", "pointercancel", "lostpointercapture"])("cancels a drag on %s", async (cancel) => {
@@ -154,6 +160,12 @@ it.each(["Escape", "pointercancel", "lostpointercapture"])("cancels a drag on %s
   expect(host.querySelector("[data-drop-gap]")).toBeNull();
   await pointer(source, "pointerup", 10);
   expect(commands.reorderTab).not.toHaveBeenCalled();
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>("[data-tab-drag-handle]")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })),
+  );
+  expect(commands.selectTab).toHaveBeenCalledExactlyOnceWith(1);
 });
 
 it("keeps below-threshold clicks selecting the individual half", async () => {

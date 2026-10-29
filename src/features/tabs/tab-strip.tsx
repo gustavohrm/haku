@@ -41,6 +41,7 @@ export function TabStrip() {
   const clearDrag = () => {
     const current = drag.current;
     drag.current = null;
+    suppressClick.current = false;
     if (current?.target.hasPointerCapture(current.pointerId)) {
       current.target.releasePointerCapture(current.pointerId);
     }
@@ -208,6 +209,7 @@ export function TabStrip() {
                 }
                 const gap = current.gap;
                 clearDrag();
+                suppressClick.current = current.started;
                 if (current.started && gap !== null) {
                   const to = gap > current.from ? Math.max(current.from, gap - current.size) : gap;
                   if (to !== current.from) {
