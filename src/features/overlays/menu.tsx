@@ -352,7 +352,7 @@ function MenuRow({ ref, id, item, highlighted, expanded, showsMarks, onHover, on
           {mark && <i className={cx(mark, "ic-xs")} />}
         </span>
       )}
-      <span className="min-w-0 flex-1 py-1">
+      <span className={cx("min-w-0 flex-1", item.disabledReason && "py-1")}>
         <span className="block truncate">{item.label}</span>
         {item.disabledReason && (
           <span id={`${id}-reason`} className="block text-xs">
