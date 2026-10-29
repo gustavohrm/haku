@@ -247,6 +247,8 @@ it("outlines only the focused paired pane and keeps each joined half selectable 
   expect(commands.closeTab).toHaveBeenCalledWith(2);
   await act(async () => browserStore.set({ ...browserStore.get(), viewports: [{ id: "left", tab: 1 }] }));
   expect(host.querySelectorAll(".haku-pane-focused")).toHaveLength(0);
+  // The surface takes focus for a covered page; only the split outline may mark it.
+  expect(host.querySelector("[data-viewport]")?.classList).toContain("outline-none");
 });
 
 it("keeps the address focused when a new internal tab consumes a pending focus request", async () => {
