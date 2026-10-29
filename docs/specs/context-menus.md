@@ -10,10 +10,10 @@ Approved on 2026-10-23. It adds an IPC event and a command, so it is a contract 
 
 ## Problem
 
-Nothing in Haku handles a right click today.
+Before this spec was built, nothing in Haku handled a right click.
 
-- **Over a page**, WebView2 draws its own menu, in Edge's style rather than Haku's, with Edge features such as Share and Read aloud that Haku does not support, and **Save as** and **Print**, which start downloads and dialogs Haku does not handle yet.
-- **Over the interface**, the chrome webview draws the same default menu: Back, Reload, Save as, Print and **Inspect**. Back and Reload act on the interface document itself, and Reload drops the interface's state. Inspect opens DevTools on the one webview that holds IPC, in release builds too, because Tauri's `devtools` feature is on for `open_devtools` ([`tauri/AGENTS.md`](../../tauri/AGENTS.md)). It needs local access to use, so the realistic harm is a confused user, not an attacker, but it is not a browser feature.
+- **Over a page**, WebView2 drew its own menu, in Edge's style rather than Haku's, with Edge features such as Share and Read aloud that Haku does not support, and **Save as** and **Print**, which start downloads and dialogs Haku does not handle yet.
+- **Over the interface**, the chrome webview drew the same default menu: Back, Reload, Save as, Print and **Inspect**. Back and Reload acted on the interface document itself, and Reload dropped the interface's state. Inspect opened DevTools on the one webview that holds IPC, in release builds too, because Tauri's `devtools` feature is on for `open_devtools` ([`tauri/AGENTS.md`](../../tauri/AGENTS.md)). It needs local access to use, so the realistic harm is a confused user, not an attacker, but it was not a browser feature.
 
 ## The menu component
 
