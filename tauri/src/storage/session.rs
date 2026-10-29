@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::browser::Browser;
+use crate::browser::{Browser, SPLIT_RATIOS};
 use crate::model::{WindowId, WindowKind};
 use crate::storage::settings::OPENABLE_SCHEMES;
 
@@ -37,6 +37,14 @@ pub struct WindowBounds {
     pub maximized: bool,
 }
 
+/// An ordered tab pair, indexed into its window's stored tabs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
+pub struct SessionSplit {
+    pub tabs: [usize; 2],
+    #[specta(type = specta_typescript::Number)]
+    pub ratio: f64,
+}
+
 /// One browser window as it is remembered across restarts.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +56,19 @@ pub struct SessionWindow {
     /// Nothing when the window was never placed, which reopens it maximized.
     #[serde(default)]
     pub bounds: Option<WindowBounds>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "read_splits")]
+    pub splits: Vec<SessionSplit>,
+}
+
+fn read_splits<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<SessionSplit>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value {
+        serde_json::Value::Array(entries) => entries
+            .into_iter()
+            .filter_map(|entry| serde_json::from_value(entry).ok())
+            .collect(),
+        _ => Vec::new(),
+    })
 }
 
 impl SessionWindow {
@@ -55,6 +76,43 @@ impl SessionWindow {
     /// active, or the one after it when it was left out. An index past the
     /// tabs is dropped, so restoring falls back to the first tab, as before.
     fn openable(self) -> Self {
+        let mut next = 0;
+        let indices: Vec<Option<usize>> = self
+            .tabs
+            .iter()
+            .map(|tab| {
+                opens(&tab.url).then(|| {
+                    let index = next;
+                    next += 1;
+                    index
+                })
+            })
+            .collect();
+        let mut claimed = vec![false; self.tabs.len()];
+        let splits = self
+            .splits
+            .into_iter()
+            .filter_map(|pair| {
+                let [left, right] = pair.tabs;
+                if left.checked_add(1) != Some(right)
+                    || right >= indices.len()
+                    || !pair.ratio.is_finite()
+                    || !SPLIT_RATIOS.contains(&pair.ratio)
+                {
+                    return None;
+                }
+                let tabs = [indices[left]?, indices[right]?];
+                if claimed[left] || claimed[right] {
+                    return None;
+                }
+                claimed[left] = true;
+                claimed[right] = true;
+                Some(SessionSplit {
+                    tabs,
+                    ratio: pair.ratio,
+                })
+            })
+            .collect();
         let active = self
             .active
             .filter(|&active| active < self.tabs.len())
@@ -63,6 +121,7 @@ impl SessionWindow {
         Self {
             active: active.map(|active| active.min(tabs.len().saturating_sub(1))),
             tabs,
+            splits,
             ..self
         }
     }
@@ -114,6 +173,16 @@ impl Session {
                     tabs,
                     active,
                     bounds: bounds.get(&window).copied(),
+                    splits: state
+                        .splits
+                        .iter()
+                        .map(|pair| SessionSplit {
+                            tabs: pair
+                                .tabs
+                                .map(|id| state.tabs.iter().position(|tab| tab.id == id).expect("pair member")),
+                            ratio: pair.ratio,
+                        })
+                        .collect(),
                 })
             })
             .collect();
@@ -136,6 +205,7 @@ impl Session {
                 tabs: self.tabs.clone(),
                 active: self.active,
                 bounds: None,
+                splits: Vec::new(),
             }]
         } else {
             self.windows.clone()
@@ -156,6 +226,7 @@ impl Session {
             }],
             active: Some(0),
             bounds: None,
+            splits: Vec::new(),
         }]
     }
 
@@ -169,7 +240,8 @@ impl Session {
             capacity,
             windows.iter().map(|window| {
                 let tabs = window.tabs.iter().map(|tab| (tab.url.clone(), tab.fixed)).collect();
-                (tabs, window.active)
+                let splits = window.splits.iter().map(|pair| (pair.tabs, pair.ratio)).collect();
+                (tabs, window.active, splits)
             }),
         );
         (browser, windows)
@@ -177,238 +249,5 @@ impl Session {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn window_of(urls: &[&str], active: Option<usize>) -> SessionWindow {
-        SessionWindow {
-            tabs: urls
-                .iter()
-                .map(|url| SessionTab {
-                    url: (*url).to_string(),
-                    title: (*url).to_string(),
-                    fixed: false,
-                })
-                .collect(),
-            active,
-            bounds: None,
-        }
-    }
-
-    fn session_of(urls: &[&str], active: Option<usize>) -> Session {
-        Session {
-            windows: vec![window_of(urls, active)],
-            ..Session::default()
-        }
-    }
-
-    fn restore(session: &Session, capacity: usize) -> Browser {
-        session.restore(capacity, "haku://new-tab").0
-    }
-
-    #[test]
-    fn an_empty_session_restores_to_the_home_page() {
-        let browser = restore(&Session::default(), 1);
-
-        assert_eq!(browser.tabs().len(), 1);
-        assert_eq!(browser.tabs()[0].url(), "haku://new-tab");
-    }
-
-    #[test]
-    fn restoring_reopens_every_tab_in_order() {
-        let browser = restore(&session_of(&["https://a.test", "https://b.test"], Some(0)), 1);
-
-        let urls: Vec<&str> = browser.tabs().iter().map(|tab| tab.url()).collect();
-        assert_eq!(urls, vec!["https://a.test", "https://b.test"]);
-    }
-
-    #[test]
-    fn restoring_reactivates_the_tab_that_was_active() {
-        let browser = restore(&session_of(&["https://a.test", "https://b.test"], Some(1)), 1);
-
-        assert_eq!(browser.active(), browser.tabs().get(1).map(|tab| tab.id));
-    }
-
-    #[test]
-    fn an_out_of_range_active_index_falls_back_to_the_first_tab() {
-        let browser = restore(&session_of(&["https://a.test"], Some(9)), 1);
-
-        assert_eq!(browser.active(), browser.tabs().first().map(|tab| tab.id));
-    }
-
-    #[test]
-    fn pinned_tabs_are_still_pinned_after_a_restart() {
-        let mut session = session_of(&["https://a.test", "https://b.test"], Some(1));
-        session.windows[0].tabs[0].fixed = true;
-
-        let browser = restore(&session, 1);
-
-        assert!(browser.tabs()[0].fixed);
-    }
-
-    #[test]
-    fn a_restored_browser_holds_no_webviews_until_it_is_reconciled() {
-        // Restoring through the ordinary open and select path would mark tabs
-        // live and record which slot holds which URL, while producing effects
-        // that nobody applies. Reconciling against the first reported layout
-        // would then find nothing to do and the window would stay blank.
-        let browser = restore(&session_of(&["https://a.test", "https://b.test"], Some(0)), 2);
-
-        assert_eq!(browser.state().live_count, 0);
-        assert!(browser.tabs().iter().all(|tab| tab.slot().is_none()));
-    }
-
-    #[test]
-    fn reconciling_a_restored_session_loads_the_active_tab() {
-        let mut browser = restore(&session_of(&["https://a.test", "https://b.test"], Some(1)), 1);
-
-        let effects = browser.reconcile();
-
-        assert!(effects.iter().any(|effect| matches!(
-            effect,
-            crate::browser::Effect::EnsureSlot { url, .. } if url == "https://b.test"
-        )));
-    }
-
-    #[test]
-    fn a_captured_session_restores_to_the_same_tabs() {
-        let original = session_of(&["https://a.test", "https://b.test"], Some(1));
-        let browser = restore(&original, 2);
-
-        let captured = Session::capture(&browser, &HashMap::new());
-
-        let urls: Vec<&str> = captured.windows[0].tabs.iter().map(|tab| tab.url.as_str()).collect();
-        assert_eq!(urls, vec!["https://a.test", "https://b.test"]);
-        assert_eq!(captured.windows[0].active, Some(1));
-    }
-
-    #[test]
-    fn every_window_is_restored_with_its_own_tabs_and_active_tab() {
-        let session = Session {
-            windows: vec![
-                window_of(&["https://a.test", "https://b.test"], Some(1)),
-                window_of(&["https://c.test"], Some(0)),
-            ],
-            ..Session::default()
-        };
-
-        let browser = restore(&session, 2);
-
-        let windows = browser.window_ids();
-        assert_eq!(windows.len(), 2);
-        let first = browser.state_in(windows[0]).unwrap();
-        let urls: Vec<&str> = first.tabs.iter().map(|tab| tab.url()).collect();
-        assert_eq!(urls, vec!["https://a.test", "https://b.test"]);
-        assert_eq!(first.active, Some(first.tabs[1].id));
-        assert_eq!(browser.state_in(windows[1]).unwrap().tabs[0].url(), "https://c.test");
-    }
-
-    #[test]
-    fn the_window_used_last_is_the_one_in_use_after_a_restart() {
-        let session = Session {
-            windows: vec![
-                window_of(&["https://a.test"], None),
-                window_of(&["https://c.test"], None),
-            ],
-            ..Session::default()
-        };
-
-        let browser = restore(&session, 2);
-
-        assert_eq!(browser.tab(browser.active().unwrap()).unwrap().url(), "https://c.test");
-    }
-
-    #[test]
-    fn a_session_stored_before_windows_existed_restores_as_one_window() {
-        let stored = r#"{ "tabs": [{ "url": "https://a.test", "title": "A", "fixed": false }], "active": 0 }"#;
-        let session: Session = serde_json::from_str(stored).unwrap();
-
-        let browser = restore(&session, 1);
-
-        assert_eq!(browser.window_ids().len(), 1);
-        assert_eq!(browser.tabs()[0].url(), "https://a.test");
-    }
-
-    #[test]
-    fn the_old_shape_is_never_written_back() {
-        let session = session_of(&["https://a.test"], Some(0));
-
-        let written = serde_json::to_value(&session).unwrap();
-
-        assert!(written.get("tabs").is_none());
-        assert!(written.get("windows").is_some());
-    }
-
-    #[test]
-    fn a_captured_session_keeps_where_each_window_was() {
-        let browser = restore(&session_of(&["https://a.test"], Some(0)), 1);
-        let bounds = WindowBounds {
-            x: 10.0,
-            y: 20.0,
-            width: 800.0,
-            height: 600.0,
-            maximized: false,
-        };
-
-        let captured = Session::capture(&browser, &HashMap::from([(browser.main_window(), bounds)]));
-
-        assert_eq!(captured.windows[0].bounds, Some(bounds));
-    }
-
-    #[test]
-    fn popups_are_not_remembered() {
-        let mut browser = restore(&session_of(&["https://a.test"], Some(0)), 2);
-        browser.reconcile();
-        let opener = browser.tab(browser.active().unwrap()).unwrap().slot().unwrap();
-        browser.open_from(
-            opener,
-            "https://login.test",
-            crate::browser::Opening::Popup {
-                request: crate::model::WindowRequestId(1),
-                placement: crate::model::Placement::default(),
-            },
-        );
-
-        let captured = Session::capture(&browser, &HashMap::new());
-
-        assert_eq!(captured.windows.len(), 1);
-        assert_eq!(captured.windows[0].tabs.len(), 1);
-    }
-
-    #[test]
-    fn a_tab_with_an_address_haku_does_not_open_is_not_restored() {
-        let windows = session_of(
-            &["https://a.test", "javascript:alert(1)", "not a url", "haku://settings"],
-            Some(3),
-        )
-        .windows_or_home("haku://new-tab");
-
-        let urls: Vec<&str> = windows[0].tabs.iter().map(|tab| tab.url.as_str()).collect();
-        assert_eq!(urls, vec!["https://a.test", "haku://settings"]);
-        assert_eq!(windows[0].active, Some(1));
-    }
-
-    #[test]
-    fn an_active_index_past_the_tabs_still_falls_back_to_the_first_tab() {
-        let windows = session_of(&["https://a.test", "javascript:alert(1)", "https://b.test"], Some(9))
-            .windows_or_home("haku://new-tab");
-
-        assert_eq!(windows[0].active, None);
-    }
-
-    #[test]
-    fn a_window_left_with_no_tab_it_can_open_is_not_restored() {
-        let session = Session {
-            windows: vec![
-                window_of(&["javascript:alert(1)"], Some(0)),
-                window_of(&["https://a.test"], Some(0)),
-            ],
-            ..Session::default()
-        };
-
-        let windows = session.windows_or_home("haku://new-tab");
-
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].tabs[0].url, "https://a.test");
-    }
-}
+#[path = "session_tests.rs"]
+mod tests;

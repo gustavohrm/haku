@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 scope: Browser windows and popups, what happens when a page asks for a new window, by a link or by script, and when it asks to close one.
 ---
 
@@ -82,6 +82,12 @@ The arguments of a second launch are ignored. Nothing passes Haku an address yet
 The session stores each browser window, in the order they were last used, with its tabs, its active tab and where it was on screen. Popups are not stored: the page that opened one reloads on the next launch, and the connection cannot come back. A window that was never moved or resized opens maximized.
 
 A session stored before Haku had windows, a flat list of tabs, is read as one window and written back in the new shape.
+
+The JSON shape is `{ windows: [{ tabs, active, bounds, splits? }] }`. `tabs` stores URL/title/fixed records in strip order; `active` is an index into that window's stored tabs. `bounds` is unchanged. Each optional `splits` entry is `{ tabs: [leftIndex, rightIndex], ratio }`, with indices into the same stored order and the pair's committed ratio. Every pair is captured, including background pairs; omit `splits` when there are none. No version field is stored. Older readers ignore the additive field and restore the selected tab alone. Both windows without `splits` and the older flat `{ tabs, active }` remain readable. Unknown single-`split` data is ignored; no shipped writer used it.
+
+A wrong `splits` type means no pairs. Malformed entries are dropped independently: indices must be distinct in-range integers adjacent in stored left/right order, and the ratio must be finite within 0.2–0.8. The first valid entry claims its members; later overlaps are dropped. Indices map through URL filtering, and filtering either member drops the pair without substituting a neighbor. Active-index filtering and fallback are independent, so invalid pair metadata never loses the selected tab. Empty windows are still omitted; when none survive, one window opens the configured home page.
+
+Restore builds tabs and pairs through `Browser::restored` with fresh identities and no slots; external tabs start discarded. The selected tab determines the visible single tab or pair and focused half. Each restored window waits for an accepted layout at its current revision before loading pages. Background pair membership adds no loading or protection; existing fixed-tab and must-run policy still applies. Slots, native focus, drafts, previews, dialogs, geometry and popup connections are not persisted. [Split view](split-view.md#session-persistence) records the approved persistence decision and its acceptance tests.
 
 ## Not built
 

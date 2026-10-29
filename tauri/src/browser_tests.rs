@@ -862,7 +862,8 @@ fn a_discarded_tab_reloading_its_page_is_not_a_visit() {
 
 #[test]
 fn a_restored_session_reloading_its_pages_is_not_a_visit() {
-    let mut browser = Browser::restored(1, [(vec![("https://a.test".to_string(), false)], Some(0))]);
+    let mut browser = Browser::restored(1, [(vec![("https://a.test".to_string(), false)], Some(0), vec![])]);
+    browser.layout_ready(browser.main_window());
     browser.reconcile();
 
     assert!(!visited(browser.report_page(
