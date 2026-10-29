@@ -202,6 +202,28 @@ export const en = {
   "dialog.leave.message": "Changes you made may not be saved.",
   "dialog.leave.confirm": "Leave",
   "dialog.leave.cancel": "Stay",
+
+  "menu.page": "Page",
+  "menu.field": "Text field",
+  "menu.tab": "Tab",
+  "menu.tabs": "Tabs",
+  "menu.reload": "Reload",
+  "menu.duplicate": "Duplicate",
+  "menu.keepLoaded": "Keep loaded",
+  "menu.close": "Close",
+  "menu.closeOthers": "Close other tabs",
+  "menu.closeRight": "Close tabs to the right",
+  "menu.reopenClosed": "Reopen closed tab",
+  "menu.cut": "Cut",
+  "menu.copy": "Copy",
+  "menu.paste": "Paste",
+  "menu.selectAll": "Select all",
+  "menu.openLinkTab": "Open link in new tab",
+  "menu.openLinkWindow": "Open link in new window",
+  "menu.openImageTab": "Open image in new tab",
+  "menu.searchFor": "Search for \u201c{text}\u201d",
+  "menu.inspect": "Inspect",
+  "menu.inspectInterface": "Inspect interface",
 } as const;
 
 export type TranslationKey = keyof typeof en;

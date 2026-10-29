@@ -50,6 +50,16 @@ export const commands = {
 	goBack: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("go_back", { id })),
 	goForward: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("go_forward", { id })),
 	reloadTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("reload_tab", { id })),
+	/**
+	 *  Opens a browser window whose one tab loads `url`, as Shift+clicking a link
+	 *  does. `url` is resolved as the address field resolves it.
+	 */
+	openWindow: (url: string) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_window", { url })),
+	/**
+	 *  Reopens the most recently closed tab, as Ctrl+Shift+T does. Acts on the
+	 *  whole browser: the tab goes back to the window it was closed in.
+	 */
+	reopenClosedTab: () => typedError<BrowserState, HakuError>(__TAURI_INVOKE("reopen_closed_tab")),
 	setTabFixed: (id: TabId, fixed: boolean) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("set_tab_fixed", { id, fixed })),
 	reorderTab: (id: TabId, to: number) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("reorder_tab", { id, to })),
 	/**
@@ -65,6 +75,16 @@ export const commands = {
 	openTabDevtools: (id: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("open_tab_devtools", { id })),
 	/**  Answers the dialog a page is paused on. */
 	answerDialog: (tab: TabId, dialog: DialogId, answer: DialogAnswer) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_dialog", { tab, dialog, answer })),
+	/**
+	 *  Answers the context menu a page is waiting on, with the native item
+	 *  chosen, or with nothing when the choice was one of Haku's own items or the
+	 *  menu was dismissed. An answer to an unknown or already answered request is
+	 *  ignored, because a menu can close from several causes at once.
+	 * 
+	 *  The page gets keyboard focus back for a native item, and when `refocus`
+	 *  asks for it: the menu closed from inside with nothing chosen.
+	 */
+	answerContextMenu: (request: ContextMenuRequestId, choice: number | null, refocus: boolean) => typedError<null, HakuError>(__TAURI_INVOKE("answer_context_menu", { request, choice, refocus })),
 	/**
 	 *  What `haku://memory` shows: the last tick's reading against the slots as
 	 *  they are now.
@@ -104,6 +124,7 @@ export const commands = {
 /** Events */
 export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
+	contextMenuRequested: makeEvent<ContextMenuRequested>("context-menu-requested"),
 	extensionsChanged: makeEvent<ExtensionsChanged>("extensions-changed"),
 	memoryChanged: makeEvent<MemoryChanged>("memory-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
@@ -134,6 +155,45 @@ export type BrowserState = {
 	/**  Tabs holding a webview, across every window: the pool is shared. */
 	liveCount: number,
 };
+
+/**
+ *  Identifies one context menu a page asked for, so a late answer cannot
+ *  reach a newer one.
+ */
+export type ContextMenuRequestId = number;
+
+/**
+ *  A page was right-clicked, and waits for the menu the interface draws.
+ *  [Context menus § Contract](../../../docs/specs/context-menus.md#contract).
+ * 
+ *  Sent to the tab's window only. The interface answers with
+ *  [`answer_context_menu`](super::commands::answer_context_menu).
+ */
+export type ContextMenuRequested = {
+	request: ContextMenuRequestId,
+	tab: TabId,
+	/**  Where the pointer was, in the chrome's CSS pixels. */
+	x: number,
+	y: number,
+	target: ContextMenuTarget,
+	/**  The allowed native items only, in the engine's order. */
+	items: NativeMenuItem[],
+};
+
+/**  What was right-clicked, and what the menu's items act on. */
+export type ContextMenuTarget = {
+	kind: ContextMenuTargetKind,
+	pageUrl: string,
+	linkUrl: string | null,
+	linkText: string | null,
+	/**  The image or media. */
+	sourceUrl: string | null,
+	selection: string | null,
+	editable: boolean,
+};
+
+/**  What was right-clicked, by the engine's reckoning. */
+export type ContextMenuTargetKind = "page" | "image" | "selection" | "audio" | "video";
 
 /**  Why a tab's page crashed, as far as the engine says. */
 export type CrashCause = "outOfMemory" | 
@@ -278,6 +338,23 @@ export type MemoryReport = {
 	slots: SlotMemory[],
 	unattributed: UnattributedProcess[],
 };
+
+/**  One of the items the engine would have shown. */
+export type NativeMenuItem = {
+	/**  The engine's `CommandId`, which the answer hands back. */
+	id: number,
+	/**  Stable and unlocalized, such as `"copy"` or `"spellCheck"`. */
+	name: string,
+	/**  In the engine's language, with no accelerator marks. */
+	label: string,
+	kind: NativeMenuItemKind,
+	enabled: boolean,
+	checked: boolean,
+	shortcut: string | null,
+	children: NativeMenuItem[],
+};
+
+export type NativeMenuItemKind = "command" | "checkbox" | "radio" | "separator" | "submenu";
 
 /**  A region drawn above the page, in logical pixels. */
 export type Overlay = {

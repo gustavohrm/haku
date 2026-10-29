@@ -1,6 +1,8 @@
 import { PageCrash, TabCrash } from "@app/crash";
 import { renderInternal } from "@app/router";
 import { applyTheme, isThemePreference } from "@app/theme";
+import { ContextMenuHost } from "@features/context-menu/context-menu-host";
+import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
 import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
@@ -29,6 +31,7 @@ export function App() {
   // through and the chrome stays solid over the whole surface.
   useChromeLayout(viewportRef, internal || crash !== null || cover !== null);
   usePageDialog(tab);
+  usePageMenu(tab);
 
   const themePreference = settings?.theme;
   useEffect(() => {
@@ -75,6 +78,7 @@ export function App() {
         {crash !== null && tab && <TabCrash tabId={tab.id} cause={crash} />}
         {cover !== null && <PreviewCover src={cover} />}
       </main>
+      <ContextMenuHost />
     </div>
   );
 }

@@ -17,7 +17,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    Commit, CrashCause, DialogAnswer, DialogId, MemoryStatus, PageDialog, Placement, Shortcut, SlotId, WindowRequestId,
+    Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, MemoryStatus, PageDialog, PageMenu, Placement,
+    Shortcut, SlotId, WindowRequestId,
 };
 
 use memory::{Attribution, SlotMemoryTracker};
@@ -120,6 +121,11 @@ pub enum PageSignal {
     },
     /// A page opened by script asked to close its window.
     CloseRequested,
+    /// The page was right-clicked, and waits until [`answer_context_menu`]
+    /// is called with the request's id. The engine shows no menu of its own.
+    /// A WebView2 runtime too old for the event never sends this, and keeps
+    /// showing the engine's menu.
+    ContextMenuRequested(PageMenu),
     /// A process behind the webview exited.
     ProcessFailed(ProcessFailure),
 }
@@ -170,6 +176,16 @@ pub fn intercept_keys<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: KeyS
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn watch_failures<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: FailureSink) -> Result<()> {
     backend::watch_failures(webview, sink)
+}
+
+/// Lets the chrome read the clipboard without the engine asking the user,
+/// so Paste in the interface's text fields works. Only the chrome is given
+/// this: it runs Haku's own code, and pages keep the engine's prompt.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn allow_clipboard_read<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<()> {
+    backend::allow_clipboard_read(chrome)
 }
 
 /// Tells the user, in a native message box, about a failure Haku cannot show
@@ -262,6 +278,21 @@ pub fn leave_page<R: tauri::Runtime>(
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId, answer: DialogAnswer) -> Result<()> {
     backend::answer_dialog(app, id, answer)
+}
+
+/// Answers a page waiting on its context menu: runs the native item
+/// `choice`, or nothing. A choice the page did not offer is taken as
+/// nothing, and an answer to a request already answered does nothing. Safe
+/// to call from any thread, like [`answer_dialog`].
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn answer_context_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: ContextMenuRequestId,
+    choice: Option<i32>,
+) -> Result<()> {
+    backend::answer_context_menu(app, request, choice)
 }
 
 /// Hands a webview that has loaded nothing to the page waiting on `request`,

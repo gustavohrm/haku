@@ -14,18 +14,20 @@ export const MENU_GAP = 6;
  *
  * Escape closes it and returns focus to the button. A click outside, a window
  * blur or a resize closes it without moving focus, because the person has
- * already moved it elsewhere.
+ * already moved it elsewhere. A context menu has no button, and passes none.
  *
  * @param open - Whether the menu is shown.
- * @param close - Hides the menu. Should be stable across renders.
+ * @param close - Hides the menu, told whether it closed from inside, by
+ * Escape, rather than because focus went elsewhere. Should be stable across
+ * renders.
  * @param menuRef - The menu element.
- * @param buttonRef - The button that opens the menu.
+ * @param buttonRef - The button that opens the menu, if there is one.
  */
 export function useMenuDismiss(
   open: boolean,
-  close: () => void,
+  close: (fromInside: boolean) => void,
   menuRef: RefObject<HTMLElement | null>,
-  buttonRef: RefObject<HTMLElement | null>,
+  buttonRef: RefObject<HTMLElement | null> | null,
 ): void {
   useEffect(() => {
     if (!open) {
@@ -38,26 +40,27 @@ export function useMenuDismiss(
     if (!open) {
       return;
     }
+    const closeElsewhere = () => close(false);
     const closeOutside = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
-        close();
+      if (!menuRef.current?.contains(target) && !buttonRef?.current?.contains(target)) {
+        close(false);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        close();
-        buttonRef.current?.focus();
+        close(true);
+        buttonRef?.current?.focus();
       }
     };
     // A click on the page never reaches the chrome; it only takes focus away.
-    window.addEventListener("blur", close);
-    window.addEventListener("resize", close);
+    window.addEventListener("blur", closeElsewhere);
+    window.addEventListener("resize", closeElsewhere);
     document.addEventListener("pointerdown", closeOutside);
     document.addEventListener("keydown", closeOnEscape);
     return () => {
-      window.removeEventListener("blur", close);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("blur", closeElsewhere);
+      window.removeEventListener("resize", closeElsewhere);
       document.removeEventListener("pointerdown", closeOutside);
       document.removeEventListener("keydown", closeOnEscape);
     };

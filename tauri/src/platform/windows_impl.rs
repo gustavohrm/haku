@@ -34,6 +34,14 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
+    ICoreWebView2ContextMenuItemCollection, ICoreWebView2ContextMenuRequestedEventArgs, ICoreWebView2_11,
+    COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_CHECK_BOX,
+    COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_RADIO, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
+    COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SUBMENU, COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND,
+    COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_AUDIO, COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_IMAGE,
+    COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_SELECTED_TEXT, COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_VIDEO,
+};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2ProcessFailedEventArgs2, COREWEBVIEW2_PROCESS_FAILED_KIND,
     COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED, COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_REASON, COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY,
@@ -43,18 +51,22 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
     COREWEBVIEW2_PHYSICAL_KEY_STATUS,
 };
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+};
 use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
     BrowserExtensionRemoveCompletedHandler, CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
-    DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
-    ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
-    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
+    ContextMenuRequestedEventHandler, DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler,
+    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler,
+    IsDocumentPlayingAudioChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler,
+    ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
     ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
     WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND};
+use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR,
 };
@@ -79,6 +91,10 @@ use super::{FailureSink, KeySink, PageSignal, PageSink, PhysicalRect, ProcessFai
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
 use crate::model::{
+    allowed_items, offers, plain_label, ContextMenuRequestId, ContextMenuTarget, ContextMenuTargetKind, NativeMenuItem,
+    NativeMenuItemKind, PageMenu,
+};
+use crate::model::{
     shortcut_for, Chord, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Key, MemoryStatus, NavigationKind,
     PageDialog, Placement, SlotId, WindowRequestId,
 };
@@ -93,6 +109,9 @@ static NEXT_DIALOG: AtomicU64 = AtomicU64::new(1);
 /// Source of new-window request ids, unique for the life of the process.
 static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
 
+/// Source of context menu request ids, unique for the life of the process.
+static NEXT_MENU: AtomicU64 = AtomicU64::new(1);
+
 thread_local! {
     /// Dialogs pages are paused on, awaiting an answer.
     ///
@@ -106,6 +125,10 @@ thread_local! {
     /// reason on this thread.
     static PENDING_WINDOWS: RefCell<HashMap<WindowRequestId, (ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2Deferral)>> =
         RefCell::new(HashMap::new());
+
+    /// Pages waiting on the context menu Haku draws for them, with the items
+    /// they offered, held like dialogs, and for the same reason on this thread.
+    static PENDING_MENUS: RefCell<HashMap<ContextMenuRequestId, PendingMenu>> = RefCell::new(HashMap::new());
 
     /// The chrome webview's DevTools session and what it has seen of the
     /// profile's service workers. UI-thread only, like the webview itself.
@@ -551,6 +574,38 @@ pub fn watch_failures<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: Fail
         .map_err(|error| HakuError::WindowMissing(error.to_string()))?
 }
 
+pub fn allow_clipboard_read<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+
+    chrome
+        .with_webview(move |platform| {
+            let outcome = unsafe { platform.controller().CoreWebView2() }
+                .and_then(|core| unsafe { attach_clipboard_permission(&core) })
+                .map_err(|error| HakuError::WindowMissing(error.to_string()));
+            let _ = sender.send(outcome);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+}
+
+/// Allows clipboard reads, and leaves every other permission to the engine.
+unsafe fn attach_clipboard_permission(core: &ICoreWebView2) -> windows::core::Result<()> {
+    let handler = PermissionRequestedEventHandler::create(Box::new(|_, args| {
+        let Some(args) = args else { return Ok(()) };
+        let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+        args.PermissionKind(&mut kind)?;
+        if kind == COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ {
+            args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    core.add_PermissionRequested(&handler, &mut token)
+}
+
 unsafe fn attach_failure_handler(core: &ICoreWebView2, sink: FailureSink) -> windows::core::Result<()> {
     let handler = ProcessFailedEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
@@ -844,6 +899,7 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     core.add_ScriptDialogOpening(&on_dialog, &mut token)?;
 
     attach_window_requests(&core, sink)?;
+    attach_context_menu(&core, sink)?;
 
     // Whether a page is playing audio decides whether a smart policy leaves it
     // running in the background. Older runtimes lack the event, and a page is
@@ -936,6 +992,174 @@ unsafe fn attach_window_requests(core: &ICoreWebView2, sink: &PageSink) -> windo
     };
     core.add_WindowCloseRequested(&on_close, &mut token)?;
     Ok(())
+}
+
+/// A page's context menu waiting on an answer, and what it offered.
+struct PendingMenu {
+    args: ICoreWebView2ContextMenuRequestedEventArgs,
+    deferral: ICoreWebView2Deferral,
+    items: Vec<NativeMenuItem>,
+}
+
+/// Replaces the engine's context menu with the one Haku draws: the request is
+/// marked handled, so the engine shows nothing, and waits on a deferral until
+/// [`answer_context_menu`]. Older runtimes lack the event, and keep the
+/// engine's menu.
+unsafe fn attach_context_menu(core: &ICoreWebView2, sink: &PageSink) -> windows::core::Result<()> {
+    let Ok(core) = core.cast::<ICoreWebView2_11>() else {
+        return Ok(());
+    };
+    let mut token = 0i64;
+    let on_menu = {
+        let sink = sink.clone();
+        ContextMenuRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let menu = read_menu(&args)?;
+            args.SetHandled(true)?;
+            let deferral = args.GetDeferral()?;
+            // One menu is open at a time: a newer request means the older one
+            // was dismissed, whether or not its answer has arrived.
+            let stale: Vec<PendingMenu> =
+                PENDING_MENUS.with(|pending| pending.borrow_mut().drain().map(|(_, menu)| menu).collect());
+            for menu in stale {
+                let _ = menu.deferral.Complete();
+            }
+            PENDING_MENUS.with(|pending| {
+                pending.borrow_mut().insert(
+                    menu.request,
+                    PendingMenu {
+                        args,
+                        deferral,
+                        items: menu.items.clone(),
+                    },
+                )
+            });
+            sink(PageSignal::ContextMenuRequested(menu));
+            Ok(())
+        }))
+    };
+    core.add_ContextMenuRequested(&on_menu, &mut token)?;
+    Ok(())
+}
+
+unsafe fn read_menu(args: &ICoreWebView2ContextMenuRequestedEventArgs) -> windows::core::Result<PageMenu> {
+    let mut location = POINT::default();
+    args.Location(&mut location)?;
+    let target = args.ContextMenuTarget()?;
+
+    let mut kind = COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND::default();
+    target.Kind(&mut kind)?;
+    let kind = match kind {
+        COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_IMAGE => ContextMenuTargetKind::Image,
+        COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_SELECTED_TEXT => ContextMenuTargetKind::Selection,
+        COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_AUDIO => ContextMenuTargetKind::Audio,
+        COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_VIDEO => ContextMenuTargetKind::Video,
+        _ => ContextMenuTargetKind::Page,
+    };
+    let flag = |read: &dyn Fn(*mut BOOL) -> windows::core::Result<()>| -> windows::core::Result<bool> {
+        let mut value = BOOL::default();
+        read(&mut value)?;
+        Ok(value.as_bool())
+    };
+    let text = |read: &dyn Fn(*mut PWSTR) -> windows::core::Result<()>| -> windows::core::Result<String> {
+        let mut value = PWSTR::null();
+        read(&mut value)?;
+        Ok(take_pwstr(value))
+    };
+    let optional = |has: bool, read: &dyn Fn(*mut PWSTR) -> windows::core::Result<()>| {
+        if has {
+            text(read).map(Some)
+        } else {
+            Ok(None)
+        }
+    };
+
+    let has_link = flag(&|v| target.HasLinkUri(v))?;
+    let has_link_text = flag(&|v| target.HasLinkText(v))?;
+    let has_source = flag(&|v| target.HasSourceUri(v))?;
+    let has_selection = flag(&|v| target.HasSelection(v))?;
+    let target = ContextMenuTarget {
+        kind,
+        page_url: text(&|v| target.PageUri(v))?,
+        link_url: optional(has_link, &|v| target.LinkUri(v))?,
+        link_text: optional(has_link_text, &|v| target.LinkText(v))?,
+        source_url: optional(has_source, &|v| target.SourceUri(v))?,
+        selection: optional(has_selection, &|v| target.SelectionText(v))?,
+        editable: flag(&|v| target.IsEditable(v))?,
+    };
+
+    let items = read_items(&args.MenuItems()?)?;
+    #[cfg(debug_assertions)]
+    log_item_names(&items, 0);
+    Ok(PageMenu {
+        request: ContextMenuRequestId(NEXT_MENU.fetch_add(1, Ordering::Relaxed)),
+        x: location.x,
+        y: location.y,
+        target,
+        items: allowed_items(items),
+    })
+}
+
+/// Every item the engine offered, before any is dropped.
+unsafe fn read_items(
+    collection: &ICoreWebView2ContextMenuItemCollection,
+) -> windows::core::Result<Vec<NativeMenuItem>> {
+    let mut count = 0u32;
+    collection.Count(&mut count)?;
+    let mut items = Vec::with_capacity(count as usize);
+    for index in 0..count {
+        let item = collection.GetValueAtIndex(index)?;
+        let mut kind = COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND::default();
+        item.Kind(&mut kind)?;
+        let kind = match kind {
+            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_CHECK_BOX => NativeMenuItemKind::Checkbox,
+            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_RADIO => NativeMenuItemKind::Radio,
+            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR => NativeMenuItemKind::Separator,
+            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SUBMENU => NativeMenuItemKind::Submenu,
+            _ => NativeMenuItemKind::Command,
+        };
+        let mut id = 0i32;
+        item.CommandId(&mut id)?;
+        let (mut name, mut label, mut shortcut) = (PWSTR::null(), PWSTR::null(), PWSTR::null());
+        item.Name(&mut name)?;
+        item.Label(&mut label)?;
+        item.ShortcutKeyDescription(&mut shortcut)?;
+        let (mut enabled, mut checked) = (BOOL::default(), BOOL::default());
+        item.IsEnabled(&mut enabled)?;
+        item.IsChecked(&mut checked)?;
+        let children = match kind {
+            NativeMenuItemKind::Submenu => read_items(&item.Children()?)?,
+            _ => Vec::new(),
+        };
+        let shortcut = take_pwstr(shortcut);
+        items.push(NativeMenuItem {
+            id,
+            name: take_pwstr(name),
+            label: plain_label(&take_pwstr(label)),
+            kind,
+            enabled: enabled.as_bool(),
+            checked: checked.as_bool(),
+            shortcut: (!shortcut.is_empty()).then_some(shortcut),
+            children,
+        });
+    }
+    Ok(items)
+}
+
+/// Prints the name of every item the engine offered, kept or not, which is
+/// how the allowlist's names are found: the engine documents only examples.
+#[cfg(debug_assertions)]
+fn log_item_names(items: &[NativeMenuItem], depth: usize) {
+    for item in items {
+        eprintln!(
+            "[context menu] {}{} ({:?}) {:?}",
+            "  ".repeat(depth),
+            item.name,
+            item.kind,
+            item.label
+        );
+        log_item_names(&item.children, depth + 1);
+    }
 }
 
 unsafe fn read_dialog(args: &ICoreWebView2ScriptDialogOpeningEventArgs) -> windows::core::Result<PageDialog> {
@@ -1058,6 +1282,27 @@ pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId,
                 let _ = args.Accept();
             }
             let _ = deferral.Complete();
+        }
+    })?;
+    Ok(())
+}
+
+pub fn answer_context_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: ContextMenuRequestId,
+    choice: Option<i32>,
+) -> Result<()> {
+    app.run_on_main_thread(move || {
+        let Some(menu) = PENDING_MENUS.with(|pending| pending.borrow_mut().remove(&request)) else {
+            return;
+        };
+        unsafe {
+            // Only an item the page offered: the id is the engine's, and an
+            // unknown one could run any of its commands.
+            if let Some(choice) = choice.filter(|choice| offers(&menu.items, *choice)) {
+                let _ = menu.args.SetSelectedCommandId(choice);
+            }
+            let _ = menu.deferral.Complete();
         }
     })?;
     Ok(())

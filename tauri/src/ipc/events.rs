@@ -3,7 +3,7 @@ use specta::Type;
 use tauri_specta::Event;
 
 use crate::browser::BrowserState;
-use crate::model::{Extensions, TabId};
+use crate::model::{ContextMenuRequestId, ContextMenuTarget, Extensions, NativeMenuItem, TabId};
 use crate::state::MemoryReport;
 use crate::storage::Settings;
 
@@ -36,3 +36,23 @@ pub struct AddressFocusRequested(pub TabId);
 /// the interface may already have asked for the list.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct ExtensionsChanged(pub Extensions);
+
+/// A page was right-clicked, and waits for the menu the interface draws.
+/// [Context menus § Contract](../../../docs/specs/context-menus.md#contract).
+///
+/// Sent to the tab's window only. The interface answers with
+/// [`answer_context_menu`](super::commands::answer_context_menu).
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextMenuRequested {
+    pub request: ContextMenuRequestId,
+    pub tab: TabId,
+    /// Where the pointer was, in the chrome's CSS pixels.
+    #[specta(type = specta_typescript::Number)]
+    pub x: f64,
+    #[specta(type = specta_typescript::Number)]
+    pub y: f64,
+    pub target: ContextMenuTarget,
+    /// The allowed native items only, in the engine's order.
+    pub items: Vec<NativeMenuItem>,
+}

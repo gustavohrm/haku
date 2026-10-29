@@ -1,3 +1,4 @@
+pub mod context_menu;
 pub mod dialog;
 pub mod extension;
 pub mod history;
@@ -10,6 +11,10 @@ pub mod preview;
 pub mod tab;
 pub mod window;
 
+pub use context_menu::{
+    allowed_items, offers, plain_label, ContextMenuRequestId, ContextMenuTarget, ContextMenuTargetKind, NativeMenuItem,
+    NativeMenuItemKind, PageMenu,
+};
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
 pub use extension::{
     icon_file, popup_origin, popup_size, popup_url, Extension, Extensions, ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
