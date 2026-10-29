@@ -49,13 +49,13 @@ A crashed tab is not reloaded automatically, as Chrome and Edge do not. The reje
 
 ## The interface
 
-When a chrome webview's renderer exits, the window shows nothing, and since Haku draws its own window frame, not even a way to close it. The window's interface is reloaded: the page is the same bundle, and the state it shows comes from Rust ([Architecture](../architecture.md)), so nothing is lost but what the interface held itself, such as an address being typed.
+When a chrome webview's renderer exits, the window shows nothing, and since Haku draws its own window frame, not even a way to close it. The window's interface is reloaded: the page is the same bundle, and the state it shows comes from Rust ([Architecture](../architecture.md)), including every committed pair, ratio, visible assignment and focused half. Nothing is lost but what the interface held itself, such as an address being typed or a provisional divider drag.
 
 A reload is attempted at most three times a minute per window. Past that the interface is failing as it starts, and reloading again would only loop; the window is left as it is, and Alt+F4 still closes it.
 
 ## The engine
 
-When the browser process exits, every webview of the profile is gone, the interfaces with them, and WebView2 cannot recreate them inside the same windows. The session is saved and Haku restarts itself, reopening every window and tab as discarded, as after any restart.
+When the browser process exits, every webview of the profile is gone, the interfaces with them, and WebView2 cannot recreate them inside the same windows. The session is saved and Haku restarts itself, restoring normal windows, tab order, all pairs and their committed ratios under [the session format](new-windows.md#the-session). External tabs, including previously crashed tabs, start discarded without slots. The selected tab shows its pair or itself alone; loading waits for each window's matching geometry, and background pairs retain ordinary background policy. Popups and their connections are not restored. This is the same path as a clean restart.
 
 Restarting was chosen over rebuilding each window in place: rebuilding means recreating every window's chrome and every slot through paths that exist only for startup, to arrive where a restart arrives anyway.
 

@@ -33,7 +33,7 @@ effective_capacity = max(configured_capacity,
 
 Split view is built on this. No other feature may assume there is exactly one page on screen.
 
-[Split view slice 4b](specs/split-view.md#implementation-slices) implements persistent in-memory tab pairs, showing the selected unpaired tab alone or both members of its pair, with focused assignments, revisioned geometry and pane controls. Commands name the tab they act on. Session persistence and restoration of pairs remain pending in slice 5.
+[Split view](specs/split-view.md) implements tab pairs, showing the selected unpaired tab alone or both members of its pair, with focused assignments, revisioned geometry and pane controls. Commands name the tab they act on. The session retains every normal window's pairs, committed ratios and selected tab across restarts; only the shown single tab or pair loads after matching geometry, with existing fixed-tab policy unchanged.
 
 ### Keyboard input while a page has focus
 

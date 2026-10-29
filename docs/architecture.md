@@ -113,7 +113,7 @@ The host names the page; a path, query or fragment after it belongs to the page,
 
 ## Where this is heading
 
-[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool and native keyboard handling while a page has focus are built; two viewport assignments are supported by the backend; pane rendering is built; split session restoration and webviews keyed by profile are not. Read it before building anything it lists.
+[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool, native keyboard handling while a page has focus, paired panes and split session restoration are built; webviews keyed by profile are not. Read it before building anything it lists.
 
 ## Threading
 

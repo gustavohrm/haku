@@ -209,12 +209,17 @@ impl AppState {
     /// # Errors
     /// Returns [`HakuError::WindowMissing`] for an unknown window, or the layout
     /// validation error without changing any cached geometry.
-    pub fn set_layout(&self, browser: &Browser, window: WindowId, layout: &Layout) -> Result<bool> {
+    pub fn set_layout(&self, browser: &mut Browser, window: WindowId, layout: &Layout) -> Result<bool> {
         let current = browser
             .state_in(window)
             .ok_or_else(|| HakuError::WindowMissing(window.label()))?;
-        self.viewports
-            .record(window, layout, &current.viewports, current.layout_revision)
+        let accepted = self
+            .viewports
+            .record(window, layout, &current.viewports, current.layout_revision)?;
+        if accepted {
+            browser.layout_ready(window);
+        }
+        Ok(accepted)
     }
 
     /// Persists the open windows and tabs so the next launch restores them.

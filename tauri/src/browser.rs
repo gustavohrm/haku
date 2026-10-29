@@ -252,6 +252,8 @@ struct Window {
     layout_revision: u64,
     splits: Vec<TabPair>,
     next_viewport: u64,
+    /// A restored window has no native pages until chrome reports its layout.
+    awaiting_layout: bool,
     /// Explicit native focus waits for geometry, tied to this pane and tab.
     pending_focus: Option<(String, TabId)>,
 }
@@ -266,6 +268,7 @@ impl Window {
             layout_revision: 0,
             splits: Vec::new(),
             next_viewport: 2,
+            awaiting_layout: false,
             pending_focus: None,
         }
     }
@@ -298,7 +301,8 @@ impl Window {
         let replacing_pair = self.viewports.len() == 2 && desired.len() == 2;
         let panes = desired
             .iter()
-            .map(|&member| {
+            .enumerate()
+            .map(|(index, &member)| {
                 let retained = if replacing_pair {
                     None
                 } else if desired.len() == 1 {
@@ -310,7 +314,7 @@ impl Window {
                     self.viewports.iter().find(|pane| pane.tab == member)
                 };
                 let id = retained.map(|pane| pane.id.clone()).unwrap_or_else(|| {
-                    if self.layout_revision == 0 {
+                    if self.layout_revision == 0 && index == 0 {
                         INITIAL_VIEWPORT.into()
                     } else {
                         let id = self.next_viewport.to_string();
@@ -336,8 +340,9 @@ impl Window {
 }
 
 /// A window's tabs as they are remembered, for [`Browser::restored`]: each
-/// tab's URL and whether it is fixed, and the index of the active one.
-pub type RestoredWindow = (Vec<(String, bool)>, Option<usize>);
+/// tab's URL and whether it is fixed, the active index, and validated pairs
+/// as window-local tab indices and committed ratios.
+pub type RestoredWindow = (Vec<(String, bool)>, Option<usize>, Vec<([usize; 2], f64)>);
 
 pub struct Browser {
     /// Every window's tabs, in one list. A window's tabs are the ones it
@@ -464,7 +469,7 @@ impl Browser {
         browser.windows.clear();
         browser.next_window = 1;
 
-        for (tabs, active) in windows {
+        for (tabs, active, splits) in windows {
             if tabs.is_empty() {
                 continue;
             }
@@ -479,11 +484,20 @@ impl Browser {
                 browser.homes.insert(id, window);
             }
             let restored = &browser.tabs[first..];
+            let splits = splits
+                .into_iter()
+                .map(|(tabs, ratio)| TabPair {
+                    tabs: [restored[tabs[0]].id, restored[tabs[1]].id],
+                    ratio,
+                })
+                .collect();
             let active = active
                 .and_then(|index| restored.get(index))
                 .or_else(|| restored.first())
                 .map(|tab| tab.id);
             if let Some(entry) = browser.window_mut(window) {
+                entry.splits = splits;
+                entry.awaiting_layout = true;
                 if let Some(tab) = active {
                     entry.assign(tab);
                 }
@@ -1603,6 +1617,13 @@ impl Browser {
         self.realize()
     }
 
+    /// Releases startup loading for a window after its current layout is accepted.
+    pub(crate) fn layout_ready(&mut self, window: WindowId) {
+        if let Some(entry) = self.window_mut(window) {
+            entry.awaiting_layout = false;
+        }
+    }
+
     /// Takes the tick's reading and applies the rule to every background tab;
     /// see [`Browser::smart_discards`].
     ///
@@ -2144,6 +2165,13 @@ impl Browser {
 
     /// Ensures one tab is backed by a loaded webview.
     fn bind(&mut self, id: TabId) -> Vec<Effect> {
+        if self
+            .window_of(id)
+            .and_then(|window| self.window(window))
+            .is_some_and(|window| window.awaiting_layout)
+        {
+            return Vec::new();
+        }
         let Ok(tab) = self.tab(id) else { return Vec::new() };
         // A crashed tab waits for the user to ask for its page again.
         if tab.is_internal() || tab.is_crashed() {
