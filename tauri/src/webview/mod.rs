@@ -1044,6 +1044,7 @@ pub fn fit_extension_popup<R: tauri::Runtime>(
     label: &str,
     anchor: ScreenRect,
     area: ScreenRect,
+    keep_open: impl Fn() -> bool,
 ) {
     let started = std::time::Instant::now();
     let mut size = POPUP_MIN_SIZE;
@@ -1052,6 +1053,9 @@ pub fn fit_extension_popup<R: tauri::Runtime>(
         std::thread::sleep(POPUP_POLL);
         let open = open_popup();
         if open.as_deref() != Some(label) {
+            return;
+        }
+        if !keep_open() {
             return;
         }
         let Some(window) = app.get_webview_window(label) else {

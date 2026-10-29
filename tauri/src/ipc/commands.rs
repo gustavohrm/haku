@@ -1857,12 +1857,18 @@ pub async fn open_extension_popup(
     anchor: webview::Viewport,
 ) -> Result<()> {
     let window = ensure_chrome(&webview)?;
-    let slot = state
-        .browser
-        .read()
-        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
-        .visible_tab_in(window, tab)?
-        .slot();
+    let (slot, source) = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let slot = browser.visible_tab_in(window, tab)?.slot();
+        let source = browser
+            .state_in(window)
+            .and_then(|snapshot| snapshot.viewports.into_iter().find(|pane| pane.tab == tab))
+            .ok_or_else(|| HakuError::TabNotFound(tab.0.to_string()))?;
+        (slot, source)
+    };
     let url = state
         .extensions
         .read()
@@ -1921,7 +1927,21 @@ pub async fn open_extension_popup(
     });
 
     let label = webview::open_extension_popup(&app, window, &url, ExtensionView::Popup(current), popup_sink(&app))?;
-    std::thread::spawn(move || webview::fit_extension_popup(&app, &label, anchor, area));
+    std::thread::spawn(move || {
+        webview::fit_extension_popup(&app, &label, anchor, area, || {
+            let is_current = app
+                .state::<AppState>()
+                .browser
+                .read()
+                .ok()
+                .and_then(|browser| browser.state_in(window))
+                .is_some_and(|snapshot| popup_source_is_current(&snapshot, &source));
+            if !is_current {
+                close_popup_when_free(&app);
+            }
+            is_current
+        })
+    });
     Ok(())
 }
 
@@ -1934,4 +1954,37 @@ pub fn open_extensions_folder(webview: tauri::Webview, state: State<'_, AppState
     std::fs::create_dir_all(&state.paths.extensions)
         .map_err(|error| HakuError::Storage(format!("{}: {error}", state.paths.extensions.display())))?;
     platform::reveal_folder(&state.paths.extensions)
+}
+
+// A popup can still be hidden when its captured page is replaced. Native
+// focus loss alone cannot close it then; check before showing and while fitting.
+fn popup_source_is_current(snapshot: &BrowserState, source: &crate::browser::ViewportAssignment) -> bool {
+    snapshot.focused_viewport == source.id
+        && snapshot
+            .viewports
+            .iter()
+            .any(|pane| pane.id == source.id && pane.tab == source.tab)
+}
+
+#[cfg(test)]
+mod popup_tests {
+    use super::*;
+
+    #[test]
+    fn toolbar_popup_closes_on_pane_focus_change_or_source_reassignment() {
+        let mut browser = Browser::new(2);
+        let (left, _) = browser.open_tab("haku://settings", true);
+        let (right, _) = browser.open_tab("haku://history", false);
+        let window = browser.main_window();
+        browser.split_tab(window, right).unwrap();
+        let snapshot = browser.state_in(window).unwrap();
+        let source = snapshot.viewports[1].clone();
+        assert!(popup_source_is_current(&snapshot, &source));
+        browser.focus_pane(window, left).unwrap();
+        assert!(!popup_source_is_current(&browser.state_in(window).unwrap(), &source));
+        browser.focus_pane(window, right).unwrap();
+        assert!(popup_source_is_current(&browser.state_in(window).unwrap(), &source));
+        browser.open_tab("haku://memory", true);
+        assert!(!popup_source_is_current(&browser.state_in(window).unwrap(), &source));
+    }
 }
