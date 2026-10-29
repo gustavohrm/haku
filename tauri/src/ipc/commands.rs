@@ -1630,7 +1630,6 @@ pub async fn set_layout(
         },
         |effects| {
             if accepted.get() {
-                let scale = webview.window().scale_factor()?;
                 // Bounds, mask and reconciliation share the serialized change turn.
                 let bounds = {
                     let browser = state
@@ -1639,11 +1638,13 @@ pub async fn set_layout(
                         .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
                     state.viewports.slot_bounds(&browser, window)
                 };
-                for (slot, rect) in bounds {
-                    webview::set_bounds(&app, slot, rect)?;
-                }
-                chrome::apply_layout(&webview, &layout, scale)?;
-                commit(&app, &state, effects)?;
+                return apply_layout_turn(
+                    bounds
+                        .into_iter()
+                        .map(|(slot, rect)| webview::set_bounds(&app, slot, rect)),
+                    || chrome::apply_layout(&webview, &layout, webview.window().scale_factor()?),
+                    || commit(&app, &state, effects),
+                );
             }
             Ok(())
         },
@@ -1653,6 +1654,61 @@ pub async fn set_layout(
         .read()
         .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
     Ok(browser.state_in(window).unwrap_or_else(|| browser.state()))
+}
+
+// Once the model has changed, bounds, mask and commit must all be attempted.
+fn apply_layout_turn(
+    bounds: impl Iterator<Item = Result<()>>,
+    mask: impl FnOnce() -> Result<()>,
+    commit: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let mut applied = Ok(());
+    for result in bounds {
+        applied = applied.and(result);
+    }
+    applied.and(mask()).and(commit())
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    #[test]
+    fn a_failed_pane_bound_does_not_skip_siblings_mask_or_commit() {
+        let attempted = RefCell::new(Vec::new());
+        let result = apply_layout_turn(
+            (0..2).map(|pane| {
+                attempted.borrow_mut().push(pane);
+                Err(HakuError::Tauri(format!("pane {pane}")))
+            }),
+            || {
+                attempted.borrow_mut().push(2);
+                Err(HakuError::Tauri("mask".into()))
+            },
+            || {
+                attempted.borrow_mut().push(3);
+                Ok(())
+            },
+        );
+        assert_eq!(*attempted.borrow(), [0, 1, 2, 3]);
+        assert!(matches!(result, Err(HakuError::Tauri(message)) if message == "pane 0"));
+    }
+
+    #[test]
+    fn a_failed_mask_still_commits_the_model_and_reports_the_first_error() {
+        let committed = std::cell::Cell::new(false);
+        let result = apply_layout_turn(
+            std::iter::once(Ok(())),
+            || Err(HakuError::Tauri("mask".into())),
+            || {
+                committed.set(true);
+                Err(HakuError::Tauri("commit".into()))
+            },
+        );
+        assert!(committed.get());
+        assert!(matches!(result, Err(HakuError::Tauri(message)) if message == "mask"));
+    }
 }
 
 /// Records a visit, or retitles the last one, tolerating a failure rather than
