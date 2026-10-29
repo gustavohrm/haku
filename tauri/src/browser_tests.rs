@@ -3171,13 +3171,23 @@ fn selecting_a_background_pair_requests_native_focus_after_its_new_geometry() {
 fn leaving_a_pair_starts_grace_for_both_members() {
     let (mut browser, _) = browser_with(3, &["https://left.test"]);
     let (_, left, right) = split_pair(&mut browser);
-    browser.tick(GRACE_MS * 2, Pressure::Normal, HashMap::new());
-    browser.open_tab("haku://settings", true);
+    let (single, _) = browser.open_tab("haku://settings", false);
     browser.set_optimization(3, Policy::Smart, Policy::Smart);
+    browser.tick(120_000, Pressure::Normal, HashMap::new());
+    browser.select_tab(single, 124_000).unwrap();
+    browser.tick(180_000, Pressure::Normal, HashMap::new());
     for member in [left, right] {
+        assert_eq!(browser.tab(member).unwrap().active_at, 124_000);
         assert!(
             slot_of(&browser, member).is_some(),
             "member should get grace when leaving visibility"
+        );
+    }
+    browser.tick(124_000 + GRACE_MS, Pressure::Normal, HashMap::new());
+    for member in [left, right] {
+        assert!(
+            slot_of(&browser, member).is_none(),
+            "grace should expire from departure"
         );
     }
 }

@@ -759,16 +759,20 @@ impl Browser {
     fn activate(&mut self, id: TabId) {
         let clock = self.clock;
         let Some(window) = self.window_of(id) else { return };
-        if let Some(previous) = self
-            .active_in(window)
-            .filter(|&previous| previous != id && !self.is_visible(id))
-        {
-            if let Ok(tab) = self.tab_mut(previous) {
-                tab.active_at = tab.active_at.max(clock);
-            }
-        }
+        let previous: Vec<TabId> = self
+            .window(window)
+            .into_iter()
+            .flat_map(|entry| entry.viewports.iter().map(|pane| pane.tab))
+            .collect();
         if let Some(window) = self.window_mut(window) {
             window.assign(id);
+        }
+        for previous in previous {
+            if !self.is_visible(previous) {
+                if let Ok(tab) = self.tab_mut(previous) {
+                    tab.active_at = tab.active_at.max(clock);
+                }
+            }
         }
     }
 
@@ -1313,7 +1317,7 @@ impl Browser {
         if !is_visible {
             return Ok(Vec::new());
         }
-        entry.assign(active);
+        self.activate(active);
         let mut effects = self.realize();
         effects.extend(self.trim());
         effects.push(self.pane_focus_effect(window, active));
