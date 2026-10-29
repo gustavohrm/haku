@@ -17,15 +17,15 @@ This scope covers only actual failures. Informational and success messages are o
 
 One enum, `HakuError`, defined in `tauri/src/error.rs` and exported to TypeScript by `pnpm bindings`:
 
-| Variant           | Meaning                                                           |
-| ----------------- | ----------------------------------------------------------------- |
-| `TabNotFound`     | No tab has this id.                                               |
-| `NoSlotAvailable` | The webview pool is full and every resident is protected.         |
-| `InvalidUrl`      | A URL could not be parsed.                                        |
-| `Unsupported`     | The platform has no implementation, or a caller is not permitted. |
-| `WindowMissing`   | A window or webview handle could not be resolved.                 |
-| `Storage`         | A settings, session or database operation failed.                 |
-| `Tauri`           | A Tauri operation failed.                                         |
+| Variant           | Meaning                                                                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TabNotFound`     | No tab has this id.                                                                                                                          |
+| `NoSlotAvailable` | The webview pool is full and every resident is protected.                                                                                    |
+| `InvalidUrl`      | A URL could not be parsed.                                                                                                                   |
+| `Unsupported`     | The request cannot be honoured: the platform has no implementation, the caller is not permitted, or the browser rejects its input or target. |
+| `WindowMissing`   | A window or webview handle could not be resolved.                                                                                            |
+| `Storage`         | A settings, session or database operation failed.                                                                                            |
+| `Tauri`           | A Tauri operation failed.                                                                                                                    |
 
 The set is deliberately coarse. The interface decides what to show; a small, stable set keeps the generated TypeScript union usable and means adding a failure mode rarely changes the boundary.
 
