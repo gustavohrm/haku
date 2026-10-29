@@ -3,12 +3,12 @@ import { type Tab } from "@bindings";
 import { commands } from "@ipc/commands";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 interface TabItemProps {
   tab: Tab;
   active: boolean;
-  panePosition: number;
+  pairPosition?: number;
   /** Opens the tab's menu at the pointer. */
   onMenu: (at: { x: number; y: number }) => void;
 }
@@ -25,7 +25,8 @@ interface TabItemProps {
  * Haku's own pages carry the Haku mark in the text's colour; a web page
  * carries its favicon, and one that crashed carries a warning in its place.
  */
-export function TabItem({ tab, active, panePosition, onMenu }: TabItemProps) {
+export function TabItem({ tab, active, pairPosition = -1, onMenu }: TabItemProps) {
+  const membershipId = useId();
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
   const discarded = tab.presence.status === "discarded";
@@ -34,7 +35,7 @@ export function TabItem({ tab, active, panePosition, onMenu }: TabItemProps) {
   ];
 
   return (
-    <li className="flex w-50 min-w-10 shrink">
+    <li className="flex min-w-10 flex-1">
       {/* The whole tab, close button included, answers a right-click; the
           keyboard reaches the same menu from the tab's button. */}
       <div
@@ -51,6 +52,8 @@ export function TabItem({ tab, active, panePosition, onMenu }: TabItemProps) {
         }}
         className={cx(
           "group flex h-(--control-height) w-full min-w-0 items-center gap-1 rounded-(--radius-control) pr-1 pl-2 transition-colors",
+          pairPosition === 0 && "rounded-r-none",
+          pairPosition === 1 && "rounded-l-none",
           active ? "bg-chrome-raised text-text" : "text-text-secondary hover:bg-text/6 hover:text-text",
           discarded && !active && "opacity-70",
         )}
@@ -58,8 +61,9 @@ export function TabItem({ tab, active, panePosition, onMenu }: TabItemProps) {
       >
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left outline-none"
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left outline-offset-[-2px]"
           aria-current={active ? "page" : undefined}
+          aria-describedby={pairPosition >= 0 ? membershipId : undefined}
           onClick={() => void commands.selectTab(tab.id)}
           onAuxClick={(event) => {
             // Middle click closes, as it does in every other browser.
@@ -78,16 +82,23 @@ export function TabItem({ tab, active, panePosition, onMenu }: TabItemProps) {
             <Favicon key={visit?.favicon ?? ""} src={visit?.favicon ?? null} />
           )}
           <span className="truncate">{title}</span>
-          {panePosition >= 0 && (
-            <span
-              className="text-text-secondary shrink-0 text-xs"
-              aria-label={t(panePosition === 0 ? "split.left" : "split.right")}
-            >
-              {panePosition + 1}
-            </span>
-          )}
         </button>
 
+        {pairPosition >= 0 && (
+          <span id={membershipId} className="sr-only">
+            {t("split.membership")}: {t(pairPosition === 0 ? "split.left" : "split.right")}
+          </span>
+        )}
+        {!active && tab.dialog !== null && (
+          <button
+            type="button"
+            className="btn ghost shrink-0 text-xs"
+            aria-label={t("split.waitingTab").replace("{title}", () => title)}
+            onClick={() => void commands.selectTab(tab.id)}
+          >
+            {t("split.waiting")}
+          </button>
+        )}
         {tab.relieved && (
           <i
             className="ic-memory-stick ic-xs text-text-secondary shrink-0"

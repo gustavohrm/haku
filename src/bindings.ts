@@ -41,19 +41,19 @@ export const commands = {
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
 	/**
-	 *  Opens a hidden tab beside the focused pane.
+	 *  Pairs a distinct unpaired tab with the selected unpaired tab.
 	 *  # Errors
 	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
 	 */
 	splitTab: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("split_tab", { tab })),
 	/**
-	 *  Closes a pane, keeping its tab open.
+	 *  Separates the named tab's pair, retaining both tabs.
 	 *  # Errors
 	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
 	 */
-	closePane: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_pane", { tab })),
+	separateTabs: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("separate_tabs", { tab })),
 	/**
-	 *  Commits the first pane's share of split width.
+	 *  Commits the ratio of the named tab's pair, including background pairs.
 	 *  # Errors
 	 *  Rejects non-chrome callers and invalid model targets; propagates effect failures.
 	 */
@@ -173,7 +173,7 @@ export type BrowserState = {
 	active: TabId | null,
 	viewports: ViewportAssignment[],
 	focusedViewport: string,
-	splitRatio: number | null,
+	splits: TabPair[],
 	layoutRevision: number,
 	/**
 	 *  Exported as a JavaScript number: every value here is a counter, a
@@ -549,6 +549,12 @@ export type Tab = {
 };
 
 export type TabId = number;
+
+/**  A persistent, ordered relationship; only the selected pair owns viewports. */
+export type TabPair = {
+	tabs: [TabId, TabId],
+	ratio: number,
+};
 
 /**
  *  Whether a tab currently holds a webview, and whether it is running.

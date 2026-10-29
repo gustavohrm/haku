@@ -26,7 +26,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::close_tab,
             commands::select_tab,
             commands::split_tab,
-            commands::close_pane,
+            commands::separate_tabs,
             commands::set_split_ratio,
             commands::focus_pane,
             commands::navigate_tab,

@@ -19,7 +19,7 @@ function pageName(tab: Tab): string {
 
 /** The window's assigned panes, measured together including their solid covers. */
 export function ViewportPanes() {
-  const { viewports, tabs, focusedViewport, splitRatio, layoutRevision } = useBrowserState();
+  const { viewports, tabs, focusedViewport, splits, active, layoutRevision } = useBrowserState();
   const containerRef = useRef<HTMLDivElement>(null);
   useChromeLayout(containerRef);
   const isSplit = viewports.length === 2;
@@ -35,7 +35,7 @@ export function ViewportPanes() {
             {index === 1 && (
               <SplitDivider
                 containerRef={containerRef}
-                ratio={splitRatio ?? 0.5}
+                ratio={splits.find((split) => active !== null && split.tabs.includes(active))?.ratio ?? 0.5}
                 tabId={viewports[0]!.tab}
                 revision={layoutRevision}
                 assignments={viewports.map((pane) => `${pane.id}:${pane.tab}`).join(",")}
@@ -92,57 +92,13 @@ function Pane({
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- A pane groups chrome and page content, not form controls.
       role="group"
       aria-label={`${isFocused ? t("split.current") : t(position === 0 ? "split.left" : "split.right")}: ${title}`}
-      className="flex min-h-0 min-w-0 flex-col"
-      onPointerDownCapture={(event) => {
-        if (!(event.target as Element).closest("[data-close-pane]")) {
-          focus();
-        }
-      }}
-      onFocusCapture={(event) => {
-        if (!(event.target as Element).closest("[data-close-pane]")) {
-          focus();
-        }
-      }}
-    >
-      {isSplit && (
-        <div
-          className={cx(
-            "haku-bar flex h-7 shrink-0 items-center gap-1 rounded-(--radius-control) px-1",
-            isFocused ? "bg-chrome-raised text-text" : "text-text-secondary",
-          )}
-        >
-          <button
-            type="button"
-            className="min-w-0 flex-1 truncate rounded-(--radius-control) text-left outline-offset-[-2px]"
-            onClick={focus}
-            aria-current={isFocused ? "true" : undefined}
-          >
-            <span className="mr-1">{position + 1}</span>
-            {title}
-            <span className="sr-only">{isFocused ? ` — ${t("split.current")}` : ""}</span>
-          </button>
-          {!isFocused && tab.dialog !== null && (
-            <button
-              type="button"
-              className="btn ghost shrink-0 text-xs"
-              aria-label={t("split.waiting")}
-              onClick={focus}
-            >
-              {t("split.waiting")}
-            </button>
-          )}
-          <button
-            type="button"
-            data-close-pane
-            className="btn icon ghost haku-pane-close shrink-0"
-            aria-label={t("split.close")}
-            title={t("split.close")}
-            onClick={() => void commands.closePane(tab.id)}
-          >
-            <i className="ic-x ic-xs" aria-hidden="true" />
-          </button>
-        </div>
+      className={cx(
+        "flex min-h-0 min-w-0 flex-col rounded-(--haku-viewport-radius)",
+        isSplit && isFocused && "haku-pane-focused",
       )}
+      onPointerDownCapture={focus}
+      onFocusCapture={focus}
+    >
       <div
         ref={surfaceRef}
         data-viewport={id}

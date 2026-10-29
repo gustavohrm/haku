@@ -79,44 +79,33 @@ describe("tabMenu", () => {
     setFixed: vi.fn(),
     close: vi.fn(),
     split: vi.fn(),
-    closePane: vi.fn(),
+    separate: vi.fn(),
   });
 
-  it("opens a hidden tab in split view and closes a visible pane without closing its tab", () => {
-    const tabs = [tab(1), tab(2)];
+  it("pairs distinct unpaired tabs and separates a background pair by either member", () => {
+    const tabs = [tab(1), tab(2), tab(3)];
     const acts = tabActions();
-    select(find(tabMenu(tabs[1]!, tabs, acts, [{ id: "left", tab: 1 }]), "split"));
+    select(find(tabMenu(tabs[1]!, tabs, acts, { active: 1, splits: [] }), "split"));
     expect(acts.split).toHaveBeenCalledWith(2);
-    select(
-      find(
-        tabMenu(tabs[1]!, tabs, acts, [
-          { id: "left", tab: 1 },
-          { id: "right", tab: 2 },
-        ]),
-        "closePane",
-      ),
-    );
-    expect(acts.closePane).toHaveBeenCalledWith(2);
+    for (const member of [tabs[0]!, tabs[1]!]) {
+      select(find(tabMenu(member, tabs, acts, { active: 3, splits: [{ tabs: [1, 2], ratio: 0.5 }] }), "separate"));
+    }
+    expect(acts.separate.mock.calls).toEqual([[1], [2]]);
     expect(acts.close).not.toHaveBeenCalled();
   });
 
-  it("explains why visible tabs and a full split cannot be split again", () => {
+  it("explains self-pairing, a paired target and a paired selection", () => {
     const tabs = [tab(1), tab(2), tab(3)];
-    expect(find(tabMenu(tabs[0]!, tabs, tabActions(), [{ id: "left", tab: 1 }]), "split")).toMatchObject({
+    const reason = (target: number, active: number, splits: { tabs: [number, number]; ratio: number }[]) =>
+      find(tabMenu(tabs[target - 1]!, tabs, tabActions(), { active, splits }), "split");
+    expect(reason(1, 1, [])).toMatchObject({ disabled: true, disabledReason: "Select another tab to pair" });
+    expect(reason(3, 1, [{ tabs: [1, 2], ratio: 0.5 }])).toMatchObject({
       disabled: true,
-      disabledReason: "This tab is already visible",
+      disabledReason: "Separate the selected pair first",
     });
-    expect(
-      find(
-        tabMenu(tabs[2]!, tabs, tabActions(), [
-          { id: "left", tab: 1 },
-          { id: "right", tab: 2 },
-        ]),
-        "split",
-      ),
-    ).toMatchObject({
+    expect(reason(1, 3, [{ tabs: [1, 2], ratio: 0.5 }])).toMatchObject({
       disabled: true,
-      disabledReason: "Two panes are already open",
+      disabledReason: "Separate this pair first",
     });
   });
 

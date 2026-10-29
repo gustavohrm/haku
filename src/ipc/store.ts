@@ -50,7 +50,7 @@ export const EMPTY_STATE: BrowserState = {
   active: null,
   viewports: [],
   focusedViewport: "",
-  splitRatio: null,
+  splits: [],
   layoutRevision: 0,
   capacity: 1,
   liveCount: 0,

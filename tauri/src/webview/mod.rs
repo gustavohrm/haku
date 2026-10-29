@@ -378,6 +378,8 @@ pub fn build_window<R: tauri::Runtime>(
     let builder = tauri::WebviewWindowBuilder::new(app, window.label(), WebviewUrl::default())
         .title("Haku")
         .decorations(false)
+        // Tauri replaces WebView2's drop handler by default, blocking the strip's HTML drag/drop.
+        .disable_drag_drop_handler()
         .min_inner_size(min.0, min.1)
         // Every webview sharing a profile must agree on these, content
         // webviews included; see `create_slot`.

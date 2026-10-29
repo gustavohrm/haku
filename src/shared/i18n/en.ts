@@ -7,9 +7,12 @@
  */
 export const en = {
   "split.open": "Open in split view",
-  "split.close": "Close pane",
-  "split.alreadyVisible": "This tab is already visible",
-  "split.full": "Two panes are already open",
+  "split.separate": "Separate tabs",
+  "split.self": "Select another tab to pair",
+  "split.selectedPaired": "Separate the selected pair first",
+  "split.alreadyPaired": "Separate this pair first",
+  "split.membership": "Paired tabs",
+  "split.waitingTab": "Dialog waiting: {title}",
   "split.left": "Left pane",
   "split.right": "Right pane",
   "split.current": "Current pane",

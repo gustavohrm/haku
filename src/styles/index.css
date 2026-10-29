@@ -105,7 +105,7 @@ dialog[data-toast-instance]::backdrop {
   grid-template-columns: minmax(0, calc((100% - 4px) * var(--split-ratio, 0.5))) 4px minmax(0, 1fr);
 }
 
-.haku-bar .btn.haku-pane-close {
-  inline-size: 24px;
-  block-size: 24px;
+.haku-pane-focused {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0;
 }

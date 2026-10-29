@@ -168,6 +168,28 @@ it("dismisses a page menu and completes its deferral when its source is reassign
   }
 });
 
+it("dismisses a page menu when the source pair leaves visibility", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  state.tabs = [tab(7), tab(9), tab(11)];
+  state.viewports = [
+    { id: "left", tab: 7 },
+    { id: "right", tab: 9 },
+  ];
+  commands.answerContextMenu.mockClear();
+  try {
+    await act(async () => root.render(<PageMenu focused={state.tabs[0]!} />));
+    await act(async () => listeners.forEach((listener) => listener({ payload: request(7) })));
+    expect(container.querySelector("button")).not.toBeNull();
+    state.viewports = [{ id: "single", tab: 11 }];
+    await act(async () => root.render(<PageMenu focused={state.tabs[2]!} />));
+    expect(container.querySelector("button")).toBeNull();
+    expect(commands.answerContextMenu).toHaveBeenCalledExactlyOnceWith(42, null, false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it("dismisses a page menu when its measured source geometry changes, preserving it for sibling-only changes", async () => {
   const container = document.createElement("div");
   const root = createRoot(container);

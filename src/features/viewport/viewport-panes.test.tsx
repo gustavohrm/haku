@@ -15,7 +15,7 @@ vi.mock("@bindings", () => ({ events: {} }));
 vi.mock("@ipc/commands", () => ({
   commands: {
     focusPane: vi.fn(),
-    closePane: vi.fn(),
+    closeTab: vi.fn(),
     selectTab: vi.fn(),
     tabPreview: vi.fn(),
     setLayout: vi.fn(),
@@ -46,6 +46,57 @@ const tab = (id: number, extra: Partial<Tab> = {}): Tab => ({
 });
 let host: HTMLDivElement;
 let root: Root;
+
+it("discovers background dialogs on keyboard-focusable badges and presents only the selected member", async () => {
+  const dialog = (id: number) => ({
+    id,
+    kind: "alert" as const,
+    url: "https://example.com",
+    message: `Dialog ${id}`,
+    defaultText: "",
+  });
+  browserStore.set({
+    ...browserStore.get(),
+    active: 3,
+    focusedViewport: "single",
+    viewports: [{ id: "single", tab: 3 }],
+    tabs: [tab(1, { dialog: dialog(1) }), tab(2, { dialog: dialog(2) }), tab(3)],
+  });
+  vi.mocked(commands.selectTab).mockImplementation(async (id) => {
+    browserStore.set({
+      ...browserStore.get(),
+      active: id,
+      focusedViewport: id === 1 ? "left" : "right",
+      viewports: [
+        { id: "left", tab: 1 },
+        { id: "right", tab: 2 },
+      ],
+    });
+    return { status: "ok", data: browserStore.get() };
+  });
+  function Window() {
+    usePageDialog(useActiveTab());
+    return (
+      <>
+        <TabStrip />
+        <ViewportPanes />
+      </>
+    );
+  }
+  await act(async () => root.render(<Window />));
+  expect(alert).not.toHaveBeenCalled();
+  const badge = host.querySelector<HTMLButtonElement>('[aria-label="Dialog waiting: Page 1"]')!;
+  expect(badge.tabIndex).toBe(0);
+  await act(async () => {
+    badge.focus();
+    badge.click();
+  });
+  expect(alert).toHaveBeenCalledExactlyOnceWith("Dialog 1", expect.objectContaining({ backdropDismiss: false }));
+  const other = host.querySelector<HTMLButtonElement>('[aria-label="Dialog waiting: Page 2"]')!;
+  await act(async () => other.click());
+  expect(dismiss).toHaveBeenCalledTimes(1);
+  expect(alert).toHaveBeenLastCalledWith("Dialog 2", expect.objectContaining({ backdropDismiss: false }));
+});
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal(
@@ -68,7 +119,7 @@ beforeEach(() => {
     ],
     focusedViewport: "left",
     active: 1,
-    splitRatio: 0.5,
+    splits: [{ tabs: [1, 2], ratio: 0.5 }],
   });
   host = document.createElement("div");
   document.body.append(host);
@@ -128,31 +179,36 @@ it("marks a waiting dialog accessibly and focuses its pane before presenting the
       tab(2, { dialog: { id: 20, kind: "alert", url: "https://example.com", message: "Waiting", defaultText: "" } }),
     ],
   });
-  vi.mocked(commands.focusPane).mockImplementation(async () => {
+  vi.mocked(commands.selectTab).mockImplementation(async () => {
     browserStore.set({ ...browserStore.get(), active: 2, focusedViewport: "right" });
     return { status: "ok", data: browserStore.get() };
   });
   function Window() {
     usePageDialog(useActiveTab());
-    return <ViewportPanes />;
+    return (
+      <>
+        <TabStrip />
+        <ViewportPanes />
+      </>
+    );
   }
   await act(async () => root.render(<Window />));
   expect(alert).not.toHaveBeenCalled();
-  const marker = host.querySelector<HTMLButtonElement>('[aria-label="Dialog waiting"]')!;
+  const marker = host.querySelector<HTMLButtonElement>('[aria-label="Dialog waiting: Page 2"]')!;
   expect(marker).not.toBeNull();
   expect(marker.closest("[data-viewport]")).toBeNull();
   await act(async () => marker.click());
-  expect(commands.focusPane).toHaveBeenCalledWith(2);
+  expect(commands.selectTab).toHaveBeenCalledWith(2);
   expect(alert).toHaveBeenCalledExactlyOnceWith(
     "Waiting",
     expect.objectContaining({ title: "example.com says", backdropDismiss: false }),
   );
-  expect(host.querySelector('[aria-label="Dialog waiting"]')).toBeNull();
+  expect(host.querySelector('[aria-label="Dialog waiting: Page 2"]')).toBeNull();
   await act(async () => browserStore.set({ ...browserStore.get(), active: 1, focusedViewport: "left" }));
   expect(dismiss).toHaveBeenCalledTimes(1);
 });
 
-it("provides persistent pane controls and marks both strip tabs while selecting the named tab", async () => {
+it("outlines only the focused paired pane and keeps each joined half selectable and closable", async () => {
   await act(async () =>
     root.render(
       <>
@@ -161,13 +217,15 @@ it("provides persistent pane controls and marks both strip tabs while selecting 
       </>,
     ),
   );
-  expect(host.querySelectorAll('[aria-label="Close pane"]')).toHaveLength(2);
-  expect(host.querySelectorAll('button[aria-current="page"]')).toHaveLength(1);
-  expect(host.querySelector('span[aria-label="Left pane"]')).not.toBeNull();
-  expect(host.querySelector('span[aria-label="Right pane"]')).not.toBeNull();
-  await act(async () => host.querySelectorAll<HTMLButtonElement>("ul button")[2]!.click());
+  expect(host.querySelectorAll(".haku-pane-focused")).toHaveLength(1);
+  expect(host.querySelector(".haku-pane-focused")?.getAttribute("aria-label")).toContain("Page 1");
+  expect(host.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  const halves = host.querySelectorAll<HTMLButtonElement>("ul button[aria-describedby]");
+  expect(halves).toHaveLength(2);
+  await act(async () => halves[1]!.click());
   expect(commands.selectTab).toHaveBeenCalledWith(2);
-  const close = host.querySelectorAll<HTMLButtonElement>('[aria-label="Close pane"]')[1]!;
-  await act(async () => close.click());
-  expect(commands.closePane).toHaveBeenCalledWith(2);
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('[aria-label="Close tab"]')[1]!.click());
+  expect(commands.closeTab).toHaveBeenCalledWith(2);
+  await act(async () => browserStore.set({ ...browserStore.get(), viewports: [{ id: "left", tab: 1 }] }));
+  expect(host.querySelectorAll(".haku-pane-focused")).toHaveLength(0);
 });

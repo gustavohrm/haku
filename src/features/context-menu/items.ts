@@ -50,7 +50,7 @@ export interface TabActions {
   setFixed: (id: TabId, fixed: boolean) => void;
   close: (ids: TabId[]) => void;
   split: (id: TabId) => void;
-  closePane: (id: TabId) => void;
+  separate: (id: TabId) => void;
 }
 
 /**
@@ -63,14 +63,21 @@ export function tabMenu(
   tab: Tab,
   tabs: readonly Tab[],
   actions: TabActions,
-  viewports: BrowserState["viewports"] = [],
+  { active, splits }: Pick<BrowserState, "active" | "splits"> = { active: null, splits: [] },
 ): MenuItem[] {
   const url = tab.history.entries[tab.history.index]?.url ?? null;
   const index = tabs.findIndex((other) => other.id === tab.id);
   const others = tabs.filter((other) => other.id !== tab.id).map((other) => other.id);
   const right = tabs.slice(index + 1).map((other) => other.id);
-  const isVisible = viewports.some((pane) => pane.tab === tab.id);
-  const disabledReason = isVisible ? t("split.alreadyVisible") : viewports.length === 2 ? t("split.full") : undefined;
+  const isPaired = splits.some((split) => split.tabs.includes(tab.id));
+  const isSelectedPaired = active !== null && splits.some((split) => split.tabs.includes(active));
+  const disabledReason = isSelectedPaired
+    ? t("split.selectedPaired")
+    : isPaired
+      ? t("split.alreadyPaired")
+      : active === null || active === tab.id
+        ? t("split.self")
+        : undefined;
   return interfaceMenu([
     {
       kind: "command",
@@ -101,13 +108,13 @@ export function tabMenu(
       disabledReason,
       onSelect: () => actions.split(tab.id),
     },
-    ...(isVisible && viewports.length === 2
+    ...(isPaired
       ? [
           {
             kind: "command" as const,
-            id: "closePane",
-            label: t("split.close"),
-            onSelect: () => actions.closePane(tab.id),
+            id: "separate",
+            label: t("split.separate"),
+            onSelect: () => actions.separate(tab.id),
           },
         ]
       : []),

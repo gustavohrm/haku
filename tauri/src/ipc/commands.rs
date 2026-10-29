@@ -1401,7 +1401,7 @@ pub async fn select_tab(
 #[specta(inline)]
 pub struct SplitRatio(#[specta(type = specta_typescript::Number)] f64);
 
-/// Opens a hidden tab beside the focused pane.
+/// Pairs a distinct unpaired tab with the selected unpaired tab.
 /// # Errors
 /// Rejects non-chrome callers and invalid model targets; propagates effect failures.
 #[tauri::command]
@@ -1424,22 +1424,22 @@ pub async fn split_tab(
     Ok(current)
 }
 
-/// Closes a pane, keeping its tab open.
+/// Separates the named tab's pair, retaining both tabs.
 /// # Errors
 /// Rejects non-chrome callers and invalid model targets; propagates effect failures.
 #[tauri::command]
 #[specta::specta]
-pub async fn close_pane(
+pub async fn separate_tabs(
     app: tauri::AppHandle,
     webview: tauri::Webview,
     state: State<'_, AppState>,
     tab: TabId,
 ) -> Result<BrowserState> {
     let window = ensure_chrome(&webview)?;
-    mutate_in(&app, &state, window, |browser| browser.close_pane(window, tab))
+    mutate_in(&app, &state, window, |browser| browser.separate_tabs(window, tab))
 }
 
-/// Commits the first pane's share of split width.
+/// Commits the ratio of the named tab's pair, including background pairs.
 /// # Errors
 /// Rejects non-chrome callers and invalid model targets; propagates effect failures.
 #[tauri::command]

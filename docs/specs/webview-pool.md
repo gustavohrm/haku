@@ -59,7 +59,7 @@ When a tab needs a slot and none is free:
 2. Otherwise `Browser` names a victim: the occupant that is not protected and would **lose least** if discarded ([Tab optimization § Loss](tab-optimization.md#loss)), and among equals was **shown least recently**. Its slot is taken and it is discarded. `WebviewPool` takes whichever tab it is given, so the choice stays with the code that knows why a tab matters. A tab holding work is therefore taken only when every other occupant is protected.
 3. If every resident is protected, the request fails with `NoSlotAvailable` and the tab stays discarded.
 
-Protected tabs are every viewport assignment and every tab that must run, independently of pane focus. A covered pane retains its assignment and protection.
+Protected tabs are every on-screen viewport assignment and every tab that must run, independently of pane focus. Background pair membership grants no reservation or protection; selecting either member projects only that pair into visible assignments. A covered pane retains its assignment and protection.
 
 Eviction navigates the slot to `about:blank` rather than destroying the webview. That frees the page while keeping the slot warm, which is far cheaper than recreating a webview on every tab switch. Webviews are destroyed when capacity shrinks, and a parked webview beyond one warm spare is destroyed as soon as it is parked; under [memory pressure](tab-optimization.md#memory-pressure) no spare is kept.
 

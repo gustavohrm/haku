@@ -210,7 +210,8 @@ fn split_geometry_rejects_removed_assignments_and_preserves_covered_sibling_boun
         browser.tab(background).unwrap().slot().unwrap(),
         layout.viewports[0].rect
     )));
-    browser.close_pane(window, left).unwrap();
+    browser.focus_pane(window, right).unwrap();
+    browser.separate_tabs(window, left).unwrap();
     let closed = browser.state();
     assert!(!viewports
         .record(window, &layout, &closed.viewports, closed.layout_revision)
@@ -234,7 +235,7 @@ fn background_effect_bounds_follow_focus_after_the_initial_pane_is_removed() {
     let (right, _) = browser.open_tab("https://right.test", false);
     let window = browser.main_window();
     browser.split_tab(window, right).unwrap();
-    browser.close_pane(window, left).unwrap();
+    browser.separate_tabs(window, left).unwrap();
     let current = browser.state();
     let mut layout = report();
     layout.revision = current.layout_revision;
@@ -248,4 +249,60 @@ fn background_effect_bounds_follow_focus_after_the_initial_pane_is_removed() {
         bounds[&browser.tab(left).unwrap().slot().unwrap()],
         layout.viewports[0].rect
     );
+}
+
+#[test]
+fn equal_ratio_pair_switch_rejects_old_layout_and_pending_focus() {
+    let mut browser = Browser::new(4);
+    let (left, _) = browser.open_tab("https://left.test", true);
+    let (right, _) = browser.open_tab("https://right.test", false);
+    let window = browser.main_window();
+    browser.split_tab(window, right).unwrap();
+    let (other, _) = browser.open_tab("https://other.test", true);
+    let (partner, _) = browser.open_tab("https://partner.test", false);
+    browser.split_tab(window, partner).unwrap();
+    browser.select_tab(right, 0).unwrap();
+    browser.resolve_pane_focus(&[], |_| true);
+    let original = browser.state();
+    let mut layout = report();
+    layout.revision = original.layout_revision;
+    layout.viewports[0].id.clone_from(&original.viewports[0].id);
+    layout.viewports[0].rect.width = 400.0;
+    let mut sibling = layout.viewports[0].clone();
+    sibling.id.clone_from(&original.viewports[1].id);
+    sibling.rect.x = 408.0;
+    layout.viewports.push(sibling);
+    let measured = Viewports::default();
+    measured
+        .record(window, &layout, &original.viewports, original.layout_revision)
+        .unwrap();
+    let old_focus = browser.focus_pane(window, left).unwrap();
+    browser.resolve_pane_focus(&old_focus, |_| false);
+    browser.select_tab(partner, 1).unwrap();
+    let current = browser.state();
+    assert_eq!(current.splits[0].ratio, current.splits[1].ratio);
+    assert_eq!(current.layout_revision, original.layout_revision + 1);
+    assert!(current
+        .viewports
+        .iter()
+        .all(|pane| original.viewports.iter().all(|old| old.id != pane.id)));
+    assert!(!measured
+        .record(window, &layout, &current.viewports, current.layout_revision)
+        .unwrap());
+    assert!(browser.resolve_pane_focus(&[], |_| false).is_empty());
+    let focus = browser.resolve_pane_focus(&[], |_| true);
+    assert_eq!(
+        focus,
+        [Effect::FocusPane {
+            window,
+            slot: browser.tab(partner).unwrap().slot()
+        }]
+    );
+    assert!(!measured.can_show(&browser.slot_viewports()[&browser.tab(other).unwrap().slot().unwrap()]));
+    browser.select_tab(left, 1).unwrap();
+    let returning = browser.state();
+    assert_eq!(returning.layout_revision, current.layout_revision + 1);
+    assert!(!measured
+        .record(window, &layout, &returning.viewports, returning.layout_revision)
+        .unwrap());
 }
