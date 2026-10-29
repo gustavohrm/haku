@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-08
+last_updated: 2026-10-29
 scope: Browser keyboard shortcuts, how they are read wherever focus is, and reopening closed tabs.
 ---
 
@@ -14,7 +14,11 @@ The handler is attached to the chrome and to every content webview, so a shortcu
 
 A held key repeats. Only the first press runs its shortcut; repeats are still kept from the page. Otherwise holding Ctrl+T would open a tab per repeat.
 
-Shortcuts run off the UI thread, like commands, because most of them drive webviews. They act on the active tab of the window they were pressed in. In a popup, which shows one page, a shortcut that opens a tab opens it in the browser window used last ([Windows and popups](new-windows.md#windows)).
+Shortcuts run off the UI thread, like commands, because most of them drive webviews. They share one queue and run in receipt order, including applying their native effects. A page shortcut captures its source tab, slot and window when received. Close, reload, back/forward, address focus and developer tools revalidate that the slot still belongs to that tab and that the tab is still assigned to a visible viewport in that window before acting; a stale request is dropped. Validation and dispatch share the serialized change turn, so another change cannot reuse the slot between them. Tab operations name their tab explicitly.
+
+Strip-selection shortcuts (Ctrl+Tab, Ctrl+PageUp/Down and Ctrl+1–9) instead resolve the window's focused viewport when their turn runs, even if an earlier shortcut replaced their source page. Two queued Ctrl+Tabs therefore advance twice. Chrome shortcuts also resolve the focused viewport in queue order. In a popup, which shows one page, a shortcut that opens a tab opens it in the browser window used last ([Windows and popups](new-windows.md#windows)).
+
+Native content focus is observed through `ICoreWebView2Controller::GotFocus` (`FocusChangedEventHandler` in the locked `webview2-com` 0.39.1). Rust maps the reporting slot to its current window and viewport assignment; unknown, parked and hidden slots are ignored. Showing content uses `SW_SHOWNA` and `SetIsVisible`, separate from explicit focus; raising chrome uses `SWP_NOACTIVATE`. Content slots are created without requesting focus. Debug builds print `[page focus] slot=<id> window=<id> viewport=<id>` for an assigned slot gaining focus. This slice retains one viewport; pointer/Tab focus and ordering with accelerator delivery still require the running-app acceptance checks before enabling two panes ([Split view](split-view.md#implementation-slices)).
 
 ## The keymap
 

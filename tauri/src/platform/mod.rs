@@ -96,6 +96,8 @@ pub enum PageSignal {
     /// A browser shortcut was pressed while the page had focus. The page never
     /// saw the key.
     Shortcut(Shortcut),
+    /// The native content webview gained keyboard focus.
+    Focused,
     /// The navigation finished, after the document's `load`, on `url`. Not
     /// sent for a navigation cancelled by the next one, which says nothing
     /// about the page that replaced it.
@@ -203,6 +205,15 @@ pub fn show_fatal(message: &str) {
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
     backend::observe_page(webview, sink)
+}
+
+/// Shows or hides a content surface without activating it or moving focus.
+/// Explicit focus is a separate operation.
+///
+/// # Errors
+/// Propagates native failures; returns [`HakuError::Unsupported`] off Windows.
+pub fn set_visible<R: tauri::Runtime>(webview: &tauri::Webview<R>, visible: bool) -> Result<()> {
+    backend::set_visible(webview, visible)
 }
 
 /// Starts reporting an extension's toolbar popup asking for a new window or

@@ -1,5 +1,5 @@
 import { SETTINGS_URL } from "@app/router";
-import { type Extension } from "@bindings";
+import { type Extension, type TabId } from "@bindings";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
@@ -21,7 +21,7 @@ import { toolbarExtensions } from "./toolbar-extensions";
  * opened from: its own when pinned, the extensions button otherwise, as in
  * Chrome. Rust places it, so it is given the button's rectangle.
  */
-export function ExtensionsBar() {
+export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
   const extensions = useExtensions();
   const settings = useSettings();
   const [menuAt, setMenuAt] = useState<{ right: number; top: number } | null>(null);
@@ -56,10 +56,10 @@ export function ExtensionsBar() {
   const openPopup = (extension: Extension, from: HTMLElement | null) => {
     setMenuAt(null);
     const anchor = from?.getBoundingClientRect();
-    if (!anchor) {
+    if (!anchor || tab === undefined) {
       return;
     }
-    void commands.openExtensionPopup(extension.id, {
+    void commands.openExtensionPopup(extension.id, tab, {
       x: anchor.left,
       y: anchor.top,
       width: anchor.width,

@@ -61,7 +61,7 @@ impl Chord {
     }
 }
 
-/// What a shortcut asks the browser to do, always to the active tab.
+/// What a shortcut asks the browser to do; dispatch validates its source tab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shortcut {
     NewTab,

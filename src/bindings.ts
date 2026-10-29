@@ -106,7 +106,7 @@ export const commands = {
 	 */
 	openExtensionsFolder: () => typedError<null, HakuError>(__TAURI_INVOKE("open_extensions_folder")),
 	/**
-	 *  Opens an extension's toolbar popup, for the active tab of the window that
+	 *  Opens an extension's toolbar popup, for the named visible tab of the window that
 	 *  called, just below `anchor`: the button it was opened from, in the
 	 *  interface's logical pixels.
 	 * 
@@ -115,10 +115,11 @@ export const commands = {
 	 * 
 	 *  # Errors
 	 *  Returns [`HakuError::Unsupported`] for an extension that is not
-	 *  installed, has no popup or is switched off, and propagates the failure to
+	 *  installed, has no popup or is switched off, or a hidden/foreign tab;
+	 *  [`HakuError::TabNotFound`] for an unknown tab, and propagates the failure to
 	 *  open the popup's window.
 	 */
-	openExtensionPopup: (id: string, anchor: Viewport) => typedError<null, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, anchor })),
+	openExtensionPopup: (id: string, tab: TabId, anchor: Viewport) => typedError<null, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, tab, anchor })),
 };
 
 /** Events */

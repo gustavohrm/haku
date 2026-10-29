@@ -58,12 +58,12 @@ use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
     BrowserExtensionRemoveCompletedHandler, CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
     ContextMenuRequestedEventHandler, DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, GetProcessExtendedInfosCompletedHandler,
-    IsDocumentPlayingAudioChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler,
-    ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
-    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
-    WindowCloseRequestedEventHandler,
+    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, FocusChangedEventHandler,
+    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    PermissionRequestedEventHandler, ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler,
+    ProfileGetBrowserExtensionsCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
+    TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
@@ -82,7 +82,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    GetClientRect, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOWNA,
 };
 
 use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
@@ -489,6 +489,28 @@ pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()
     })
 }
 
+pub fn set_visible<R: tauri::Runtime>(webview: &tauri::Webview<R>, visible: bool) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+    webview
+        .with_webview(move |platform| {
+            let outcome = unsafe {
+                let controller = platform.controller();
+                let mut hwnd = HWND::default();
+                controller.ParentWindow(&mut hwnd).and_then(|()| {
+                    // Wry's show uses SW_SHOW, which may activate the container.
+                    let _ = ShowWindow(hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
+                    controller.SetIsVisible(visible)
+                })
+            }
+            .map_err(|error| HakuError::WindowMissing(error.to_string()));
+            let _ = sender.send(outcome);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+}
+
 /// A region covering `rect`, with its corners rounded to `radius` when above zero.
 ///
 /// The caller owns the region and must delete it.
@@ -787,6 +809,15 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
     // Handlers stay registered for the webview's whole life, so the tokens that
     // would unregister them are never needed.
     let mut token = 0i64;
+
+    let on_focus = {
+        let sink = sink.clone();
+        FocusChangedEventHandler::create(Box::new(move |_, _| {
+            sink(PageSignal::Focused);
+            Ok(())
+        }))
+    };
+    controller.add_GotFocus(&on_focus, &mut token)?;
 
     let on_starting = {
         let sink = sink.clone();

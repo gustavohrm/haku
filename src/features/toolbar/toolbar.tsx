@@ -111,7 +111,7 @@ export function Toolbar({ tab }: ToolbarProps) {
         </label>
       </form>
 
-      <ExtensionsBar />
+      <ExtensionsBar tab={tabId} />
       <ToolbarButton
         icon="ic-code"
         label={t("toolbar.devtools")}

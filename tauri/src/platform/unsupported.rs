@@ -21,6 +21,10 @@ pub fn raise_chrome<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<(
     Err(unsupported("raising the chrome above content webviews"))
 }
 
+pub fn set_visible<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _visible: bool) -> Result<()> {
+    Err(unsupported("showing content without activation"))
+}
+
 pub fn set_input_mask<R: tauri::Runtime>(
     _webview: &tauri::Webview<R>,
     _viewports: &[RoundedRect],

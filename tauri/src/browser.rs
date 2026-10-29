@@ -475,6 +475,39 @@ impl Browser {
         self.window(window)?.active()
     }
 
+    /// The named tab, only while assigned to a viewport in `window`.
+    ///
+    /// # Errors
+    /// Returns [`HakuError::TabNotFound`] for an unknown tab, or
+    /// [`HakuError::Unsupported`] for a hidden or foreign-window tab.
+    pub fn visible_tab_in(&self, window: WindowId, tab: TabId) -> Result<&Tab> {
+        let entry = self.tab(tab)?;
+        if self.window_of(tab) != Some(window)
+            || !self
+                .window(window)
+                .is_some_and(|window| window.viewports.iter().any(|pane| pane.tab == tab))
+        {
+            return Err(HakuError::Unsupported(
+                "tab is not visible in the calling window".into(),
+            ));
+        }
+        Ok(entry)
+    }
+
+    /// Records native page focus only for a slot currently assigned to a pane.
+    /// Unknown, parked and background slots cannot choose logical focus.
+    pub fn focus_slot(&mut self, slot: SlotId) -> Option<ViewportTarget> {
+        let tab = self.tab_in(slot)?;
+        let window = self.window_mut(self.window_of(tab)?)?;
+        let pane = window.viewports.iter().find(|pane| pane.tab == tab)?;
+        window.focused_viewport.clone_from(&pane.id);
+        Some(ViewportTarget {
+            window: window.id,
+            id: pane.id.clone(),
+            revision: window.layout_revision,
+        })
+    }
+
     /// Resolves visible slots to their current pane, never to a former occupant.
     pub fn slot_viewports(&self) -> HashMap<SlotId, ViewportTarget> {
         self.windows

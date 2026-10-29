@@ -27,7 +27,7 @@ use std::time::Duration;
 use tauri::{Manager, State};
 use tauri_specta::Event;
 
-use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport, Pick};
+use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
@@ -46,6 +46,7 @@ use super::events::{
     AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged,
 };
 use super::recovery;
+use super::shortcuts::Request as ShortcutRequest;
 
 /// Rejects a command that only the interface may issue.
 ///
@@ -114,14 +115,29 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 }
             }
             PageSignal::Shortcut(shortcut) => {
-                let window = app.state::<AppState>().browser.read().ok().map(|browser| {
-                    browser
-                        .tab_in(slot)
-                        .and_then(|tab| browser.window_of(tab))
-                        .unwrap_or_else(|| browser.main_window())
+                let request = app
+                    .state::<AppState>()
+                    .browser
+                    .read()
+                    .ok()
+                    .and_then(|browser| ShortcutRequest::page(&browser, slot));
+                if let Some(request) = request {
+                    queue_shortcut(app, request, shortcut);
+                }
+            }
+            PageSignal::Focused => {
+                let state = app.state::<AppState>();
+                let focused = state.browser.write().ok().and_then(|mut browser| {
+                    let target = browser.focus_slot(slot)?;
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[page focus] slot={} window={} viewport={}",
+                        slot.0, target.window.0, target.id
+                    );
+                    Some((target.window, browser.state_in(target.window)?))
                 });
-                if let Some(window) = window {
-                    queue_shortcut(app, window, shortcut);
+                if let Some(focused) = focused {
+                    emit_states(app, vec![focused]);
                 }
             }
             PageSignal::WindowRequested {
@@ -483,7 +499,7 @@ fn on_popup_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 /// Runs the shortcuts pressed while a window's interface has focus. Pages
 /// report theirs through [`page_observer`], so both reach [`run_shortcut`].
 pub fn shortcut_sink(app: tauri::AppHandle, window: WindowId) -> KeySink {
-    Arc::new(move |shortcut| queue_shortcut(&app, window, shortcut))
+    Arc::new(move |shortcut| queue_shortcut(&app, ShortcutRequest::chrome(window), shortcut))
 }
 
 /// Runs shortcuts one at a time, in the order they were pressed.
@@ -492,69 +508,63 @@ pub fn shortcut_sink(app: tauri::AppHandle, window: WindowId) -> KeySink {
 /// and only the first half holds the browser's lock. Run side by side, two
 /// quick Ctrl+Tabs could show their pages in the opposite order to the one
 /// the browser recorded, leaving the selected tab showing another's page.
-fn queue_shortcut(app: &tauri::AppHandle, window: WindowId, shortcut: Shortcut) {
-    static QUEUE: OnceLock<mpsc::Sender<(WindowId, Shortcut)>> = OnceLock::new();
+fn queue_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shortcut) {
+    static QUEUE: OnceLock<mpsc::Sender<(ShortcutRequest, Shortcut)>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
         let (sender, receiver) = mpsc::channel();
         let app = app.clone();
         std::thread::spawn(move || {
-            for (window, shortcut) in receiver {
-                run_shortcut(&app, window, shortcut);
+            for (request, shortcut) in receiver {
+                run_shortcut(&app, request, shortcut);
             }
         });
         sender
     });
-    let _ = queue.send((window, shortcut));
+    let _ = queue.send((request, shortcut));
 }
 
-/// Does what a shortcut asks, to the active tab of the window it was pressed
-/// in.
+/// Revalidates ownership and dispatches without another change reusing its slot.
 ///
 /// Off the UI thread, like a command: most shortcuts drive webviews. A failure
 /// has nowhere to be shown, since no command call is waiting on it, and leaves
 /// the browser as it was.
-fn run_shortcut(app: &tauri::AppHandle, window: WindowId, shortcut: Shortcut) {
+fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shortcut) {
     let state = app.state::<AppState>();
-    let Some(active) = state.browser.read().ok().and_then(|browser| browser.active_in(window)) else {
-        return;
-    };
-    let select = |pick: Pick| {
-        let pressure = read_pressure(&state);
-        mutate(app, &state, |browser| {
-            browser.set_pressure(pressure);
-            match browser.pick_in(window, pick) {
-                Some(id) => browser.select_tab(id, now_ms()),
-                None => Ok(Vec::new()),
+    let Ok(home) = home_url(&state) else { return };
+    let pressure = read_pressure(&state);
+    let native = std::cell::Cell::new((None, None));
+    let _ = state.changes.run(
+        &state.browser,
+        |browser| {
+            if matches!(
+                shortcut,
+                Shortcut::NewTab
+                    | Shortcut::NewWindow
+                    | Shortcut::NextTab
+                    | Shortcut::PreviousTab
+                    | Shortcut::NthTab(_)
+                    | Shortcut::LastTab
+            ) {
+                browser.set_pressure(pressure);
             }
-        })
-    };
-    let change = |change: &dyn Fn(&mut Browser) -> Result<Vec<Effect>>| mutate(app, &state, |browser| change(browser));
-
-    let _ = match shortcut {
-        Shortcut::NewTab => open_home(app, &state, |browser, home| browser.open_tab_in(window, home, true)),
-        Shortcut::NewWindow => open_home(app, &state, Browser::open_window),
-        Shortcut::CloseTab => home_url(&state).and_then(|home| change(&|browser| browser.close_tab(active, &home))),
-        Shortcut::ReopenClosedTab => change(&|browser| Ok(browser.reopen_closed_tab())),
-        Shortcut::NextTab => select(Pick::Next),
-        Shortcut::PreviousTab => select(Pick::Previous),
-        Shortcut::NthTab(index) => select(Pick::Nth(index)),
-        Shortcut::LastTab => select(Pick::Last),
-        Shortcut::FocusAddress => focus_address(app, active),
-        Shortcut::Reload => change(&|browser| browser.reload(active)),
-        Shortcut::Back => change(&|browser| browser.go_back(active)),
-        Shortcut::Forward => change(&|browser| browser.go_forward(active)),
-        Shortcut::DevTools => {
-            let slot = state
-                .browser
-                .read()
-                .ok()
-                .and_then(|browser| browser.tab(active).ok()?.slot());
-            if let Some(target) = slot.and_then(|slot| app.get_webview(&slot.label())) {
-                target.open_devtools();
+            let action = request.prepare(browser, shortcut, &home, now_ms())?;
+            native.set((action.address, action.devtools));
+            Ok(action.effects)
+        },
+        |effects| {
+            if !effects.is_empty() {
+                commit(app, &state, effects)?;
+            }
+            let (address, devtools) = native.get();
+            if let Some(tab) = address {
+                focus_address(app, tab)?;
+            }
+            if let Some(page) = devtools.and_then(|slot| app.get_webview(&slot.label())) {
+                page.open_devtools();
             }
             Ok(())
-        }
-    };
+        },
+    );
 }
 
 /// Opens the home page with `open`, in the address field, as every browser
@@ -1725,7 +1735,7 @@ pub fn extensions(webview: tauri::Webview, state: State<'_, AppState>) -> Result
 /// popup acts on.
 const ENGINE_WINDOW_TIMEOUT: Duration = Duration::from_millis(500);
 
-/// Opens an extension's toolbar popup, for the active tab of the window that
+/// Opens an extension's toolbar popup, for the named visible tab of the window that
 /// called, just below `anchor`: the button it was opened from, in the
 /// interface's logical pixels.
 ///
@@ -1734,7 +1744,8 @@ const ENGINE_WINDOW_TIMEOUT: Duration = Duration::from_millis(500);
 ///
 /// # Errors
 /// Returns [`HakuError::Unsupported`] for an extension that is not
-/// installed, has no popup or is switched off, and propagates the failure to
+/// installed, has no popup or is switched off, or a hidden/foreign tab;
+/// [`HakuError::TabNotFound`] for an unknown tab, and propagates the failure to
 /// open the popup's window.
 #[tauri::command]
 #[specta::specta]
@@ -1743,9 +1754,16 @@ pub async fn open_extension_popup(
     webview: tauri::Webview,
     state: State<'_, AppState>,
     id: String,
+    tab: TabId,
     anchor: webview::Viewport,
 ) -> Result<()> {
     let window = ensure_chrome(&webview)?;
+    let slot = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
+        .visible_tab_in(window, tab)?
+        .slot();
     let url = state
         .extensions
         .read()
@@ -1776,13 +1794,6 @@ pub async fn open_extension_popup(
     }
 
     // The tab the popup acts on, as the engine knows its window.
-    let slot = {
-        let browser = state
-            .browser
-            .read()
-            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        browser.active_in(window).and_then(|tab| browser.tab(tab).ok()?.slot())
-    };
     let current = slot
         .and_then(|slot| app.get_webview(&slot.label()))
         .and_then(|page| platform::engine_window(&page, ENGINE_WINDOW_TIMEOUT));

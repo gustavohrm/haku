@@ -5,6 +5,57 @@ use crate::model::Loss;
 const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
 
+#[test]
+fn native_focus_maps_a_slot_to_its_window_and_viewport() {
+    let (mut browser, _) = browser_with(2, &["https://a.test"]);
+    let (tab, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(tab).unwrap();
+    let slot = slot_of(&browser, tab).unwrap();
+    let before = browser.state_in(window).unwrap();
+    let target = browser.focus_slot(slot).unwrap();
+    assert_eq!(target.window, window);
+    assert_eq!(target.id, before.viewports[0].id);
+    let after = browser.state_in(window).unwrap();
+    assert_eq!(after.focused_viewport, target.id);
+    assert_eq!(after.active, Some(tab));
+    assert_eq!(after.layout_revision, before.layout_revision);
+}
+
+#[test]
+fn native_focus_ignores_unknown_parked_and_hidden_slots() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.open_tab("https://b.test", true);
+    assert!(browser.focus_slot(slot).is_none(), "a hidden tab has no assignment");
+    browser.close_tab(ids[0], HOME).unwrap();
+    assert!(browser.slot_ids().contains(&slot));
+    assert!(browser.focus_slot(slot).is_none(), "a parked slot has no assignment");
+    assert!(browser.focus_slot(SlotId(usize::MAX)).is_none());
+}
+
+#[test]
+fn extension_popup_accepts_a_visible_tab_in_the_calling_window() {
+    let (browser, ids) = browser_with(1, &[HOME]);
+    assert_eq!(
+        browser.visible_tab_in(browser.main_window(), ids[0]).unwrap().id,
+        ids[0]
+    );
+}
+
+#[test]
+fn extension_popup_rejects_foreign_hidden_and_unknown_tabs_without_mutation() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let window = browser.main_window();
+    let (hidden, _) = browser.open_tab("https://hidden.test", false);
+    let (foreign, _) = browser.open_window("https://foreign.test");
+    let before = serde_json::to_value(browser.state_in(window)).unwrap();
+    for tab in [foreign, hidden, TabId(u64::MAX)] {
+        assert!(browser.visible_tab_in(window, tab).is_err(), "accepted {tab:?}");
+        assert_eq!(serde_json::to_value(browser.state_in(window)).unwrap(), before);
+    }
+    assert!(browser.visible_tab_in(window, ids[0]).is_ok());
+}
+
 fn assert_single_viewport(browser: &Browser, expected: TabId) -> (String, u64) {
     let state = serde_json::to_value(browser.state()).unwrap();
     let panes = state["viewports"].as_array().expect("export viewport assignments");

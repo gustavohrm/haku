@@ -727,6 +727,7 @@ fn create_slot<R: tauri::Runtime>(
         // included; see `build_window`.
         .browser_extensions_enabled(true)
         .general_autofill_enabled(false)
+        .focused(false)
         .devtools(true)
         .initialization_script(inject::navigation_log_script())
         .initialization_script(inject::page_state_script())
@@ -881,12 +882,7 @@ fn set_visible<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, visib
     let Some(webview) = app.get_webview(&slot.label()) else {
         return Ok(());
     };
-    if visible {
-        webview.show()?;
-    } else {
-        webview.hide()?;
-    }
-    Ok(())
+    platform::set_visible(&webview, visible)
 }
 
 /// Positions a slot only after resolving its current pane assignment.
