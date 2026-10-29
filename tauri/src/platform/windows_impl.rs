@@ -503,19 +503,19 @@ unsafe fn rounded_region(rect: PhysicalRect, radius: i32) -> HRGN {
 
 pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
-    viewport: Option<PhysicalRect>,
-    radius: i32,
+    viewports: &[RoundedRect],
     overlays: &[RoundedRect],
 ) -> Result<()> {
     let overlays = overlays.to_vec();
+    let viewports = viewports.to_vec();
 
     with_hwnd(webview, move |hwnd| unsafe {
         // No viewport means nothing should show through: drop the region so the
         // chrome is a whole window again.
-        let Some(viewport) = viewport else {
+        if viewports.is_empty() {
             SetWindowRgn(hwnd, None, true);
             return Ok(());
-        };
+        }
 
         let mut client = Default::default();
         GetClientRect(hwnd, &mut client).map_err(|error| HakuError::WindowMissing(error.to_string()))?;
@@ -523,9 +523,11 @@ pub fn set_input_mask<R: tauri::Runtime>(
         let region = CreateRectRgn(0, 0, client.right, client.bottom);
         // A rounded hole is what gives the page rounded corners: the chrome
         // keeps painting the corner, and the page shows through the curve.
-        let hole = rounded_region(viewport, radius);
-        CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
-        let _ = DeleteObject(hole.into());
+        for pane in &viewports {
+            let hole = rounded_region(pane.rect, pane.radius);
+            CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
+            let _ = DeleteObject(hole.into());
+        }
 
         // A rounded overlay is added back rounded for the same reason the other
         // way round: a square patch would paint chrome over the page at its

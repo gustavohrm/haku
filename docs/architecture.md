@@ -59,6 +59,8 @@ React interface  →  generated bindings  →  Tauri commands  →  Browser  →
 
 That separation is what makes tab and pool behaviour testable without a window, a webview, or an event loop. Every rule about eviction, pinning, discarding and history is exercised by ordinary unit tests.
 
+Each populated window has an ordered viewport assignment list and a focused viewport; `active` is only a projection of that assignment. [Split view slice 1](specs/split-view.md#implementation-slices) enforces exactly one viewport for now. Visibility, pool protection and optimization follow assignments, not focus, and geometry is revisioned separately from session state.
+
 Every mutation ends by calling `realize()`, which reconciles the whole state, rather than emitting effects itself. There is therefore exactly one description of what "correct" looks like, and no operation can forget a step another one remembers.
 
 ### `model/` — the pieces

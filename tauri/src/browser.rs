@@ -198,6 +198,12 @@ pub struct BrowserState {
     /// The window's tabs, in order.
     pub tabs: Vec<Tab>,
     pub active: Option<TabId>,
+    pub viewports: Vec<ViewportAssignment>,
+    pub focused_viewport: String,
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub split_ratio: Option<f64>,
+    #[specta(type = specta_typescript::Number)]
+    pub layout_revision: u64,
     /// Exported as a JavaScript number: every value here is a counter, a
     /// small capacity, or a millisecond timestamp, all far inside the range a
     /// double represents exactly.
@@ -208,11 +214,64 @@ pub struct BrowserState {
     pub live_count: usize,
 }
 
-/// One browser window, and the tab it shows.
+/// A stable window-local pane and the tab it shows.
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct ViewportAssignment {
+    pub id: String,
+    pub tab: TabId,
+}
+
+/// The initial pane's window-local identity, retained through tab replacement.
+pub const INITIAL_VIEWPORT: &str = "1";
+
+/// A visible slot's current placement, captured before applying native effects.
+#[derive(Clone, Debug)]
+pub struct ViewportTarget {
+    pub window: WindowId,
+    pub id: String,
+    pub revision: u64,
+}
+
 struct Window {
     id: WindowId,
     kind: WindowKind,
-    active: Option<TabId>,
+    viewports: Vec<ViewportAssignment>,
+    focused_viewport: String,
+    layout_revision: u64,
+}
+
+impl Window {
+    fn new(id: WindowId, kind: WindowKind) -> Self {
+        Self {
+            id,
+            kind,
+            viewports: Vec::new(),
+            focused_viewport: INITIAL_VIEWPORT.into(),
+            layout_revision: 0,
+        }
+    }
+
+    fn active(&self) -> Option<TabId> {
+        self.viewports
+            .iter()
+            .find(|pane| pane.id == self.focused_viewport)
+            .map(|pane| pane.tab)
+    }
+
+    fn assign(&mut self, tab: TabId) {
+        // Slice 3 of docs/specs/split-view.md enables a second viewport.
+        // Empty windows exist only before their first tab is assigned.
+        debug_assert!(self.viewports.len() <= 1);
+        if let Some(pane) = self.viewports.first_mut() {
+            pane.tab = tab;
+            return;
+        }
+        self.viewports = vec![ViewportAssignment {
+            id: self.focused_viewport.clone(),
+            tab,
+        }];
+        self.layout_revision += 1;
+    }
 }
 
 /// A window's tabs as they are remembered, for [`Browser::restored`]: each
@@ -286,11 +345,7 @@ impl Browser {
         Self {
             tabs: Vec::new(),
             homes: HashMap::new(),
-            windows: vec![Window {
-                id: WindowId(1),
-                kind: WindowKind::Normal,
-                active: None,
-            }],
+            windows: vec![Window::new(WindowId(1), WindowKind::Normal)],
             next_window: 2,
             pool: WebviewPool::new(capacity),
             slot_windows: HashMap::new(),
@@ -368,7 +423,9 @@ impl Browser {
                 .or_else(|| restored.first())
                 .map(|tab| tab.id);
             if let Some(entry) = browser.window_mut(window) {
-                entry.active = active;
+                if let Some(tab) = active {
+                    entry.assign(tab);
+                }
             }
         }
         if browser.windows.is_empty() {
@@ -386,10 +443,19 @@ impl Browser {
     /// What one window shows, or nothing when no window has this id.
     pub fn state_in(&self, window: WindowId) -> Option<BrowserState> {
         let entry = self.window(window)?;
+        // Slice 3 of docs/specs/split-view.md relaxes the one-pane invariant.
+        debug_assert_eq!(
+            entry.viewports.len(),
+            usize::from(self.tabs_in(window).next().is_some())
+        );
         Some(BrowserState {
             kind: entry.kind,
             tabs: self.tabs_in(window).cloned().collect(),
-            active: entry.active,
+            active: entry.active(),
+            viewports: entry.viewports.clone(),
+            focused_viewport: entry.focused_viewport.clone(),
+            split_ratio: None,
+            layout_revision: entry.layout_revision,
             capacity: self.pool.capacity(),
             live_count: self.tabs.iter().filter(|tab| tab.slot().is_some()).count(),
         })
@@ -406,7 +472,26 @@ impl Browser {
     }
 
     pub fn active_in(&self, window: WindowId) -> Option<TabId> {
-        self.window(window)?.active
+        self.window(window)?.active()
+    }
+
+    /// Resolves visible slots to their current pane, never to a former occupant.
+    pub fn slot_viewports(&self) -> HashMap<SlotId, ViewportTarget> {
+        self.windows
+            .iter()
+            .flat_map(|window| {
+                window.viewports.iter().filter_map(|pane| {
+                    Some((
+                        self.tab(pane.tab).ok()?.slot()?,
+                        ViewportTarget {
+                            window: window.id,
+                            id: pane.id.clone(),
+                            revision: window.layout_revision,
+                        },
+                    ))
+                })
+            })
+            .collect()
     }
 
     /// Open windows, the one used most recently last.
@@ -468,7 +553,7 @@ impl Browser {
     fn add_window(&mut self, kind: WindowKind) -> WindowId {
         let id = WindowId(self.next_window);
         self.next_window += 1;
-        self.windows.push(Window { id, kind, active: None });
+        self.windows.push(Window::new(id, kind));
         id
     }
 
@@ -478,13 +563,18 @@ impl Browser {
             .filter(move |tab| self.homes.get(&tab.id) == Some(&window))
     }
 
-    /// The tab each window shows.
+    /// All assigned tabs, whether or not their pane has focus.
     fn visible(&self) -> Vec<TabId> {
-        self.windows.iter().filter_map(|window| window.active).collect()
+        self.windows
+            .iter()
+            .flat_map(|window| window.viewports.iter().map(|pane| pane.tab))
+            .collect()
     }
 
     fn is_visible(&self, id: TabId) -> bool {
-        self.windows.iter().any(|window| window.active == Some(id))
+        self.windows
+            .iter()
+            .any(|window| window.viewports.iter().any(|pane| pane.tab == id))
     }
 
     /// The window tabs opened from `window` go in: itself, unless it is a
@@ -571,7 +661,7 @@ impl Browser {
             }
         }
         if let Some(window) = self.window_mut(window) {
-            window.active = Some(id);
+            window.assign(id);
         }
     }
 
@@ -625,7 +715,7 @@ impl Browser {
     }
 
     /// Slots that must exist whatever the configured capacity: one for each
-    /// window's visible web page, one per fixed tab, and one per background
+    /// visible web page, one per fixed tab, and one per background
     /// tab that must run for another reason. A visible internal page is drawn
     /// by the chrome and needs none.
     fn reserved(&self) -> usize {
@@ -881,9 +971,6 @@ impl Browser {
 
         let remaining: Vec<TabId> = self.tabs_in(window).map(|tab| tab.id).collect();
         if remaining.is_empty() {
-            if let Some(entry) = self.window_mut(window) {
-                entry.active = None;
-            }
             let (_, opened) = self.open_tab_in(window, replacement, true);
             effects.extend(opened);
             return Ok(effects);
@@ -892,7 +979,9 @@ impl Browser {
         if self.active_in(window) == Some(id) {
             let next = opener.or_else(|| remaining.get(place).or_else(|| remaining.last()).copied());
             if let Some(entry) = self.window_mut(window) {
-                entry.active = next;
+                if let Some(tab) = next {
+                    entry.assign(tab);
+                }
             }
         }
 

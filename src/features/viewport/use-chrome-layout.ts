@@ -1,7 +1,9 @@
-import { type Viewport } from "@bindings";
+import { type Layout } from "@bindings";
 import { overlayStore } from "@features/overlays/registry";
 import { rectOf } from "@features/overlays/registry";
 import { commands } from "@ipc/commands";
+import { useBrowserState } from "@ipc/hooks";
+import { browserStore } from "@ipc/store";
 import { useEffect, type RefObject } from "react";
 
 /**
@@ -17,17 +19,19 @@ import { useEffect, type RefObject } from "react";
  * open, so nothing should show through and no clicks should reach a webview.
  */
 export function useChromeLayout(ref: RefObject<HTMLElement | null>, covered: boolean): void {
+  const { focusedViewport, layoutRevision, viewports } = useBrowserState();
+  const hasViewport = viewports.some((pane) => pane.id === focusedViewport);
   useEffect(() => {
     const element = ref.current;
-    if (!element) {
+    if (!element || !hasViewport) {
       return;
     }
 
     let frame = 0;
     let previous = "";
 
-    const push = () => {
-      const viewport: Viewport | null = covered ? null : rectOf(element);
+    const push = async () => {
+      const rect = rectOf(element);
       const overlays = [...overlayStore.get()];
       // The page is a native view that CSS cannot clip, so its corners are
       // rounded by rounding the hole. Reading the radius back from the
@@ -36,17 +40,25 @@ export function useChromeLayout(ref: RefObject<HTMLElement | null>, covered: boo
 
       // Layout events fire far more often than the geometry actually changes,
       // and every push crosses the IPC boundary and rebuilds a native region.
-      const signature = JSON.stringify({ viewport, overlays, radius });
+      const layout: Layout = {
+        revision: layoutRevision,
+        viewports: [{ id: focusedViewport, rect, covered, radius }],
+        overlays,
+      };
+      const signature = JSON.stringify(layout);
       if (signature === previous) {
         return;
       }
       previous = signature;
-      void commands.setLayout({ viewport, overlays, radius });
+      const result = await commands.setLayout(layout);
+      if (result.status === "ok") {
+        browserStore.set(result.data);
+      }
     };
 
     const schedule = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(push);
+      frame = requestAnimationFrame(() => void push());
     };
 
     schedule();
@@ -62,5 +74,5 @@ export function useChromeLayout(ref: RefObject<HTMLElement | null>, covered: boo
       window.removeEventListener("resize", schedule);
       stopOverlays();
     };
-  }, [covered, ref]);
+  }, [covered, ref, focusedViewport, layoutRevision, hasViewport]);
 }

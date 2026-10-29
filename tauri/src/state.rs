@@ -204,11 +204,17 @@ impl AppState {
         }
     }
 
-    /// Records a window's reported layout, keeping the last real viewport.
-    pub fn set_layout(&self, window: WindowId, layout: &Layout) {
-        if let Some(viewport) = layout.viewport {
-            self.viewports.set(window, viewport);
-        }
+    /// Validates and records layout under the same serialized turn as its effects.
+    ///
+    /// # Errors
+    /// Returns [`HakuError::WindowMissing`] for an unknown window, or the layout
+    /// validation error without changing any cached geometry.
+    pub fn set_layout(&self, browser: &Browser, window: WindowId, layout: &Layout) -> Result<bool> {
+        let current = browser
+            .state_in(window)
+            .ok_or_else(|| HakuError::WindowMissing(window.label()))?;
+        self.viewports
+            .record(window, layout, &current.viewports, current.layout_revision)
     }
 
     /// Persists the open windows and tabs so the next launch restores them.

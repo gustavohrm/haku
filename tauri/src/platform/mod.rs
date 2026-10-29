@@ -458,11 +458,10 @@ pub fn raise_chrome<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn set_input_mask<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
-    viewport: Option<PhysicalRect>,
-    radius: i32,
+    viewports: &[RoundedRect],
     overlays: &[RoundedRect],
 ) -> Result<()> {
-    backend::set_input_mask(webview, viewport, radius, overlays)
+    backend::set_input_mask(webview, viewports, overlays)
 }
 
 #[cfg(test)]

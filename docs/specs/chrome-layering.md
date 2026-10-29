@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-07
+last_updated: 2026-10-29
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -25,7 +25,7 @@ The way through is `Webview::with_webview`, which hands out the platform handle.
 Two native operations, both in `platform/`:
 
 1. **Raise.** `SetWindowPos(chrome, HWND_TOP, …)` lifts the interface above every content webview. It must be re-applied whenever a content webview is created, because a new one is placed on top.
-2. **Mask.** The chrome covers the whole window, so without help it would swallow every click meant for the page. `SetWindowRgn` gives it a region equal to the window minus the viewport, plus any overlay currently drawn over the page. Where the chrome is not in its region its HWND is not there at all, so clicks, scrolling and hover fall through to the content webview beneath.
+2. **Mask.** The chrome covers the whole window, so without help it would swallow every click meant for the page. `SetWindowRgn` gives it a region equal to the window minus the union of uncovered viewport rectangles, plus any overlay currently drawn over the page. Where the chrome is not in its region its HWND is not there at all, so clicks, scrolling and hover fall through to the content webview beneath.
 
 ### Why not transparency
 
@@ -43,9 +43,25 @@ Overlays are rounded the same way, from the other side. Each one is reported wit
 
 ## The contract with the interface
 
-One element — `features/viewport` — marks where page content goes. `useChromeLayout` observes its rectangle, collects any registered overlays, each a rectangle and a corner radius, and pushes both to Rust in a **single** `set_layout` call.
+Each assigned viewport has a stable window-local id owned by Rust. Slice 1 of [Split view](split-view.md#implementation-slices) retains exactly one viewport per populated window and one content element in `features/viewport`. `useChromeLayout` measures it and registered overlays and sends the entire report in a **single** async `set_layout({ layout })` call:
+
+```ts
+type Layout = {
+  revision: number; // BrowserState.layoutRevision being rendered
+  viewports: { id: string; rect: Viewport; covered: boolean; radius: number }[];
+  overlays: Overlay[];
+};
+```
+
+Coordinates and radii are in chrome CSS pixels. Every assignment is reported, including internal/crashed pages and preview covers (`covered: true`), with real bounds instead of a null rectangle. `BrowserState` exposes `viewports: { id, tab }[]`, `focusedViewport`, `splitRatio` (null for one pane) and `layoutRevision`; `active` is derived from the focused assignment. The revision advances only when the set of panes or committed split ratio changes, including creation of the first pane. Replacing a tab within a pane keeps the revision because its geometry is still valid; [Split view, D1](split-view.md#decisions) records why.
+
+A report whose revision does not match current state is ignored and returns current state. Before any geometry changes, Rust rejects duplicate/unknown ids, missing assignments, non-finite geometry, negative sizes/radii and intersecting positive-area pane rectangles through the existing error result (`Unsupported`). Negative origins are allowed. Invalid reports apply nothing. Zero-sized panes cut no hole and hide their native surface while retaining assignment/protection and last measured size. As before, subpixel dimensions below one CSS pixel are treated as collapsed. Covered panes cut no hole but keep real bounds and native geometry. A newly assigned slot stays hidden until usable geometry for its current revision arrives.
+
+Placement resolves each visible slot to its current `(window, viewport)`; hidden background slots cut no holes. Every accepted layout updates bounds for all slots in its window: assigned slots use their pane's cached rectangle, and background slots use the focused pane's, retaining the last measured bounds for collapsed panes. Slice 3 revisits background placement when two panes are enabled. The mask subtracts each uncovered rounded pane rectangle, then adds registered rounded overlays back. Cached bounds are keyed by the same window/pane pair.
 
 Both halves travel together deliberately. Setting the webview bounds and the input mask separately would let them disagree for a frame, which shows as a flickering strip along the edge of the page.
+
+Validation, bounds, the input mask and reconciliation share the serialized change path in `state.rs`, so a layout cannot race a tab switch. This does not guarantee atomic painting between native child windows.
 
 `set_layout` also reconciles the browser. A restored session has tabs but no webviews, because until the interface reports its geometry there is nowhere on screen to put one; this is what loads the page the window opens on.
 

@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
-use crate::browser::{Effect, BLANK_URL};
+use crate::browser::{Browser, Effect, ViewportAssignment, ViewportTarget, BLANK_URL, INITIAL_VIEWPORT};
+use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
 use crate::model::{
     popup_origin, popup_size, PageState, Placement, ScreenRect, Scroll, SlotId, TabId, WindowId, WindowKind,
@@ -53,54 +54,115 @@ pub struct Viewport {
     pub height: f64,
 }
 
-/// Where each window's content webviews belong, in logical pixels.
-///
-/// An internal page reports no viewport, because the chrome covers the whole
-/// window while one is open. Content webviews still belong at the last real
-/// rectangle, so remembering it keeps a webview created while an internal
-/// page is showing from being built at zero size and staying invisible.
-///
-/// Each is kept with its window's kind, so a popup's is never taken as a
-/// guess at a browser window's.
+/// Last noncollapsed bounds, plus readiness for a particular layout revision.
+struct MeasuredViewport {
+    bounds: Viewport,
+    kind: WindowKind,
+    revision: Option<u64>,
+    measurable: bool,
+}
+
+/// Pane geometry keyed by (window, stable window-local viewport id).
+/// Covered/collapsed reports keep the last real size for background creation.
 #[derive(Default)]
-pub struct Viewports(RwLock<HashMap<WindowId, (Viewport, WindowKind)>>);
+pub struct Viewports(RwLock<HashMap<(WindowId, String), MeasuredViewport>>);
 
 impl Viewports {
-    /// Zero until the window's interface has reported a layout, or one was
-    /// guessed for it as it opened.
-    pub fn get(&self, window: WindowId) -> Viewport {
+    /// Zero until measured or guessed when the window opens.
+    pub fn get(&self, window: WindowId, id: &str) -> Viewport {
         self.0
             .read()
             .ok()
-            .and_then(|viewports| viewports.get(&window).map(|(viewport, _)| *viewport))
+            .and_then(|viewports| viewports.get(&(window, id.into())).map(|pane| pane.bounds))
             .unwrap_or_default()
     }
 
-    /// Records a window's viewport. A window not opened through [`Self::open`],
-    /// as a restored one is not, is a browser window.
-    pub fn set(&self, window: WindowId, viewport: Viewport) {
-        if let Ok(mut viewports) = self.0.write() {
-            viewports
-                .entry(window)
-                .and_modify(|(known, _)| *known = viewport)
-                .or_insert((viewport, WindowKind::Normal));
-        }
+    /// Resolves each slot's bounds in the reporting window.
+    pub fn slot_bounds(&self, browser: &Browser, window: WindowId) -> Vec<(SlotId, Viewport)> {
+        let Some(current) = browser.state_in(window) else {
+            return Vec::new();
+        };
+        let placements = browser.slot_viewports();
+        browser
+            .slots_in(window)
+            .into_iter()
+            .map(|slot| {
+                // Background slots follow the focused pane in slice 1.
+                // Slice 3 revisits their placement when two panes are enabled.
+                let id = placements
+                    .get(&slot)
+                    .map_or(current.focused_viewport.as_str(), |target| target.id.as_str());
+                (slot, self.get(window, id))
+            })
+            .collect()
     }
 
-    fn open(&self, window: WindowId, kind: WindowKind, viewport: Viewport) {
+    /// Accepts a complete layout only for the current layout revision.
+    ///
+    /// # Errors
+    /// Returns the layout validation error, or [`HakuError::Storage`] if locked.
+    pub fn record(
+        &self,
+        window: WindowId,
+        layout: &Layout,
+        assignments: &[ViewportAssignment],
+        revision: u64,
+    ) -> Result<bool> {
+        if layout.revision != revision {
+            return Ok(false);
+        }
+        layout.validate(assignments)?;
+        let mut viewports = self
+            .0
+            .write()
+            .map_err(|_| HakuError::Storage("viewport lock poisoned".into()))?;
+        for pane in &layout.viewports {
+            let known = viewports.entry((window, pane.id.clone())).or_insert(MeasuredViewport {
+                bounds: Viewport::default(),
+                kind: WindowKind::Normal,
+                revision: None,
+                measurable: false,
+            });
+            let measurable = pane.rect.width >= 1.0 && pane.rect.height >= 1.0;
+            if measurable {
+                known.bounds = pane.rect;
+            }
+            known.revision = Some(revision);
+            known.measurable = measurable;
+        }
+        Ok(true)
+    }
+
+    /// A slot may show only after its current assignment has usable geometry.
+    pub fn can_show(&self, target: &ViewportTarget) -> bool {
+        self.0.read().is_ok_and(|viewports| {
+            viewports
+                .get(&(target.window, target.id.clone()))
+                .is_some_and(|pane| pane.revision == Some(target.revision) && pane.measurable)
+        })
+    }
+
+    fn open(&self, window: WindowId, kind: WindowKind, bounds: Viewport) {
         if let Ok(mut viewports) = self.0.write() {
-            viewports.insert(window, (viewport, kind));
+            viewports.insert(
+                (window, INITIAL_VIEWPORT.into()),
+                MeasuredViewport {
+                    bounds,
+                    kind,
+                    revision: None,
+                    measurable: false,
+                },
+            );
         }
     }
 
     fn remove(&self, window: WindowId) {
         if let Ok(mut viewports) = self.0.write() {
-            viewports.remove(&window);
+            viewports.retain(|(owner, _), _| *owner != window);
         }
     }
 
-    /// Any browser window's viewport, as a guess at a new one's: they all draw
-    /// the same interface.
+    /// Any normal window's pane as an initial size guess; never a popup's.
     fn any(&self) -> Viewport {
         self.0
             .read()
@@ -108,8 +170,8 @@ impl Viewports {
             .and_then(|viewports| {
                 viewports
                     .values()
-                    .find(|(_, kind)| *kind == WindowKind::Normal)
-                    .map(|(viewport, _)| *viewport)
+                    .find(|pane| pane.kind == WindowKind::Normal)
+                    .map(|pane| pane.bounds)
             })
             .unwrap_or_default()
     }
@@ -388,14 +450,24 @@ pub fn apply<R: tauri::Runtime>(
     effects: &[Effect],
     viewports: &Viewports,
     hooks: &Hooks<R>,
+    placements: &HashMap<SlotId, ViewportTarget>,
 ) -> (Vec<Departure>, Result<()>) {
+    let bounds_for = |slot: &SlotId, window| {
+        let id = placements
+            .get(slot)
+            .map_or(INITIAL_VIEWPORT, |target| target.id.as_str());
+        viewports.get(window, id)
+    };
     let mut departures = Vec::new();
     let applied = each_effect(effects, |effect| {
         match effect {
             Effect::EnsureSlot { slot, url, window } => {
                 set_pending(*slot, None);
                 renavigate(*slot);
-                ensure_slot(app, *slot, url, *window, viewports.get(*window), &hooks.page)?;
+                if !placements.get(slot).is_some_and(|target| viewports.can_show(target)) {
+                    set_visible(app, *slot, false)?;
+                }
+                ensure_slot(app, *slot, url, *window, bounds_for(slot, *window), &hooks.page)?;
             }
             Effect::Blank { slot } => {
                 set_pending(*slot, None);
@@ -407,7 +479,14 @@ pub fn apply<R: tauri::Runtime>(
                 renavigate(*slot);
                 destroy(app, *slot)?;
             }
-            Effect::Show { slot } => set_visible(app, *slot, true)?,
+            Effect::Show { slot } => {
+                let target = placements.get(slot);
+                let visible = target.is_some_and(|target| viewports.can_show(target));
+                if let Some(target) = target.filter(|_| visible) {
+                    set_bounds(app, *slot, viewports.get(target.window, &target.id))?;
+                }
+                set_visible(app, *slot, visible)?;
+            }
             Effect::Hide { slot } => set_visible(app, *slot, false)?,
             Effect::Reload { slot } => reload(app, *slot)?,
             // A page that fails to freeze keeps running, which costs memory but
@@ -447,9 +526,22 @@ pub fn apply<R: tauri::Runtime>(
             } => {
                 set_pending(*slot, None);
                 renavigate(*slot);
-                adopt(app, *slot, *request, url, *window, viewports.get(*window), &hooks.page)?;
+                adopt(
+                    app,
+                    *slot,
+                    *request,
+                    url,
+                    *window,
+                    bounds_for(slot, *window),
+                    &hooks.page,
+                )?;
             }
-            Effect::Move { slot, window } => move_slot(app, *slot, *window, viewports.get(*window))?,
+            Effect::Move { slot, window } => {
+                if !placements.get(slot).is_some_and(|target| viewports.can_show(target)) {
+                    set_visible(app, *slot, false)?;
+                }
+                move_slot(app, *slot, *window, bounds_for(slot, *window))?;
+            }
             Effect::OpenWindow {
                 window,
                 kind,
@@ -646,6 +738,8 @@ fn create_slot<R: tauri::Runtime>(
         LogicalSize::new(viewport.width, viewport.height),
     )?;
 
+    webview.hide()?;
+
     // A new child webview is placed above everything, including the chrome, so
     // the chrome has to be lifted back over it. Without this the interface
     // disappears behind the page the moment a slot is created.
@@ -795,12 +889,13 @@ fn set_visible<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, visib
     Ok(())
 }
 
-/// Moves every content webview to the viewport rectangle the chrome reports.
-pub fn set_bounds<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slots: &[SlotId], viewport: Viewport) -> Result<()> {
-    for slot in slots {
-        if let Some(webview) = app.get_webview(&slot.label()) {
-            webview.set_bounds(rect_of(viewport))?;
-        }
+/// Positions a slot only after resolving its current pane assignment.
+///
+/// # Errors
+/// Propagates a Tauri failure to position the webview.
+pub fn set_bounds<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId, viewport: Viewport) -> Result<()> {
+    if let Some(webview) = app.get_webview(&slot.label()) {
+        webview.set_bounds(rect_of(viewport))?;
     }
     Ok(())
 }
@@ -1027,3 +1122,7 @@ mod tests {
         assert_eq!(loads(SlotId(91)), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "viewport_tests.rs"]
+mod viewport_tests;

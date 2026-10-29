@@ -5,6 +5,59 @@ use crate::model::Loss;
 const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
 
+fn assert_single_viewport(browser: &Browser, expected: TabId) -> (String, u64) {
+    let state = serde_json::to_value(browser.state()).unwrap();
+    let panes = state["viewports"].as_array().expect("export viewport assignments");
+    assert_eq!(panes.len(), 1);
+    assert_eq!(panes[0]["tab"], serde_json::to_value(expected).unwrap());
+    assert_eq!(state["active"], panes[0]["tab"]);
+    assert_eq!(state["focusedViewport"], panes[0]["id"]);
+    assert!(state["splitRatio"].is_null());
+    (
+        panes[0]["id"].as_str().unwrap().into(),
+        state["layoutRevision"].as_u64().unwrap(),
+    )
+}
+
+#[test]
+fn one_viewport_tracks_open_select_and_close_without_changing_its_id_or_revision() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let (pane, revision) = assert_single_viewport(&browser, ids[0]);
+    let (background, _) = browser.open_tab("https://b.test", false);
+    assert_eq!(assert_single_viewport(&browser, ids[0]), (pane.clone(), revision));
+    browser.select_tab(background, 0).unwrap();
+    let (selected_pane, selected_revision) = assert_single_viewport(&browser, background);
+    assert_eq!(selected_pane, pane);
+    assert_eq!(selected_revision, revision);
+    browser.select_tab(background, 1).unwrap();
+    assert_eq!(assert_single_viewport(&browser, background).1, selected_revision);
+    browser.close_tab(background, HOME).unwrap();
+    assert_eq!(assert_single_viewport(&browser, ids[0]).0, pane);
+    let (foreground, _) = browser.open_tab("https://c.test", true);
+    assert_eq!(assert_single_viewport(&browser, foreground).0, pane);
+}
+
+#[test]
+fn closing_the_last_tab_keeps_the_viewport_assigned_to_the_home_replacement() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let (pane, revision) = assert_single_viewport(&browser, ids[0]);
+    browser.close_tab(ids[0], HOME).unwrap();
+    let replacement = browser.active().unwrap();
+    assert_ne!(replacement, ids[0]);
+    assert_eq!(browser.tab(replacement).unwrap().url(), HOME);
+    let (new_pane, new_revision) = assert_single_viewport(&browser, replacement);
+    assert_eq!(new_pane, pane);
+    assert_eq!(new_revision, revision);
+}
+
+#[test]
+fn assigning_the_first_tab_advances_the_layout_revision() {
+    let mut browser = Browser::new(1);
+    let revision = browser.state().layout_revision;
+    browser.open_tab("https://a.test", true);
+    assert_eq!(browser.state().layout_revision, revision + 1);
+}
+
 fn browser_with(capacity: usize, urls: &[&str]) -> (Browser, Vec<TabId>) {
     let mut browser = Browser::new(capacity);
     let ids = urls.iter().map(|url| browser.open_tab(*url, true).0).collect();

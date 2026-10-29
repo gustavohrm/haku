@@ -221,16 +221,18 @@ fn offer_context_menu(app: &tauri::AppHandle, slot: SlotId, menu: PageMenu) {
     let state = app.state::<AppState>();
     let owner = state.browser.read().ok().and_then(|browser| {
         let tab = browser.tab_in(slot)?;
-        Some((tab, browser.window_of(tab)?))
+        let target = browser.slot_viewports().remove(&slot)?;
+        Some((tab, target))
     });
-    let Some((tab, window)) = owner else {
+    let Some((tab, target)) = owner else {
         let _ = platform::answer_context_menu(app, request, None);
         return;
     };
     let sent = (|| -> Result<()> {
+        let window = target.window;
         let chrome = webview::chrome_of(app, window)?;
         let scale = chrome.window().scale_factor()?;
-        let viewport = state.viewports.get(window);
+        let viewport = state.viewports.get(window, &target.id);
         menu_owners().insert(request, (slot, tab));
         chrome.set_focus()?;
         ContextMenuRequested {
@@ -948,13 +950,22 @@ fn traverse(app: &tauri::AppHandle, slot: SlotId, url: &str) {
     });
 }
 
+fn slot_viewports(state: &AppState) -> Result<HashMap<SlotId, crate::browser::ViewportTarget>> {
+    Ok(state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
+        .slot_viewports())
+}
+
 /// Applies effects to real webviews and tells every window what changed.
 ///
 /// What the browser decided is shown and saved even when an effect failed,
 /// since the browser already holds it; the first failure is returned after.
 fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Result<()> {
     let hooks = hooks();
-    let (departures, mut applied) = webview::apply(app, effects, &state.viewports, &hooks);
+    let placements = slot_viewports(state)?;
+    let (departures, mut applied) = webview::apply(app, effects, &state.viewports, &hooks, &placements);
     let mut readings = keep_previews(state, departures);
     // A page read as it was left may turn out to be capturing, which changes
     // what should happen to it. Bounded, though a reading only ever leads to
@@ -964,7 +975,8 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
             break;
         }
         let effects = report_readings(state, readings)?;
-        let (departures, more) = webview::apply(app, &effects, &state.viewports, &hooks);
+        let placements = slot_viewports(state)?;
+        let (departures, more) = webview::apply(app, &effects, &state.viewports, &hooks, &placements);
         readings = keep_previews(state, departures);
         applied = applied.and(more);
     }
@@ -1496,27 +1508,42 @@ pub async fn set_layout(
 ) -> Result<BrowserState> {
     let window = ensure_chrome(&webview)?;
 
-    state.set_layout(window, &layout);
-
-    let slots = {
-        let browser = state
-            .browser
-            .read()
-            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        browser.slots_in(window)
-    };
-
-    if let Some(viewport) = layout.viewport {
-        webview::set_bounds(&app, &slots, viewport)?;
-    }
-
-    let scale = webview.window().scale_factor()?;
-    chrome::apply_layout(&webview, &layout, scale)?;
-
-    // A restored session has tabs but no webviews, because until now there was
-    // nowhere on screen to put one. Reconciling here is what loads the page the
-    // window opens on.
-    mutate_in(&app, &state, window, |browser| Ok(browser.reconcile()))
+    let accepted = std::cell::Cell::new(false);
+    state.changes.run(
+        &state.browser,
+        |browser| {
+            accepted.set(state.set_layout(browser, window, &layout)?);
+            Ok(if accepted.get() {
+                browser.reconcile()
+            } else {
+                Vec::new()
+            })
+        },
+        |effects| {
+            if accepted.get() {
+                let scale = webview.window().scale_factor()?;
+                // Bounds, mask and reconciliation share the serialized change turn.
+                let bounds = {
+                    let browser = state
+                        .browser
+                        .read()
+                        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+                    state.viewports.slot_bounds(&browser, window)
+                };
+                for (slot, rect) in bounds {
+                    webview::set_bounds(&app, slot, rect)?;
+                }
+                chrome::apply_layout(&webview, &layout, scale)?;
+                commit(&app, &state, effects)?;
+            }
+            Ok(())
+        },
+    )?;
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    Ok(browser.state_in(window).unwrap_or_else(|| browser.state()))
 }
 
 /// Records a visit, or retitles the last one, tolerating a failure rather than

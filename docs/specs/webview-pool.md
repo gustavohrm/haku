@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 scope: How tabs share a limited number of webviews.
 ---
 
@@ -35,10 +35,13 @@ A tab is in exactly one of five states:
 ## Capacity
 
 ```
-effective_capacity = max(configured_capacity, visible_count + fixed_count + must_run_count)
+effective_capacity = max(configured_capacity,
+                         max(1, visible_web_count) + fixed_web_count + other_must_run_count)
 ```
 
-Each window's active tab, every fixed tab, and every other background tab that [must run](#must-run) reserve a slot, so **pinning tabs can never leave an active tab without a webview**, a second window never takes the first one's page, and music survives a tab switch at a configured capacity of 1. Pinning is never refused; the pool grows to accommodate it. A reservation lasts as long as its reason: a tab that falls silent stops counting.
+Every visible external, non-crashed tab assigned to a viewport, every fixed web tab, and every other background tab that [must run](#must-run) reserve a slot, so **pinning tabs can never leave a visible tab without a webview**, a second window never takes the first one's page, and music survives a tab switch at a configured capacity of 1. Pinning is never refused; the pool grows to accommodate it. A reservation lasts as long as its reason: a tab that falls silent stops counting.
+
+The visible count has a one-slot floor. Fixed web tabs include visible fixed tabs, preserving the existing conservative overlap; other must-run tabs exclude fixed and visible tabs. Internal and crashed tabs count in none of these slot reservations. [Split view D5](split-view.md#decisions) records why this arithmetic is preserved.
 
 While every background tab is discarded, the configured capacity is treated as 1 (`Settings::pool_capacity`): there is nothing for extra slots to hold, and parked webviews would only cost memory. The user's number is kept for when they change their mind.
 
@@ -56,7 +59,7 @@ When a tab needs a slot and none is free:
 2. Otherwise `Browser` names a victim: the occupant that is not protected and would **lose least** if discarded ([Tab optimization § Loss](tab-optimization.md#loss)), and among equals was **shown least recently**. Its slot is taken and it is discarded. `WebviewPool` takes whichever tab it is given, so the choice stays with the code that knows why a tab matters. A tab holding work is therefore taken only when every other occupant is protected.
 3. If every resident is protected, the request fails with `NoSlotAvailable` and the tab stays discarded.
 
-Protected tabs are each window's active tab and every tab that must run.
+Protected tabs are every viewport assignment and every tab that must run, independently of pane focus. A covered pane retains its assignment and protection.
 
 Eviction navigates the slot to `about:blank` rather than destroying the webview. That frees the page while keeping the slot warm, which is far cheaper than recreating a webview on every tab switch. Webviews are destroyed when capacity shrinks, and a parked webview beyond one warm spare is destroyed as soon as it is parked; under [memory pressure](tab-optimization.md#memory-pressure) no spare is kept.
 

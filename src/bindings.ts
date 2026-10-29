@@ -146,6 +146,10 @@ export type BrowserState = {
 	/**  The window's tabs, in order. */
 	tabs: Tab[],
 	active: TabId | null,
+	viewports: ViewportAssignment[],
+	focusedViewport: string,
+	splitRatio: number | null,
+	layoutRevision: number,
 	/**
 	 *  Exported as a JavaScript number: every value here is a counter, a
 	 *  small capacity, or a millisecond timestamp, all far inside the range a
@@ -282,26 +286,11 @@ export type HistoryEntry = {
 	visitedAt: number,
 };
 
-/**  What the interface currently occupies, in logical pixels. */
+/**  A complete measurement of the assignments at one browser revision. */
 export type Layout = {
-	/**
-	 *  Where page content is shown. `None` means the chrome covers everything,
-	 *  which is the case for an internal page or a full-screen overlay.
-	 */
-	viewport: Viewport | null,
-	/**
-	 *  Regions drawn above the page right now, such as an open menu. These are
-	 *  added back to the chrome's input area so they remain clickable.
-	 */
-	overlays?: Overlay[],
-	/**
-	 *  Corner radius of the viewport, in logical pixels.
-	 * 
-	 *  The page is a native view and cannot be clipped by CSS, so the hole cut
-	 *  in the chrome is rounded instead. The interface reports what its own
-	 *  stylesheet uses, keeping CSS the single source of that number.
-	 */
-	radius?: number,
+	revision: number,
+	viewports: PaneLayout[],
+	overlays: Overlay[],
 };
 
 /**  What discarding a tab would cost, from least to most. */
@@ -381,6 +370,14 @@ export type PageDialog = {
 	defaultText: string,
 	/**  The page that asked, so the interface can say who is asking. */
 	url: string,
+};
+
+/**  Geometry for one assigned pane, in chrome CSS pixels. */
+export type PaneLayout = {
+	id: string,
+	rect: Viewport,
+	covered: boolean,
+	radius: number,
 };
 
 /**  How eagerly one optimization is applied to background tabs. */
@@ -567,6 +564,12 @@ export type Viewport = {
 	y: number,
 	width: number,
 	height: number,
+};
+
+/**  A stable window-local pane and the tab it shows. */
+export type ViewportAssignment = {
+	id: string,
+	tab: TabId,
 };
 
 /**  One entry in a tab's back/forward stack. */
