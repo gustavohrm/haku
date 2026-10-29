@@ -177,7 +177,7 @@ fn geometry_and_readiness_are_local_to_the_window_and_viewport() {
 }
 
 #[test]
-fn split_geometry_rejects_removed_assignments_and_preserves_covered_sibling_bounds() {
+fn stale_split_geometry_is_ignored_and_covered_sibling_bounds_are_preserved() {
     let mut browser = Browser::new(4);
     let (left, _) = browser.open_tab("https://left.test", true);
     let (background, _) = browser.open_tab("https://background.test", true);
@@ -305,4 +305,47 @@ fn equal_ratio_pair_switch_rejects_old_layout_and_pending_focus() {
     assert!(!measured
         .record(window, &layout, &returning.viewports, returning.layout_revision)
         .unwrap());
+}
+
+#[test]
+fn new_split_slots_use_measured_window_bounds_until_their_panes_arrive() {
+    let mut browser = Browser::new(2);
+    let (left, _) = browser.open_tab("https://left.test", true);
+    let window = browser.main_window();
+    let current = browser.state();
+    let mut layout = report();
+    layout.revision = current.layout_revision;
+    layout.viewports[0].id.clone_from(&current.focused_viewport);
+    let viewports = Viewports::default();
+    viewports
+        .record(window, &layout, &current.viewports, current.layout_revision)
+        .unwrap();
+    let (right, _) = browser.open_tab("https://right.test", false);
+    browser.split_tab(window, right).unwrap();
+    let bounds = viewports.all_slot_bounds(&browser);
+    for tab in [left, right] {
+        let slot = browser.tab(tab).unwrap().slot().unwrap();
+        assert_eq!(bounds[&slot], layout.viewports[0].rect);
+        assert!(!viewports.can_show(&browser.slot_viewports()[&slot]));
+    }
+}
+
+#[test]
+fn new_window_guesses_skip_unmeasured_normal_panes_and_popups() {
+    let viewports = Viewports::default();
+    let mut collapsed = report();
+    collapsed.viewports[0].rect.width = 0.0;
+    viewports.record(WindowId(1), &collapsed, &assignments(), 4).unwrap();
+    viewports.open(WindowId(2), WindowKind::Popup, report().viewports[0].rect);
+    assert_eq!(viewports.any(), Viewport::default());
+    let measured = report().viewports[0].rect;
+    viewports.open(WindowId(3), WindowKind::Normal, Viewport::default());
+    // Keep the first normal pane collapsed regardless of this map's iteration order.
+    {
+        let mut cache = viewports.0.write().unwrap();
+        let mut normal = cache.values_mut().filter(|pane| pane.kind == WindowKind::Normal);
+        normal.next().unwrap();
+        normal.next().unwrap().bounds = measured;
+    }
+    assert_eq!(viewports.any(), measured);
 }

@@ -82,6 +82,25 @@ impl Viewports {
         let Some(current) = browser.state_in(window) else {
             return Vec::new();
         };
+        let focused = self.get(window, &current.focused_viewport);
+        // A newly focused split pane may not have reported yet. Keep native
+        // creation sized from this window's last usable pane until it does.
+        let fallback = if focused.width >= 1.0 && focused.height >= 1.0 {
+            focused
+        } else {
+            self.0
+                .read()
+                .ok()
+                .and_then(|panes| {
+                    panes
+                        .iter()
+                        .find(|((owner, _), pane)| {
+                            *owner == window && pane.bounds.width >= 1.0 && pane.bounds.height >= 1.0
+                        })
+                        .map(|(_, pane)| pane.bounds)
+                })
+                .unwrap_or_default()
+        };
         let placements = browser.slot_viewports();
         browser
             .slots_in(window)
@@ -91,7 +110,15 @@ impl Viewports {
                 let id = placements
                     .get(&slot)
                     .map_or(current.focused_viewport.as_str(), |target| target.id.as_str());
-                (slot, self.get(window, id))
+                let bounds = self.get(window, id);
+                (
+                    slot,
+                    if bounds.width >= 1.0 && bounds.height >= 1.0 {
+                        bounds
+                    } else {
+                        fallback
+                    },
+                )
             })
             .collect()
     }
@@ -178,7 +205,9 @@ impl Viewports {
             .and_then(|viewports| {
                 viewports
                     .values()
-                    .find(|pane| pane.kind == WindowKind::Normal)
+                    .find(|pane| {
+                        pane.kind == WindowKind::Normal && pane.bounds.width >= 1.0 && pane.bounds.height >= 1.0
+                    })
                     .map(|pane| pane.bounds)
             })
             .unwrap_or_default()
