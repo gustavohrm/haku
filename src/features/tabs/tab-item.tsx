@@ -39,7 +39,14 @@ export function TabItem({ tab, active, onMenu }: TabItemProps) {
       <div
         onContextMenu={(event) => {
           event.preventDefault();
-          onMenu({ x: event.clientX, y: event.clientY });
+          // From the keyboard there is no pointer, and the event says 0, 0:
+          // the menu opens below the tab instead.
+          if (event.clientX === 0 && event.clientY === 0) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            onMenu({ x: rect.left, y: rect.bottom });
+          } else {
+            onMenu({ x: event.clientX, y: event.clientY });
+          }
         }}
         className={cx(
           "group flex h-(--control-height) w-full min-w-0 items-center gap-1 rounded-(--radius-control) pr-1 pl-2 transition-colors",

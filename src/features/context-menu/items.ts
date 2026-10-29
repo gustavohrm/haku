@@ -187,7 +187,8 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
       {
         kind: "command",
         id: "search",
-        label: t("menu.searchFor").replace("{text}", quote(selection)),
+        // A function, so `$&` and the like in the selection stay literal.
+        label: t("menu.searchFor").replace("{text}", () => quote(selection)),
         onSelect: () => actions.search(selection),
       },
       separator("afterSearch"),
@@ -217,9 +218,10 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
   }
 
   const extension = (item: NativeMenuItem) => item.name === "extension";
-  items.push(...request.items.filter((item) => !extension(item)).map((item) => nativeItem(item, actions.choose)));
+  const native = (item: NativeMenuItem, index: number) => nativeItem(item, actions.choose, `${index}`);
+  items.push(...request.items.filter((item) => !extension(item)).map(native));
   items.push(separator("extensions"));
-  items.push(...request.items.filter(extension).map((item) => nativeItem(item, actions.choose)));
+  items.push(...request.items.filter(extension).map((item, index) => native(item, -1 - index)));
   items.push(separator("inspect"));
   items.push({ kind: "command", id: "inspect", label: t("menu.inspect"), onSelect: actions.inspect });
 
@@ -231,8 +233,13 @@ function quote(text: string): string {
   return flat.length > QUOTED_LENGTH ? `${flat.slice(0, QUOTED_LENGTH - 1)}…` : flat;
 }
 
-/** One of the engine's items, which runs by being handed back to it. */
-function nativeItem(item: NativeMenuItem, choose: (id: number) => void): MenuItem {
+/**
+ * One of the engine's items, which runs by being handed back to it.
+ *
+ * @param place - Where it sits in the engine's menu, which keeps separators
+ * apart: they share a name, and need not have ids of their own.
+ */
+function nativeItem(item: NativeMenuItem, choose: (id: number) => void, place: string): MenuItem {
   const id = `native-${item.id}-${item.name}`;
   const common = {
     id,
@@ -242,12 +249,12 @@ function nativeItem(item: NativeMenuItem, choose: (id: number) => void): MenuIte
   };
   switch (item.kind) {
     case "separator":
-      return { kind: "separator", id };
+      return { kind: "separator", id: `native-separator-${place}` };
     case "submenu":
       return {
         ...common,
         kind: "submenu",
-        items: tidySeparators(item.children.map((child) => nativeItem(child, choose))),
+        items: tidySeparators(item.children.map((child, index) => nativeItem(child, choose, `${place}.${index}`))),
       };
     case "checkbox":
     case "radio":

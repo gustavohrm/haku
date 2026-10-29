@@ -208,6 +208,16 @@ fn menu_owners() -> std::sync::MutexGuard<'static, HashMap<ContextMenuRequestId,
 /// webviews.
 fn offer_context_menu(app: &tauri::AppHandle, slot: SlotId, menu: PageMenu) {
     let request = menu.request;
+    // One offer at a time, newest last: each runs on its own thread, and a
+    // request the engine has already replaced must not be drawn after it.
+    static NEWEST: Mutex<u64> = Mutex::new(0);
+    let mut newest = NEWEST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if request.0 <= *newest {
+        drop(newest);
+        let _ = platform::answer_context_menu(app, request, None);
+        return;
+    }
+    *newest = request.0;
     let state = app.state::<AppState>();
     let owner = state.browser.read().ok().and_then(|browser| {
         let tab = browser.tab_in(slot)?;

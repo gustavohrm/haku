@@ -48,16 +48,24 @@ interface MenuProps {
  */
 export function Menu({ items, at, label, onClose }: MenuProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  useMenuDismiss(true, onClose, rootRef, null);
+  const closedFromInside = useRef(false);
+  const close = useCallback(
+    (fromInside: boolean) => {
+      closedFromInside.current = fromInside;
+      onClose(fromInside);
+    },
+    [onClose],
+  );
+  useMenuDismiss(true, close, rootRef, null);
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const root = rootRef.current;
     return () => {
       const current = document.activeElement;
-      // Only from inside: a click elsewhere has already moved focus where it
-      // was meant to go.
-      if (current === null || current === document.body || root?.contains(current)) {
+      // Only from inside: a click elsewhere, or the window losing focus, has
+      // already moved focus where it was meant to go.
+      if (closedFromInside.current && (current === null || current === document.body || root?.contains(current))) {
         previous?.focus();
       }
     };
@@ -67,14 +75,7 @@ export function Menu({ items, at, label, onClose }: MenuProps) {
     // Contents only: it gives the levels one element to be outside of, and
     // takes no space of its own.
     <div ref={rootRef} className="contents">
-      <MenuList
-        items={items}
-        anchor={{ at }}
-        label={label}
-        level={0}
-        focusFirst={false}
-        onChosen={() => onClose(true)}
-      />
+      <MenuList items={items} anchor={{ at }} label={label} level={0} focusFirst={false} onChosen={() => close(true)} />
     </div>,
     document.body,
   );
@@ -257,7 +258,8 @@ function MenuList({ items, anchor, label, level, focusFirst, onChosen, onBack }:
       </div>
       {openItem?.kind === "submenu" && submenu && (
         <Submenu
-          key={submenu.index}
+          // Opened again from the keyboard, it starts over on its first item.
+          key={`${submenu.index}-${submenu.focusFirst}`}
           item={openItem}
           row={submenu.row}
           level={level + 1}

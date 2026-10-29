@@ -188,6 +188,22 @@ describe("pageMenu", () => {
     expect(items.at(-2)?.kind).toBe("separator");
   });
 
+  it("gives each native separator its own id", () => {
+    const line = (id: number) => native(id, "other", { kind: "separator" });
+    const items = pageMenu(
+      request({ editable: true }, [native(1, "cut"), line(0), native(2, "paste"), line(0), native(3, "selectAll")]),
+      tab(1),
+      actions(),
+    );
+    const separators = items.filter((item) => item.kind === "separator").map((item) => item.id);
+    expect(new Set(separators).size).toBe(separators.length);
+  });
+
+  it("shows a selection with replacement patterns literally", () => {
+    const items = pageMenu(request({ kind: "selection", selection: "a $& b" }), tab(1), actions());
+    expect(find(items, "search")).toMatchObject({ label: expect.stringContaining("a $& b") });
+  });
+
   it("maps a native submenu with its children", () => {
     const sub = native(3, "spellCheck", { kind: "submenu", children: [native(4, "spellCheck")] });
     const item = find(pageMenu(request({ editable: true }, [sub]), tab(1), actions()), "native-3-spellCheck");

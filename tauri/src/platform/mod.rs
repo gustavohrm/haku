@@ -123,6 +123,8 @@ pub enum PageSignal {
     CloseRequested,
     /// The page was right-clicked, and waits until [`answer_context_menu`]
     /// is called with the request's id. The engine shows no menu of its own.
+    /// A WebView2 runtime too old for the event never sends this, and keeps
+    /// showing the engine's menu.
     ContextMenuRequested(PageMenu),
     /// A process behind the webview exited.
     ProcessFailed(ProcessFailure),

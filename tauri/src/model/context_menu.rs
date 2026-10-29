@@ -119,11 +119,12 @@ pub fn allowed_items(items: Vec<NativeMenuItem>) -> Vec<NativeMenuItem> {
 }
 
 /// Whether `id` is an item of `items` that can be chosen: one that was
-/// offered and enabled, and is neither a separator nor a submenu.
+/// offered and enabled, and is neither a separator nor a submenu. An item
+/// inside a disabled submenu cannot be reached, so it is not offered.
 pub fn offers(items: &[NativeMenuItem], id: i32) -> bool {
     items.iter().any(|item| match item.kind {
         NativeMenuItemKind::Separator => false,
-        NativeMenuItemKind::Submenu => offers(&item.children, id),
+        NativeMenuItemKind::Submenu => item.enabled && offers(&item.children, id),
         _ => item.enabled && item.id == id,
     })
 }
@@ -230,6 +231,14 @@ mod tests {
         assert!(!offers(&items, 2), "disabled");
         assert!(!offers(&items, 10), "a submenu is not a choice");
         assert!(!offers(&items, 99), "never offered");
+    }
+
+    #[test]
+    fn offers_nothing_inside_a_disabled_submenu() {
+        let mut submenu = item(10, "extension", NativeMenuItemKind::Submenu);
+        submenu.enabled = false;
+        submenu.children = vec![command(11, "extension")];
+        assert!(!offers(&[submenu], 11));
     }
 
     #[test]

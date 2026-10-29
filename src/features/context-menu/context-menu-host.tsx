@@ -1,5 +1,6 @@
 import { reportUnexpected } from "@features/feedback/feedback";
 import { Menu } from "@features/overlays/menu";
+import { t } from "@shared/i18n";
 import { useEffect } from "react";
 
 import { fieldMenu } from "./items";
@@ -63,7 +64,9 @@ export function ContextMenuHost() {
 }
 
 function openFieldMenu(field: TextField, at: { x: number; y: number }) {
-  const selected = (field.selectionStart ?? 0) !== (field.selectionEnd ?? 0);
+  // A number field reports no selection at all; then Cut and Copy stay
+  // offered rather than never being.
+  const selected = field.selectionStart === null || field.selectionStart !== field.selectionEnd;
   const editable = !field.readOnly && !field.disabled;
   // The menu takes focus, so each action gives it back to the field first,
   // where the selection is still kept.
@@ -73,7 +76,7 @@ function openFieldMenu(field: TextField, at: { x: number; y: number }) {
   };
   openMenu({
     at,
-    label: field.getAttribute("aria-label") ?? field.placeholder,
+    label: fieldName(field),
     items: fieldMenu(selected, editable, {
       cut: inField(() => document.execCommand("cut")),
       copy: inField(() => document.execCommand("copy")),
@@ -81,6 +84,12 @@ function openFieldMenu(field: TextField, at: { x: number; y: number }) {
       selectAll: inField(() => field.select()),
     }),
   });
+}
+
+/** What a field is called, for the menu's accessible name. */
+function fieldName(field: TextField): string {
+  const named = field.getAttribute("aria-label") ?? field.labels?.[0]?.textContent ?? field.placeholder;
+  return named.trim() || t("menu.field");
 }
 
 async function pasteInto(field: TextField) {
@@ -92,7 +101,11 @@ async function pasteInto(field: TextField) {
     reportUnexpected(error);
     return;
   }
-  field.focus();
+  // The read can wait on the user; by then the field may be gone, or they
+  // may be typing somewhere else.
+  if (!field.isConnected || document.activeElement !== field) {
+    return;
+  }
   // Inserted as typing would, so the field's own input handling sees it.
   document.execCommand("insertText", false, text);
 }

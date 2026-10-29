@@ -112,6 +112,7 @@ describe("Menu", () => {
     const disabled = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
       (row) => row.textContent === "Forward",
     );
+    expect(disabled).toBeDefined();
     await act(async () => disabled?.click());
     expect(chosen).toEqual([]);
     expect(onClose).not.toHaveBeenCalled();
@@ -170,7 +171,30 @@ describe("Menu", () => {
   it("gives focus back to where it was when it closes from inside", async () => {
     await render();
     await press("ArrowDown");
+    await press("Escape");
     await act(async () => root.render(<></>));
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("leaves focus alone when it closes because focus went elsewhere", async () => {
+    await render();
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    await act(async () => root.render(<></>));
+    expect(document.activeElement).not.toBe(opener);
+  });
+
+  it("starts a submenu opened by hover over on its first item when Right opens it", async () => {
+    await render();
+    const more = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) =>
+      row.textContent?.includes("More"),
+    );
+    expect(more).toBeDefined();
+    // React builds pointer enter from pointerover.
+    await act(async () => more?.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })));
+    expect(menus()).toHaveLength(2);
+    await press("ArrowRight");
+    expect(focused()).toBe("Copy");
   });
 });

@@ -204,6 +204,7 @@ export const en = {
   "dialog.leave.cancel": "Stay",
 
   "menu.page": "Page",
+  "menu.field": "Text field",
   "menu.tab": "Tab",
   "menu.tabs": "Tabs",
   "menu.reload": "Reload",
