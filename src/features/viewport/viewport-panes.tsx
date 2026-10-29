@@ -109,7 +109,9 @@ function Pane({
         data-viewport={id}
         data-covered={isCovered}
         tabIndex={-1}
-        className="haku-viewport relative min-h-0 min-w-0 flex-1 overflow-hidden outline-offset-[-2px]"
+        // Focused only programmatically, to own keys for a covered page; the
+        // engine's default ring would otherwise frame a lone pane at startup.
+        className="haku-viewport relative min-h-0 min-w-0 flex-1 overflow-hidden outline-none"
       >
         {isInternal && (
           <ErrorBoundary
