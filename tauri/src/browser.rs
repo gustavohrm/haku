@@ -1151,7 +1151,6 @@ impl Browser {
         }
         effects.extend(self.realize());
         if let Some(survivor) = survivor.filter(|_| was_visible) {
-            effects.extend(self.trim());
             effects.push(self.pane_focus_effect(window, survivor));
         }
         Ok(effects)
@@ -1319,7 +1318,6 @@ impl Browser {
         }
         self.activate(active);
         let mut effects = self.realize();
-        effects.extend(self.trim());
         effects.push(self.pane_focus_effect(window, active));
         Ok(effects)
     }
@@ -1889,6 +1887,8 @@ impl Browser {
 
         // After hiding: a webview can only be frozen while it is hidden.
         effects.extend(self.settle_background());
+        // Visibility changes may release reservations even with discard off.
+        effects.extend(self.trim());
         self.just_left.clear();
         effects
     }

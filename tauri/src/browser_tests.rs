@@ -3193,6 +3193,40 @@ fn leaving_a_pair_starts_grace_for_both_members() {
 }
 
 #[test]
+fn leaving_a_pair_trims_surplus_slots_when_discard_is_disabled() {
+    for transition in ["select", "open", "page open", "separate", "close"] {
+        let (mut browser, _) = browser_with(1, &["https://left.test"]);
+        browser.set_optimization(1, Policy::Never, Policy::Never);
+        let (window, left, right) = split_pair(&mut browser);
+        assert_eq!(browser.slots().len(), 2);
+        let effects = match transition {
+            "select" => {
+                let (single, _) = browser.open_tab("https://single.test", false);
+                browser.select_tab(single, 1).unwrap()
+            }
+            "open" => browser.open_tab("https://single.test", true).1,
+            "page open" => {
+                browser
+                    .open_from(
+                        slot_of(&browser, left).unwrap(),
+                        "https://single.test",
+                        Opening::Foreground,
+                    )
+                    .1
+            }
+            "separate" => browser.separate_tabs(window, right).unwrap(),
+            "close" => browser.close_tab(left, HOME).unwrap(),
+            _ => unreachable!(),
+        };
+        assert_eq!(browser.reserved(), 1);
+        assert_eq!(browser.slots().len(), 1, "{transition} should trim the surplus slot");
+        assert_eq!(browser.state().live_count, 1);
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Destroy { .. })));
+        assert!(slot_of(&browser, browser.active().unwrap()).is_some());
+    }
+}
+
+#[test]
 fn background_pair_close_and_separation_keep_the_shown_layout_and_selection() {
     for close in [false, true] {
         for half in [0, 1] {
