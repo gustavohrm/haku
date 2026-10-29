@@ -79,7 +79,12 @@ function Pane({
     }
   };
   const focusSelected = useEffectEvent(() => {
-    if (isFocused && isCovered && !surfaceRef.current?.contains(document.activeElement)) {
+    if (
+      isFocused &&
+      isCovered &&
+      !document.activeElement?.closest("[data-toolbar]") &&
+      !surfaceRef.current?.contains(document.activeElement)
+    ) {
       surfaceRef.current?.focus({ preventScroll: true });
     }
   });

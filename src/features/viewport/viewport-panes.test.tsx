@@ -1,6 +1,7 @@
 import type { Tab } from "@bindings";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
 import { TabStrip } from "@features/tabs/tab-strip";
+import { Toolbar } from "@features/toolbar/toolbar";
 import { commands } from "@ipc/commands";
 import { useActiveTab } from "@ipc/hooks";
 import { browserStore, EMPTY_STATE } from "@ipc/store";
@@ -10,8 +11,22 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 
 import { ViewportPanes } from "./viewport-panes";
 
-const { alert, dismiss } = vi.hoisted(() => ({ alert: vi.fn(), dismiss: vi.fn() }));
-vi.mock("@bindings", () => ({ events: {} }));
+const { alert, dismiss, addressListeners } = vi.hoisted(() => ({
+  alert: vi.fn(),
+  dismiss: vi.fn(),
+  addressListeners: new Set<(event: { payload: number }) => void>(),
+}));
+vi.mock("@bindings", () => ({
+  events: {
+    addressFocusRequested: () => ({
+      listen: async (listener: (event: { payload: number }) => void) => {
+        addressListeners.add(listener);
+        return () => addressListeners.delete(listener);
+      },
+    }),
+  },
+}));
+vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
 vi.mock("@ipc/commands", () => ({
   commands: {
     focusPane: vi.fn(),
@@ -228,4 +243,31 @@ it("outlines only the focused paired pane and keeps each joined half selectable 
   expect(commands.closeTab).toHaveBeenCalledWith(2);
   await act(async () => browserStore.set({ ...browserStore.get(), viewports: [{ id: "left", tab: 1 }] }));
   expect(host.querySelectorAll(".haku-pane-focused")).toHaveLength(0);
+});
+
+it("keeps the address focused when a new internal tab consumes a pending focus request", async () => {
+  function Window() {
+    return (
+      <>
+        <Toolbar tab={useActiveTab()} />
+        <ViewportPanes />
+      </>
+    );
+  }
+  await act(async () => root.render(<Window />));
+  await act(async () => addressListeners.forEach((listener) => listener({ payload: 3 })));
+  const internal = tab(3, {
+    presence: { status: "internal" },
+    history: { entries: [{ url: "haku://new-tab", title: "", favicon: null }], index: 0 },
+  });
+  await act(async () =>
+    browserStore.set({
+      ...browserStore.get(),
+      active: 3,
+      tabs: [...browserStore.get().tabs, internal],
+      focusedViewport: "left",
+      viewports: [{ id: "left", tab: 3 }],
+    }),
+  );
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Search or enter address"]'));
 });

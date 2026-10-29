@@ -38,7 +38,11 @@ export function Toolbar({ tab }: ToolbarProps) {
   };
 
   return (
-    <nav className="haku-bar flex items-center gap-0.75 px-1.5 pb-0.75" aria-label={t("toolbar.navigation")}>
+    <nav
+      data-toolbar
+      className="haku-bar flex items-center gap-0.75 px-1.5 pb-0.75"
+      aria-label={t("toolbar.navigation")}
+    >
       <ToolbarButton
         icon="ic-arrow-left"
         label={t("toolbar.back")}
