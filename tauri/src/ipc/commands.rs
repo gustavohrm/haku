@@ -532,13 +532,17 @@ fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shor
     let state = app.state::<AppState>();
     let Ok(home) = home_url(&state) else { return };
     let pressure = read_pressure(&state);
-    let native = std::cell::Cell::new((None, None));
+    let native = std::cell::Cell::new((None, None, None));
     let _ = state.changes.run(
         &state.browser,
         |browser| {
             if matches!(
                 shortcut,
-                Shortcut::NewTab
+                Shortcut::ToggleSplit
+                    | Shortcut::DuplicateTab
+                    | Shortcut::Memory
+                    | Shortcut::Home
+                    | Shortcut::NewTab
                     | Shortcut::NewWindow
                     | Shortcut::NextTab
                     | Shortcut::PreviousTab
@@ -548,14 +552,27 @@ fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shor
                 browser.set_pressure(pressure);
             }
             let action = request.prepare(browser, shortcut, &home, now_ms())?;
-            native.set((action.address, action.devtools));
+            native.set((action.address, action.devtools, action.close));
             Ok(action.effects)
         },
         |effects| {
-            if !effects.is_empty() {
+            // Internal pages and strip moves can change state without native effects.
+            if !effects.is_empty()
+                || matches!(
+                    shortcut,
+                    Shortcut::MoveTabLeft
+                        | Shortcut::MoveTabRight
+                        | Shortcut::Home
+                        | Shortcut::Memory
+                        | Shortcut::DuplicateTab
+                )
+            {
                 commit(app, &state, effects)?;
             }
-            let (address, devtools) = native.get();
+            let (address, devtools, close) = native.get();
+            if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
+                window.close()?;
+            }
             if let Some(tab) = address {
                 focus_address(app, tab)?;
             }

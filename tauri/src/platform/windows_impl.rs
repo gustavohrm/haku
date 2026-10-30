@@ -77,8 +77,8 @@ use windows::Win32::System::ProcessStatus::{
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_F1, VK_F24, VK_LEFT, VK_MENU, VK_NEXT,
-    VK_PRIOR, VK_RIGHT, VK_SHIFT, VK_TAB, VK_Z,
+    GetAsyncKeyState, GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_ESCAPE, VK_F1, VK_F24, VK_HOME,
+    VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_SHIFT, VK_TAB, VK_Z,
 };
 use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -730,6 +730,8 @@ fn key_of(code: VIRTUAL_KEY) -> Option<Key> {
         code if (VK_0.0..=VK_9.0).contains(&code.0) => Key::Digit((code.0 - VK_0.0) as u8),
         code if (VK_F1.0..=VK_F24.0).contains(&code.0) => Key::Function((code.0 - VK_F1.0 + 1) as u8),
         VK_TAB => Key::Tab,
+        VK_ESCAPE => Key::Escape,
+        VK_HOME => Key::Home,
         VK_LEFT => Key::Left,
         VK_RIGHT => Key::Right,
         VK_PRIOR => Key::PageUp,

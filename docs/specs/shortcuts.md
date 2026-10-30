@@ -16,7 +16,7 @@ A held key repeats. Only the first press runs its shortcut; repeats are still ke
 
 Shortcuts run off the UI thread, like commands, because most of them drive webviews. They share one queue and run in receipt order, including applying their native effects. A page shortcut captures its source tab, slot and window when received. Close, reload, back/forward, address focus and developer tools revalidate that the slot still belongs to that tab and that the tab is still assigned to a visible viewport in that window before acting; a stale request is dropped. Validation and dispatch share the serialized change turn, so another change cannot reuse the slot between them. Tab operations name their tab explicitly.
 
-Strip-selection shortcuts (Ctrl+Tab, Ctrl+PageUp/Down and Ctrl+1–9) instead resolve the window's focused viewport when their turn runs, even if an earlier shortcut replaced their source page. Two queued Ctrl+Tabs therefore advance twice. Chrome shortcuts also resolve the focused viewport in queue order. In a popup, which shows one page, a shortcut that opens a tab opens it in the browser window used last ([Windows and popups](new-windows.md#windows)).
+Strip-selection shortcuts (Ctrl+Tab, Ctrl+PageUp/Down and Ctrl+1–9) instead resolve the window's focused viewport when their turn runs, even if an earlier shortcut replaced their source page. Two queued Ctrl+Tabs therefore advance twice. The split toggle, tab moves, home navigation and duplication also resolve the focused viewport in queue order. Chrome shortcuts resolve it in queue order too. Split, move and duplicate do nothing in popups; Ctrl+Shift+W closes the originating window, including a popup. In a popup, which shows one page, a shortcut that opens a tab opens it in the browser window used last ([Windows and popups](new-windows.md#windows)).
 
 Native content focus is observed through `ICoreWebView2Controller::GotFocus` (`FocusChangedEventHandler` in the locked `webview2-com` 0.39.1). Rust maps the reporting slot to its current window and viewport assignment; unknown, parked and hidden slots are ignored. Showing content uses `SW_SHOWNA` and `SetIsVisible`, separate from explicit focus; raising chrome uses `SWP_NOACTIVATE`. Content slots are created without requesting focus. Debug builds print `[page focus] slot=<id> window=<id> viewport=<id>` for an assigned slot gaining focus. Split-view model and IPC intents now permit two panes; native pointer/Tab focus and ordering with accelerator delivery still require the running-app acceptance checks before adding interface entry points ([Split view](split-view.md#implementation-slices)).
 
@@ -24,22 +24,28 @@ Native content focus is observed through `ICoreWebView2Controller::GotFocus` (`F
 
 Bindings follow Chrome's, because that is what users' hands already know. Modifiers match exactly: Ctrl+Shift+W is not Ctrl+W.
 
-| Keys                        | Does                                 |
-| --------------------------- | ------------------------------------ |
-| Ctrl+T                      | Open a new tab, in the address field |
-| Ctrl+N                      | Open a new browser window            |
-| Ctrl+W, Ctrl+F4             | Close the tab                        |
-| Ctrl+Shift+T                | Reopen the last closed tab           |
-| Ctrl+Tab, Ctrl+PageDown     | Next tab, wrapping                   |
-| Ctrl+Shift+Tab, Ctrl+PageUp | Previous tab, wrapping               |
-| Ctrl+1 … Ctrl+8             | The tab at that position             |
-| Ctrl+9                      | The last tab                         |
-| Ctrl+L, Alt+D, F6           | Focus the address field              |
-| Ctrl+R, F5                  | Reload                               |
-| Alt+Left, Alt+Right         | Back, forward                        |
-| F12, Ctrl+Shift+I           | Developer tools for the tab's page   |
+| Keys                         | Does                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------- |
+| Ctrl+T                       | Open a new tab, in the address field                                            |
+| Ctrl+N                       | Open a new browser window                                                       |
+| Ctrl+W, Ctrl+F4              | Close the tab                                                                   |
+| Ctrl+Shift+T                 | Reopen the last closed tab                                                      |
+| Ctrl+Tab, Ctrl+PageDown      | Next tab, wrapping                                                              |
+| Ctrl+Shift+Tab, Ctrl+PageUp  | Previous tab, wrapping                                                          |
+| Ctrl+1 … Ctrl+8              | The tab at that position                                                        |
+| Ctrl+9                       | The last tab                                                                    |
+| Ctrl+L, Alt+D, F6            | Focus the address field                                                         |
+| Ctrl+R, F5                   | Reload                                                                          |
+| Alt+Left, Alt+Right          | Back, forward                                                                   |
+| Alt+Shift+N                  | Toggle split: new right partner and address focus, or separate the focused pair |
+| Ctrl+Shift+PageUp / PageDown | Move the focused tab or pair left/right over one strip unit, without wrapping   |
+| Ctrl+Shift+W                 | Close the originating window                                                    |
+| Alt+Home                     | Navigate the focused tab to the configured home page                            |
+| Shift+Esc                    | Open `haku://memory` in a foreground tab                                        |
+| Ctrl+Shift+K                 | Duplicate the focused tab's current URL in a foreground tab                     |
+| F12, Ctrl+Shift+I            | Developer tools for the tab's page                                              |
 
-The keymap is fixed. Making it configurable is a settings format, and nothing needs it yet.
+The keymap is fixed. Configurable bindings are deferred to their own spec because they require a settings format.
 
 ## Focusing the address field
 
