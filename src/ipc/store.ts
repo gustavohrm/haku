@@ -6,7 +6,7 @@
  * step with the webviews it is describing.
  */
 
-import { events, type BrowserState, type Extensions, type Preset, type Settings } from "@bindings";
+import { events, type BrowserState, type Download, type Extensions, type Preset, type Settings } from "@bindings";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { commands, reportFailure } from "./commands";
@@ -61,6 +61,8 @@ export const browserStore = createStore<BrowserState>(EMPTY_STATE);
 export const settingsStore = createStore<Settings | null>(null);
 /** What the extensions folder installed, or null until it is known. */
 export const extensionsStore = createStore<Extensions | null>(null);
+/** The downloads this window lists, newest first. */
+export const downloadsStore = createStore<Download[]>([]);
 
 /**
  * Subscribes to Rust's state events and loads the first snapshot.
@@ -78,7 +80,8 @@ export const extensionsStore = createStore<Extensions | null>(null);
  */
 export async function connect(): Promise<() => void> {
   let hasStateEvent = false;
-  const [stopState, stopFailures, stopSettings, stopExtensions] = await Promise.all([
+  let hasDownloadsEvent = false;
+  const [stopState, stopFailures, stopSettings, stopExtensions, stopDownloads] = await Promise.all([
     events.stateChanged(getCurrentWebview()).listen((event) => {
       hasStateEvent = true;
       browserStore.set(event.payload);
@@ -87,6 +90,11 @@ export async function connect(): Promise<() => void> {
     events.settingsChanged.listen((event) => settingsStore.set(event.payload)),
     // The folder is installed after startup, possibly once this has loaded.
     events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
+    // Each window lists its own profile's downloads only.
+    events.downloadsChanged(getCurrentWebview()).listen((event) => {
+      hasDownloadsEvent = true;
+      downloadsStore.set(event.payload);
+    }),
   ]);
 
   // Each part is kept as it arrives, so one that fails to load does not take
@@ -107,6 +115,11 @@ export async function connect(): Promise<() => void> {
         extensionsStore.set(extensions);
       }
     }),
+    unwrap(commands.downloads()).then((downloads) => {
+      if (!hasDownloadsEvent) {
+        downloadsStore.set(downloads);
+      }
+    }),
   ]);
   const failed = loaded.find((part) => part.status === "rejected");
   if (failed) {
@@ -118,6 +131,7 @@ export async function connect(): Promise<() => void> {
     stopFailures();
     stopSettings();
     stopExtensions();
+    stopDownloads();
   };
 }
 

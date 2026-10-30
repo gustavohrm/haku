@@ -341,8 +341,8 @@ export type DownloadState = "inProgress" | "paused" | "completed" | "cancelled" 
  *  The downloads a window lists, newest first, whenever one starts, moves
  *  on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
  * 
- *  Each window receives its own profile's only. Progress is sent at most
- *  every [`crate::model::download::PROGRESS_INTERVAL_MS`] per download.
+ *  Each window receives its own profile's only. A running download's
+ *  progress is sent at most four times a second.
  */
 export type DownloadsChanged = Download[];
 

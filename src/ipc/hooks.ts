@@ -1,7 +1,7 @@
-import type { BrowserState, Extensions, Settings, Tab } from "@bindings";
+import type { BrowserState, Download, Extensions, Settings, Tab } from "@bindings";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { browserStore, extensionsStore, settingsStore, type ExternalStore } from "./store";
+import { browserStore, downloadsStore, extensionsStore, settingsStore, type ExternalStore } from "./store";
 
 function useStore<T>(store: ExternalStore<T>): T {
   return useSyncExternalStore(
@@ -21,6 +21,10 @@ export function useSettings(): Settings | null {
 
 export function useExtensions(): Extensions | null {
   return useStore(extensionsStore);
+}
+
+export function useDownloads(): Download[] {
+  return useStore(downloadsStore);
 }
 
 export function useActiveTab(): Tab | null {

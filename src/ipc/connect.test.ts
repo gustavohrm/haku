@@ -21,12 +21,13 @@ vi.mock("@bindings", () => ({
     },
     settingsChanged: { listen },
     extensionsChanged: { listen },
+    downloadsChanged: () => ({ listen }),
   },
 }));
 const CURRENT_WEBVIEW = vi.hoisted(() => ({ label: "window-1" }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => CURRENT_WEBVIEW }));
 vi.mock("./commands", () => ({
-  commands: { getState: vi.fn(), getSettings: vi.fn(), extensions: vi.fn() },
+  commands: { getState: vi.fn(), getSettings: vi.fn(), extensions: vi.fn(), downloads: vi.fn() },
   reportFailure: vi.fn(),
 }));
 
@@ -42,6 +43,7 @@ describe("connect", () => {
     vi.mocked(commands.getState).mockResolvedValue({ status: "ok", data: STATE });
     vi.mocked(commands.getSettings).mockResolvedValue(failure);
     vi.mocked(commands.extensions).mockResolvedValue({ status: "ok", data: { installed: [] } } as never);
+    vi.mocked(commands.downloads).mockResolvedValue({ status: "ok", data: [] });
   });
 
   it("keeps what loaded when another part fails to", async () => {

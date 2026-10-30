@@ -16,6 +16,7 @@ vi.mock("@ipc/hooks", () => ({
     installed: [{ id: "extension", name: "Example extension", popup: "chrome-extension://id/popup.html", icon: null }],
   }),
   useSettings: () => ({ pinnedExtensions: ["extension"], disabledExtensions: [], keptSites: [] }),
+  useDownloads: () => [],
 }));
 
 import { Toolbar } from "./toolbar";

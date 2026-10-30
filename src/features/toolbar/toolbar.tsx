@@ -1,5 +1,6 @@
 import { isNewTab, SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
+import { DownloadsButton } from "@features/downloads/downloads-button";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
@@ -120,6 +121,7 @@ export function Toolbar({ tab }: ToolbarProps) {
 
       {isPrivate && <PrivateBadge />}
       {!isPrivate && <ExtensionsBar tab={tabId} />}
+      <DownloadsButton />
       <ToolbarButton
         icon="ic-code"
         label={t("toolbar.devtools")}

@@ -1,6 +1,7 @@
 import { applyTheme, isThemePreference } from "@app/theme";
 import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
+import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
 import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
@@ -16,6 +17,7 @@ export function App() {
   const settings = useSettings();
   usePageDialog(tab);
   usePageMenu(tab);
+  useCloseConfirmation();
 
   const themePreference = settings?.theme;
   useEffect(() => {
