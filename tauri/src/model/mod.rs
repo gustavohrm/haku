@@ -1,5 +1,6 @@
 pub mod context_menu;
 pub mod dialog;
+pub mod download;
 pub mod extension;
 pub mod history;
 pub mod keymap;
@@ -16,6 +17,7 @@ pub use context_menu::{
     NativeMenuItemKind, PageMenu,
 };
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
+pub use download::{Download, DownloadFailure, DownloadId, DownloadState, Downloading, Downloads, Settled};
 pub use extension::{
     icon_file, popup_origin, popup_size, popup_url, Extension, Extensions, ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
