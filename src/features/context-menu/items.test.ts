@@ -201,6 +201,21 @@ describe("interfaceMenu", () => {
 });
 
 describe("pageMenu", () => {
+  it("offers opening a link privately after opening it in a new window", () => {
+    const acts = actions();
+    const items = pageMenu(request({ linkUrl: "https://link/" }), tab(1), acts);
+    expect(ids(items).slice(ids(items).indexOf("linkWindow"), ids(items).indexOf("linkWindow") + 2)).toEqual([
+      "linkWindow",
+      "linkPrivateWindow",
+    ]);
+    select(find(items, "linkPrivateWindow"));
+    expect(acts.openInPrivateWindow).toHaveBeenCalledExactlyOnceWith("https://link/");
+  });
+
+  it("omits the extra private-window action in a private window", () => {
+    const acts = { ...actions(), isPrivate: true };
+    expect(ids(pageMenu(request({ linkUrl: "https://link/" }), tab(1), acts))).not.toContain("linkPrivateWindow");
+  });
   it("offers navigation on the page itself, from the tab's history", () => {
     const items = pageMenu(request({}), tab(1, ["a", "b"], 1), actions());
     expect(ids(items).slice(0, 3)).toEqual(["back", "forward", "reload"]);

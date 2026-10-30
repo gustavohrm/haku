@@ -151,6 +151,19 @@ mod tests {
 
     const HOME: &str = "haku://new-tab";
 
+    #[test]
+    fn new_private_window_requests_the_address_of_its_private_home_tab() {
+        let (mut browser, _) = pages(1);
+        let action = Request::chrome(browser.main_window())
+            .prepare(&mut browser, Shortcut::NewPrivateWindow, HOME, 1)
+            .unwrap();
+        let tab = action.address.expect("focus the new address field");
+        let window = browser.window_of(tab).unwrap();
+        assert!(browser.is_private(window));
+        assert_eq!(browser.active_in(window), Some(tab));
+        assert_eq!(browser.tab(tab).unwrap().url(), HOME);
+    }
+
     fn pages(capacity: usize) -> (Browser, [TabId; 3]) {
         let mut browser = Browser::new(capacity);
         let (a, _) = browser.open_tab("https://a.test", true);
