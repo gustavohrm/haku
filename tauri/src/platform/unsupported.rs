@@ -143,3 +143,18 @@ pub fn engine_window<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _timeout: 
 pub fn uninstall_extension<R: tauri::Runtime>(_chrome: &tauri::Webview<R>, _id: String) -> Result<()> {
     Err(unsupported("uninstalling extensions"))
 }
+
+pub fn is_private<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<bool> {
+    Err(unsupported("verifying private mode"))
+}
+
+pub fn watch_private_workers<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _webview: Option<&tauri::Webview<R>>,
+) -> Result<()> {
+    Err(unsupported("watching private service workers"))
+}
+
+pub fn forget_page<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<()> {
+    Err(unsupported("releasing page observers"))
+}

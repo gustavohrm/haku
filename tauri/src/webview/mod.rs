@@ -10,7 +10,7 @@ use crate::browser::{Browser, Effect, ViewportAssignment, ViewportTarget, BLANK_
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
 use crate::model::{
-    popup_origin, popup_size, PageState, Placement, ScreenRect, Scroll, SlotId, TabId, WindowId, WindowKind,
+    popup_origin, popup_size, PageState, Placement, Profile, ScreenRect, Scroll, SlotId, TabId, WindowId, WindowKind,
     WindowRequestId, POPUP_MIN_SIZE,
 };
 use crate::platform::{self, FailureSink, KeySink, PageSignal, PageSink};
@@ -276,6 +276,8 @@ struct PendingRestore {
 /// restore never lands on another tab's page.
 static PENDING_RESTORES: LazyLock<Mutex<HashMap<SlotId, PendingRestore>>> = LazyLock::new(Mutex::default);
 
+static OBSERVERS: LazyLock<Mutex<HashMap<SlotId, Arc<std::sync::atomic::AtomicBool>>>> = LazyLock::new(Mutex::default);
+
 /// Slots whose document was handed a scroll to restore, until it finishes
 /// loading. The page holds itself at that scroll while it is still growing,
 /// so the end of its load is reported only once it says the scroll has
@@ -365,12 +367,16 @@ fn rect_of(viewport: Viewport) -> tauri::Rect {
 /// # Errors
 /// Returns [`HakuError::WindowMissing`] when no window is open.
 pub fn chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri::Webview<R>> {
+    first_chrome(app, &[]).ok_or_else(|| HakuError::WindowMissing("no browser window".into()))
+}
+
+fn first_chrome<R: tauri::Runtime>(app: &tauri::AppHandle<R>, closing: &[WindowId]) -> Option<tauri::Webview<R>> {
     app.webviews()
         .into_values()
         .filter_map(|webview| Some((WindowId::from_label(webview.label())?, webview)))
+        .filter(|(window, _)| !closing.contains(window))
         .min_by_key(|(window, _)| *window)
         .map(|(_, webview)| webview)
-        .ok_or_else(|| HakuError::WindowMissing("no browser window".into()))
 }
 
 /// The webview that draws a window's interface.
@@ -505,15 +511,29 @@ pub fn apply<R: tauri::Runtime>(
             })
     };
     let mut departures = Vec::new();
-    let (failed_slots, applied) = each_effect(effects, |effect| {
+    let apply = |effect: &Effect| {
         match effect {
-            Effect::EnsureSlot { slot, url, window } => {
+            Effect::Quit => app.exit(0),
+            Effect::EnsureSlot {
+                slot,
+                url,
+                window,
+                profile,
+            } => {
                 set_pending(*slot, None);
                 renavigate(*slot);
                 if !placements.get(slot).is_some_and(|target| viewports.can_show(target)) {
                     set_visible(app, *slot, false)?;
                 }
-                ensure_slot(app, *slot, url, *window, bounds_for(slot, *window), &hooks.page)?;
+                ensure_slot(
+                    app,
+                    *slot,
+                    url,
+                    *window,
+                    *profile,
+                    bounds_for(slot, *window),
+                    &hooks.page,
+                )?;
             }
             Effect::Blank { slot } => {
                 set_pending(*slot, None);
@@ -579,6 +599,7 @@ pub fn apply<R: tauri::Runtime>(
                 request,
                 url,
                 window,
+                profile,
             } => {
                 set_pending(*slot, None);
                 renavigate(*slot);
@@ -587,7 +608,7 @@ pub fn apply<R: tauri::Runtime>(
                     *slot,
                     *request,
                     url,
-                    *window,
+                    (*window, *profile),
                     bounds_for(slot, *window),
                     &hooks.page,
                 )?;
@@ -627,8 +648,25 @@ pub fn apply<R: tauri::Runtime>(
             }
         }
         Ok(())
+    };
+    let closing: Vec<_> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::CloseWindow { window } => Some(*window),
+            _ => None,
+        })
+        .collect();
+    let (failed_slots, applied) = each_effect(effects, apply, |_| {
+        // Release the old DevTools session while its chrome is still alive.
+        // Exclude every chrome being destroyed, even if native removal lags.
+        first_chrome(app, &closing).map_or(Ok(()), |chrome| platform::stop_idle_workers(&chrome))
     });
-    (departures, failed_slots, applied)
+    let private = private_slots()
+        .iter()
+        .filter_map(|slot| app.get_webview(&slot.label()))
+        .next();
+    let watched = platform::watch_private_workers(app, private.as_ref());
+    (departures, failed_slots, applied.and(watched))
 }
 
 /// Runs `apply` on every effect, even after one fails, and returns failed slot
@@ -638,10 +676,19 @@ pub fn apply<R: tauri::Runtime>(
 /// that fails must not keep the rest from happening: a dialog answered after
 /// a webview that could not be moved would otherwise be left open, its page
 /// paused for good.
-fn each_effect(effects: &[Effect], mut apply: impl FnMut(&Effect) -> Result<()>) -> (Vec<SlotId>, Result<()>) {
+fn each_effect(
+    effects: &[Effect],
+    mut apply: impl FnMut(&Effect) -> Result<()>,
+    mut closing: impl FnMut(WindowId) -> Result<()>,
+) -> (Vec<SlotId>, Result<()>) {
     let mut failure = None;
     let mut failed_slots = Vec::new();
     for effect in effects {
+        if let Effect::CloseWindow { window } = effect {
+            if let Err(error) = closing(*window) {
+                failure.get_or_insert(error);
+            }
+        }
         if let Err(error) = apply(effect) {
             if let Effect::EnsureSlot { slot, .. } | Effect::Adopt { slot, .. } = effect {
                 failed_slots.push(*slot);
@@ -715,11 +762,12 @@ fn ensure_slot<R: tauri::Runtime>(
     slot: SlotId,
     url: &str,
     window: WindowId,
+    profile: Profile,
     viewport: Viewport,
     observer: &PageObserver<R>,
 ) -> Result<()> {
     if app.get_webview(&slot.label()).is_none() {
-        create_slot(app, slot, window, viewport, observer)?;
+        create_slot(app, slot, window, profile, viewport, observer)?;
     }
     navigate(app, slot, url)
 }
@@ -748,16 +796,17 @@ fn adopt<R: tauri::Runtime>(
     slot: SlotId,
     request: WindowRequestId,
     url: &str,
-    window: WindowId,
+    target: (WindowId, Profile),
     viewport: Viewport,
     observer: &PageObserver<R>,
 ) -> Result<()> {
+    let (window, profile) = target;
     if app.get_webview(&slot.label()).is_some() {
         // A webview that loaded anything cannot be handed over.
         platform::refuse_window(app, request)?;
         return navigate(app, slot, url);
     }
-    let webview = create_slot(app, slot, window, viewport, observer)?;
+    let webview = create_slot(app, slot, window, profile, viewport, observer)?;
     // A request that could not be handed the webview, for whatever reason,
     // still gets its page: the tab loads it, unconnected.
     if platform::adopt_window(&webview, request).unwrap_or(false) {
@@ -772,6 +821,7 @@ fn create_slot<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     slot: SlotId,
     window: WindowId,
+    profile: Profile,
     viewport: Viewport,
     observer: &PageObserver<R>,
 ) -> Result<tauri::Webview<R>> {
@@ -782,6 +832,7 @@ fn create_slot<R: tauri::Runtime>(
     // the first commit of the real page cannot slip past before the observer is
     // attached.
     let builder = tauri::webview::WebviewBuilder::new(slot.label(), WebviewUrl::External(parse_url(BLANK_URL)?))
+        .incognito(profile == Profile::Private)
         .user_agent(USER_AGENT)
         // Every webview sharing a profile must agree on these, the chrome
         // included; see `build_window`.
@@ -799,6 +850,19 @@ fn create_slot<R: tauri::Runtime>(
         LogicalSize::new(viewport.width, viewport.height),
     )?;
 
+    if profile == Profile::Private {
+        match platform::is_private(&webview) {
+            Ok(true) => {
+                private_slots().insert(slot);
+            }
+            outcome => {
+                webview.close()?;
+                return Err(outcome
+                    .err()
+                    .unwrap_or_else(|| HakuError::Unsupported("runtime did not create a private webview".into())));
+            }
+        }
+    }
     webview.hide()?;
 
     // A new child webview is placed above everything, including the chrome, so
@@ -811,20 +875,32 @@ fn create_slot<R: tauri::Runtime>(
     let sink = {
         let observer = observer.clone();
         let app = app.clone();
-        Arc::new(move |signal| match signal {
-            PageSignal::Loaded { url } => {
-                restore_pending(&app, slot, &url);
-                observer(&app, slot, PageSignal::Loaded { url });
+        let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        OBSERVERS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(slot, alive.clone());
+        Arc::new(move |signal| {
+            if !alive.load(std::sync::atomic::Ordering::Acquire) {
+                return;
             }
-            PageSignal::Completed { url } if set_scrolling(slot, false) => {
-                let (app, observer) = (app.clone(), observer.clone());
-                std::thread::spawn(move || {
-                    if wait_for_scroll(&app, slot) {
-                        observer(&app, slot, PageSignal::Completed { url });
-                    }
-                });
+            match signal {
+                PageSignal::Loaded { url } => {
+                    restore_pending(&app, slot, &url);
+                    observer(&app, slot, PageSignal::Loaded { url });
+                }
+                PageSignal::Completed { url } if set_scrolling(slot, false) => {
+                    let (app, observer, alive) = (app.clone(), observer.clone(), alive.clone());
+                    std::thread::spawn(move || {
+                        complete_after_scroll(
+                            &alive,
+                            || wait_for_scroll(&app, slot),
+                            || observer(&app, slot, PageSignal::Completed { url }),
+                        );
+                    });
+                }
+                signal => observer(&app, slot, signal),
             }
-            signal => observer(&app, slot, signal),
         })
     };
     platform::observe_page(&webview, sink)?;
@@ -930,10 +1006,45 @@ fn reload<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId) -> Result<
     Ok(())
 }
 
+fn private_slots() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<SlotId>> {
+    static PRIVATE: std::sync::Mutex<std::collections::BTreeSet<SlotId>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    PRIVATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn complete_after_scroll(alive: &std::sync::atomic::AtomicBool, wait: impl FnOnce() -> bool, complete: impl FnOnce()) {
+    if wait() && alive.load(std::sync::atomic::Ordering::Acquire) {
+        complete();
+    }
+}
+
+fn close_page(forgotten: Result<()>, close: impl FnOnce() -> Result<()>) -> Result<()> {
+    let closed = close();
+    forgotten.and(closed)
+}
+
 fn destroy<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId) -> Result<()> {
+    private_slots().remove(&slot);
+    if let Some(alive) = OBSERVERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&slot)
+    {
+        alive.store(false, std::sync::atomic::Ordering::Release);
+    }
+    set_pending(slot, None);
+    set_scrolling(slot, false);
+    NAVIGATIONS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&slot);
     hold_until_extensions(slot, None, next_load(slot));
+    LOADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&slot);
     if let Some(webview) = app.get_webview(&slot.label()) {
-        webview.close()?;
+        close_page(platform::forget_page(&webview), || Ok(webview.close()?))?;
     }
     Ok(())
 }
@@ -1131,6 +1242,120 @@ mod tests {
     use super::*;
 
     #[test]
+    fn destroying_an_observer_during_scroll_wait_suppresses_completion() {
+        let alive = std::sync::atomic::AtomicBool::new(true);
+        let notified = std::cell::Cell::new(false);
+        complete_after_scroll(
+            &alive,
+            || {
+                alive.store(false, std::sync::atomic::Ordering::Release);
+                true
+            },
+            || notified.set(true),
+        );
+        assert!(!notified.get());
+    }
+
+    #[test]
+    fn only_a_live_observer_with_settled_scroll_reports_completion() {
+        for live in [false, true] {
+            for settled in [false, true] {
+                let alive = std::sync::atomic::AtomicBool::new(live);
+                let notified = std::cell::Cell::new(false);
+                complete_after_scroll(&alive, || settled, || notified.set(true));
+                assert_eq!(notified.get(), live && settled);
+            }
+        }
+    }
+
+    #[test]
+    fn closing_a_page_still_runs_when_forgetting_it_fails() {
+        let closed = std::cell::Cell::new(false);
+        let result = close_page(Err(HakuError::WindowMissing("forget failed".into())), || {
+            closed.set(true);
+            Err(HakuError::WindowMissing("close failed".into()))
+        });
+        assert!(closed.get());
+        assert!(matches!(result, Err(HakuError::WindowMissing(message)) if message == "forget failed"));
+    }
+
+    #[test]
+    fn closing_a_page_propagates_close_failure_after_successful_forget() {
+        let result = close_page(Ok(()), || Err(HakuError::WindowMissing("close failed".into())));
+        assert!(matches!(result, Err(HakuError::WindowMissing(message)) if message == "close failed"));
+    }
+
+    #[test]
+    fn default_worker_watch_moves_before_ctrl_w_destroys_its_private_chrome() {
+        assert_worker_handoff(false, false);
+    }
+
+    #[test]
+    fn default_worker_watch_moves_before_script_close_destroys_its_popup_chrome() {
+        assert_worker_handoff(true, false);
+    }
+
+    #[test]
+    fn default_worker_watch_moves_before_native_close_destroys_its_chrome() {
+        assert_worker_handoff(false, true);
+    }
+
+    fn assert_worker_handoff(popup: bool, native_close: bool) {
+        use crate::browser::Opening;
+        use std::cell::{Cell, RefCell};
+
+        let mut browser = Browser::new(1);
+        let (tab, _) = if popup {
+            browser.open_requested_profile(
+                None,
+                Profile::Private,
+                "https://popup.test",
+                Opening::Popup {
+                    request: WindowRequestId(1),
+                    placement: Placement::default(),
+                },
+            )
+        } else {
+            browser.open_private_window("haku://new-tab")
+        };
+        let closing = browser.window_of(tab).unwrap();
+        // A popup cannot keep the process alive when W1 is the last browser
+        // window, so its handoff case needs W3 before W1 closes.
+        let ordinary_before = popup.then(|| browser.open_window("haku://new-tab").0);
+        // W1 closed earlier: its default-profile watcher now lives on W2,
+        // even though W2's content is private (or a script-opened popup).
+        browser.close_window(WindowId(1));
+        let ordinary = ordinary_before.unwrap_or_else(|| browser.open_window("haku://new-tab").0);
+        let survivor = browser.window_of(ordinary).unwrap();
+        let chromes = RefCell::new(browser.window_ids());
+        let watched = Cell::new(closing);
+        let effects = if native_close {
+            browser.close_window(closing)
+        } else {
+            browser.close_tab(tab, "haku://new-tab").unwrap()
+        };
+        assert!(effects.contains(&Effect::CloseWindow { window: closing }));
+        let (_, result) = each_effect(
+            &effects,
+            |effect| {
+                if let Effect::CloseWindow { window } = effect {
+                    assert_ne!(watched.get(), *window, "handoff must precede native destruction");
+                    chromes.borrow_mut().retain(|chrome| chrome != window);
+                }
+                Ok(())
+            },
+            |window| {
+                if let Some(next) = chromes.borrow().iter().copied().filter(|id| *id != window).min() {
+                    watched.set(next);
+                }
+                Ok(())
+            },
+        );
+        assert!(result.is_ok());
+        assert_eq!(watched.get(), survivor);
+    }
+
+    #[test]
     fn an_effect_that_fails_does_not_stop_the_ones_after_it() {
         let mut applied = Vec::new();
         let effects = [
@@ -1138,14 +1363,18 @@ mod tests {
             Effect::Reload { slot: SlotId(2) },
             Effect::Show { slot: SlotId(3) },
         ];
-        let (failed_slots, result) = each_effect(&effects, |effect| {
-            applied.push(effect.clone());
-            match effect {
-                Effect::Reload { slot: SlotId(1) } => Err(HakuError::InvalidUrl("first".into())),
-                Effect::Reload { .. } => Err(HakuError::InvalidUrl("second".into())),
-                _ => Ok(()),
-            }
-        });
+        let (failed_slots, result) = each_effect(
+            &effects,
+            |effect| {
+                applied.push(effect.clone());
+                match effect {
+                    Effect::Reload { slot: SlotId(1) } => Err(HakuError::InvalidUrl("first".into())),
+                    Effect::Reload { .. } => Err(HakuError::InvalidUrl("second".into())),
+                    _ => Ok(()),
+                }
+            },
+            |_| Ok(()),
+        );
         assert_eq!(applied, effects);
         assert!(failed_slots.is_empty());
         assert!(matches!(result, Err(HakuError::InvalidUrl(url)) if url == "first"));
@@ -1155,11 +1384,13 @@ mod tests {
     fn failed_native_creation_and_adoption_are_reported_for_model_repair() {
         let effects = [
             Effect::EnsureSlot {
+                profile: Profile::Default,
                 slot: SlotId(1),
                 url: "https://create.test".into(),
                 window: WindowId(1),
             },
             Effect::Adopt {
+                profile: Profile::Default,
                 slot: SlotId(2),
                 request: WindowRequestId(1),
                 url: "https://adopt.test".into(),
@@ -1168,13 +1399,17 @@ mod tests {
             Effect::Show { slot: SlotId(3) },
         ];
         let mut shown = false;
-        let (failed_slots, result) = each_effect(&effects, |effect| match effect {
-            Effect::Show { .. } => {
-                shown = true;
-                Ok(())
-            }
-            _ => Err(HakuError::Unsupported("native creation failed".into())),
-        });
+        let (failed_slots, result) = each_effect(
+            &effects,
+            |effect| match effect {
+                Effect::Show { .. } => {
+                    shown = true;
+                    Ok(())
+                }
+                _ => Err(HakuError::Unsupported("native creation failed".into())),
+            },
+            |_| Ok(()),
+        );
         assert!(shown, "the healthy sibling still gets its effects");
         assert!(result.is_err());
         assert_eq!(failed_slots, [SlotId(1), SlotId(2)]);

@@ -46,6 +46,7 @@ export function createStore<T>(initial: T): ExternalStore<T> {
 
 export const EMPTY_STATE: BrowserState = {
   kind: "normal",
+  private: false,
   tabs: [],
   active: null,
   viewports: [],

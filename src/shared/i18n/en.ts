@@ -134,6 +134,10 @@ export const en = {
   "extensions.unpin": "Unpin from the toolbar",
   "extensions.manage": "Manage extensions",
 
+  "private.label": "Private",
+  "private.notice":
+    "No history, session, or reopenable tabs are kept. Extensions do not run. Browsing data is cleared when the last private window closes.",
+  "menu.openLinkPrivateWindow": "Open link in private window",
   "newTab.title": "New tab",
   "newTab.prompt": "Type an address or a search above.",
 

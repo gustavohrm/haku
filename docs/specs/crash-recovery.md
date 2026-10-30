@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: What Haku does when a process behind a page, the interface or the whole engine fails, and what the user sees.
 ---
 
@@ -34,8 +34,10 @@ The tab becomes **crashed**, a new `TabPresence`:
 - A dialog it was waiting on is released, and a connected page loses its connection, as on a discard.
 - `realize` never binds a crashed tab, even the visible one. A page that crashes as it loads would otherwise crash, reload and crash again for good.
 - Reload, by the toolbar, F5 or the notice's button, makes it discarded again, and it loads as a discarded tab does. `reload` already loads a tab that has no slot, so this needs no new command.
-- Navigating it anywhere, going back or forward, closing it and reopening it work as for a discarded tab.
-- The session stores it like any tab. On the next launch it is an ordinary discarded tab: a restart is the user starting again.
+- Navigating it anywhere, going back or forward, closing it and (for an ordinary tab) reopening it work as for a discarded tab.
+- The session stores an ordinary crashed tab like any ordinary tab. On the next launch it is an ordinary discarded tab: a restart is the user starting again. Private crashed tabs are never persisted or remembered for reopening.
+
+A private page renderer crash keeps the private-session anchor alive until the final private tab closes.
 
 Crashed is a presence rather than a flag on a discarded tab because it answers a different question: the pool must not load it on its own, and the interface draws it differently. A flag would leave every place that binds or draws a discarded tab to remember a second condition.
 
@@ -54,6 +56,8 @@ When a chrome webview's renderer exits, the window shows nothing, and since Haku
 A reload is attempted at most three times a minute per window. Past that the interface is failing as it starts, and reloading again would only loop; the window is left as it is, and Alt+F4 still closes it.
 
 ## The engine
+
+The shared session-save path excludes every private window before constructing persisted records. An engine restart therefore restores ordinary windows only; private URLs, titles, pairs and bounds are never written.
 
 When the browser process exits, every webview of the profile is gone, the interfaces with them, and WebView2 cannot recreate them inside the same windows. The session is saved and Haku restarts itself, restoring normal windows, tab order, all pairs and their committed ratios under [the session format](new-windows.md#the-session). External tabs, including previously crashed tabs, start discarded without slots. The selected tab shows its pair or itself alone; loading waits for each window's matching geometry, and background pairs retain ordinary background policy. Popups and their connections are not restored. This is the same path as a clean restart.
 

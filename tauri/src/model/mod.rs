@@ -23,7 +23,7 @@ pub use history::{Commit, History, NavigationKind, Visit};
 pub use keymap::{shortcut_for, Chord, Key, Shortcut};
 pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};
-pub use pool::{Acquired, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
+pub use pool::{Acquired, Profile, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
 pub use preview::{data_url, jpeg_data_url, Previews};
 pub use tab::{host_of, is_internal, CrashCause, Scroll, Tab, TabId, TabPresence};

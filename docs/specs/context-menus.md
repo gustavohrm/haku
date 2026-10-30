@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: Right-click menus over pages and over the interface, and the shared menu component they are drawn with.
 ---
 
@@ -86,6 +86,8 @@ A request the chrome never answers, say because its window closed, would hold th
 
 ### Items
 
+In ordinary windows, the link menu offers **Open link in private window** after **Open link in new window**, using `open_window(url, true)`. **Open link in new window** inherits the caller's profile by passing `null` for `isPrivate`. Private windows omit the extra private action because the inheriting action already opens a private window. These link actions have no shortcut hint: Ctrl+Shift+N opens the home page, not the clicked link. Private page menus retain the same native allowlist; diagnostics print native names and kinds only, never page-supplied labels.
+
 Native items are kept by their `Name`, against an allowlist rather than a blocklist, so an item a future WebView2 adds stays hidden until someone decides on it:
 
 | Kept native items                                                                                                                                                         | Dropped native items, and why                                                                                                                                                                                                                                                                                                                                                             |
@@ -96,12 +98,12 @@ The names above are the ones WebView2 reported in the app; **Paste as plain text
 
 Haku's items, by what was clicked:
 
-| Target    | Haku's items                                                                           |
-| --------- | -------------------------------------------------------------------------------------- |
-| Page      | Back, Forward, Reload                                                                  |
-| Link      | Open link in new tab, Open link in new window                                          |
-| Image     | Open image in new tab, when the engine gives the image's address                       |
-| Selection | Search for "…" (the search engine's name is not known, so the label does not name one) |
+| Target    | Haku's items                                                                                       |
+| --------- | -------------------------------------------------------------------------------------------------- |
+| Page      | Back, Forward, Reload                                                                              |
+| Link      | Open link in new tab, Open link in new window, Open link in private window (ordinary windows only) |
+| Image     | Open image in new tab, when the engine gives the image's address                                   |
+| Selection | Search for "…" (the search engine's name is not known, so the label does not name one)             |
 
 Native items follow in their own groups, then extension items in a group of their own, as Chrome shows them. Every page menu, whatever was clicked, ends with **Inspect**, which opens the tab's DevTools with `open_tab_devtools`, in place of the engine's inspectElement.
 
@@ -126,7 +128,7 @@ Duplicate opens the tab's current URL with `open_tab`, without its back history;
 Settled while building it:
 
 - **Paste in the interface's text fields** uses `navigator.clipboard.readText` from the chrome, with no new dependency. WebView2 asked the user for clipboard access on first use, so `platform::allow_clipboard_read` allows clipboard reads for the chrome webview only; pages keep the engine's prompt. A refusal is reported, not dropped.
-- **Open link in new window** and **Reopen closed tab** have their commands, `open_window(url)` and `reopen_closed_tab()`.
+- **Open link in new window** and **Reopen closed tab** have their commands, `open_window(url, isPrivate)` and `reopen_closed_tab()`.
 - **Where the menu opens.** WebView2's `Location` is in physical pixels relative to the webview; Rust divides it by the window's scale factor and adds the source pane's origin. The menu remains clamped to the window, not the pane.
 - **No `mainFrame` in the target.** WebView2's `IsRequestedForMainFrame` reported `false` for every request tried, top-level pages such as example.com included. Nothing needed it, so the event leaves it out rather than carry a value nobody can rely on.
 - **Inspect interface** calls Tauri's `plugin:webview|internal_toggle_devtools`, which `core:default` already grants to the chrome; no capability changes. It is shown only when Vite's `import.meta.env.DEV` is set.

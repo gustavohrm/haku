@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: How Haku learns what a content webview is showing, how that becomes tab history, and how dialogs a page opens are shown and answered.
 ---
 
@@ -47,6 +47,8 @@ Browsing history (the SQLite store) records visits, which is a narrower thing th
 - **Not a visit:** a discarded tab, or a restored session, reloading the page it already showed; a redirect; a replaced route; a reload; a retitle.
 
 Anything that is not a visit retitles the latest visit to its URL instead, so a visit carries the title the page settled on. Without the distinction every tab switch in a one-webview pool recorded a fresh visit.
+
+Private reports update the tab's in-memory history and title but never enter the asynchronous persistence queue: neither visits nor retitles reach SQLite. Their state exposes no remote favicon URL, so the default-profile chrome cannot fetch one.
 
 ### The webview's own back and forward
 

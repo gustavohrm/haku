@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -62,7 +62,33 @@ A webview's profile is an option of the WebView2 controller, so it is chosen whe
 
 A separate `data_directory` per container is not an acceptable substitute, because each one starts its own browser process.
 
-Service workers are stopped by watching the DevTools protocol from the chrome webview, which shares the default profile ([Webview pool](specs/webview-pool.md)). Whether that session sees workers started in another profile is checked when private tabs are built.
+Service workers are stopped by watching the DevTools protocol from the chrome webview, which shares the default profile ([Webview pool](specs/webview-pool.md)).
+
+What an InPrivate webview does next to default ones was measured on 2026-10-29, on Tauri 2.12.5, `tauri-runtime-wry` 2.12.3, wry 0.57.0 and WebView2 156.0.4314.50, by driving a dev build over the DevTools protocol:
+
+- It is created in the same browser process as default webviews, with browser extensions enabled on both, and page observation works in it.
+- Its cookies and storage are isolated from the default profile in both directions, and every InPrivate webview shares one private session.
+- That session lives as long as any InPrivate webview exists, a parked one on `about:blank` included. Once all are destroyed, a new one starts empty, while Haku keeps running. Closing a private tab therefore clears nothing unless the last private slot is destroyed with it.
+- After private browsing and a clean exit, none of the visited hosts or stored values were found anywhere in the user data folder. Haku's own history did record them; the engine does not stop that.
+- Installed extensions do not run in it. The engine has no API to allow them ([WebView2Feedback#5081](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5081)).
+- The chrome's DevTools session does not see its service workers. A DevTools session of a private page does, and `ServiceWorker.stopWorker` stops them.
+- A page's new window must be a webview of the same profile, as [Microsoft requires](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2newwindowrequestedeventargs). Handed a default slot, a private page's popup opens without `window.opener`; handed a private slot, it keeps it.
+- wry creates a default webview without error when the runtime lacks `ICoreWebView2Environment10`, so private mode cannot be assumed; the profile's `IsInPrivateModeEnabled` reports it.
+
+#### Private windows
+
+Private windows are implemented in Rust and React. Browser and popup bars carry a persistent labelled **Private** marker on the existing raised chrome surface, keeping the monochrome palette and current theme. Private new-tab pages explain retention and clearing; extension controls and the site menu's persisted keep-site setting are hidden.
+
+Private browsing is a kind of browser window, not a kind of tab, as in other browsers (decided 2026-10-30). A window is private or not from when it opens, and every tab in it is private, so Ctrl+T, duplicating, a split's partner and a page's links follow the window without a rule of their own, and a split never pairs two profiles.
+
+- Ctrl+Shift+N opens one, and a link's menu has "Open link in private window". A page in a private window opens its popups as private popups, its Shift+click windows as private windows, and a tab asked for from a private popup in the private window used last.
+- Closing its last tab closes it, as in other browsers, rather than leaving a home tab that would keep the private session alive.
+- Its tabs share one private session, across private windows. While any private tab exists, one private slot is kept, counted in capacity like any other, so discarding every private tab does not sign them out. When the last private tab closes, every private slot is destroyed, and the next private window starts empty.
+- Nothing about it is written: no history visit or title, no window in the session, no closed tab to reopen, and no setting taken from a site in it. An engine restart therefore loses it.
+- Its tabs show a generic icon. The interface fetching a favicon would send the default profile's cookies to the private site.
+- It has no extension toolbar, since extensions do not run in it.
+- A slot created for it that reports private mode off is destroyed, and the window fails to open, rather than browse in the default profile. Opened through a command, the failure reaches the interface. Opened by Ctrl+Shift+N or by a page, the window closes without saying why, as any failed shortcut or page request does, because Rust has no way yet to send a failure to the interface unasked ([Errors](specs/errors.md#failures-that-must-not-propagate)). Only a runtime without InPrivate support fails here, and the evergreen runtime updates itself. Accepted on 2026-10-30; a general error event would fix it with the other cases.
+- Its service workers are watched from the DevTools session of one of its own slots.
 
 ### One pool across windows
 

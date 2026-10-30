@@ -112,18 +112,29 @@ static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
 /// Source of context menu request ids, unique for the life of the process.
 static NEXT_MENU: AtomicU64 = AtomicU64::new(1);
 
+type PendingDialog = (
+    ICoreWebView2ScriptDialogOpeningEventArgs,
+    ICoreWebView2Deferral,
+    Option<SlotId>,
+);
+type PendingWindow = (
+    ICoreWebView2NewWindowRequestedEventArgs,
+    ICoreWebView2Deferral,
+    Option<SlotId>,
+);
+
 thread_local! {
     /// Dialogs pages are paused on, awaiting an answer.
     ///
     /// Thread-local because the WebView2 objects involved belong to the UI
     /// thread: they are stored by the handler that runs there and taken back by
     /// the answer, which is dispatched there too.
-    static PENDING_DIALOGS: RefCell<HashMap<DialogId, (ICoreWebView2ScriptDialogOpeningEventArgs, ICoreWebView2Deferral)>> =
+    static PENDING_DIALOGS: RefCell<HashMap<DialogId, PendingDialog>> =
         RefCell::new(HashMap::new());
 
     /// Pages waiting on a new window, held like dialogs, and for the same
     /// reason on this thread.
-    static PENDING_WINDOWS: RefCell<HashMap<WindowRequestId, (ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2Deferral)>> =
+    static PENDING_WINDOWS: RefCell<HashMap<WindowRequestId, PendingWindow>> =
         RefCell::new(HashMap::new());
 
     /// Pages waiting on the context menu Haku draws for them, with the items
@@ -132,7 +143,7 @@ thread_local! {
 
     /// The chrome webview's DevTools session and what it has seen of the
     /// profile's service workers. UI-thread only, like the webview itself.
-    static WORKERS: RefCell<Option<(ICoreWebView2, WorkerTracker)>> = const { RefCell::new(None) };
+    static WORKERS: RefCell<HashMap<bool, WorkerWatch>> = RefCell::new(HashMap::new());
 
     /// Extensions this process installed, by id, as the engine handed them
     /// over, to switch on and off. UI-thread only, like the engine's objects.
@@ -742,11 +753,12 @@ fn key_of(code: VIRTUAL_KEY) -> Option<Key> {
 }
 
 pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
+    let slot = SlotId::from_label(webview.label());
     let (sender, receiver) = mpsc::channel();
 
     webview
         .with_webview(move |platform| {
-            let outcome = unsafe { attach_observers(&platform.controller(), &sink) }
+            let outcome = unsafe { attach_observers(&platform.controller(), &sink, slot) }
                 .map_err(|error| HakuError::WindowMissing(error.to_string()));
             let _ = sender.send(outcome);
         })
@@ -763,7 +775,7 @@ pub fn observe_popup<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageS
     webview
         .with_webview(move |platform| {
             let outcome = unsafe { platform.controller().CoreWebView2() }
-                .and_then(|core| unsafe { attach_window_requests(&core, &sink) })
+                .and_then(|core| unsafe { attach_window_requests(&core, &sink, None) })
                 .map_err(|error| HakuError::WindowMissing(error.to_string()));
             let _ = sender.send(outcome);
         })
@@ -796,7 +808,11 @@ pub fn engine_window<R: tauri::Runtime>(webview: &tauri::Webview<R>, timeout: Du
     receiver.recv_timeout(timeout).ok().flatten()
 }
 
-unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink) -> windows::core::Result<()> {
+unsafe fn attach_observers(
+    controller: &ICoreWebView2Controller,
+    sink: &PageSink,
+    slot: Option<SlotId>,
+) -> windows::core::Result<()> {
     let core = controller.CoreWebView2()?;
     let keys = sink.clone();
     attach_key_handler(
@@ -926,15 +942,15 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
             let Some(args) = args else { return Ok(()) };
             let dialog = read_dialog(&args)?;
             let deferral = args.GetDeferral()?;
-            PENDING_DIALOGS.with(|pending| pending.borrow_mut().insert(dialog.id, (args, deferral)));
+            PENDING_DIALOGS.with(|pending| pending.borrow_mut().insert(dialog.id, (args, deferral, slot)));
             sink(PageSignal::DialogRequested(dialog));
             Ok(())
         }))
     };
     core.add_ScriptDialogOpening(&on_dialog, &mut token)?;
 
-    attach_window_requests(&core, sink)?;
-    attach_context_menu(&core, sink)?;
+    attach_window_requests(&core, sink, slot)?;
+    attach_context_menu(&core, sink, slot)?;
 
     // Whether a page is playing audio decides whether a smart policy leaves it
     // running in the background. Older runtimes lack the event, and a page is
@@ -961,7 +977,11 @@ unsafe fn attach_observers(controller: &ICoreWebView2Controller, sink: &PageSink
 
 /// Reports a webview's requests for a new window and to close its own, the
 /// part of [`attach_observers`] an extension's toolbar popup needs too.
-unsafe fn attach_window_requests(core: &ICoreWebView2, sink: &PageSink) -> windows::core::Result<()> {
+unsafe fn attach_window_requests(
+    core: &ICoreWebView2,
+    sink: &PageSink,
+    slot: Option<SlotId>,
+) -> windows::core::Result<()> {
     let mut token = 0i64;
     // Haku opens every window itself, as a tab or a window of its own. wry
     // has already marked the request handled, which on its own opens nothing;
@@ -1002,7 +1022,7 @@ unsafe fn attach_window_requests(core: &ICoreWebView2, sink: &PageSink) -> windo
             args.SetHandled(true)?;
             let request = WindowRequestId(NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
             let deferral = args.GetDeferral()?;
-            PENDING_WINDOWS.with(|pending| pending.borrow_mut().insert(request, (args, deferral)));
+            PENDING_WINDOWS.with(|pending| pending.borrow_mut().insert(request, (args, deferral, slot)));
             sink(PageSignal::WindowRequested {
                 request,
                 url: take_pwstr(uri),
@@ -1034,13 +1054,18 @@ struct PendingMenu {
     args: ICoreWebView2ContextMenuRequestedEventArgs,
     deferral: ICoreWebView2Deferral,
     items: Vec<NativeMenuItem>,
+    slot: Option<SlotId>,
 }
 
 /// Replaces the engine's context menu with the one Haku draws: the request is
 /// marked handled, so the engine shows nothing, and waits on a deferral until
 /// [`answer_context_menu`]. Older runtimes lack the event, and keep the
 /// engine's menu.
-unsafe fn attach_context_menu(core: &ICoreWebView2, sink: &PageSink) -> windows::core::Result<()> {
+unsafe fn attach_context_menu(
+    core: &ICoreWebView2,
+    sink: &PageSink,
+    slot: Option<SlotId>,
+) -> windows::core::Result<()> {
     let Ok(core) = core.cast::<ICoreWebView2_11>() else {
         return Ok(());
     };
@@ -1066,6 +1091,7 @@ unsafe fn attach_context_menu(core: &ICoreWebView2, sink: &PageSink) -> windows:
                         args,
                         deferral,
                         items: menu.items.clone(),
+                        slot,
                     },
                 )
             });
@@ -1186,13 +1212,7 @@ unsafe fn read_items(
 #[cfg(debug_assertions)]
 fn log_item_names(items: &[NativeMenuItem], depth: usize) {
     for item in items {
-        eprintln!(
-            "[context menu] {}{} ({:?}) {:?}",
-            "  ".repeat(depth),
-            item.name,
-            item.kind,
-            item.label
-        );
+        eprintln!("[context menu] {}{} ({:?})", "  ".repeat(depth), item.name, item.kind);
         log_item_names(&item.children, depth + 1);
     }
 }
@@ -1223,18 +1243,121 @@ unsafe fn read_dialog(args: &ICoreWebView2ScriptDialogOpeningEventArgs) -> windo
     })
 }
 
-pub fn stop_idle_workers<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<()> {
+pub fn forget_page<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    let slot = SlotId::from_label(webview.label());
     let (sender, receiver) = mpsc::channel();
-    let app = chrome.app_handle().clone();
+    webview.with_webview(move |platform| {
+        if let Ok(core) = unsafe { platform.controller().CoreWebView2() } {
+            let watched = WORKERS.with(|state| state.borrow().get(&true).is_some_and(|watch| watch.core == core));
+            if watched {
+                release_worker_watch(true);
+            }
+        }
+        let windows: Vec<_> = PENDING_WINDOWS.with(|pending| {
+            pending
+                .borrow_mut()
+                .extract_if(|_, (_, _, owner)| *owner == slot)
+                .map(|(_, entry)| entry)
+                .collect()
+        });
+        for (_, deferral, _) in windows {
+            let _ = unsafe { deferral.Complete() };
+        }
+        let dialogs: Vec<_> = PENDING_DIALOGS.with(|pending| {
+            pending
+                .borrow_mut()
+                .extract_if(|_, (_, _, owner)| *owner == slot)
+                .map(|(_, entry)| entry)
+                .collect()
+        });
+        for (_, deferral, _) in dialogs {
+            let _ = unsafe { deferral.Complete() };
+        }
+        let menus: Vec<_> = PENDING_MENUS.with(|pending| {
+            pending
+                .borrow_mut()
+                .extract_if(|_, menu| menu.slot == slot)
+                .map(|(_, menu)| menu)
+                .collect()
+        });
+        for menu in menus {
+            let _ = unsafe { menu.deferral.Complete() };
+        }
+        let _ = sender.send(());
+    })?;
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))
+}
 
-    chrome
-        .with_webview(move |platform| {
-            let outcome = unsafe { attach_worker_watch(&platform.controller(), app) }
-                .map_err(|error| HakuError::WindowMissing(error.to_string()));
-            let _ = sender.send(outcome);
-        })
-        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+pub fn is_private<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<bool> {
+    let (sender, receiver) = mpsc::channel();
+    webview.with_webview(move |platform| {
+        let outcome = unsafe {
+            (|| -> windows::core::Result<bool> {
+                let profile = platform
+                    .controller()
+                    .CoreWebView2()?
+                    .cast::<ICoreWebView2_13>()?
+                    .Profile()?;
+                let mut enabled = BOOL::default();
+                profile.IsInPrivateModeEnabled(&mut enabled)?;
+                Ok(enabled.as_bool())
+            })()
+        }
+        .map_err(|_| HakuError::Unsupported("runtime cannot verify private mode".into()));
+        let _ = sender.send(outcome);
+    })?;
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+}
 
+struct WorkerWatch {
+    core: ICoreWebView2,
+    tracker: WorkerTracker,
+    receiver: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2DevToolsProtocolEventReceiver,
+    token: i64,
+}
+
+fn release_worker_watch(private: bool) {
+    WORKERS.with(|state| {
+        if let Some(watch) = state.borrow_mut().remove(&private) {
+            unsafe {
+                let _ = watch.receiver.remove_DevToolsProtocolEventReceived(watch.token);
+                let _ = watch.core.CallDevToolsProtocolMethod(
+                    &HSTRING::from("ServiceWorker.disable"),
+                    &HSTRING::from("{}"),
+                    &ignore_result(),
+                );
+            }
+        }
+    });
+}
+
+pub fn stop_idle_workers<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Result<()> {
+    watch_workers(chrome, false)
+}
+
+pub fn watch_private_workers<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    webview: Option<&tauri::Webview<R>>,
+) -> Result<()> {
+    if let Some(webview) = webview {
+        return watch_workers(webview, true);
+    }
+    app.run_on_main_thread(|| release_worker_watch(true))?;
+    Ok(())
+}
+
+fn watch_workers<R: tauri::Runtime>(webview: &tauri::Webview<R>, private: bool) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+    let app = webview.app_handle().clone();
+    webview.with_webview(move |platform| {
+        let outcome = unsafe { attach_worker_watch(&platform.controller(), app, private) }
+            .map_err(|error| HakuError::WindowMissing(error.to_string()));
+        let _ = sender.send(outcome);
+    })?;
     receiver
         .recv_timeout(DISPATCH_TIMEOUT)
         .map_err(|error| HakuError::WindowMissing(error.to_string()))?
@@ -1243,57 +1366,76 @@ pub fn stop_idle_workers<R: tauri::Runtime>(chrome: &tauri::Webview<R>) -> Resul
 unsafe fn attach_worker_watch<R: tauri::Runtime>(
     controller: &ICoreWebView2Controller,
     app: tauri::AppHandle<R>,
+    private: bool,
 ) -> windows::core::Result<()> {
     let core = controller.CoreWebView2()?;
-    WORKERS.with(|state| *state.borrow_mut() = Some((core.clone(), WorkerTracker::default())));
-
+    if WORKERS.with(|state| state.borrow().get(&private).is_some_and(|watch| watch.core == core)) {
+        return Ok(());
+    }
+    release_worker_watch(private);
+    static NEXT_WATCH: AtomicU64 = AtomicU64::new(1);
+    let generation = NEXT_WATCH.fetch_add(1, Ordering::Relaxed);
+    let receiver = core.GetDevToolsProtocolEventReceiver(&HSTRING::from("ServiceWorker.workerVersionUpdated"))?;
     let on_update = DevToolsProtocolEventReceivedEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
         let mut json = PWSTR::null();
         args.ParameterObjectAsJson(&mut json)?;
         let json = take_pwstr(json);
-
         let idle = WORKERS.with(|state| {
             state
                 .borrow_mut()
-                .as_mut()
-                .map(|(_, tracker)| tracker.update(&json))
+                .get_mut(&private)
+                .map(|watch| watch.tracker.update(generation, &json))
                 .unwrap_or_default()
         });
         for (version, token) in idle {
             let app = app.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(IDLE_GRACE);
-                let _ = app.run_on_main_thread(move || stop_if_still_idle(&version, token));
+                let _ = app.run_on_main_thread(move || stop_if_still_idle(private, generation, &version, token));
             });
         }
         Ok(())
     }));
     let mut token = 0i64;
-    core.GetDevToolsProtocolEventReceiver(&HSTRING::from("ServiceWorker.workerVersionUpdated"))?
-        .add_DevToolsProtocolEventReceived(&on_update, &mut token)?;
-
-    // Updates only flow once the domain is enabled, and it stays enabled for
-    // the life of the webview's DevTools session.
-    core.CallDevToolsProtocolMethod(
+    receiver.add_DevToolsProtocolEventReceived(&on_update, &mut token)?;
+    WORKERS.with(|state| {
+        state.borrow_mut().insert(
+            private,
+            WorkerWatch {
+                core: core.clone(),
+                tracker: WorkerTracker::new(generation),
+                receiver,
+                token,
+            },
+        )
+    });
+    let enabled = core.CallDevToolsProtocolMethod(
         &HSTRING::from("ServiceWorker.enable"),
         &HSTRING::from("{}"),
         &ignore_result(),
-    )
+    );
+    if enabled.is_err() {
+        release_worker_watch(private);
+    }
+    enabled
 }
 
-/// Stops a worker the grace period has expired on, unless a page took it back.
-fn stop_if_still_idle(version: &str, token: u64) {
+fn stop_if_still_idle(private: bool, generation: u64, version: &str, token: u64) {
     WORKERS.with(|state| {
         let mut state = state.borrow_mut();
-        let Some((core, tracker)) = state.as_mut() else { return };
-        if !tracker.confirm(version, token) {
+        let Some(watch) = state.get_mut(&private) else {
+            return;
+        };
+        if !watch.tracker.confirm(generation, version, token) {
             return;
         }
-        let params = HSTRING::from(workers::stop_params(version));
         unsafe {
-            let _ =
-                core.CallDevToolsProtocolMethod(&HSTRING::from("ServiceWorker.stopWorker"), &params, &ignore_result());
+            let _ = watch.core.CallDevToolsProtocolMethod(
+                &HSTRING::from("ServiceWorker.stopWorker"),
+                &HSTRING::from(workers::stop_params(version)),
+                &ignore_result(),
+            );
         }
     });
 }
@@ -1306,7 +1448,7 @@ fn ignore_result() -> ICoreWebView2CallDevToolsProtocolMethodCompletedHandler {
 
 pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId, answer: DialogAnswer) -> Result<()> {
     app.run_on_main_thread(move || {
-        let Some((args, deferral)) = PENDING_DIALOGS.with(|pending| pending.borrow_mut().remove(&id)) else {
+        let Some((args, deferral, _)) = PENDING_DIALOGS.with(|pending| pending.borrow_mut().remove(&id)) else {
             return;
         };
         unsafe {
@@ -1347,7 +1489,8 @@ pub fn adopt_window<R: tauri::Runtime>(webview: &tauri::Webview<R>, request: Win
     let (sender, receiver) = mpsc::channel();
     webview
         .with_webview(move |platform| {
-            let Some((args, deferral)) = PENDING_WINDOWS.with(|pending| pending.borrow_mut().remove(&request)) else {
+            let Some((args, deferral, _)) = PENDING_WINDOWS.with(|pending| pending.borrow_mut().remove(&request))
+            else {
                 let _ = sender.send(false);
                 return;
             };
@@ -1371,7 +1514,7 @@ pub fn adopt_window<R: tauri::Runtime>(webview: &tauri::Webview<R>, request: Win
 
 pub fn refuse_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>, request: WindowRequestId) -> Result<()> {
     app.run_on_main_thread(move || {
-        if let Some((_, deferral)) = PENDING_WINDOWS.with(|pending| pending.borrow_mut().remove(&request)) {
+        if let Some((_, deferral, _)) = PENDING_WINDOWS.with(|pending| pending.borrow_mut().remove(&request)) {
             let _ = unsafe { deferral.Complete() };
         }
     })?;

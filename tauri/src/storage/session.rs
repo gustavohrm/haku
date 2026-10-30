@@ -154,7 +154,7 @@ impl Session {
         let windows = browser
             .window_ids()
             .into_iter()
-            .filter(|&window| browser.kind(window) == Some(WindowKind::Normal))
+            .filter(|&window| browser.kind(window) == Some(WindowKind::Normal) && !browser.is_private(window))
             .filter_map(|window| {
                 let state = browser.state_in(window)?;
                 let active = state

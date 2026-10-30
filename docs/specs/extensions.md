@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: How unpacked Chrome extensions are installed and uninstalled, switched on and off, pinned, and opened from the toolbar.
 ---
 
@@ -12,7 +12,7 @@ scope: How unpacked Chrome extensions are installed and uninstalled, switched on
 
 Each subfolder of `extensions/` in the application data directory (`%APPDATA%\com.hakubrowser.app\extensions` on Windows) is one unpacked extension. At startup, off the UI thread, Haku:
 
-1. installs every subfolder into the profile, which every webview shares, so an extension runs in every page;
+1. installs every subfolder into the default profile, so an extension runs in ordinary pages;
 2. switches each one on or off as the settings say.
 
 The folder is the list. Rejected: a list of paths in the settings, added by typing a path. It lets extensions live anywhere, at the cost of a persisted list and interface to edit it, and nothing needed that yet. Settings has a button that opens the folder.
@@ -46,6 +46,8 @@ Rejected: one switch for all extensions. Per-extension switches cover that case 
 `AreBrowserExtensionsEnabled` is an option of the WebView2 environment, fixed when it is created, and every webview sharing a profile must agree on it: a content webview created with a different value fails to be created. Every window's chrome therefore sets it on its builder in `webview::build_window`, and every content webview sets it on its own. It is never turned off, because it cannot change while Haku runs; with no extension installed it loads nothing.
 
 ## The toolbar
+
+Private content uses the engine's InPrivate profile, where installed extensions do not run. Its window state exposes `private: true`; the interface hides the extension toolbar entirely, including pinned icons and the extensions panel button. Rust rejects `open_extension_popup` for a private target even if called directly; the default-profile popup must never act on private content.
 
 Right of the address field, before the developer tools button, the toolbar has an **Extensions** button, a puzzle piece, and to its left a button for each pinned extension, as in Chrome.
 

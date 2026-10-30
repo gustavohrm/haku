@@ -78,7 +78,7 @@ export const commands = {
 	 *  Opens a browser window whose one tab loads `url`, as Shift+clicking a link
 	 *  does. `url` is resolved as the address field resolves it.
 	 */
-	openWindow: (url: string) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_window", { url })),
+	openWindow: (url: string, isPrivate: boolean | null) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_window", { url, isPrivate })),
 	/**
 	 *  Reopens the most recently closed tab, as Ctrl+Shift+T does. Acts on the
 	 *  whole browser: the tab goes back to the window it was closed in.
@@ -168,6 +168,7 @@ export type AddressFocusRequested = TabId;
 /**  The projection of browser state one window's interface renders. */
 export type BrowserState = {
 	kind: WindowKind,
+	private: boolean,
 	/**  The window's tabs, in order. */
 	tabs: Tab[],
 	active: TabId | null,

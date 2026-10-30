@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: Browser keyboard shortcuts, how they are read wherever focus is, and reopening closed tabs.
 ---
 
@@ -22,12 +22,15 @@ Native content focus is observed through `ICoreWebView2Controller::GotFocus` (`F
 
 ## The keymap
 
+Ctrl+Shift+N opens a private browser window (`NewPrivateWindow`); Ctrl+N opens an ordinary browser window. Tabs opened from a private popup use the private browser window used last. Private tabs never enter the closed-tab stack, so Ctrl+Shift+T can only reopen ordinary tabs, in an ordinary window.
+
 Bindings follow Chrome's, because that is what users' hands already know. Modifiers match exactly: Ctrl+Shift+W is not Ctrl+W.
 
 | Keys                         | Does                                                                            |
 | ---------------------------- | ------------------------------------------------------------------------------- |
 | Ctrl+T                       | Open a new tab, in the address field                                            |
 | Ctrl+N                       | Open a new browser window                                                       |
+| Ctrl+Shift+N                 | Open a new private browser window                                               |
 | Ctrl+W, Ctrl+F4              | Close the tab                                                                   |
 | Ctrl+Shift+T                 | Reopen the last closed tab                                                      |
 | Ctrl+Tab, Ctrl+PageDown      | Next tab, wrapping                                                              |

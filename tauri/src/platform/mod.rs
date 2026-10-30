@@ -380,6 +380,33 @@ pub fn reveal_folder(folder: &Path) -> Result<()> {
     backend::reveal_folder(folder)
 }
 
+/// Releases native requests and watcher handles before destroying a page.
+///
+/// # Errors
+/// Returns a native dispatch failure.
+pub fn forget_page<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    backend::forget_page(webview)
+}
+
+/// Checks the native profile before a private slot may navigate.
+///
+/// # Errors
+/// Returns the platform failure when private mode cannot be verified.
+pub fn is_private<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<bool> {
+    backend::is_private(webview)
+}
+
+/// Moves the private worker watcher to a surviving private slot, or releases it.
+///
+/// # Errors
+/// Returns a native dispatch or DevTools failure.
+pub fn watch_private_workers<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    webview: Option<&tauri::Webview<R>>,
+) -> Result<()> {
+    backend::watch_private_workers(app, webview)
+}
+
 /// Stops service workers that keep running after every page using them is gone.
 ///
 /// Attached once, to the chrome webview: it shares the browser profile with

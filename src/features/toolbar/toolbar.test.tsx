@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { openExtensionPopup } = vi.hoisted(() => ({ openExtensionPopup: vi.fn() }));
+const { openExtensionPopup, state } = vi.hoisted(() => ({ openExtensionPopup: vi.fn(), state: { private: false } }));
 
 vi.mock("@bindings", () => ({
   events: { addressFocusRequested: () => ({ listen: async () => () => {} }) },
@@ -11,6 +11,7 @@ vi.mock("@bindings", () => ({
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
 vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup } }));
 vi.mock("@ipc/hooks", () => ({
+  useBrowserState: () => state,
   useExtensions: () => ({
     installed: [{ id: "extension", name: "Example extension", popup: "chrome-extension://id/popup.html", icon: null }],
   }),
@@ -39,6 +40,7 @@ describe("toolbar extension popups", () => {
   let root: Root;
 
   beforeEach(() => {
+    state.private = false;
     openExtensionPopup.mockClear();
     vi.stubGlobal(
       "ResizeObserver",
@@ -57,6 +59,27 @@ describe("toolbar extension popups", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("labels a private window beside the address", async () => {
+    state.private = true;
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    expect(container.textContent).toContain("Private");
+  });
+
+  it("hides extensions in private windows", async () => {
+    state.private = true;
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    expect(container.querySelector('[aria-label="Extensions"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Example extension"]')).toBeNull();
+  });
+
+  it("hides site-derived settings while retaining the per-tab control", async () => {
+    state.private = true;
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')?.click());
+    expect(document.body.textContent).toContain("Keep this tab loaded");
+    expect(document.body.textContent).not.toContain("Don't unload this site");
   });
 
   it("passes the focused tab to a pinned extension popup, including after selection changes", async () => {

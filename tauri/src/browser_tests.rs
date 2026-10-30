@@ -6,6 +6,376 @@ const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
 
 #[test]
+fn pressure_keeps_one_anchor_when_several_private_pages_are_discarded_together() {
+    let mut browser = Browser::new(4);
+    let (first, _) = browser.open_private_window("https://first.test");
+    let (second, _) = browser.open_private_window("https://second.test");
+    browser.slots_created(browser.slot_ids());
+    browser.open_tab_in(browser.window_of(first).unwrap(), HOME, true);
+    browser.open_tab_in(browser.window_of(second).unwrap(), HOME, true);
+    browser.set_pressure(Pressure::Tight);
+    browser.set_optimization(4, Policy::Always, Policy::Always);
+    assert_eq!(
+        browser
+            .slots()
+            .iter()
+            .filter(|slot| slot.profile == Profile::Private)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn adopting_a_private_popup_creates_its_slot_before_destroying_the_old_anchor() {
+    let mut browser = Browser::new(1);
+    let (parent, _) = browser.open_private_window("https://secret.test");
+    let anchor = browser.tab(parent).unwrap().slot().unwrap();
+    browser.slots_created([anchor]);
+    let window = browser.window_of(parent).unwrap();
+    browser.open_tab_in(window, HOME, true);
+    browser.close_tab(parent, HOME).unwrap();
+    let (_, effects) = browser.open_requested_profile(
+        None,
+        Profile::Private,
+        "https://popup.test",
+        Opening::Popup {
+            request: WindowRequestId(8),
+            placement: Placement::default(),
+        },
+    );
+    let replacement = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Adopt { slot, .. } => Some(*slot),
+            _ => None,
+        })
+        .unwrap();
+    assert!(!effects.contains(&Effect::Destroy { slot: anchor }));
+    assert!(browser.slot_ids().contains(&anchor));
+    let retirement = browser.slots_created([replacement]);
+    assert!(retirement.contains(&Effect::Destroy { slot: anchor }));
+    assert_eq!(browser.slot_ids(), [replacement]);
+}
+
+#[test]
+fn failed_private_popup_creation_preserves_the_anchor_and_capacity() {
+    let mut browser = Browser::new(1);
+    let (parent, _) = browser.open_private_window("https://secret.test");
+    let anchor = browser.tab(parent).unwrap().slot().unwrap();
+    browser.slots_created([anchor]);
+    let home = browser.window_of(parent).unwrap();
+    browser.open_tab_in(home, HOME, true);
+    browser.close_tab(parent, HOME).unwrap();
+    let (popup, effects) = browser.open_requested_profile(
+        None,
+        Profile::Private,
+        "https://popup.test",
+        Opening::Popup {
+            request: WindowRequestId(8),
+            placement: Placement::default(),
+        },
+    );
+    let failed = browser.tab(popup).unwrap().slot().unwrap();
+    assert!(
+        !effects.contains(&Effect::Destroy { slot: anchor }),
+        "retirement must wait for native success"
+    );
+    let cleanup = browser.slots_failed([failed]);
+    assert!(cleanup.contains(&Effect::Destroy { slot: failed }));
+    assert!(!cleanup.contains(&Effect::Destroy { slot: anchor }));
+    assert!(browser.slots().iter().any(|slot| slot.id == anchor));
+    assert!(!browser.slot_ids().contains(&failed));
+    assert!(!browser.slot_windows.contains_key(&failed));
+    assert_eq!(browser.slots().len(), 1);
+    assert!(browser.slots().len() <= browser.effective_capacity());
+}
+
+#[test]
+fn failed_private_creation_is_removed_before_its_window_can_transfer_slots() {
+    let mut browser = Browser::new(1);
+    browser.open_private_window(HOME);
+    let (tab, _) = browser.open_private_window("https://failed.test");
+    let failed = browser.tab(tab).unwrap().slot().unwrap();
+    let window = browser.window_of(tab).unwrap();
+    let cleanup = browser.slots_failed([failed]);
+    assert!(browser.state_in(window).is_none());
+    assert!(
+        !browser.slot_ids().contains(&failed),
+        "a nonexistent slot must not move to the surviving window"
+    );
+    assert!(!browser.slot_windows.contains_key(&failed));
+    assert!(!cleanup
+        .iter()
+        .any(|effect| matches!(effect, Effect::Move { slot, .. } if *slot == failed)));
+}
+
+#[test]
+fn failed_private_siblings_are_removed_before_any_window_transfers_them() {
+    let mut browser = Browser::new(2);
+    let (left, _) = browser.open_private_window("https://left.test");
+    let window = browser.window_of(left).unwrap();
+    let (right, _) = browser.open_tab_in(window, "https://right.test", true);
+    let failed = [
+        browser.tab(left).unwrap().slot().unwrap(),
+        browser.tab(right).unwrap().slot().unwrap(),
+    ];
+    let (survivor, _) = browser.open_private_window(HOME);
+    let surviving_window = browser.window_of(survivor).unwrap();
+    let cleanup = browser.slots_failed(failed);
+    assert!(
+        browser.state_in(surviving_window).is_some(),
+        "failed slots must not be transferred and then close the healthy window"
+    );
+    assert!(!cleanup
+        .iter()
+        .any(|effect| matches!(effect, Effect::Move { slot, .. } if failed.contains(slot))));
+    assert!(browser.slot_ids().iter().all(|slot| !failed.contains(slot)));
+}
+
+#[test]
+fn ensuring_a_private_slot_retires_the_anchor_only_after_native_success() {
+    for succeeds in [false, true] {
+        let mut browser = Browser::new(2).with_policies(Policy::Always, Policy::Always);
+        let (parent, _) = browser.open_private_window("https://secret.test");
+        let anchor = browser.tab(parent).unwrap().slot().unwrap();
+        browser.slots_created([anchor]);
+        let home = browser.window_of(parent).unwrap();
+        browser.open_private_window(HOME);
+        browser.set_pressure(Pressure::Tight);
+        // Binding the new visible page precedes discarding the old one. The
+        // pressure trim must not destroy the old native session anchor yet.
+        let (new, effects) = browser.open_tab_in(home, "https://new.test", true);
+        let replacement = browser.tab(new).unwrap().slot().unwrap();
+        assert_ne!(replacement, anchor);
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::EnsureSlot { slot, .. } if *slot == replacement)));
+        assert!(!effects.contains(&Effect::Destroy { slot: anchor }));
+        if succeeds {
+            let retirement = browser.slots_created([replacement]);
+            assert!(retirement.contains(&Effect::Destroy { slot: anchor }));
+            assert_eq!(browser.slot_ids(), [replacement]);
+        } else {
+            browser.slots_failed([replacement]);
+            assert_eq!(browser.slot_ids(), [anchor]);
+        }
+        assert!(browser.slots().len() <= browser.effective_capacity());
+    }
+}
+
+#[test]
+fn private_anchor_does_not_hide_other_eviction_and_trimming_candidates() {
+    for trim in [false, true] {
+        let mut browser = Browser::new(3);
+        let (private, _) = browser.open_private_window("https://secret.test");
+        let window = browser.window_of(private).unwrap();
+        browser.open_tab_in(window, HOME, true);
+        let (old, _) = browser.open_tab("https://old.test", true);
+        browser.open_tab("https://current.test", true);
+        if trim {
+            browser.set_capacity(2);
+            assert_eq!(browser.slots().len(), 2);
+        } else {
+            let (new, _) = browser.open_tab("https://new.test", true);
+            assert!(browser.tab(new).unwrap().slot().is_some());
+        }
+        assert!(browser.tab(old).unwrap().slot().is_none());
+        assert!(browser.slots().iter().any(|slot| slot.profile == Profile::Private));
+    }
+}
+
+#[test]
+fn queued_private_requests_expire_with_the_private_session() {
+    let mut browser = Browser::new(1);
+    let (first, _) = browser.open_private_window(HOME);
+    let epoch = browser.private_session();
+    let (second, _) = browser.open_private_window(HOME);
+    browser.close_window(browser.window_of(first).unwrap());
+    assert!(browser.accepts_private_request(epoch));
+    browser.close_window(browser.window_of(second).unwrap());
+    assert!(!browser.accepts_private_request(epoch));
+    browser.open_private_window(HOME);
+    assert!(!browser.accepts_private_request(epoch));
+}
+
+#[test]
+fn closing_a_private_windows_last_tab_exits_when_no_browser_window_remains() {
+    let mut browser = Browser::new(1);
+    let (private, _) = browser.open_private_window("https://secret.test");
+    browser.close_window(WindowId(1));
+    let effects = browser.close_tab(private, HOME).unwrap();
+    assert!(effects.contains(&Effect::Quit));
+    assert!(browser.tabs().is_empty());
+    assert!(browser.slots().is_empty());
+}
+
+#[test]
+fn private_tabs_cannot_supply_persisted_site_settings_or_extension_targets() {
+    let mut browser = Browser::new(2);
+    let (normal, _) = browser.open_tab("https://public.test", true);
+    let (private, _) = browser.open_private_window("https://secret.test");
+    let private_window = browser.window_of(private).unwrap();
+    assert!(browser.allow_site_settings(private_window).is_err());
+    assert!(browser.extension_tab_in(private_window, private).is_err());
+    assert!(browser.allow_site_settings(browser.window_of(normal).unwrap()).is_ok());
+    browser.close_window(private_window);
+    assert!(
+        browser.allow_site_settings(private_window).is_err(),
+        "a queued command from a closed private chrome cannot persist site settings"
+    );
+}
+
+#[test]
+fn default_popup_tabs_never_route_into_the_last_used_private_window() {
+    let mut browser = Browser::new(1);
+    let (normal, _) = browser.open_tab("https://public.test", true);
+    let slot = browser.tab(normal).unwrap().slot().unwrap();
+    let (popup, _) = browser.open_from(
+        slot,
+        "https://public.test/login",
+        Opening::Popup {
+            request: WindowRequestId(77),
+            placement: Placement::default(),
+        },
+    );
+    let popup_window = browser.window_of(popup).unwrap();
+    browser.open_private_window(HOME);
+    let (child, _) = browser.open_tab_in(popup_window, HOME, true);
+    assert!(!browser.is_private(browser.window_of(child).unwrap()));
+}
+
+#[test]
+fn a_failed_private_slot_closes_its_window() {
+    let mut browser = Browser::new(1);
+    let (private, _) = browser.open_private_window("https://secret.test");
+    let window = browser.window_of(private).unwrap();
+    let slot = browser.tab(private).unwrap().slot().unwrap();
+    let effects = browser.slots_failed([slot]);
+    assert!(browser.state_in(window).is_none());
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Destroy { slot: destroyed } if *destroyed == slot)));
+}
+
+#[test]
+fn closing_the_last_private_tab_closes_its_window_and_destroys_the_session() {
+    let mut browser = Browser::new(1);
+    let (tab, _) = browser.open_private_window("https://secret.test");
+    let window = browser.window_of(tab).unwrap();
+    let effects = browser.close_tab(tab, HOME).unwrap();
+    assert!(browser.state_in(window).is_none());
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::CloseWindow { window: closed } if *closed == window)));
+    assert!(browser.slots().iter().all(|slot| slot.profile != Profile::Private));
+}
+
+#[test]
+fn same_url_in_another_profile_requires_a_new_slot() {
+    let mut browser = Browser::new(1);
+    let (normal, _) = browser.open_tab("https://same.test", true);
+    let old = browser.tab(normal).unwrap().slot().unwrap();
+    browser.navigate(normal, HOME).unwrap();
+    let (private, effects) = browser.open_private_window("https://same.test");
+    let new = browser.tab(private).unwrap().slot().unwrap();
+    assert_ne!(old, new);
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Destroy { slot } if *slot == old)));
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::EnsureSlot { slot, profile: Profile::Private, .. } if *slot == new)));
+}
+
+#[test]
+fn private_pages_never_offer_persistent_history_or_remote_favicons() {
+    let mut browser = Browser::new(1);
+    let (tab, _) = browser.open_private_window("https://secret.test");
+    let window = browser.window_of(tab).unwrap();
+    assert!(browser.state_in(window).unwrap().private);
+    let slot = browser.tab(tab).unwrap().slot().unwrap();
+    assert!(browser
+        .report_page(
+            slot,
+            &[Commit {
+                url: "https://secret.test".into(),
+                kind: NavigationKind::Push
+            }],
+            Some("Secret".into())
+        )
+        .is_none());
+    assert_eq!(browser.tab(tab).unwrap().history.current().title, "Secret");
+    assert!(browser.tab(tab).unwrap().history.current().favicon.is_none());
+    browser.open_tab_in(window, HOME, true);
+    browser.close_tab(tab, HOME).unwrap();
+    assert!(browser.reopen_closed_tab().is_empty());
+}
+
+#[test]
+fn private_anchor_survives_discard_pressure_and_other_private_windows_closing() {
+    let mut browser = Browser::new(1).with_policies(Policy::Always, Policy::Always);
+    let (first, _) = browser.open_private_window("https://secret.test");
+    let first_window = browser.window_of(first).unwrap();
+    browser.open_tab_in(first_window, HOME, true);
+    browser.tick(100_000, Pressure::Tight, HashMap::new());
+    assert!(browser.tab(first).unwrap().slot().is_none());
+    assert_eq!(
+        browser
+            .slots()
+            .iter()
+            .filter(|slot| slot.profile == Profile::Private)
+            .count(),
+        1
+    );
+    let (second, _) = browser.open_private_window(HOME);
+    let second_window = browser.window_of(second).unwrap();
+    browser.close_window(first_window);
+    assert_eq!(
+        browser
+            .slots()
+            .iter()
+            .filter(|slot| slot.profile == Profile::Private)
+            .count(),
+        1
+    );
+    browser.close_window(second_window);
+    assert!(browser.slots().iter().all(|slot| slot.profile == Profile::Default));
+}
+
+#[test]
+fn private_popup_and_its_tabs_inherit_profile_even_after_opener_closes() {
+    let mut browser = Browser::new(1);
+    let (parent, _) = browser.open_private_window("https://secret.test");
+    let home = browser.window_of(parent).unwrap();
+    let slot = browser.tab(parent).unwrap().slot().unwrap();
+    let (popup, effects) = browser.open_from(
+        slot,
+        "https://login.test",
+        Opening::Popup {
+            request: WindowRequestId(900),
+            placement: Placement::default(),
+        },
+    );
+    let popup_window = browser.window_of(popup).unwrap();
+    assert!(browser.is_private(popup_window));
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Adopt {
+            profile: Profile::Private,
+            ..
+        }
+    )));
+    browser.focus(WindowId(1));
+    let (child, _) = browser.open_tab_in(popup_window, HOME, true);
+    assert_eq!(browser.window_of(child), Some(home));
+    browser.close_window(home);
+    let (child, _) = browser.open_tab_in(popup_window, HOME, true);
+    assert!(browser.is_private(browser.window_of(child).unwrap()));
+    let (late, _) = browser.open_requested_profile(None, Profile::Private, "https://late.test", Opening::Window);
+    assert!(browser.is_private(browser.window_of(late).unwrap()));
+}
+
+#[test]
 fn reselecting_the_current_tab_reconciles_background_grace_under_fresh_pressure() {
     let (mut browser, ids) = browser_with(3, &["https://background.test", "https://current.test"]);
     browser.set_optimization(3, Policy::Smart, Policy::Smart);
@@ -182,6 +552,7 @@ fn selecting_a_discarded_tab_reloads_its_url_into_the_slot() {
     let effects = browser.select_tab(ids[0], 0).unwrap();
 
     assert!(effects.contains(&Effect::EnsureSlot {
+        profile: Profile::Default,
         slot: SlotId(0),
         url: "https://a.test".to_string(),
         window: browser.main_window(),
@@ -469,6 +840,7 @@ fn a_single_page_app_route_change_is_what_the_tab_returns_to() {
     let effects = browser.select_tab(ids[0], 2).unwrap();
 
     assert!(effects.contains(&Effect::EnsureSlot {
+        profile: Profile::Default,
         slot,
         url: "https://spa.test/thread/42".to_string(),
         window: browser.main_window(),
@@ -1237,6 +1609,7 @@ fn an_evicted_page_is_read_before_another_tab_takes_its_slot() {
         capture: true,
     };
     let ensure = Effect::EnsureSlot {
+        profile: Profile::Default,
         slot,
         url: "https://b.test".into(),
         window: browser.main_window(),
@@ -1871,6 +2244,7 @@ fn a_popup_opens_in_a_connected_tab_and_its_opener_keeps_running() {
     let slot = slot_of(&browser, popup).unwrap();
     assert_ne!(slot, opener);
     assert!(effects.contains(&Effect::Adopt {
+        profile: Profile::Default,
         slot,
         request: REQUEST,
         url: "https://login.test".to_string(),
@@ -2070,6 +2444,7 @@ fn a_popup_opens_in_a_window_of_its_own_connected_to_its_opener() {
     }));
     let slot = slot_of(&browser, popup).unwrap();
     assert!(effects.contains(&Effect::Adopt {
+        profile: Profile::Default,
         slot,
         request: REQUEST,
         url: "https://login.test".to_string(),
@@ -2407,6 +2782,7 @@ fn reloading_a_crashed_tab_loads_its_page_again() {
 
     let slot = slot_of(&browser, ids[0]).expect("the tab holds a webview again");
     assert!(effects.contains(&Effect::EnsureSlot {
+        profile: Profile::Default,
         slot,
         url: "https://a.test".to_string(),
         window: browser.main_window(),
@@ -3002,8 +3378,11 @@ fn split_failed_acquisition_keeps_the_assignment_and_healthy_sibling() {
         .unwrap()
         .id;
     browser.pool.remove(parked);
-    browser.pool.acquire_new(left);
-    assert_eq!(browser.pool.acquire(right, 2, None), Err(HakuError::NoSlotAvailable));
+    browser.pool.acquire_new(left, Profile::Default);
+    assert_eq!(
+        browser.pool.acquire(right, 2, None, Profile::Default),
+        Err(HakuError::NoSlotAvailable)
+    );
     assert!(browser.bind(right).is_empty());
     assert_eq!(browser.tab(right).unwrap().presence, TabPresence::Discarded);
     assert_eq!(pane_tabs(&browser, window), [left, right]);
@@ -3023,7 +3402,7 @@ fn native_creation_failure_keeps_the_split_assigned_and_reload_recreates_only_it
         .iter()
         .any(|effect| matches!(effect, Effect::EnsureSlot { slot, .. } if *slot == failed)));
     // Simulate the native executor reporting that EnsureSlot failed.
-    assert_eq!(browser.slot_failed(failed), vec![Effect::Destroy { slot: failed }]);
+    assert_eq!(browser.slots_failed([failed]), vec![Effect::Destroy { slot: failed }]);
     assert_eq!(browser.tab(right).unwrap().presence, TabPresence::Discarded);
     assert!(!browser.tab(right).unwrap().restoring);
     assert_eq!(pane_tabs(&browser, window), [left, right]);
@@ -3059,7 +3438,7 @@ fn native_creation_and_adoption_failures_are_retryable_in_a_single_pane() {
             matches!(effect, Effect::EnsureSlot { .. })
         }));
         let failed = slot_of(&browser, tab).unwrap();
-        browser.slot_failed(failed);
+        browser.slots_failed([failed]);
         assert_eq!(browser.tab(tab).unwrap().presence, TabPresence::Discarded);
         assert!(!browser.connected.contains(&tab));
         assert_eq!(browser.active(), Some(tab));

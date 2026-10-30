@@ -50,16 +50,27 @@ const EXTENSION_SCHEME: &str = "chrome-extension://";
 /// that a page picked up again in the meantime is left alone.
 #[derive(Debug, Default)]
 pub struct WorkerTracker {
+    generation: u64,
     idle: HashMap<String, u64>,
     next_token: u64,
 }
 
 impl WorkerTracker {
+    pub fn new(generation: u64) -> Self {
+        Self {
+            generation,
+            ..Self::default()
+        }
+    }
+
     /// Records a `ServiceWorker.workerVersionUpdated` event's parameters.
     ///
     /// @returns The workers that just became idle, each with the token to pass
     /// to [`Self::confirm`] once the grace period is over.
-    pub fn update(&mut self, json: &str) -> Vec<(String, u64)> {
+    pub fn update(&mut self, generation: u64, json: &str) -> Vec<(String, u64)> {
+        if generation != self.generation {
+            return Vec::new();
+        }
         let Ok(updated) = serde_json::from_str::<VersionsUpdated>(json) else {
             return Vec::new();
         };
@@ -87,7 +98,10 @@ impl WorkerTracker {
     ///
     /// A `true` answer is final: the worker is forgotten until it reports
     /// itself again.
-    pub fn confirm(&mut self, version: &str, token: u64) -> bool {
+    pub fn confirm(&mut self, generation: u64, version: &str, token: u64) -> bool {
+        if generation != self.generation {
+            return false;
+        }
         if self.idle.get(version) != Some(&token) {
             return false;
         }
@@ -104,6 +118,25 @@ pub fn stop_params(version: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_delayed_stop_from_an_old_watch_cannot_stop_the_new_watches_identical_worker() {
+        let mut old = WorkerTracker::new(1);
+        let token = old.update(1, &event("7", "running", &[]))[0].1;
+        let mut current = WorkerTracker::new(2);
+        let current_token = current.update(2, &event("7", "running", &[]))[0].1;
+        assert_eq!(token, current_token, "tokens restart when the watch changes");
+        assert!(!current.confirm(1, "7", token));
+        assert!(current.confirm(2, "7", current_token));
+    }
+
+    #[test]
+    fn a_delayed_update_from_an_old_watch_cannot_change_the_new_watches_worker() {
+        let mut current = WorkerTracker::new(2);
+        let token = current.update(2, &event("7", "running", &[]))[0].1;
+        assert!(current.update(1, &event("7", "running", &["old-page"])).is_empty());
+        assert!(current.confirm(2, "7", token));
+    }
 
     fn event(version: &str, status: &str, clients: &[&str]) -> String {
         event_at("https://a.test/sw.js", version, status, clients)
@@ -127,10 +160,10 @@ mod tests {
     fn a_worker_left_running_with_no_page_becomes_idle() {
         let mut tracker = WorkerTracker::default();
 
-        let idle = tracker.update(&event("0", "running", &[]));
+        let idle = tracker.update(0, &event("0", "running", &[]));
 
         assert_eq!(idle.len(), 1);
-        assert!(tracker.confirm("0", idle[0].1));
+        assert!(tracker.confirm(0, "0", idle[0].1));
     }
 
     #[test]
@@ -138,59 +171,59 @@ mod tests {
         let mut tracker = WorkerTracker::default();
         let event = event_at("chrome-extension://abc/background.js", "7", "running", &[]);
 
-        assert!(tracker.update(&event).is_empty());
+        assert!(tracker.update(0, &event).is_empty());
     }
 
     #[test]
     fn a_worker_a_page_is_using_is_never_idle() {
         let mut tracker = WorkerTracker::default();
 
-        assert!(tracker.update(&event("0", "running", &["page"])).is_empty());
+        assert!(tracker.update(0, &event("0", "running", &["page"])).is_empty());
     }
 
     #[test]
     fn a_worker_that_is_not_running_needs_no_stopping() {
         let mut tracker = WorkerTracker::default();
 
-        assert!(tracker.update(&event("0", "stopped", &[])).is_empty());
-        assert!(tracker.update(&event("0", "starting", &[])).is_empty());
+        assert!(tracker.update(0, &event("0", "stopped", &[])).is_empty());
+        assert!(tracker.update(0, &event("0", "starting", &[])).is_empty());
     }
 
     #[test]
     fn a_page_picking_the_worker_up_again_cancels_the_pending_stop() {
         let mut tracker = WorkerTracker::default();
-        let idle = tracker.update(&event("0", "running", &[]));
+        let idle = tracker.update(0, &event("0", "running", &[]));
 
-        tracker.update(&event("0", "running", &["page"]));
+        tracker.update(0, &event("0", "running", &["page"]));
 
-        assert!(!tracker.confirm("0", idle[0].1));
+        assert!(!tracker.confirm(0, "0", idle[0].1));
     }
 
     #[test]
     fn going_idle_again_issues_a_new_token_so_the_earlier_wait_does_not_count() {
         let mut tracker = WorkerTracker::default();
-        let first = tracker.update(&event("0", "running", &[]))[0].1;
-        tracker.update(&event("0", "running", &["page"]));
-        let second = tracker.update(&event("0", "running", &[]))[0].1;
+        let first = tracker.update(0, &event("0", "running", &[]))[0].1;
+        tracker.update(0, &event("0", "running", &["page"]));
+        let second = tracker.update(0, &event("0", "running", &[]))[0].1;
 
-        assert!(!tracker.confirm("0", first));
-        assert!(tracker.confirm("0", second));
+        assert!(!tracker.confirm(0, "0", first));
+        assert!(tracker.confirm(0, "0", second));
     }
 
     #[test]
     fn repeated_reports_of_the_same_idle_worker_keep_its_original_wait() {
         let mut tracker = WorkerTracker::default();
-        let first = tracker.update(&event("0", "running", &[]))[0].1;
+        let first = tracker.update(0, &event("0", "running", &[]))[0].1;
 
-        assert!(tracker.update(&event("0", "running", &[])).is_empty());
-        assert!(tracker.confirm("0", first));
+        assert!(tracker.update(0, &event("0", "running", &[])).is_empty());
+        assert!(tracker.confirm(0, "0", first));
     }
 
     #[test]
     fn an_unreadable_event_changes_nothing() {
         let mut tracker = WorkerTracker::default();
 
-        assert!(tracker.update("not json").is_empty());
+        assert!(tracker.update(0, "not json").is_empty());
     }
 
     #[test]

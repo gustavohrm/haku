@@ -77,9 +77,11 @@ impl Request {
             return Ok(action);
         }
         action.effects = match shortcut {
-            Shortcut::NewTab | Shortcut::NewWindow => {
+            Shortcut::NewTab | Shortcut::NewWindow | Shortcut::NewPrivateWindow => {
                 let (tab, effects) = if shortcut == Shortcut::NewTab {
                     browser.open_tab_in(self.window, home, true)
+                } else if shortcut == Shortcut::NewPrivateWindow {
+                    browser.open_private_window(home)
                 } else {
                     browser.open_window(home)
                 };
@@ -148,6 +150,19 @@ mod tests {
     use crate::model::{Shortcut, SlotId, TabId};
 
     const HOME: &str = "haku://new-tab";
+
+    #[test]
+    fn new_private_window_requests_the_address_of_its_private_home_tab() {
+        let (mut browser, _) = pages(1);
+        let action = Request::chrome(browser.main_window())
+            .prepare(&mut browser, Shortcut::NewPrivateWindow, HOME, 1)
+            .unwrap();
+        let tab = action.address.expect("focus the new address field");
+        let window = browser.window_of(tab).unwrap();
+        assert!(browser.is_private(window));
+        assert_eq!(browser.active_in(window), Some(tab));
+        assert_eq!(browser.tab(tab).unwrap().url(), HOME);
+    }
 
     fn pages(capacity: usize) -> (Browser, [TabId; 3]) {
         let mut browser = Browser::new(capacity);

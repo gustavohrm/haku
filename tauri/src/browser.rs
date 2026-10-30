@@ -8,7 +8,7 @@ use specta::Type;
 use crate::error::{HakuError, Result};
 use crate::model::{
     is_internal, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Loss, LossSignal, NavigationKind,
-    PageDialog, PageState, Placement, Policy, Pressure, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit,
+    PageDialog, PageState, Placement, Policy, Pressure, Profile, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit,
     WebviewPool, WindowId, WindowKind, WindowRequestId,
 };
 
@@ -29,6 +29,8 @@ pub const GRACE_MS: u64 = 60_000;
 /// window, a webview, or an event loop.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
+    /// The final private browser window closed; nothing can be restored.
+    Quit,
     /// Create the slot's webview in `window` if it does not exist, otherwise
     /// navigate it. An existing webview is already where it belongs: a
     /// [`Effect::Move`] precedes this when it is not.
@@ -36,6 +38,7 @@ pub enum Effect {
         slot: SlotId,
         url: String,
         window: WindowId,
+        profile: Profile,
     },
     /// Park the slot on [`BLANK_URL`] to release the page it was holding.
     Blank {
@@ -104,6 +107,7 @@ pub enum Effect {
         request: WindowRequestId,
         url: String,
         window: WindowId,
+        profile: Profile,
     },
     /// Move the slot's webview into another window, for a tab there. Precedes
     /// anything else done to the slot for that tab.
@@ -204,6 +208,7 @@ pub enum Position {
 #[serde(rename_all = "camelCase")]
 pub struct BrowserState {
     pub kind: WindowKind,
+    pub private: bool,
     /// The window's tabs, in order.
     pub tabs: Vec<Tab>,
     pub active: Option<TabId>,
@@ -251,6 +256,7 @@ pub struct ViewportTarget {
 struct Window {
     id: WindowId,
     kind: WindowKind,
+    private: bool,
     viewports: Vec<ViewportAssignment>,
     focused_viewport: String,
     layout_revision: u64,
@@ -267,6 +273,7 @@ impl Window {
         Self {
             id,
             kind,
+            private: false,
             viewports: Vec::new(),
             focused_viewport: INITIAL_VIEWPORT.into(),
             layout_revision: 0,
@@ -358,6 +365,7 @@ pub struct Browser {
     /// normal one: closing the last is quitting, which is the caller's to do.
     windows: Vec<Window>,
     next_window: u64,
+    private_session: u64,
     pool: WebviewPool,
     /// The window each slot's webview is in. A webview stays where it is when
     /// it is parked, and moves when a tab in another window takes it.
@@ -417,6 +425,7 @@ impl Browser {
             homes: HashMap::new(),
             windows: vec![Window::new(WindowId(1), WindowKind::Normal)],
             next_window: 2,
+            private_session: 0,
             pool: WebviewPool::new(capacity),
             slot_windows: HashMap::new(),
             slot_urls: HashMap::new(),
@@ -539,6 +548,7 @@ impl Browser {
         );
         Some(BrowserState {
             kind: entry.kind,
+            private: entry.private,
             tabs: self.tabs_in(window).cloned().collect(),
             active: entry.active(),
             viewports: entry.viewports.clone(),
@@ -625,6 +635,64 @@ impl Browser {
         self.window(window).map(|window| window.kind)
     }
 
+    pub fn is_private(&self, window: WindowId) -> bool {
+        self.window(window).is_some_and(|window| window.private)
+    }
+
+    pub fn profile_of(&self, tab: TabId) -> Profile {
+        if self.window_of(tab).is_some_and(|window| self.is_private(window)) {
+            Profile::Private
+        } else {
+            Profile::Default
+        }
+    }
+
+    /// # Errors
+    /// Private sites cannot contribute to persisted settings.
+    pub fn allow_site_settings(&self, window: WindowId) -> Result<()> {
+        let entry = self
+            .window(window)
+            .ok_or_else(|| HakuError::WindowMissing(window.label()))?;
+        if entry.private {
+            Err(HakuError::Unsupported("private sites cannot change settings".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// # Errors
+    /// Rejects private tabs and tabs not visible in the caller's window.
+    pub fn extension_tab_in(&self, window: WindowId, tab: TabId) -> Result<&Tab> {
+        self.allow_site_settings(window)?;
+        self.visible_tab_in(window, tab)
+    }
+
+    fn profile_window(&self, profile: Profile) -> Option<WindowId> {
+        self.windows
+            .iter()
+            .rev()
+            .find(|window| window.kind == WindowKind::Normal && window.private == (profile == Profile::Private))
+            .map(|window| window.id)
+    }
+
+    fn add_profile_window(&mut self, kind: WindowKind, profile: Profile) -> WindowId {
+        let id = self.add_window(kind);
+        self.window_mut(id).expect("new window").private = profile == Profile::Private;
+        id
+    }
+
+    pub fn private_session(&self) -> u64 {
+        self.private_session
+    }
+
+    pub fn accepts_private_request(&self, session: u64) -> bool {
+        self.private_session == session && self.has_private_tabs()
+    }
+
+    fn has_private_tabs(&self) -> bool {
+        self.tabs.iter().any(|tab| self.profile_of(tab.id) == Profile::Private)
+    }
+
     /// The window a tab belongs to.
     pub fn window_of(&self, tab: TabId) -> Option<WindowId> {
         self.homes.get(&tab).copied()
@@ -701,11 +769,31 @@ impl Browser {
 
     /// The window tabs opened from `window` go in: itself, unless it is a
     /// popup, which never takes another tab.
-    fn tab_window(&self, window: WindowId) -> WindowId {
-        match self.kind(window) {
-            Some(WindowKind::Normal) => window,
-            _ => self.main_window(),
+    fn tab_window(&mut self, window: WindowId) -> (WindowId, Vec<Effect>) {
+        if self.kind(window) == Some(WindowKind::Normal) {
+            return (window, Vec::new());
         }
+        let profile = if self.is_private(window) {
+            Profile::Private
+        } else {
+            Profile::Default
+        };
+        self.home_for_profile(profile)
+    }
+
+    fn home_for_profile(&mut self, profile: Profile) -> (WindowId, Vec<Effect>) {
+        if let Some(window) = self.profile_window(profile) {
+            return (window, Vec::new());
+        }
+        let window = self.add_profile_window(WindowKind::Normal, profile);
+        (
+            window,
+            vec![Effect::OpenWindow {
+                window,
+                kind: WindowKind::Normal,
+                placement: Placement::default(),
+            }],
+        )
     }
 
     pub fn capacity(&self) -> usize {
@@ -815,22 +903,47 @@ impl Browser {
         self.slot_windows.remove(&slot);
     }
 
-    /// Repairs bookkeeping after native slot creation or adoption failed.
-    pub fn slot_failed(&mut self, slot: SlotId) -> Vec<Effect> {
-        let Some(removed) = self.pool.remove(slot) else {
-            return Vec::new();
-        };
-        if let Some(id) = removed.occupant {
-            if let Ok(tab) = self.tab_mut(id) {
-                tab.lose_page();
+    /// Removes all failed native slots before closing their private windows,
+    /// so no failed sibling can be transferred to a surviving window.
+    pub fn slots_failed(&mut self, slots: impl IntoIterator<Item = SlotId>) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        let mut windows = Vec::new();
+        for slot in slots {
+            let Some(removed) = self.pool.remove(slot) else {
+                continue;
+            };
+            if removed.profile == Profile::Private {
+                if let Some(window) = self.slot_windows.get(&slot).copied() {
+                    if !windows.contains(&window) {
+                        windows.push(window);
+                    }
+                }
             }
-            self.connected.remove(&id);
+            if let Some(id) = removed.occupant {
+                if let Ok(tab) = self.tab_mut(id) {
+                    tab.lose_page();
+                }
+                self.connected.remove(&id);
+            }
+            self.drop_slot(slot);
+            self.shown.retain(|&(shown, _)| shown != slot);
+            // Creation may have failed after adding the native child.
+            effects.push(Effect::Destroy { slot });
         }
-        self.drop_slot(slot);
-        self.shown.retain(|&(shown, _)| shown != slot);
-        // Creation may have failed after adding the native child. Clean up that
-        // partial surface too, without parking or touching any sibling slot.
-        vec![Effect::Destroy { slot }]
+        for window in windows {
+            effects.extend(self.close_window(window));
+        }
+        effects
+    }
+
+    /// Retires surplus anchors only after their replacements exist natively.
+    pub fn slots_created(&mut self, slots: impl IntoIterator<Item = SlotId>) -> Vec<Effect> {
+        for slot in slots {
+            self.pool.slot_created(slot);
+        }
+        let mut effects = self.trim_parked();
+        effects.extend(self.trim());
+        effects
     }
 
     /// Releases a tab's pending dialog because its page is going away.
@@ -876,7 +989,11 @@ impl Browser {
             .iter()
             .filter(|tab| !tab.fixed && !visible.contains(&tab.id) && self.must_run(tab))
             .count();
-        shown.max(1) + fixed + running
+        let private_reserved = self
+            .tabs
+            .iter()
+            .any(|tab| self.profile_of(tab.id) == Profile::Private && takes_slot(tab) && self.is_protected(tab.id));
+        shown.max(1) + fixed + running + usize::from(self.has_private_tabs() && !private_reserved)
     }
 
     fn effective_capacity(&self) -> usize {
@@ -891,10 +1008,11 @@ impl Browser {
     /// The tab to give up its slot when the pool is full: the unprotected
     /// occupant that would lose least, and among equals the one shown least
     /// recently. A tab holding work is taken only when nothing else can be.
-    fn victim(&self) -> Option<TabId> {
+    fn victim(&self, profile: Option<Profile>) -> Option<TabId> {
         self.pool
             .slots()
             .iter()
+            .filter(|slot| profile == Some(Profile::Private) || !self.pool.is_anchor(slot.id))
             .filter_map(|slot| slot.occupant.map(|occupant| (occupant, slot.used_at)))
             .filter(|&(occupant, _)| !self.is_protected(occupant))
             .min_by_key(|&(occupant, used_at)| {
@@ -910,10 +1028,12 @@ impl Browser {
         let slots = self.pool.slots();
         slots
             .iter()
-            .find(|slot| slot.occupant.is_none())
+            .find(|slot| slot.occupant.is_none() && !self.pool.is_anchor(slot.id))
             .or_else(|| {
-                let victim = self.victim()?;
-                slots.iter().find(|slot| slot.occupant == Some(victim))
+                let victim = self.victim(None)?;
+                slots
+                    .iter()
+                    .find(|slot| slot.occupant == Some(victim) && !self.pool.is_anchor(slot.id))
             })
             .map(|slot| slot.id)
     }
@@ -922,14 +1042,17 @@ impl Browser {
 
     /// Opens a tab in the normal window used last.
     pub fn open_tab(&mut self, url: impl Into<String>, activate: bool) -> (TabId, Vec<Effect>) {
-        self.open_tab_in(self.main_window(), url, activate)
+        let (window, mut effects) = self.home_for_profile(Profile::Default);
+        let (id, opened) = self.open_tab_in(window, url, activate);
+        effects.extend(opened);
+        (id, effects)
     }
 
     /// Opens a tab in `window`, or in the normal window used last when
     /// `window` is a popup, which is then brought to the front.
     pub fn open_tab_in(&mut self, window: WindowId, url: impl Into<String>, activate: bool) -> (TabId, Vec<Effect>) {
-        let home = self.tab_window(window);
-        let mut effects = self.focus_elsewhere(window, home);
+        let (home, mut effects) = self.tab_window(window);
+        effects.extend(self.focus_elsewhere(window, home));
         let id = self.add_tab(self.tabs.len(), home, url);
 
         if activate || self.active_in(home).is_none() {
@@ -943,7 +1066,15 @@ impl Browser {
     ///
     /// @returns The window's one tab.
     pub fn open_window(&mut self, url: impl Into<String>) -> (TabId, Vec<Effect>) {
-        let window = self.add_window(WindowKind::Normal);
+        self.open_window_profile(url, Profile::Default)
+    }
+
+    pub fn open_private_window(&mut self, url: impl Into<String>) -> (TabId, Vec<Effect>) {
+        self.open_window_profile(url, Profile::Private)
+    }
+
+    fn open_window_profile(&mut self, url: impl Into<String>, profile: Profile) -> (TabId, Vec<Effect>) {
+        let window = self.add_profile_window(WindowKind::Normal, profile);
         let id = self.add_tab(self.tabs.len(), window, url);
         self.activate(id);
         let mut effects = vec![Effect::OpenWindow {
@@ -956,6 +1087,9 @@ impl Browser {
     }
 
     fn add_tab(&mut self, index: usize, window: WindowId, url: impl Into<String>) -> TabId {
+        if self.is_private(window) && !self.has_private_tabs() {
+            self.private_session += 1;
+        }
         let id = TabId(self.next_id);
         self.next_id += 1;
         let index = self.legal_insertion(window, index);
@@ -999,21 +1133,32 @@ impl Browser {
     /// unanswered by a webview, and the tab loads `url` like any other once
     /// it gets a slot.
     pub fn open_from(&mut self, opener: SlotId, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
-        self.open_for(self.occupant_of(opener), url, opening)
+        let parent = self.occupant_of(opener);
+        let profile = self
+            .pool
+            .slots()
+            .iter()
+            .find(|slot| slot.id == opener)
+            .map_or(Profile::Default, |slot| slot.profile);
+        self.open_requested_profile(parent, profile, url, opening)
     }
 
     /// Opens what a page outside every tab asked for, as `opening` says: an
     /// extension's toolbar popup, which opens its tabs in the normal window
     /// used last. No tab opened it, so none has to keep running for it.
     pub fn open_requested(&mut self, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
-        self.open_for(None, url, opening)
+        self.open_requested_profile(None, Profile::Default, url, opening)
     }
 
-    fn open_for(&mut self, parent: Option<TabId>, url: impl Into<String>, opening: Opening) -> (TabId, Vec<Effect>) {
-        let source = parent
-            .and_then(|parent| self.window_of(parent))
-            .unwrap_or_else(|| self.main_window());
-
+    pub fn open_requested_profile(
+        &mut self,
+        parent: Option<TabId>,
+        profile: Profile,
+        url: impl Into<String>,
+        opening: Opening,
+    ) -> (TabId, Vec<Effect>) {
+        let parent = parent.filter(|parent| self.tab(*parent).is_ok() && self.profile_of(*parent) == profile);
+        let source = parent.and_then(|parent| self.window_of(parent));
         let mut effects = Vec::new();
         let (id, request) = match opening {
             Opening::Window | Opening::Popup { .. } => {
@@ -1021,7 +1166,7 @@ impl Browser {
                     Opening::Popup { request, placement } => (WindowKind::Popup, placement, Some(request)),
                     _ => (WindowKind::Normal, Placement::default(), None),
                 };
-                let window = self.add_window(kind);
+                let window = self.add_profile_window(kind, profile);
                 effects.push(Effect::OpenWindow {
                     window,
                     kind,
@@ -1030,8 +1175,14 @@ impl Browser {
                 (self.add_tab(self.tabs.len(), window, url), request)
             }
             Opening::Foreground | Opening::Background | Opening::Connected(_) => {
-                let home = self.tab_window(source);
-                effects.extend(self.focus_elsewhere(source, home));
+                let (home, opened) = match source {
+                    Some(source) => self.tab_window(source),
+                    None => self.home_for_profile(profile),
+                };
+                effects.extend(opened);
+                if let Some(source) = source {
+                    effects.extend(self.focus_elsewhere(source, home));
+                }
                 let index = self.index_after(parent.filter(|&parent| self.window_of(parent) == Some(home)));
                 let id = self.add_tab(index, home, url);
                 let request = match opening {
@@ -1045,7 +1196,7 @@ impl Browser {
             self.openers.insert(id, parent);
         }
 
-        let home = self.window_of(id).unwrap_or(source);
+        let home = self.window_of(id).expect("new tab window");
         match opening {
             Opening::Background if self.active_in(home).is_some() => {}
             _ => {
@@ -1123,7 +1274,9 @@ impl Browser {
     pub fn close_tab(&mut self, id: TabId, replacement: &str) -> Result<Vec<Effect>> {
         let index = self.index_of(id)?;
         let window = self.window_of(id).unwrap_or_else(|| self.main_window());
-        if self.kind(window) == Some(WindowKind::Popup) {
+        if self.kind(window) == Some(WindowKind::Popup)
+            || (self.is_private(window) && self.tabs_in(window).count() == 1)
+        {
             return Ok(self.close_window(window));
         }
         let place = self.tabs_in(window).position(|tab| tab.id == id).unwrap_or_default();
@@ -1180,12 +1333,40 @@ impl Browser {
     /// keeps the window's tabs for the next launch, and is the caller's to do.
     /// The tabs of a closed window are not remembered for reopening.
     pub fn close_window(&mut self, window: WindowId) -> Vec<Effect> {
-        if self.window(window).is_none() || self.is_last_window(window) {
+        let quitting = self.is_last_window(window) && self.is_private(window);
+        if self.window(window).is_none() || (self.is_last_window(window) && !quitting) {
             return Vec::new();
         }
         let closing: HashSet<TabId> = self.tabs_in(window).map(|tab| tab.id).collect();
         let mut effects: Vec<Effect> = closing.iter().filter_map(|&id| self.dismiss_dialog(id)).collect();
 
+        let private_home = self
+            .windows
+            .iter()
+            .find(|entry| entry.id != window && entry.private && self.tabs_in(entry.id).next().is_some())
+            .map(|entry| entry.id);
+        if let Some(home) = private_home {
+            for slot in self
+                .slots_in(window)
+                .into_iter()
+                .filter(|slot| {
+                    self.pool
+                        .slots()
+                        .iter()
+                        .any(|entry| entry.id == *slot && entry.profile == Profile::Private)
+                })
+                .collect::<Vec<_>>()
+            {
+                if let Some(tab) = self.occupant_of(slot).filter(|tab| closing.contains(tab)) {
+                    effects.extend(self.release_slot(tab));
+                    if let Ok(tab) = self.tab_mut(tab) {
+                        tab.lose_page();
+                    }
+                }
+                self.slot_windows.insert(slot, home);
+                effects.push(Effect::Move { slot, window: home });
+            }
+        }
         // A webview goes with its window, whichever tab holds it.
         for slot in self.slots_in(window) {
             let Some(removed) = self.pool.remove(slot) else {
@@ -1213,9 +1394,18 @@ impl Browser {
         }
         self.openers.retain(|_, parent| !closing.contains(parent));
         self.shown.retain(|(_, tab)| !closing.contains(tab));
-        self.windows.retain(|entry| entry.id != window);
-
-        effects.push(Effect::CloseWindow { window });
+        if quitting {
+            let entry = self.window_mut(window).expect("closing window");
+            entry.viewports.clear();
+            entry.splits.clear();
+        } else {
+            self.windows.retain(|entry| entry.id != window);
+        }
+        effects.push(if quitting {
+            Effect::Quit
+        } else {
+            Effect::CloseWindow { window }
+        });
         effects.extend(self.realize());
         effects
     }
@@ -1228,8 +1418,12 @@ impl Browser {
             return Vec::new();
         };
         let main = self.main_window();
-        let window = if self.window(window).is_some() { window } else { main };
-        let mut effects = self.focus_elsewhere(main, window);
+        let (window, mut effects) = if self.window(window).is_some() {
+            (window, Vec::new())
+        } else {
+            self.home_for_profile(Profile::Default)
+        };
+        effects.extend(self.focus_elsewhere(main, window));
         tab.id = TabId(self.next_id);
         self.next_id += 1;
         let id = tab.id;
@@ -1247,7 +1441,7 @@ impl Browser {
     /// A tab that never left an internal page, such as a new tab opened and
     /// closed again, holds nothing worth reopening.
     fn remember_closed(&mut self, window: WindowId, place: usize, mut tab: Tab) {
-        if tab.history.entries().len() == 1 && tab.is_internal() {
+        if self.is_private(window) || (tab.history.entries().len() == 1 && tab.is_internal()) {
             return;
         }
         tab.lose_page();
@@ -1783,7 +1977,8 @@ impl Browser {
     /// `title` is the document's title after all of them, so it always lands
     /// on the entry the page ended up on.
     ///
-    /// @returns What the tab now shows and whether that was a visit.
+    /// @returns What may enter persistent history, and whether it was a visit.
+    /// Private pages update the tab but return no persistent report.
     pub fn report_page(&mut self, slot: SlotId, commits: &[Commit], title: Option<String>) -> Option<PageReport> {
         let id = self.occupant_of(slot)?;
         let commits: Vec<&Commit> = commits.iter().filter(|commit| commit.url != BLANK_URL).collect();
@@ -1800,7 +1995,9 @@ impl Browser {
             } else {
                 commit.kind == NavigationKind::Push
             };
-            let favicon = favicon_for(&commit.url);
+            let favicon = (self.profile_of(id) == Profile::Default)
+                .then(|| favicon_for(&commit.url))
+                .flatten();
             let tab = self.tab_mut(id).ok()?;
 
             match commit.kind {
@@ -1828,7 +2025,10 @@ impl Browser {
             tab.history.update_current(None, Some(title), None);
         }
 
-        let current = tab.history.current();
+        if self.profile_of(id) == Profile::Private {
+            return None;
+        }
+        let current = self.tab(id).ok()?.history.current();
         Some(PageReport {
             url: current.url.clone(),
             title: current.title.clone(),
@@ -1903,6 +2103,7 @@ impl Browser {
     /// Every mutation ends here rather than emitting effects itself, so there is
     /// exactly one description of what "correct" looks like.
     fn realize(&mut self) -> Vec<Effect> {
+        self.pool.keep_private = self.has_private_tabs();
         let visible = self.visible();
         // Before anything hides it or takes its slot: a page can only be
         // captured while it is still on screen.
@@ -1936,6 +2137,39 @@ impl Browser {
         }
 
         // After hiding: a webview can only be frozen while it is hidden.
+        if self.has_private_tabs() && !self.pool.slots().iter().any(|slot| slot.profile == Profile::Private) {
+            let tab = self
+                .tabs
+                .iter()
+                .find(|tab| self.profile_of(tab.id) == Profile::Private)
+                .expect("private tab")
+                .id;
+            let window = self.window_of(tab).expect("private window");
+            let slot = self.pool.acquire_new(tab, Profile::Private);
+            self.pool.release(tab);
+            self.slot_windows.insert(slot, window);
+            effects.push(Effect::EnsureSlot {
+                slot,
+                window,
+                profile: Profile::Private,
+                url: BLANK_URL.into(),
+            });
+            effects.push(Effect::Hide { slot });
+        }
+        if !self.has_private_tabs() {
+            let private: Vec<_> = self
+                .pool
+                .slots()
+                .iter()
+                .filter(|slot| slot.profile == Profile::Private)
+                .map(|slot| slot.id)
+                .collect();
+            for slot in private {
+                self.pool.remove(slot);
+                self.drop_slot(slot);
+                effects.push(Effect::Destroy { slot });
+            }
+        }
         effects.extend(self.settle_background());
         // Visibility changes may release reservations even with discard off.
         effects.extend(self.trim());
@@ -2052,13 +2286,17 @@ impl Browser {
             .pool
             .slots()
             .iter()
-            .filter(|slot| slot.occupant.is_none())
+            .filter(|slot| slot.occupant.is_none() && !self.pool.is_anchor(slot.id))
             .map(|slot| slot.id)
             .skip(spare)
             .collect();
         parked
             .into_iter()
             .filter_map(|slot| {
+                // Earlier removals in this batch may have made this the anchor.
+                if self.pool.is_anchor(slot) {
+                    return None;
+                }
                 self.pool.remove(slot)?;
                 self.drop_slot(slot);
                 Some(Effect::Destroy { slot })
@@ -2221,29 +2459,43 @@ impl Browser {
             return self.bind_new(id, request, url);
         }
         let effective = self.effective_capacity();
-        let victim = self.victim();
+        let profile = self.profile_of(id);
+        let victim = self.victim(Some(profile));
 
-        let Ok(acquired) = self.pool.acquire(id, effective, victim) else {
+        let Ok(acquired) = self.pool.acquire(id, effective, victim, profile) else {
             // Every slot is spoken for; the tab stays discarded until one frees.
             return Vec::new();
         };
 
         let mut effects = Vec::new();
         let slot = acquired.slot();
-        if let Acquired::Evicted { evicted, .. } = acquired {
+        let previous = match acquired {
+            Acquired::Replaced { previous, .. } => previous,
+            _ => slot,
+        };
+        let evicted = match acquired {
+            Acquired::Evicted { evicted, .. } => Some(evicted),
+            Acquired::Replaced { evicted, .. } => evicted,
+            _ => None,
+        };
+        if let Some(evicted) = evicted {
             // The evicted page may be paused on a dialog; it has to be released
             // before its slot is navigated to this tab.
             effects.extend(self.dismiss_dialog(evicted));
             effects.extend(self.leave(evicted));
             if let Ok(tab) = self.tab_mut(evicted) {
                 if matches!(tab.presence, TabPresence::Frozen { .. }) {
-                    effects.push(Effect::Resume { slot });
+                    effects.push(Effect::Resume { slot: previous });
                 }
                 tab.lose_page();
             }
             self.connected.remove(&evicted);
         }
 
+        if previous != slot {
+            self.drop_slot(previous);
+            effects.push(Effect::Destroy { slot: previous });
+        }
         if let Ok(tab) = self.tab_mut(id) {
             if matches!(tab.presence, TabPresence::Frozen { .. }) {
                 effects.push(Effect::Resume { slot });
@@ -2264,6 +2516,7 @@ impl Browser {
                 slot,
                 url: url.clone(),
                 window,
+                profile,
             });
             if !had_slot {
                 if let Ok(tab) = self.tab_mut(id) {
@@ -2287,13 +2540,16 @@ impl Browser {
     /// Binds a connected tab to a slot that has never held a webview, then trims
     /// the pool back to capacity, as eviction would have.
     fn bind_new(&mut self, id: TabId, request: WindowRequestId, url: String) -> Vec<Effect> {
-        let slot = self.pool.acquire_new(id);
+        let profile = self.profile_of(id);
+        let slot = self.pool.acquire_new(id, profile);
         if let Ok(tab) = self.tab_mut(id) {
             tab.presence = TabPresence::Live { slot };
             tab.relieved = false;
         }
         let mut effects = self.trim();
-        if self.pool.slots().len() > self.effective_capacity() {
+        // A private replacement temporarily counts alongside its established
+        // anchor. Native success (slots_created) finishes the trim.
+        if profile != Profile::Private && self.pool.slots().len() > self.effective_capacity() {
             // Every other webview is protected. The tab does without one
             // rather than have the pool outgrow its capacity.
             self.pool.remove(slot);
@@ -2314,6 +2570,7 @@ impl Browser {
             request,
             url,
             window,
+            profile,
         });
         effects
     }

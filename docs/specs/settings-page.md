@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-23
+last_updated: 2026-10-30
 scope: The layout, navigation, search and row pattern of `haku://settings`.
 ---
 
@@ -44,7 +44,7 @@ The current settings, regrouped by what a person comes looking for:
 | Extensions    | `haku://settings/extensions` | The current list and folder button, unchanged in behaviour.                                                |
 | About         | `haku://settings/about`      | Version, the mark and wordmark, links to Memory (`haku://memory`) and History. **New**, read-only.         |
 
-`haku://settings` shows Appearance. **Kept sites** are already stored in `Settings.keptSites` but can only be removed today by visiting each site and opening its site menu; the list makes them reviewable. **About** needs the app version, which the interface reads with Tauri's `getVersion()` from `@tauri-apps/api/app`. The chrome's capability already grants it through `core:default`, so it needs no new command or permission.
+`haku://settings` shows Appearance. **Kept sites** are already stored in `Settings.keptSites` but can only be removed today by visiting each site in an ordinary window and opening its site menu; the list makes them reviewable. Private windows hide the site menu's kept-site control so a private visit cannot write a site-derived setting. **About** needs the app version, which the interface reads with Tauri's `getVersion()` from `@tauri-apps/api/app`. The chrome's capability already grants it through `core:default`, so it needs no new command or permission.
 
 ## Navigation
 

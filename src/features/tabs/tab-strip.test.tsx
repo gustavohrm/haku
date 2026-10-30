@@ -223,3 +223,13 @@ it("retains individual close, middle-click, selection and menu actions on joined
   expect(capture).not.toHaveBeenCalled();
   expect(commands.reorderTab).not.toHaveBeenCalled();
 });
+
+it("uses a generic icon in private windows even when state supplies a favicon", async () => {
+  const tabs = [tab(1)];
+  tabs[0]!.history.entries[0]!.favicon = "https://example.com/favicon.ico";
+  await act(async () => browserStore.set({ ...initial, tabs, splits: [], private: false }));
+  expect(host.querySelector("img")?.getAttribute("src")).toBe("https://example.com/favicon.ico");
+  await act(async () => browserStore.set({ ...initial, tabs, splits: [], private: true }));
+  expect(host.querySelector("img")).toBeNull();
+  expect(host.querySelector(".ic-globe")).not.toBeNull();
+});
