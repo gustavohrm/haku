@@ -89,6 +89,12 @@ pub struct WebviewPool {
     #[serde(skip)]
     #[specta(skip)]
     pending_private: HashSet<SlotId>,
+    /// Slots whose webview runs a download. Destroying one ends Haku's hold
+    /// on the download, so it is kept, though a tab of its profile may still
+    /// load into it. [Downloads](../../../docs/specs/downloads.md#webviews).
+    #[serde(skip)]
+    #[specta(skip)]
+    downloading: HashSet<SlotId>,
 }
 
 impl WebviewPool {
@@ -100,6 +106,7 @@ impl WebviewPool {
             next_id: 0,
             keep_private: false,
             pending_private: HashSet::new(),
+            downloading: HashSet::new(),
         }
     }
 
@@ -164,7 +171,7 @@ impl WebviewPool {
             .or_else(|| {
                 self.slots
                     .iter()
-                    .position(|slot| slot.occupant.is_none() && !self.is_anchor(slot.id))
+                    .position(|slot| slot.occupant.is_none() && !self.is_held(slot.id))
             });
         let index = if let Some(index) = held.or(free) {
             index
@@ -174,7 +181,7 @@ impl WebviewPool {
             self.slots
                 .iter()
                 .position(|slot| {
-                    slot.occupant == victim && victim.is_some() && (slot.profile == profile || !self.is_anchor(slot.id))
+                    slot.occupant == victim && victim.is_some() && (slot.profile == profile || !self.is_held(slot.id))
                 })
                 .ok_or(HakuError::NoSlotAvailable)?
         };
@@ -226,6 +233,34 @@ impl WebviewPool {
                     == 1)
     }
 
+    /// Whether a slot's webview runs a download.
+    pub fn is_downloading(&self, id: SlotId) -> bool {
+        self.downloading.contains(&id)
+    }
+
+    /// Whether a slot's webview must outlive any change of profile or size:
+    /// it anchors the private session, or runs a download.
+    pub fn is_held(&self, id: SlotId) -> bool {
+        self.is_anchor(id) || self.is_downloading(id)
+    }
+
+    /// Records which slots' webviews run downloads. Slots that no longer
+    /// exist are ignored.
+    ///
+    /// @returns Whether that changed anything.
+    pub fn set_downloading(&mut self, slots: &HashSet<SlotId>) -> bool {
+        let slots: HashSet<SlotId> = slots
+            .iter()
+            .copied()
+            .filter(|id| self.slots.iter().any(|slot| slot.id == *id))
+            .collect();
+        if slots == self.downloading {
+            return false;
+        }
+        self.downloading = slots;
+        true
+    }
+
     /// Acknowledges successful native creation, including profile verification.
     pub fn slot_created(&mut self, id: SlotId) {
         self.pending_private.remove(&id);
@@ -272,6 +307,7 @@ impl WebviewPool {
     pub fn remove(&mut self, id: SlotId) -> Option<Slot> {
         let index = self.slots.iter().position(|slot| slot.id == id)?;
         self.pending_private.remove(&id);
+        self.downloading.remove(&id);
         Some(self.slots.remove(index))
     }
 }
@@ -491,6 +527,38 @@ mod tests {
             pool.acquire(tab(3), 2, None, Profile::Default).unwrap(),
             Acquired::Free(SlotId(2))
         );
+    }
+
+    #[test]
+    fn a_downloading_slot_is_reused_by_its_own_profile_but_never_replaced() {
+        let mut pool = WebviewPool::new(1);
+        let slot = pool.acquire(tab(1), 1, None, Profile::Default).unwrap().slot();
+        pool.release(tab(1));
+        assert!(pool.set_downloading(&HashSet::from([slot])));
+
+        assert!(matches!(
+            pool.acquire(tab(2), 1, None, Profile::Private),
+            Err(HakuError::NoSlotAvailable)
+        ));
+        assert_eq!(
+            pool.acquire(tab(3), 1, None, Profile::Default).unwrap(),
+            Acquired::Free(slot)
+        );
+        assert!(matches!(
+            pool.acquire(tab(4), 1, Some(tab(3)), Profile::Private),
+            Err(HakuError::NoSlotAvailable)
+        ));
+    }
+
+    #[test]
+    fn downloading_ignores_slots_that_are_gone() {
+        let mut pool = WebviewPool::new(1);
+        let slot = pool.acquire(tab(1), 1, None, Profile::Default).unwrap().slot();
+
+        assert!(!pool.set_downloading(&HashSet::from([SlotId(9)])));
+        assert!(pool.set_downloading(&HashSet::from([slot])));
+        pool.remove(slot);
+        assert!(!pool.is_downloading(slot));
     }
 
     #[test]

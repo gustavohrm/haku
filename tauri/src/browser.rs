@@ -7,9 +7,9 @@ use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Loss, LossSignal, NavigationKind,
-    PageDialog, PageState, Placement, Policy, Pressure, Profile, Scroll, Slot, SlotId, Tab, TabId, TabPresence, Visit,
-    WebviewPool, WindowId, WindowKind, WindowRequestId,
+    is_internal, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Downloading, Loss, LossSignal,
+    NavigationKind, PageDialog, PageState, Placement, Policy, Pressure, Profile, Scroll, Slot, SlotId, Tab, TabId,
+    TabPresence, Visit, WebviewPool, WindowId, WindowKind, WindowRequestId,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -31,6 +31,17 @@ pub const GRACE_MS: u64 = 60_000;
 pub enum Effect {
     /// The final private browser window closed; nothing can be restored.
     Quit,
+    /// Ask the window's interface to confirm a close that would cancel
+    /// downloads, which the engine ends with Haku or with the private
+    /// session. Nothing was closed. [Downloads § Closing](../../docs/specs/downloads.md#closing).
+    ConfirmClose {
+        window: WindowId,
+        /// The tab being closed, or nothing when it is the window.
+        tab: Option<TabId>,
+        ending: Ending,
+        /// How many active downloads the close would cancel.
+        downloads: usize,
+    },
     /// Create the slot's webview in `window` if it does not exist, otherwise
     /// navigate it. An existing webview is already where it belongs: a
     /// [`Effect::Move`] precedes this when it is not.
@@ -152,6 +163,16 @@ pub enum Opening {
         request: WindowRequestId,
         placement: Placement,
     },
+}
+
+/// What a close ends beyond the tabs it closes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Ending {
+    /// It closes the last browser window, which quits Haku.
+    Quit,
+    /// It closes the last private tab, which ends the private session.
+    PrivateSession,
 }
 
 /// How many closed tabs are remembered for reopening.
@@ -415,6 +436,9 @@ pub struct Browser {
     /// that opened it. A tab that loses its page loses the connection with
     /// it, for good.
     connected: HashSet<TabId>,
+    /// What active downloads hold back. Their webviews are marked in the
+    /// pool too, which keeps them.
+    downloading: Downloading,
 }
 
 impl Browser {
@@ -446,6 +470,7 @@ impl Browser {
             openers: HashMap::new(),
             adopting: HashMap::new(),
             connected: HashSet::new(),
+            downloading: Downloading::default(),
         }
     }
 
@@ -931,7 +956,7 @@ impl Browser {
             effects.push(Effect::Destroy { slot });
         }
         for window in windows {
-            effects.extend(self.close_window(window));
+            effects.extend(self.close_window_now(window));
         }
         effects
     }
@@ -1013,6 +1038,9 @@ impl Browser {
             .slots()
             .iter()
             .filter(|slot| profile == Some(Profile::Private) || !self.pool.is_anchor(slot.id))
+            // A tab of the same profile loads into it, which leaves its
+            // download running; anything else would destroy it.
+            .filter(|slot| Some(slot.profile) == profile || !self.pool.is_downloading(slot.id))
             .filter_map(|slot| slot.occupant.map(|occupant| (occupant, slot.used_at)))
             .filter(|&(occupant, _)| !self.is_protected(occupant))
             .min_by_key(|&(occupant, used_at)| {
@@ -1028,12 +1056,12 @@ impl Browser {
         let slots = self.pool.slots();
         slots
             .iter()
-            .find(|slot| slot.occupant.is_none() && !self.pool.is_anchor(slot.id))
+            .find(|slot| slot.occupant.is_none() && !self.pool.is_held(slot.id))
             .or_else(|| {
                 let victim = self.victim(None)?;
                 slots
                     .iter()
-                    .find(|slot| slot.occupant == Some(victim) && !self.pool.is_anchor(slot.id))
+                    .find(|slot| slot.occupant == Some(victim) && !self.pool.is_held(slot.id))
             })
             .map(|slot| slot.id)
     }
@@ -1274,10 +1302,11 @@ impl Browser {
     pub fn close_tab(&mut self, id: TabId, replacement: &str) -> Result<Vec<Effect>> {
         let index = self.index_of(id)?;
         let window = self.window_of(id).unwrap_or_else(|| self.main_window());
-        if self.kind(window) == Some(WindowKind::Popup)
-            || (self.is_private(window) && self.tabs_in(window).count() == 1)
-        {
-            return Ok(self.close_window(window));
+        if let Some(held) = self.close_held(window, Some(id)) {
+            return Ok(vec![held]);
+        }
+        if self.closes_window(window, Some(id)) {
+            return Ok(self.close_window_now(window));
         }
         let place = self.tabs_in(window).position(|tab| tab.id == id).unwrap_or_default();
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
@@ -1332,7 +1361,74 @@ impl Browser {
     /// Closing the only normal window does nothing: that is quitting, which
     /// keeps the window's tabs for the next launch, and is the caller's to do.
     /// The tabs of a closed window are not remembered for reopening.
+    ///
+    /// A close that would cancel downloads is not made: the window is asked
+    /// to confirm it instead, with [`Effect::ConfirmClose`].
     pub fn close_window(&mut self, window: WindowId) -> Vec<Effect> {
+        if let Some(held) = self.close_held(window, None) {
+            return vec![held];
+        }
+        self.close_window_now(window)
+    }
+
+    /// Whether closing `tab`, or the window when it is nothing, closes the
+    /// window: a popup's tab or a private window's last does.
+    fn closes_window(&self, window: WindowId, tab: Option<TabId>) -> bool {
+        tab.is_none()
+            || self.kind(window) == Some(WindowKind::Popup)
+            || (self.is_private(window) && self.tabs_in(window).count() == 1)
+    }
+
+    /// What closing `tab`, or the window when it is nothing, ends beyond the
+    /// tabs it closes.
+    pub fn ending(&self, window: WindowId, tab: Option<TabId>) -> Option<Ending> {
+        let closes_window = self.closes_window(window, tab);
+        if closes_window && self.is_last_window(window) {
+            return Some(Ending::Quit);
+        }
+        let closing: Vec<TabId> = if closes_window {
+            self.tabs_in(window).map(|tab| tab.id).collect()
+        } else {
+            tab.into_iter().collect()
+        };
+        let private = |id: &TabId| self.profile_of(*id) == Profile::Private;
+        let ends_private = closing.iter().any(private)
+            && !self
+                .tabs
+                .iter()
+                .any(|tab| private(&tab.id) && !closing.contains(&tab.id));
+        ends_private.then_some(Ending::PrivateSession)
+    }
+
+    /// The confirmation a close needs first, when it would cancel downloads.
+    pub fn close_held(&self, window: WindowId, tab: Option<TabId>) -> Option<Effect> {
+        let ending = self.ending(window, tab)?;
+        let downloads = match ending {
+            Ending::Quit => self.downloading.ordinary + self.downloading.private,
+            Ending::PrivateSession => self.downloading.private,
+        };
+        (downloads > 0).then_some(Effect::ConfirmClose {
+            window,
+            tab,
+            ending,
+            downloads,
+        })
+    }
+
+    /// Records what active downloads hold back, and destroys the webviews
+    /// only they were keeping.
+    pub fn set_downloading(&mut self, downloading: Downloading) -> Vec<Effect> {
+        let changed = self.pool.set_downloading(&downloading.slots);
+        self.downloading = downloading;
+        if !changed {
+            return Vec::new();
+        }
+        let mut effects = self.trim_parked();
+        effects.extend(self.trim());
+        effects
+    }
+
+    fn close_window_now(&mut self, window: WindowId) -> Vec<Effect> {
         let quitting = self.is_last_window(window) && self.is_private(window);
         if self.window(window).is_none() || (self.is_last_window(window) && !quitting) {
             return Vec::new();
@@ -1354,6 +1450,39 @@ impl Browser {
                         .slots()
                         .iter()
                         .any(|entry| entry.id == *slot && entry.profile == Profile::Private)
+                })
+                .collect::<Vec<_>>()
+            {
+                if let Some(tab) = self.occupant_of(slot).filter(|tab| closing.contains(tab)) {
+                    effects.extend(self.release_slot(tab));
+                    if let Ok(tab) = self.tab_mut(tab) {
+                        tab.lose_page();
+                    }
+                }
+                self.slot_windows.insert(slot, home);
+                effects.push(Effect::Move { slot, window: home });
+            }
+        }
+        // So does one running a download, to whichever browser window is
+        // left, ordinary first: the engine stops reporting a download whose
+        // webview is gone.
+        let download_home = self
+            .windows
+            .iter()
+            .filter(|entry| entry.id != window && entry.kind == WindowKind::Normal)
+            .min_by_key(|entry| entry.private)
+            .map(|entry| entry.id);
+        if let Some(home) = download_home {
+            for slot in self
+                .slots_in(window)
+                .into_iter()
+                .filter(|slot| {
+                    self.pool.is_downloading(*slot)
+                        && self
+                            .pool
+                            .slots()
+                            .iter()
+                            .any(|entry| entry.id == *slot && entry.profile == Profile::Default)
                 })
                 .collect::<Vec<_>>()
             {
@@ -2286,7 +2415,7 @@ impl Browser {
             .pool
             .slots()
             .iter()
-            .filter(|slot| slot.occupant.is_none() && !self.pool.is_anchor(slot.id))
+            .filter(|slot| slot.occupant.is_none() && !self.pool.is_held(slot.id))
             .map(|slot| slot.id)
             .skip(spare)
             .collect();
@@ -2458,8 +2587,17 @@ impl Browser {
         if let Some(request) = self.adopting.get(&id).copied().filter(|_| !had_slot) {
             return self.bind_new(id, request, url);
         }
-        let effective = self.effective_capacity();
         let profile = self.profile_of(id);
+        // A webview running another profile's download can be neither
+        // reused nor replaced, so the pool grows past it. One of the tab's
+        // own profile is reused like any other.
+        let effective = self.effective_capacity()
+            + self
+                .pool
+                .slots()
+                .iter()
+                .filter(|slot| slot.profile != profile && self.pool.is_downloading(slot.id))
+                .count();
         let victim = self.victim(Some(profile));
 
         let Ok(acquired) = self.pool.acquire(id, effective, victim, profile) else {
