@@ -135,8 +135,16 @@ export const en = {
   "extensions.manage": "Manage extensions",
 
   "private.label": "Private",
-  "private.notice":
-    "No history, session, or reopenable tabs are kept. Extensions do not run. Browsing data is cleared when the last private window closes.",
+  "private.badge": "This window is private",
+  "private.title": "You're browsing privately",
+  "private.notKept": "Haku won't keep",
+  "private.notKept.history": "The pages you visit, in your history",
+  "private.notKept.siteData": "Cookies and site data, once the last private window closes",
+  "private.notKept.tabs": "Private tabs, to reopen or to restore on the next launch",
+  "private.visibleTo": "Your activity may still be visible to",
+  "private.visibleTo.sites": "The websites you visit",
+  "private.visibleTo.network": "Your network administrator or internet provider",
+  "private.extensions": "Extensions do not run in private windows.",
   "menu.openLinkPrivateWindow": "Open link in private window",
   "newTab.title": "New tab",
   "newTab.prompt": "Type an address or a search above.",

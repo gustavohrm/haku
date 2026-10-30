@@ -1342,7 +1342,7 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, se
             .settings
             .write()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        if current.kept_sites != settings.kept_sites {
+        if current.keeps_new_site(&settings) {
             state
                 .browser
                 .read()

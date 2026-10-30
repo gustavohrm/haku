@@ -244,6 +244,9 @@ impl AppState {
                 .map_err(|_| HakuError::Storage("bounds lock poisoned".into()))?;
             Session::capture(&browser, &bounds)
         };
+        if !session.replaces_stored() {
+            return Ok(());
+        }
         crate::storage::write_json(&self.paths.session, &session)
     }
 

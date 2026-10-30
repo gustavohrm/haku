@@ -87,6 +87,12 @@ impl Settings {
         self
     }
 
+    /// Whether `next` keeps a site these settings do not. Removing one is not
+    /// keeping one, so the settings page may still do it from a private window.
+    pub fn keeps_new_site(&self, next: &Self) -> bool {
+        next.kept_sites.iter().any(|site| !self.kept_sites.contains(site))
+    }
+
     /// The budget for kept tabs, in bytes.
     pub fn kept_memory_bytes(&self) -> u64 {
         u64::from(self.kept_memory_mb) * 1024 * 1024
@@ -177,6 +183,22 @@ mod tests {
         }
         .sanitized()
         .home_url
+    }
+
+    #[test]
+    fn only_a_site_not_kept_before_counts_as_keeping_one() {
+        let kept = |sites: &[&str]| Settings {
+            kept_sites: sites.iter().map(|site| (*site).to_string()).collect(),
+            ..Settings::default()
+        };
+        let current = kept(&["a.test", "b.test"]);
+        assert!(!current.keeps_new_site(&kept(&["a.test", "b.test"])));
+        assert!(
+            !current.keeps_new_site(&kept(&["b.test"])),
+            "removing one is not keeping one"
+        );
+        assert!(!current.keeps_new_site(&kept(&[])));
+        assert!(current.keeps_new_site(&kept(&["a.test", "c.test"])));
     }
 
     #[test]

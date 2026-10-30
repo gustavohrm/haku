@@ -193,6 +193,14 @@ impl Session {
         }
     }
 
+    /// Whether this capture should replace the stored session. One with no
+    /// window was taken while only private windows were open, after the last
+    /// ordinary one closed; the stored session still holds that window, and
+    /// keeps it for the next launch, as Chrome does.
+    pub fn replaces_stored(&self) -> bool {
+        !self.windows.is_empty()
+    }
+
     /// The windows to reopen, a session stored before windows existed read as
     /// one, and an empty one as a single window on the home page, so Haku never
     /// opens with nothing in it.

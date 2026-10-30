@@ -20,6 +20,30 @@ fn capture_omits_private_windows_urls_and_titles() {
     assert!(!json.contains("Secret title"));
 }
 
+#[test]
+fn closing_the_last_ordinary_window_before_a_private_one_keeps_its_tabs() {
+    let dir = std::env::temp_dir().join(format!("haku-private-session-{}", std::process::id()));
+    let mut browser = Browser::new(2);
+    browser.open_tab("https://public.test", true);
+    browser.open_private_window("https://secret.test");
+    let state = AppState::new(
+        browser,
+        Settings::default(),
+        HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")),
+        Paths::under(&dir),
+    );
+    state.save_session().unwrap();
+
+    // Only the private window is left; quitting from it must not restore nothing.
+    state.browser.write().unwrap().close_window(WindowId(1));
+    state.save_session().unwrap();
+
+    let saved = std::fs::read_to_string(Paths::under(&dir).session).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(saved.contains("public.test"));
+    assert!(!saved.contains("secret.test"));
+}
+
 fn app_state(browser: Browser) -> AppState {
     AppState::new(
         browser,
