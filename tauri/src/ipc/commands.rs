@@ -389,13 +389,28 @@ fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
     };
     let state = app.state::<AppState>();
     let pressure = read_pressure(&state);
-    let _ = mutate(app, &state, |browser| {
+    // Read before opening: what opens may close again if it fails.
+    let from = state.browser.read().ok().map(|browser| {
+        parent
+            .and_then(|parent| browser.window_of(parent))
+            .unwrap_or_else(|| browser.main_window())
+    });
+    let opened = mutate(app, &state, |browser| {
         browser.set_pressure(pressure);
         if profile == Profile::Private && !browser.accepts_private_request(session) {
             return Ok(Vec::new());
         }
         Ok(browser.open_requested_profile(parent, profile, url, opening).1)
     });
+    if let (Err(error), Some(from)) = (opened, from) {
+        report_failure(app, from, error);
+    }
+}
+
+/// Tells a window's interface about a failure no command call is waiting on,
+/// as one it called would have been told.
+fn report_failure(app: &tauri::AppHandle, window: WindowId, error: HakuError) {
+    let _ = FailureReported(error).emit_to(app, window.label());
 }
 
 /// The toolbar popup's requests to open a window still being answered, and
@@ -552,14 +567,25 @@ fn queue_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Sh
 /// Revalidates ownership and dispatches without another change reusing its slot.
 ///
 /// Off the UI thread, like a command: most shortcuts drive webviews. A failure
-/// has nowhere to be shown, since no command call is waiting on it, and leaves
-/// the browser as it was.
+/// is shown in the window the shortcut was pressed in, as the button that does
+/// the same would show it there.
 fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shortcut) {
     let state = app.state::<AppState>();
-    let Ok(home) = home_url(&state) else { return };
-    let pressure = read_pressure(&state);
+    if let Err(error) = run_shortcut_in(app, &state, request, shortcut) {
+        report_failure(app, request.window(), error);
+    }
+}
+
+fn run_shortcut_in(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    request: ShortcutRequest,
+    shortcut: Shortcut,
+) -> Result<()> {
+    let home = home_url(state)?;
+    let pressure = read_pressure(state);
     let native = std::cell::Cell::new((None, None, None));
-    let _ = state.changes.run(
+    state.changes.run(
         &state.browser,
         |browser| {
             if matches!(
@@ -594,7 +620,7 @@ fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shor
                         | Shortcut::DuplicateTab
                 )
             {
-                commit(app, &state, effects)?;
+                commit(app, state, effects)?;
             }
             let (address, devtools, close) = native.get();
             if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
@@ -608,7 +634,7 @@ fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shor
             }
             Ok(())
         },
-    );
+    )
 }
 
 /// Opens the home page with `open`, in the address field, as every browser
@@ -657,7 +683,14 @@ pub fn launched_again(app: &tauri::AppHandle) {
         std::thread::spawn(move || {
             let state = app.state::<AppState>();
             for () in receiver {
-                let _ = open_home(&app, &state, Browser::open_window);
+                // Read before opening, since the window that failed to open
+                // is not one whose interface is listening.
+                let Ok(from) = state.browser.read().map(|browser| browser.main_window()) else {
+                    continue;
+                };
+                if let Err(error) = open_home(&app, &state, Browser::open_window) {
+                    report_failure(&app, from, error);
+                }
             }
         });
         sender
