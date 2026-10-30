@@ -22,5 +22,14 @@ it("explains private data retention on the new-tab page", () => {
   state.private = false;
   const ordinary = renderToStaticMarkup(<NewTabPage />);
   expect(ordinary).toContain("New tab");
-  expect(ordinary).not.toContain("browsing privately");
+  for (const privateOnly of [
+    "browsing privately",
+    "won't keep",
+    "may still be visible",
+    "last private window closes",
+    "Extensions do not run",
+    "ic-hat-glasses",
+  ]) {
+    expect(ordinary).not.toContain(privateOnly);
+  }
 });
