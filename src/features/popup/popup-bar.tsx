@@ -1,5 +1,6 @@
 import { type Tab } from "@bindings";
 import { connectionIcon, displayAddress } from "@features/toolbar/address";
+import { PrivateBadge } from "@features/toolbar/private-badge";
 import { WindowControls } from "@features/window-controls/window-controls";
 import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
@@ -31,11 +32,7 @@ export function PopupBar({ tab }: PopupBarProps) {
       >
         {displayAddress(url)}
       </output>
-      {isPrivate && (
-        <span className="bg-chrome-raised text-text shrink-0 rounded-(--radius-control) px-2.5 py-1 font-medium">
-          {t("private.label")}
-        </span>
-      )}
+      {isPrivate && <PrivateBadge />}
       <WindowControls />
     </header>
   );

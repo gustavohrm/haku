@@ -8,6 +8,7 @@ import { t } from "@shared/i18n";
 import { useId, useRef, useState, type FormEvent } from "react";
 
 import { displayAddress, editableAddress, isInsecure } from "./address";
+import { PrivateBadge } from "./private-badge";
 import { SiteMenu } from "./site-menu";
 import { useAddressFocus } from "./use-address-focus";
 
@@ -117,11 +118,7 @@ export function Toolbar({ tab }: ToolbarProps) {
         </label>
       </form>
 
-      {isPrivate && (
-        <span className="bg-chrome-raised text-text shrink-0 rounded-(--radius-control) px-2.5 py-1 font-medium">
-          {t("private.label")}
-        </span>
-      )}
+      {isPrivate && <PrivateBadge />}
       {!isPrivate && <ExtensionsBar tab={tabId} />}
       <ToolbarButton
         icon="ic-code"

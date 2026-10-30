@@ -8,14 +8,19 @@ import { NewTabPage } from "./new-tab-page";
 
 it("explains private data retention on the new-tab page", () => {
   state.private = true;
-  const html = renderToStaticMarkup(<NewTabPage />);
-  expect(html).toContain("No history, session, or reopenable tabs are kept.");
-  expect(html).toContain("Extensions do not run.");
   const page = document.createElement("div");
-  page.innerHTML = html;
+  page.innerHTML = renderToStaticMarkup(<NewTabPage />);
+  expect(page.querySelector("h1")?.textContent).toBe("You're browsing privately");
+  expect([...page.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
+    "Haku won't keep",
+    "Your activity may still be visible to",
+  ]);
+  expect(page.textContent).toContain("once the last private window closes");
+  expect(page.textContent).toContain("Extensions do not run in private windows.");
   expect(page.querySelector("section")?.getAttribute("aria-label")).toBeNull();
-  expect(page.querySelector("h2")?.textContent).toBe("Private");
-  expect(html).toContain("last private window closes");
+
   state.private = false;
-  expect(renderToStaticMarkup(<NewTabPage />)).not.toContain("last private window closes");
+  const ordinary = renderToStaticMarkup(<NewTabPage />);
+  expect(ordinary).toContain("New tab");
+  expect(ordinary).not.toContain("browsing privately");
 });
