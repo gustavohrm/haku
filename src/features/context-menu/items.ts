@@ -10,6 +10,8 @@ import { tidySeparators, type MenuItem } from "@features/overlays/menu-model";
 import { t } from "@shared/i18n";
 import { invoke } from "@tauri-apps/api/core";
 
+import { SHORTCUT_HINTS } from "./shortcut-hints";
+
 // Prefixed, because a separator is often named after the item it introduces
 // and the menu keys its rows by id.
 const separator = (id: string): MenuItem => ({ kind: "separator", id: `separator:${id}` });
@@ -84,12 +86,14 @@ export function tabMenu(
     {
       kind: "command",
       id: "reload",
+      shortcut: SHORTCUT_HINTS.reload,
       label: t("menu.reload"),
       onSelect: () => actions.reload(tab.id),
     },
     {
       kind: "command",
       id: "duplicate",
+      shortcut: SHORTCUT_HINTS.duplicate,
       label: t("menu.duplicate"),
       disabled: url === null,
       onSelect: () => url !== null && actions.duplicate(url),
@@ -115,12 +119,19 @@ export function tabMenu(
           {
             kind: "command" as const,
             id: "separate",
+            shortcut: SHORTCUT_HINTS.separate,
             label: t("split.separate"),
             onSelect: () => actions.separate(tab.id),
           },
         ]
       : []),
-    { kind: "command", id: "close", label: t("menu.close"), onSelect: () => actions.close([tab.id]) },
+    {
+      kind: "command",
+      id: "close",
+      shortcut: SHORTCUT_HINTS.close,
+      label: t("menu.close"),
+      onSelect: () => actions.close([tab.id]),
+    },
     {
       kind: "command",
       id: "closeOthers",
@@ -141,8 +152,14 @@ export function tabMenu(
 /** The tab strip's menu, away from any tab. */
 export function stripMenu(actions: { newTab: () => void; reopen: () => void }): MenuItem[] {
   return interfaceMenu([
-    { kind: "command", id: "new", label: t("tabs.new"), onSelect: actions.newTab },
-    { kind: "command", id: "reopen", label: t("menu.reopenClosed"), onSelect: actions.reopen },
+    { kind: "command", id: "new", shortcut: SHORTCUT_HINTS.newTab, label: t("tabs.new"), onSelect: actions.newTab },
+    {
+      kind: "command",
+      id: "reopen",
+      shortcut: SHORTCUT_HINTS.reopen,
+      label: t("menu.reopenClosed"),
+      onSelect: actions.reopen,
+    },
   ]);
 }
 
@@ -237,6 +254,7 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
       {
         kind: "command",
         id: "back",
+        shortcut: SHORTCUT_HINTS.back,
         label: t("toolbar.back"),
         disabled: !history || history.index <= 0,
         onSelect: actions.back,
@@ -244,11 +262,18 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
       {
         kind: "command",
         id: "forward",
+        shortcut: SHORTCUT_HINTS.forward,
         label: t("toolbar.forward"),
         disabled: !history || history.index >= history.entries.length - 1,
         onSelect: actions.forward,
       },
-      { kind: "command", id: "reload", label: t("toolbar.reload"), onSelect: actions.reload },
+      {
+        kind: "command",
+        id: "reload",
+        shortcut: SHORTCUT_HINTS.reload,
+        label: t("toolbar.reload"),
+        onSelect: actions.reload,
+      },
       separator("afterPage"),
     );
   }
@@ -259,7 +284,13 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
   items.push(separator("extensions"));
   items.push(...request.items.filter(extension).map((item, index) => native(item, -1 - index)));
   items.push(separator("inspect"));
-  items.push({ kind: "command", id: "inspect", label: t("menu.inspect"), onSelect: actions.inspect });
+  items.push({
+    kind: "command",
+    id: "inspect",
+    shortcut: SHORTCUT_HINTS.inspect,
+    label: t("menu.inspect"),
+    onSelect: actions.inspect,
+  });
 
   return tidySeparators(items);
 }
