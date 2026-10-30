@@ -13,7 +13,7 @@ import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
 import { useEffect } from "react";
 
 export function App() {
-  const { kind, tabs, active } = useBrowserState();
+  const { kind, private: isPrivate, tabs, active } = useBrowserState();
   const tab = useActiveTab();
   const settings = useSettings();
   usePageDialog(tab);
@@ -26,7 +26,7 @@ export function App() {
     }
   }, [themePreference]);
 
-  const layout = shellLayout(settings, kind);
+  const layout = shellLayout(settings, kind, isPrivate);
   const isFloating = layout.bars === "floating";
   // What a floating bar must show unasked: the toolbar names the page whose
   // dialog is open, and the tabs carry the badge of a dialog waiting elsewhere.

@@ -31,7 +31,7 @@ Rejected:
 
 ## The shell
 
-The shell's root carries `data-tabs` and `data-bars`, beside `data-density`. A pure function, `shellLayout` in `features/bars`, maps the settings and window kind to them; while settings are still loading it gives the defaults. `src/styles/index.css` places the bars and the page from those attributes with a CSS grid. The page is measured where it lands, as [Chrome layering](chrome-layering.md#the-contract-with-the-interface) requires; nothing computes its rectangle from the settings, so a layout change reaches Rust as one more resize of the viewport.
+The shell's root carries `data-tabs` and `data-bars`, beside `data-density`. A pure function, `shellLayout` in `features/bars`, maps the settings, the window kind and whether the window is private to them; while settings are still loading it gives the defaults. `src/styles/index.css` places the bars and the page from those attributes with a CSS grid. The page is measured where it lands, as [Chrome layering](chrome-layering.md#the-contract-with-the-interface) requires; nothing computes its rectangle from the settings, so a layout change reaches Rust as one more resize of the viewport.
 
 ## Tabs
 
@@ -85,7 +85,9 @@ Unchanged. Floating bars sit over both panes; the divider and the focused-pane o
 
 ### Private windows
 
-The **Private** marker is in the toolbar, so it floats with it and is hidden while the toolbar is. A hidden marker makes a private window look like an ordinary one, never the reverse, so no one is led to believe a window is private when it is not. The private new-tab page still says what the window keeps.
+A private window's bars are always docked, whatever `barLayout` says, as a popup's are. It still follows `tabLayout`, so vertical tabs work in it. The **Private** marker is in the toolbar, and it must never hide: a floating toolbar would hide it with the bar, and a user who forgets a window is private expects what they do there to be kept, or a sign-in there to last. `shellLayout` applies the rule from the window's `private` flag in its browser state, so it needs no command or event.
+
+Rejected: letting the marker float with the toolbar. A hidden marker makes a private window look like an ordinary one, and the private new-tab page that says what the window keeps is gone once the user navigates.
 
 ## Settings page
 
