@@ -30,6 +30,7 @@ Bindings follow Chrome's, because that is what users' hands already know. Modifi
 | ---------------------------- | ------------------------------------------------------------------------------- |
 | Ctrl+T                       | Open a new tab, in the address field                                            |
 | Ctrl+N                       | Open a new browser window                                                       |
+| Ctrl+Shift+N                 | Open a new private browser window                                               |
 | Ctrl+W, Ctrl+F4              | Close the tab                                                                   |
 | Ctrl+Shift+T                 | Reopen the last closed tab                                                      |
 | Ctrl+Tab, Ctrl+PageDown      | Next tab, wrapping                                                              |

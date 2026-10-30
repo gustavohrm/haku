@@ -14,7 +14,7 @@ Each browser window and popup has an immutable `private` flag, exposed in `Brows
 
 Private windows share one ephemeral session. Their last tab closes the window rather than opening a replacement home tab (decided 2026-10-30). A closed private tab is never remembered. Closing the last private tab across all windows destroys every private slot. Private windows and popups are omitted before session records and indices are built; engine restart loses them. See [Private windows](../first-release.md#private-windows).
 
-Private browser windows carry a persistent **Private** marker beside the address field; private popups carry the same marker beside their read-only address. The marker uses the current theme?s raised chrome surface and text tokens, rather than a separate palette or a colour-only signal. Private tabs use a generic icon even if a favicon URL reaches the interface, so the default-profile chrome never requests a private site?s favicon. The private new-tab page explains that history, sessions and reopenable tabs are not kept, extensions do not run, and browsing data clears when the last private window closes.
+Private browser windows carry a persistent **Private** marker beside the address field; private popups carry the same marker beside their read-only address. The marker uses the current theme's raised chrome surface and text tokens, rather than a separate palette or a colour-only signal. Private tabs use a generic icon even if a favicon URL reaches the interface, so the default-profile chrome never requests a private site's favicon. The private new-tab page explains that history, sessions and reopenable tabs are not kept, extensions do not run, and browsing data clears when the last private window closes.
 
 There are two kinds of window.
 
@@ -71,7 +71,7 @@ A page opened by script may close itself with `window.close()`, as a sign-in pop
 
 Closing a browser window closes its tabs, which are not remembered for reopening, and destroys the webviews in it. An ordinary browser window's last tab closing opens the home page in its place; the window stays. A private window's last tab closes that window.
 
-Closing the last browser window quits Haku, popups included, and keeps that window's tabs for the next launch.
+Ordinary and private browser windows both count toward the last browser window. Closing that last window quits Haku, popups included. Its tabs are kept for the next launch only if it is ordinary; private tabs are never persisted ([Private windows](../first-release.md#private-windows)).
 
 ## Launching again
 
