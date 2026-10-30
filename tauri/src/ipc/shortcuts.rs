@@ -77,9 +77,11 @@ impl Request {
             return Ok(action);
         }
         action.effects = match shortcut {
-            Shortcut::NewTab | Shortcut::NewWindow => {
+            Shortcut::NewTab | Shortcut::NewWindow | Shortcut::NewPrivateWindow => {
                 let (tab, effects) = if shortcut == Shortcut::NewTab {
                     browser.open_tab_in(self.window, home, true)
+                } else if shortcut == Shortcut::NewPrivateWindow {
+                    browser.open_private_window(home)
                 } else {
                     browser.open_window(home)
                 };

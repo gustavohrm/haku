@@ -2,6 +2,7 @@ import { isNewTab, SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { commands } from "@ipc/commands";
+import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useId, useRef, useState, type FormEvent } from "react";
@@ -15,6 +16,7 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ tab }: ToolbarProps) {
+  const { private: isPrivate } = useBrowserState();
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -115,7 +117,12 @@ export function Toolbar({ tab }: ToolbarProps) {
         </label>
       </form>
 
-      <ExtensionsBar tab={tabId} />
+      {isPrivate && (
+        <span className="bg-chrome-raised text-text shrink-0 rounded-(--radius-control) px-2.5 py-1 font-medium">
+          {t("private.label")}
+        </span>
+      )}
+      {!isPrivate && <ExtensionsBar tab={tabId} />}
       <ToolbarButton
         icon="ic-code"
         label={t("toolbar.devtools")}

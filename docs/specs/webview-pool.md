@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: How tabs share a limited number of webviews.
 ---
 
@@ -34,9 +34,14 @@ A tab is in exactly one of five states:
 
 ## Capacity
 
+Slots have a `Default` or `Private` profile. Acquiring a slot of another profile destroys it and creates a replacement with a fresh label, even for the same URL. Capacity remains global across profiles. Connected pages always get a fresh slot matching their opener's profile. A private adoption creates its replacement before destroying the parked anchor, so the native session never has a gap during replacement.
+
+While private tabs exist, at least one private slot stays alive, including when every private page is discarded or crashed or displays an internal page. This anchor counts in the global capacity and is reserved when no protected private page supplies it. Pressure and trimming cannot destroy it; closing its native window moves it to another private window. Closing the final private tab destroys every private slot, ending the shared private session. Private creation uses `incognito(true)` and verifies the native profile before navigation or adoption; a runtime that does not provide private mode fails the opening and closes its window.
+
 ```
 effective_capacity = max(configured_capacity,
-                         max(1, visible_web_count) + fixed_web_count + other_must_run_count)
+                         max(1, visible_web_count) + fixed_web_count + other_must_run_count
+                         + private_anchor_when_not_otherwise_reserved)
 ```
 
 Every visible external, non-crashed tab assigned to a viewport, every fixed web tab, and every other background tab that [must run](#must-run) reserve a slot, so **pinning tabs can never leave a visible tab without a webview**, a second window never takes the first one's page, and music survives a tab switch at a configured capacity of 1. Pinning is never refused; the pool grows to accommodate it. A reservation lasts as long as its reason: a tab that falls silent stops counting.
@@ -128,13 +133,13 @@ Measured once in a dev build, on a Wikipedia article in a child webview of Haku'
 
 ## Closing the last tab
 
-The browser always has a tab. Closing the last one opens the home page in its place, as the new-tab button would.
+An ordinary browser window always has a tab. Closing its last one opens the home page in its place, as the new-tab button would. Closing a private window's last tab closes that window.
 
 ## Service workers
 
 A service worker outlives the page that started it, and it holds a renderer process while it runs. Chromium is meant to stop an idle worker after about 30 seconds, but a busy site's worker can keep itself alive far longer. Measured on a release build: after YouTube's tab was closed, its worker kept a 160 MB process running for more than two minutes, with no debugger attached. The same worker stayed alive after YouTube was evicted from the slot by another tab.
 
-Haku therefore stops any worker that has been running with no page using it for 15 seconds (`platform::workers`). The chrome webview watches the DevTools protocol's `ServiceWorker` events, since it shares the profile with every content webview. The grace period covers a worker legitimately running without a page: while it installs, and while it serves a navigation before the page exists. A stopped worker starts again when a page needs it.
+Haku therefore stops any worker that has been running with no page using it for 15 seconds (`platform::workers`). The chrome webview watches the default profile's DevTools `ServiceWorker` events. A second watcher on one private slot watches the private profile; it moves to a surviving private slot when its source is destroyed and is released with the last private slot. Each watcher has its own tracker, event token and generation, so an expired stop cannot reach another profile or a replacement session. The grace period covers a worker legitimately running without a page: while it installs, and while it serves a navigation before the page exists. A stopped worker starts again when a page needs it.
 
 An extension's background worker is exempt. It never has a page, so it would always look idle, and stopping it disconnects the extension's popup mid-task: Bitwarden's login failed with "Attempting to use a disconnected port object" until it was exempted. Chromium manages extension workers' lifetime itself.
 

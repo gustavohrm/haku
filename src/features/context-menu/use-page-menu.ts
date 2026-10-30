@@ -34,10 +34,11 @@ const geometryOf = (pane: string) => JSON.stringify(paneGeometryStore.get().find
  * @param tab - The focused tab.
  */
 export function usePageMenu(tab: Tab | null): void {
-  const { tabs, viewports } = useBrowserState();
+  const { tabs, viewports, private: isPrivate } = useBrowserState();
   const tabId = tab?.id;
   const open = useRef<OpenPageMenu | null>(null);
   const tabOf = useEffectEvent((id: number) => tabs.find((candidate) => candidate.id === id) ?? null);
+  const privateWindow = useEffectEvent(() => isPrivate);
   const paneOf = useEffectEvent((id: number) => viewports.find((pane) => pane.tab === id)?.id);
   const focusedTab = useEffectEvent(() => tabId);
 
@@ -79,12 +80,14 @@ export function usePageMenu(tab: Tab | null): void {
           at: { x: request.x, y: request.y },
           label: t("menu.page"),
           items: pageMenu(request, tabOf(id), {
+            isPrivate: privateWindow(),
             back: own(() => void commands.goBack(id)),
             forward: own(() => void commands.goForward(id)),
             reload: own(() => void commands.reloadTab(id)),
             inspect: own(() => void commands.openTabDevtools(id)),
             openInTab: own((url: string) => void commands.openTab(url, false)),
-            openInWindow: own((url: string) => void commands.openWindow(url)),
+            openInWindow: own((url: string) => void commands.openWindow(url, null)),
+            openInPrivateWindow: own((url: string) => void commands.openWindow(url, true)),
             search: own((text: string) => void commands.openTab(text, true)),
             choose: (native) => {
               choice = native;

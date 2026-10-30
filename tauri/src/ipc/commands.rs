@@ -32,8 +32,8 @@ use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
     data_url, icon_file, is_internal, jpeg_data_url, popup_url, ContextMenuRequestId, DialogAnswer, DialogId,
-    Extension, Extensions, PageMenu, Placement, Preset, Pressure, ScreenRect, Shortcut, SlotId, TabId, WindowId,
-    WindowKind, WindowRequestId,
+    Extension, Extensions, PageMenu, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId,
+    WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -151,6 +151,9 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             } => queue_window(
                 app,
                 WindowRequest {
+                    parent: None,
+                    profile: Profile::Default,
+                    session: 0,
                     slot: Some(slot),
                     request,
                     url,
@@ -283,6 +286,9 @@ fn release_menu(app: &tauri::AppHandle, request: ContextMenuRequestId) {
 /// A page's request for a new window, as [`PageSignal::WindowRequested`]
 /// reported it from `slot`, or from an extension's toolbar popup without one.
 struct WindowRequest {
+    parent: Option<TabId>,
+    profile: Profile,
+    session: u64,
     slot: Option<SlotId>,
     request: WindowRequestId,
     url: String,
@@ -297,7 +303,22 @@ struct WindowRequest {
 /// were made, so links opened for later line up in the order they were
 /// clicked. Off the UI thread, like [`queue_shortcut`]: opening one drives
 /// webviews.
-fn queue_window(app: &tauri::AppHandle, window: WindowRequest) {
+fn queue_window(app: &tauri::AppHandle, mut window: WindowRequest) {
+    if let Some(slot) = window.slot {
+        let state = app.state::<AppState>();
+        let source = state.browser.read().ok().and_then(|browser| {
+            let parent = browser.tab_in(slot)?;
+            Some((parent, browser.profile_of(parent), browser.private_session()))
+        });
+        let Some((parent, profile, session)) = source else {
+            let _ = platform::refuse_window(app, window.request);
+            return;
+        };
+        window.parent = Some(parent);
+        window.profile = profile;
+        window.session = session;
+    }
+
     static QUEUE: OnceLock<mpsc::Sender<WindowRequest>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
         let (sender, receiver) = mpsc::channel::<WindowRequest>();
@@ -339,7 +360,9 @@ fn queue_window(app: &tauri::AppHandle, window: WindowRequest) {
 /// a request the page made on its own never reaches here.
 fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
     let WindowRequest {
-        slot,
+        parent,
+        profile,
+        session,
         request,
         url,
         popup,
@@ -367,11 +390,10 @@ fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
     let pressure = read_pressure(&state);
     let _ = mutate(app, &state, |browser| {
         browser.set_pressure(pressure);
-        Ok(match slot {
-            Some(slot) => browser.open_from(slot, url, opening),
-            None => browser.open_requested(url, opening),
+        if profile == Profile::Private && !browser.accepts_private_request(session) {
+            return Ok(Vec::new());
         }
-        .1)
+        Ok(browser.open_requested_profile(parent, profile, url, opening).1)
     });
 }
 
@@ -446,6 +468,9 @@ fn popup_sink(app: &tauri::AppHandle) -> platform::PageSink {
             queue_window(
                 &app,
                 WindowRequest {
+                    parent: None,
+                    profile: Profile::Default,
+                    session: 0,
                     slot: None,
                     request,
                     url,
@@ -544,6 +569,7 @@ fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shor
                     | Shortcut::Home
                     | Shortcut::NewTab
                     | Shortcut::NewWindow
+                    | Shortcut::NewPrivateWindow
                     | Shortcut::NextTab
                     | Shortcut::PreviousTab
                     | Shortcut::NthTab(_)
@@ -937,10 +963,9 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
         browser.report_page(slot, commits, title)
     };
 
-    let Some(report) = recorded else {
-        return;
-    };
-    queue_record(app, report);
+    if let Some(report) = recorded {
+        queue_record(app, report);
+    }
 
     let states = state.browser.read().map(|browser| window_states(&browser));
     if let Ok(states) = states {
@@ -991,20 +1016,28 @@ fn apply_effects(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -
         )
     };
     let hooks = hooks();
-    let (departures, failed_slots, mut applied) =
+    for effect in &effects {
+        if let Effect::Destroy { slot } = effect {
+            menu_owners().retain(|_, (owner, _)| owner != slot);
+        }
+    }
+    let (mut departures, failed_slots, mut applied) =
         webview::apply(app, &effects, &state.viewports, &hooks, &placements, &bounds);
-    if !failed_slots.is_empty() {
-        let cleanup: Vec<Effect> = {
-            let mut browser = state
-                .browser
-                .write()
-                .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-            failed_slots
-                .into_iter()
-                .flat_map(|slot| browser.slot_failed(slot))
-                .collect()
-        };
-        let (_, _, cleaned) = webview::apply(app, &cleanup, &state.viewports, &hooks, &placements, &bounds);
+    let cleanup: Vec<Effect> = {
+        let mut browser = state
+            .browser
+            .write()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let mut cleanup = browser.slots_failed(failed_slots.iter().copied());
+        cleanup.extend(browser.slots_created(effects.iter().filter_map(|effect| match effect {
+            Effect::EnsureSlot { slot, .. } | Effect::Adopt { slot, .. } if !failed_slots.contains(slot) => Some(*slot),
+            _ => None,
+        })));
+        cleanup
+    };
+    if !cleanup.is_empty() {
+        let (more, cleaned) = apply_effects(app, state, &cleanup)?;
+        departures.extend(more);
         applied = applied.and(cleaned);
     }
     Ok((departures, applied))
@@ -1113,7 +1146,12 @@ fn mutate_in<F>(app: &tauri::AppHandle, state: &AppState, window: WindowId, chan
 where
     F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
 {
-    mutate(app, state, change)?;
+    mutate(app, state, |browser| {
+        if browser.kind(window).is_none() {
+            return Err(HakuError::WindowMissing(window.label()));
+        }
+        change(browser)
+    })?;
     let browser = state
         .browser
         .read()
@@ -1167,18 +1205,10 @@ fn close_window(app: &tauri::AppHandle, window: WindowId) {
         app.exit(0);
         return;
     }
-    let first = webview::chrome(app).ok().map(|chrome| chrome.label().to_string());
     let _ = mutate(app, &state, |browser| Ok(browser.close_window(window)));
     if let Ok(mut bounds) = state.bounds.write() {
         bounds.remove(&window);
-    }
-    // The service worker watch is attached to the first window's chrome,
-    // and goes with it.
-    if first.as_deref() == Some(window.label().as_str()) {
-        if let Ok(chrome) = webview::chrome(app) {
-            let _ = platform::stop_idle_workers(&chrome);
-        }
-    }
+    };
 }
 
 /// Remembers where a window is on screen, for the session. A minimised
@@ -1257,8 +1287,8 @@ pub async fn set_settings(
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Result<Settings> {
-    ensure_chrome(&webview)?;
-    store_settings(&app, &state, settings)
+    let window = ensure_chrome(&webview)?;
+    store_settings(&app, &state, window, settings)
 }
 
 /// Replaces the optimization settings with a preset's values.
@@ -1274,7 +1304,7 @@ pub async fn apply_preset(
     state: State<'_, AppState>,
     preset: Preset,
 ) -> Result<Settings> {
-    ensure_chrome(&webview)?;
+    let window = ensure_chrome(&webview)?;
     let settings = {
         let current = state
             .settings
@@ -1282,7 +1312,7 @@ pub async fn apply_preset(
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         current.clone().with_preset(preset)
     };
-    store_settings(&app, &state, settings)
+    store_settings(&app, &state, window, settings)
 }
 
 /// The preset the current settings match, or nothing when they were customised.
@@ -1297,7 +1327,7 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
     Ok(settings.preset())
 }
 
-fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) -> Result<Settings> {
+fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, settings: Settings) -> Result<Settings> {
     let settings = settings.sanitized();
 
     // One store at a time, from replacing through applying, so a failed save
@@ -1312,6 +1342,13 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, settings: Settings) 
             .settings
             .write()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        if current.kept_sites != settings.kept_sites {
+            state
+                .browser
+                .read()
+                .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
+                .allow_site_settings(window)?;
+        }
         std::mem::replace(&mut *current, settings.clone())
     };
     if let Err(error) = state.save_settings() {
@@ -1561,6 +1598,7 @@ pub async fn open_window(
     webview: tauri::Webview,
     state: State<'_, AppState>,
     url: String,
+    is_private: Option<bool>,
 ) -> Result<BrowserState> {
     let window = ensure_chrome(&webview)?;
     let target = {
@@ -1573,7 +1611,12 @@ pub async fn open_window(
     let pressure = read_pressure(&state);
     mutate_in(&app, &state, window, |browser| {
         browser.set_pressure(pressure);
-        Ok(browser.open_window(target).1)
+        let private = is_private.unwrap_or_else(|| browser.is_private(window));
+        Ok(if private {
+            browser.open_private_window(target).1
+        } else {
+            browser.open_window(target).1
+        })
     })
 }
 
@@ -1935,7 +1978,7 @@ pub async fn open_extension_popup(
             .browser
             .read()
             .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
-        let slot = browser.visible_tab_in(window, tab)?.slot();
+        let slot = browser.extension_tab_in(window, tab)?.slot();
         let source = browser
             .state_in(window)
             .and_then(|snapshot| snapshot.viewports.into_iter().find(|pane| pane.tab == tab))

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { state, listeners, commands } = vi.hoisted(() => ({
   state: {
+    private: false,
     tabs: [] as Tab[],
     viewports: [
       { id: "left", tab: 7 },
@@ -12,7 +13,7 @@ const { state, listeners, commands } = vi.hoisted(() => ({
     ],
   },
   listeners: new Set<(event: { payload: ContextMenuRequested }) => void>(),
-  commands: { reloadTab: vi.fn(), answerContextMenu: vi.fn(), focusPane: vi.fn() },
+  commands: { reloadTab: vi.fn(), answerContextMenu: vi.fn(), focusPane: vi.fn(), openWindow: vi.fn() },
 }));
 vi.mock("@bindings", () => ({
   events: {
@@ -86,6 +87,7 @@ describe("page menu targeting", () => {
   let root: Root;
   beforeEach(() => {
     vi.clearAllMocks();
+    state.private = false;
     state.tabs = [tab(7), tab(9)];
     state.viewports = [
       { id: "left", tab: 7 },
@@ -105,6 +107,30 @@ describe("page menu targeting", () => {
   const send = async (id: number) => {
     await act(async () => listeners.forEach((listener) => listener({ payload: request(id) })));
   };
+
+  it("opens a link explicitly in a private window", async () => {
+    await act(async () => root.render(<PageMenu focused={state.tabs[0]!} />));
+    const link = request(7);
+    link.target.linkUrl = "https://example.com/private";
+    await act(async () => listeners.forEach((listener) => listener({ payload: link })));
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (item) => item.dataset.action === "linkPrivateWindow",
+    );
+    expect(button).toBeDefined();
+    await act(async () => button!.click());
+    expect(commands.openWindow).toHaveBeenCalledWith(link.target.linkUrl, true);
+  });
+
+  it("offers only the inheriting window action for a private link", async () => {
+    state.private = true;
+    await act(async () => root.render(<PageMenu focused={state.tabs[0]!} />));
+    const link = request(7);
+    link.target.linkUrl = "https://example.com/private";
+    await act(async () => listeners.forEach((listener) => listener({ payload: link })));
+    expect(container.querySelector('[data-action="linkPrivateWindow"]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-action="linkWindow"]')!.click());
+    expect(commands.openWindow).toHaveBeenCalledWith(link.target.linkUrl, null);
+  });
 
   it("reloads the tab named by the page menu request", async () => {
     await act(async () => root.render(<PageMenu focused={state.tabs[0]!} />));

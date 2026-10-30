@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: Right-click menus over pages and over the interface, and the shared menu component they are drawn with.
 ---
 
@@ -86,6 +86,8 @@ A request the chrome never answers, say because its window closed, would hold th
 
 ### Items
 
+In ordinary windows, the link menu offers **Open link in private window** after **Open link in new window**, using `open_window(url, true)`. **Open link in new window** inherits the caller?s profile by passing `null` for `isPrivate`. Private windows omit the extra private action because the inheriting action already opens a private window. These link actions have no shortcut hint: Ctrl+Shift+N opens the home page, not the clicked link. Private page menus retain the same native allowlist; diagnostics print native names and kinds only, never page-supplied labels.
+
 Native items are kept by their `Name`, against an allowlist rather than a blocklist, so an item a future WebView2 adds stays hidden until someone decides on it:
 
 | Kept native items                                                                                                                                                         | Dropped native items, and why                                                                                                                                                                                                                                                                                                                                                             |
@@ -96,12 +98,12 @@ The names above are the ones WebView2 reported in the app; **Paste as plain text
 
 Haku's items, by what was clicked:
 
-| Target    | Haku's items                                                                           |
-| --------- | -------------------------------------------------------------------------------------- |
-| Page      | Back, Forward, Reload                                                                  |
-| Link      | Open link in new tab, Open link in new window                                          |
-| Image     | Open image in new tab, when the engine gives the image's address                       |
-| Selection | Search for "…" (the search engine's name is not known, so the label does not name one) |
+| Target    | Haku's items                                                                                       |
+| --------- | -------------------------------------------------------------------------------------------------- |
+| Page      | Back, Forward, Reload                                                                              |
+| Link      | Open link in new tab, Open link in new window, Open link in private window (ordinary windows only) |
+| Image     | Open image in new tab, when the engine gives the image's address                                   |
+| Selection | Search for "…" (the search engine's name is not known, so the label does not name one)             |
 
 Native items follow in their own groups, then extension items in a group of their own, as Chrome shows them. Every page menu, whatever was clicked, ends with **Inspect**, which opens the tab's DevTools with `open_tab_devtools`, in place of the engine's inspectElement.
 

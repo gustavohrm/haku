@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # App architecture
@@ -113,7 +113,7 @@ The host names the page; a path, query or fragment after it belongs to the page,
 
 ## Where this is heading
 
-[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool, native keyboard handling while a page has focus, paired panes and split session restoration are built; webviews keyed by profile are not. Read it before building anything it lists.
+[First release](first-release.md) records the decisions the next features are built on. Several windows sharing one pool, native keyboard handling while a page has focus, paired panes, split session restoration and private windows with labelled browser and popup chrome are built; named containers still wait for Tauri profile-name support. Read it before building anything it lists.
 
 ## Threading
 

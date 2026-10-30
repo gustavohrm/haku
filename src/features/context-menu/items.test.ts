@@ -53,12 +53,14 @@ function request(target: Partial<ContextMenuTarget>, items: NativeMenuItem[] = [
 
 function actions(): PageActions {
   return {
+    isPrivate: false,
     back: vi.fn(),
     forward: vi.fn(),
     reload: vi.fn(),
     inspect: vi.fn(),
     openInTab: vi.fn(),
     openInWindow: vi.fn(),
+    openInPrivateWindow: vi.fn(),
     search: vi.fn(),
     choose: vi.fn(),
   };

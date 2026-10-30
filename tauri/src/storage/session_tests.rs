@@ -5,6 +5,21 @@ use crate::state::AppState;
 use crate::storage::{HistoryDb, Paths, Settings};
 use crate::webview::Viewport;
 
+#[test]
+fn capture_omits_private_windows_urls_and_titles() {
+    let mut browser = Browser::new(2);
+    browser.open_tab("https://public.test", true);
+    let (private, _) = browser.open_private_window("https://secret.test/token");
+    let slot = browser.tab(private).unwrap().slot().unwrap();
+    browser.report_page(slot, &[], Some("Secret title".into()));
+    let captured = Session::capture(&browser, &HashMap::new());
+    assert_eq!(captured.windows.len(), 1);
+    let json = serde_json::to_string(&captured).unwrap();
+    assert!(json.contains("public.test"));
+    assert!(!json.contains("secret.test"));
+    assert!(!json.contains("Secret title"));
+}
+
 fn app_state(browser: Browser) -> AppState {
     AppState::new(
         browser,

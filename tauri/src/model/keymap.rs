@@ -68,6 +68,7 @@ impl Chord {
 pub enum Shortcut {
     NewTab,
     NewWindow,
+    NewPrivateWindow,
     ToggleSplit,
     MoveTabLeft,
     MoveTabRight,
@@ -106,6 +107,7 @@ pub fn shortcut_for(chord: Chord) -> Option<Shortcut> {
         (false, false, true, Home) => Shortcut::Home,
         (false, true, false, Escape) => Shortcut::Memory,
         (true, false, false, Letter('T')) => Shortcut::NewTab,
+        (true, true, false, Letter('N')) => Shortcut::NewPrivateWindow,
         (true, false, false, Letter('N')) => Shortcut::NewWindow,
         (true, false, false, Letter('W') | Function(4)) => Shortcut::CloseTab,
         (true, true, false, Letter('T')) => Shortcut::ReopenClosedTab,
@@ -128,6 +130,15 @@ pub fn shortcut_for(chord: Chord) -> Option<Shortcut> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ctrl_shift_n_opens_a_private_window() {
+        assert_eq!(
+            shortcut_for(Chord::ctrl_shift(Key::Letter('N'))),
+            Some(Shortcut::NewPrivateWindow)
+        );
+        assert_eq!(shortcut_for(Chord::ctrl(Key::Letter('N'))), Some(Shortcut::NewWindow));
+    }
 
     #[test]
     fn approved_chords_are_bound_with_exact_modifiers() {
@@ -206,7 +217,10 @@ mod tests {
 
     #[test]
     fn modifiers_must_match_exactly() {
-        assert_eq!(shortcut_for(Chord::ctrl_shift(Key::Letter('N'))), None);
+        assert_eq!(
+            shortcut_for(Chord::ctrl_shift(Key::Letter('N'))),
+            Some(Shortcut::NewPrivateWindow)
+        );
         assert_eq!(shortcut_for(Chord::alt(Key::Letter('N'))), None);
         assert_eq!(shortcut_for(Chord::plain(Key::Escape)), None);
         assert_eq!(shortcut_for(Chord::plain(Key::Letter('T'))), None);

@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: How Haku learns what a content webview is showing, how that becomes tab history, and how dialogs a page opens are shown and answered.
 ---
 
@@ -40,6 +40,8 @@ Where the script never ran — an error page, the PDF viewer — the log is miss
 "Haku navigated the slot" is tracked per slot: `bind` marks a slot as awaiting when it emits `EnsureSlot`, and the next commit clears it.
 
 ### What counts as a visit
+
+Private reports update the tab's in-memory history and title but never enter the asynchronous persistence queue: neither visits nor retitles reach SQLite. Their state exposes no remote favicon URL, so the default-profile chrome cannot fetch one. Native diagnostics omit menu labels, which can contain page text.
 
 Browsing history (the SQLite store) records visits, which is a narrower thing than commits. `report_page` says whether a report was one:
 

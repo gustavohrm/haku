@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: What Haku does when a process behind a page, the interface or the whole engine fails, and what the user sees.
 ---
 
@@ -54,6 +54,8 @@ When a chrome webview's renderer exits, the window shows nothing, and since Haku
 A reload is attempted at most three times a minute per window. Past that the interface is failing as it starts, and reloading again would only loop; the window is left as it is, and Alt+F4 still closes it.
 
 ## The engine
+
+The shared session-save path excludes every private window before constructing persisted records. An engine restart therefore restores ordinary windows only; private URLs, titles, pairs and bounds are never written. A private page renderer crash keeps the private-session anchor alive until the final private tab closes.
 
 When the browser process exits, every webview of the profile is gone, the interfaces with them, and WebView2 cannot recreate them inside the same windows. The session is saved and Haku restarts itself, restoring normal windows, tab order, all pairs and their committed ratios under [the session format](new-windows.md#the-session). External tabs, including previously crashed tabs, start discarded without slots. The selected tab shows its pair or itself alone; loading waits for each window's matching geometry, and background pairs retain ordinary background policy. Popups and their connections are not restored. This is the same path as a clean restart.
 

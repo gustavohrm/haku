@@ -1,6 +1,7 @@
 import { internalTitle } from "@app/router";
 import { type Tab } from "@bindings";
 import { commands } from "@ipc/commands";
+import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useId, useState } from "react";
@@ -26,6 +27,7 @@ interface TabItemProps {
  * carries its favicon, and one that crashed carries a warning in its place.
  */
 export function TabItem({ tab, active, pairPosition = -1, onMenu }: TabItemProps) {
+  const { private: isPrivate } = useBrowserState();
   const membershipId = useId();
   const visit = tab.history.entries[tab.history.index];
   const title = internalTitle(visit?.url ?? "") ?? (visit?.title?.trim() || t("tabs.untitled"));
@@ -80,7 +82,7 @@ export function TabItem({ tab, active, pairPosition = -1, onMenu }: TabItemProps
             // Found in the strip without opening every tab.
             <i className="ic-triangle-alert ic-md text-destructive shrink-0" aria-hidden="true" />
           ) : (
-            <Favicon key={visit?.favicon ?? ""} src={visit?.favicon ?? null} />
+            <Favicon key={visit?.favicon ?? ""} src={isPrivate ? null : (visit?.favicon ?? null)} />
           )}
           <span className="truncate">{title}</span>
         </button>

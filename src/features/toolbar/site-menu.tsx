@@ -2,7 +2,7 @@ import { type Tab } from "@bindings";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
-import { useSettings } from "@ipc/hooks";
+import { useBrowserState, useSettings } from "@ipc/hooks";
 import { updateSettings } from "@ipc/store";
 import { t } from "@shared/i18n";
 import { useCallback, useId, useRef, useState } from "react";
@@ -38,12 +38,13 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
   const switchId = useId();
   const siteSwitchId = useId();
   const siteHelpId = useId();
+  const { private: isPrivate } = useBrowserState();
   const settings = useSettings();
   const host = hostnameOf(url);
   const siteKept = host !== null && (settings?.keptSites.includes(host) ?? false);
 
   const setSiteKept = (kept: boolean) => {
-    if (host === null) {
+    if (isPrivate || host === null) {
       return;
     }
     void updateSettings((current) => {
@@ -123,7 +124,7 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
               />
             </div>
 
-            {host !== null && (
+            {!isPrivate && host !== null && (
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-1.5">
                   <label htmlFor={siteSwitchId}>{t("site.keepSite")}</label>

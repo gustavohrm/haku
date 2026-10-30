@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: Browser keyboard shortcuts, how they are read wherever focus is, and reopening closed tabs.
 ---
 
@@ -21,6 +21,8 @@ Strip-selection shortcuts (Ctrl+Tab, Ctrl+PageUp/Down and Ctrl+1–9) instead re
 Native content focus is observed through `ICoreWebView2Controller::GotFocus` (`FocusChangedEventHandler` in the locked `webview2-com` 0.39.1). Rust maps the reporting slot to its current window and viewport assignment; unknown, parked and hidden slots are ignored. Showing content uses `SW_SHOWNA` and `SetIsVisible`, separate from explicit focus; raising chrome uses `SWP_NOACTIVATE`. Content slots are created without requesting focus. Debug builds print `[page focus] slot=<id> window=<id> viewport=<id>` for an assigned slot gaining focus. Split-view model and IPC intents now permit two panes; native pointer/Tab focus and ordering with accelerator delivery still require the running-app acceptance checks before adding interface entry points ([Split view](split-view.md#implementation-slices)).
 
 ## The keymap
+
+Ctrl+Shift+N opens a private browser window (`NewPrivateWindow`); Ctrl+N opens an ordinary browser window. Tabs opened from a private popup use the private browser window used last. Private tabs never enter the closed-tab stack, so Ctrl+Shift+T can only reopen ordinary tabs, in an ordinary window.
 
 Bindings follow Chrome's, because that is what users' hands already know. Modifiers match exactly: Ctrl+Shift+W is not Ctrl+W.
 

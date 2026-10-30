@@ -196,12 +196,14 @@ export function fieldMenu(selected: boolean, editable: boolean, actions: FieldAc
 }
 
 export interface PageActions {
+  isPrivate: boolean;
   back: () => void;
   forward: () => void;
   reload: () => void;
   inspect: () => void;
   openInTab: (url: string) => void;
   openInWindow: (url: string) => void;
+  openInPrivateWindow: (url: string) => void;
   search: (text: string) => void;
   /** A native item was chosen, by its engine id. */
   choose: (id: number) => void;
@@ -227,6 +229,16 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
         label: t("menu.openLinkWindow"),
         onSelect: () => actions.openInWindow(link),
       },
+      ...(!actions.isPrivate
+        ? [
+            {
+              kind: "command" as const,
+              id: "linkPrivateWindow",
+              label: t("menu.openLinkPrivateWindow"),
+              onSelect: () => actions.openInPrivateWindow(link),
+            },
+          ]
+        : []),
       separator("afterLink"),
     );
   }

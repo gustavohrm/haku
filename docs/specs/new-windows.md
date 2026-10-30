@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: Browser windows and popups, what happens when a page asks for a new window, by a link or by script, and when it asks to close one.
 ---
 
@@ -10,16 +10,22 @@ Haku has any number of browser windows, sharing one webview pool as [First relea
 
 ## Windows
 
+Each browser window and popup has an immutable `private` flag, exposed in `BrowserState`. Ctrl+Shift+N opens a private browser window. `open_window(url, isPrivate)` opens the requested profile explicitly; passing `null` inherits the calling window, so the existing link menu keeps its profile and **Open link in private window** passes `true`. A page's requests capture its opener's profile before queuing and preserve it even if the opener closes. Popup tabs route to the last-used browser window of that profile, creating one when none remains. Default and private tabs never mix.
+
+Private windows share one ephemeral session. Their last tab closes the window rather than opening a replacement home tab (decided 2026-10-30). A closed private tab is never remembered. Closing the last private tab across all windows destroys every private slot. Private windows and popups are omitted before session records and indices are built; engine restart loses them. See [Private windows](../first-release.md#private-windows).
+
+Private browser windows carry a persistent **Private** marker beside the address field; private popups carry the same marker beside their read-only address. The marker uses the current theme?s raised chrome surface and text tokens, rather than a separate palette or a colour-only signal. Private tabs use a generic icon even if a favicon URL reaches the interface, so the default-profile chrome never requests a private site?s favicon. The private new-tab page explains that history, sessions and reopenable tabs are not kept, extensions do not run, and browsing data clears when the last private window closes.
+
 There are two kinds of window.
 
 - A **browser window** has a tab strip and an address field. Ctrl+N opens one on the home page, and so do Shift+clicking a link and launching Haku again once it has started.
-- A **popup** shows the one page a page opened in it, under a bar with that page's address, read-only, and the window controls. It never takes another tab: a tab opened from a popup, by a link or by a shortcut, opens in the browser window used last, which is brought to the front.
+- A **popup** shows the one page a page opened in it, under a bar with that page's address, read-only, and the window controls. It never takes another tab: a tab opened from a popup, by a link or by a shortcut, opens in the browser window of the same profile used last, which is brought to the front.
 
 Every tab belongs to one window. Each window shows its own active tab, so every window's visible tab is protected as [Webview pool § Capacity](webview-pool.md#capacity) protects the active one, and capacity grows with the number of windows rather than starving one of them. A webview stays in the window it was last used in. When a tab in another window takes it, it is moved there with `Webview::reparent`, and that window's chrome is raised over it, as when a webview is created.
 
 Rust creates the windows; `tauri.conf.json` declares none. A window and its chrome webview share the label `window-<id>`, which is also how a command knows which window called it: commands act for the window whose chrome called them, and each chrome receives only its own window's `StateChanged`. The shared work of the profile, such as installing extensions and watching service workers, runs on the chrome of the window opened first among those still open.
 
-The browser window used last is the browser window most recently focused; a popup is never it. A tab opened from nowhere in particular, such as by a popup's shortcut, opens there.
+Within each profile, the browser window used last is the browser window most recently focused; a popup is never it. A tab opened from nowhere in particular, such as by a popup's shortcut, opens there.
 
 An extension's toolbar popup, which [Extensions § Popups](extensions.md#popups) describes, is neither kind: it is not a tab, and the browser state has no tab or window for it. A window it asks for is answered as a page's would be, as though from no tab: a tab opens in the browser window used last, a popup in a window of its own, and the toolbar popup closes.
 
@@ -63,7 +69,7 @@ While a connected page is open, the tab that opened it [must run](webview-pool.m
 
 A page opened by script may close itself with `window.close()`, as a sign-in popup does when it is done. WebView2 raises `WindowCloseRequested`, and its tab is closed. Closing a popup's tab closes the popup. Closing a tab a page opened, by any means, returns to the tab that opened it if that tab is still open in the same window, rather than to the tab on its right.
 
-Closing a browser window closes its tabs, which are not remembered for reopening, and destroys the webviews in it. A browser window's last tab closing opens the home page in its place, as it always has; the window stays.
+Closing a browser window closes its tabs, which are not remembered for reopening, and destroys the webviews in it. An ordinary browser window's last tab closing opens the home page in its place; the window stays. A private window's last tab closes that window.
 
 Closing the last browser window quits Haku, popups included, and keeps that window's tabs for the next launch.
 
@@ -79,7 +85,7 @@ The arguments of a second launch are ignored. Nothing passes Haku an address yet
 
 ## The session
 
-The session stores each browser window, in the order they were last used, with its tabs, its active tab and where it was on screen. Popups are not stored: the page that opened one reloads on the next launch, and the connection cannot come back. A window that was never moved or resized opens maximized.
+The session stores each ordinary browser window, in the order they were last used, with its tabs, its active tab and where it was on screen. Popups are not stored: the page that opened one reloads on the next launch, and the connection cannot come back. A window that was never moved or resized opens maximized.
 
 A session stored before Haku had windows, a flat list of tabs, is read as one window and written back in the new shape.
 

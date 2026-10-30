@@ -1,11 +1,19 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::HashSet;
 
 use super::tab::TabId;
 use crate::error::{HakuError, Result};
 
 /// Prefix for the Tauri webview label backing a pool slot.
 const SLOT_LABEL_PREFIX: &str = "content-";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+pub enum Profile {
+    #[default]
+    Default,
+    Private,
+}
 
 pub const DEFAULT_CAPACITY: usize = 1;
 
@@ -32,6 +40,7 @@ impl SlotId {
 pub struct Slot {
     pub id: SlotId,
     pub occupant: Option<TabId>,
+    pub profile: Profile,
     /// Monotonic stamp of the last time this slot was claimed or focused.
     /// Only ordering matters, so a counter is used rather than a wall clock.
     pub used_at: u64,
@@ -42,6 +51,11 @@ pub struct Slot {
 pub enum Acquired {
     /// The tab already had this slot; nothing else changed.
     Held(SlotId),
+    Replaced {
+        slot: SlotId,
+        previous: SlotId,
+        evicted: Option<TabId>,
+    },
     /// A slot was free, or the pool grew to make one.
     Free(SlotId),
     /// A resident tab was displaced and must be discarded before reuse.
@@ -52,7 +66,7 @@ impl Acquired {
     pub fn slot(self) -> SlotId {
         match self {
             Self::Held(slot) | Self::Free(slot) => slot,
-            Self::Evicted { slot, .. } => slot,
+            Self::Evicted { slot, .. } | Self::Replaced { slot, .. } => slot,
         }
     }
 }
@@ -68,6 +82,13 @@ pub struct WebviewPool {
     capacity: usize,
     slots: Vec<Slot>,
     clock: u64,
+    next_id: usize,
+    pub keep_private: bool,
+    /// A scheduled private webview cannot replace a native session anchor
+    /// until creation and InPrivate verification have succeeded.
+    #[serde(skip)]
+    #[specta(skip)]
+    pending_private: HashSet<SlotId>,
 }
 
 impl WebviewPool {
@@ -76,6 +97,9 @@ impl WebviewPool {
             capacity: capacity.max(1),
             slots: Vec::new(),
             clock: 0,
+            next_id: 0,
+            keep_private: false,
+            pending_private: HashSet::new(),
         }
     }
 
@@ -125,43 +149,81 @@ impl WebviewPool {
     /// # Errors
     /// Returns [`HakuError::NoSlotAvailable`] when the pool is full and no
     /// victim holding a slot was named.
-    pub fn acquire(&mut self, tab: TabId, effective_capacity: usize, victim: Option<TabId>) -> Result<Acquired> {
-        if let Some(slot) = self.slot_of(tab) {
-            self.touch(tab);
-            return Ok(Acquired::Held(slot));
-        }
-
+    pub fn acquire(
+        &mut self,
+        tab: TabId,
+        effective_capacity: usize,
+        victim: Option<TabId>,
+        profile: Profile,
+    ) -> Result<Acquired> {
+        let held = self.slots.iter().position(|slot| slot.occupant == Some(tab));
+        let free = self
+            .slots
+            .iter()
+            .position(|slot| slot.occupant.is_none() && (slot.profile == profile || !self.is_anchor(slot.id)));
+        let index = if let Some(index) = held.or(free) {
+            index
+        } else if self.slots.len() < effective_capacity {
+            return Ok(Acquired::Free(self.acquire_new(tab, profile)));
+        } else {
+            self.slots
+                .iter()
+                .position(|slot| {
+                    slot.occupant == victim && victim.is_some() && (slot.profile == profile || !self.is_anchor(slot.id))
+                })
+                .ok_or(HakuError::NoSlotAvailable)?
+        };
         self.clock += 1;
-
-        if let Some(slot) = self.slots.iter_mut().find(|slot| slot.occupant.is_none()) {
-            slot.occupant = Some(tab);
-            slot.used_at = self.clock;
-            return Ok(Acquired::Free(slot.id));
-        }
-
-        if self.slots.len() < effective_capacity {
+        let previous = self.slots[index].clone();
+        if previous.profile != profile {
             let id = self.unused_id();
-            self.slots.push(Slot {
+            self.pending_private.remove(&previous.id);
+            if profile == Profile::Private {
+                self.pending_private.insert(id);
+            }
+            self.slots[index] = Slot {
                 id,
                 occupant: Some(tab),
+                profile,
                 used_at: self.clock,
+            };
+            return Ok(Acquired::Replaced {
+                slot: id,
+                previous: previous.id,
+                evicted: previous.occupant.filter(|id| *id != tab),
             });
-            return Ok(Acquired::Free(id));
         }
-
-        let victim = victim.ok_or(HakuError::NoSlotAvailable)?;
-        let slot = self
-            .slots
-            .iter_mut()
-            .find(|slot| slot.occupant == Some(victim))
-            .ok_or(HakuError::NoSlotAvailable)?;
+        let slot = &mut self.slots[index];
         slot.occupant = Some(tab);
         slot.used_at = self.clock;
-
-        Ok(Acquired::Evicted {
-            slot: slot.id,
-            evicted: victim,
+        Ok(if held.is_some() {
+            Acquired::Held(slot.id)
+        } else if let Some(evicted) = previous.occupant {
+            Acquired::Evicted { slot: slot.id, evicted }
+        } else {
+            Acquired::Free(slot.id)
         })
+    }
+
+    /// Pending private slots cannot yet replace the final established anchor.
+    pub fn is_anchor(&self, id: SlotId) -> bool {
+        self.keep_private
+            && self
+                .slots
+                .iter()
+                .any(|slot| slot.id == id && slot.profile == Profile::Private)
+            && (self.pending_private.contains(&id)
+                || self
+                    .slots
+                    .iter()
+                    .filter(|slot| slot.profile == Profile::Private && !self.pending_private.contains(&slot.id))
+                    .count()
+                    == 1)
+    }
+
+    /// Acknowledges successful native creation, including profile verification.
+    pub fn slot_created(&mut self, id: SlotId) {
+        self.pending_private.remove(&id);
     }
 
     /// Gives `tab` a slot of its own that has never held a webview, growing the
@@ -170,24 +232,26 @@ impl WebviewPool {
     /// For a webview handed to a page that asked for a new window: the engine
     /// only accepts one that has never loaded anything, so neither a parked
     /// webview nor an evicted tab's will do.
-    pub fn acquire_new(&mut self, tab: TabId) -> SlotId {
+    pub fn acquire_new(&mut self, tab: TabId, profile: Profile) -> SlotId {
         self.clock += 1;
         let id = self.unused_id();
         self.slots.push(Slot {
             id,
             occupant: Some(tab),
+            profile,
             used_at: self.clock,
         });
+        if profile == Profile::Private {
+            self.pending_private.insert(id);
+        }
         id
     }
 
-    /// The lowest id no slot uses. Slots can be removed from anywhere in the
-    /// pool, so the next id is not simply the count.
-    fn unused_id(&self) -> SlotId {
-        let id = (0..)
-            .find(|candidate| self.slots.iter().all(|slot| slot.id.0 != *candidate))
-            .unwrap_or(self.slots.len());
-        SlotId(id)
+    /// Labels are never reused: native destruction completes asynchronously.
+    fn unused_id(&mut self) -> SlotId {
+        let id = SlotId(self.next_id);
+        self.next_id += 1;
+        id
     }
 
     /// Frees whatever slot `tab` held, if any.
@@ -202,6 +266,7 @@ impl WebviewPool {
     /// @returns The removed slot, with the tab it displaced if it had one.
     pub fn remove(&mut self, id: SlotId) -> Option<Slot> {
         let index = self.slots.iter().position(|slot| slot.id == id)?;
+        self.pending_private.remove(&id);
         Some(self.slots.remove(index))
     }
 }
@@ -209,6 +274,27 @@ impl WebviewPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_mismatch_replaces_free_and_occupied_slots_in_both_directions() {
+        for (from, to) in [
+            (Profile::Default, Profile::Private),
+            (Profile::Private, Profile::Default),
+        ] {
+            for release in [false, true] {
+                let mut pool = WebviewPool::new(1);
+                let old = pool.acquire(tab(1), 1, None, from).unwrap().slot();
+                if release {
+                    pool.release(tab(1));
+                }
+                let acquired = pool.acquire(tab(2), 1, Some(tab(1)), to).unwrap();
+                assert!(matches!(acquired, Acquired::Replaced { previous, .. } if previous == old));
+                assert_ne!(acquired.slot(), old, "a closing native label must not be reused");
+                assert_eq!(pool.slots().len(), 1, "capacity is global");
+                assert_eq!(pool.slots()[0].profile, to);
+            }
+        }
+    }
 
     fn tab(id: u64) -> TabId {
         TabId(id)
@@ -234,10 +320,10 @@ mod tests {
     #[test]
     fn a_new_slot_is_never_a_free_one_and_may_exceed_capacity() {
         let mut pool = WebviewPool::new(1);
-        pool.acquire(tab(1), 1, None).unwrap();
+        pool.acquire(tab(1), 1, None, Profile::Default).unwrap();
         pool.release(tab(1));
 
-        let slot = pool.acquire_new(tab(2));
+        let slot = pool.acquire_new(tab(2), Profile::Default);
 
         assert_ne!(slot, SlotId(0));
         assert_eq!(pool.slots().len(), 2);
@@ -270,27 +356,36 @@ mod tests {
     fn the_pool_grows_lazily_up_to_the_effective_capacity() {
         let mut pool = WebviewPool::new(2);
 
-        assert_eq!(pool.acquire(tab(1), 2, None).unwrap(), Acquired::Free(SlotId(0)));
-        assert_eq!(pool.acquire(tab(2), 2, None).unwrap(), Acquired::Free(SlotId(1)));
+        assert_eq!(
+            pool.acquire(tab(1), 2, None, Profile::Default).unwrap(),
+            Acquired::Free(SlotId(0))
+        );
+        assert_eq!(
+            pool.acquire(tab(2), 2, None, Profile::Default).unwrap(),
+            Acquired::Free(SlotId(1))
+        );
         assert_eq!(pool.slots().len(), 2);
     }
 
     #[test]
     fn acquiring_a_slot_the_tab_already_holds_changes_nothing() {
         let mut pool = WebviewPool::new(2);
-        let first = pool.acquire(tab(1), 2, None).unwrap().slot();
+        let first = pool.acquire(tab(1), 2, None, Profile::Default).unwrap().slot();
 
-        assert_eq!(pool.acquire(tab(1), 2, None).unwrap(), Acquired::Held(first));
+        assert_eq!(
+            pool.acquire(tab(1), 2, None, Profile::Default).unwrap(),
+            Acquired::Held(first)
+        );
         assert_eq!(pool.slots().len(), 1);
     }
 
     #[test]
     fn a_full_pool_evicts_the_named_victim() {
         let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, None).unwrap();
-        pool.acquire(tab(2), 2, None).unwrap();
+        pool.acquire(tab(1), 2, None, Profile::Default).unwrap();
+        pool.acquire(tab(2), 2, None, Profile::Default).unwrap();
 
-        let acquired = pool.acquire(tab(3), 2, Some(tab(1))).unwrap();
+        let acquired = pool.acquire(tab(3), 2, Some(tab(1)), Profile::Default).unwrap();
         assert_eq!(
             acquired,
             Acquired::Evicted {
@@ -303,31 +398,31 @@ mod tests {
     #[test]
     fn a_full_pool_refuses_when_no_victim_is_named() {
         let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, None).unwrap();
-        pool.acquire(tab(2), 2, None).unwrap();
+        pool.acquire(tab(1), 2, None, Profile::Default).unwrap();
+        pool.acquire(tab(2), 2, None, Profile::Default).unwrap();
 
-        let error = pool.acquire(tab(3), 2, None).unwrap_err();
+        let error = pool.acquire(tab(3), 2, None, Profile::Default).unwrap_err();
         assert!(matches!(error, HakuError::NoSlotAvailable));
     }
 
     #[test]
     fn a_full_pool_refuses_a_victim_that_holds_no_slot() {
         let mut pool = WebviewPool::new(1);
-        pool.acquire(tab(1), 1, None).unwrap();
+        pool.acquire(tab(1), 1, None, Profile::Default).unwrap();
 
-        let error = pool.acquire(tab(2), 1, Some(tab(9))).unwrap_err();
+        let error = pool.acquire(tab(2), 1, Some(tab(9)), Profile::Default).unwrap_err();
         assert!(matches!(error, HakuError::NoSlotAvailable));
     }
 
     #[test]
     fn a_free_slot_is_used_before_any_victim() {
         let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, None).unwrap();
-        pool.acquire(tab(2), 2, None).unwrap();
+        pool.acquire(tab(1), 2, None, Profile::Default).unwrap();
+        pool.acquire(tab(2), 2, None, Profile::Default).unwrap();
         pool.release(tab(2));
 
         assert_eq!(
-            pool.acquire(tab(3), 2, Some(tab(1))).unwrap(),
+            pool.acquire(tab(3), 2, Some(tab(1)), Profile::Default).unwrap(),
             Acquired::Free(SlotId(1))
         );
     }
@@ -335,19 +430,22 @@ mod tests {
     #[test]
     fn a_released_slot_is_reused_before_the_pool_grows() {
         let mut pool = WebviewPool::new(3);
-        pool.acquire(tab(1), 3, None).unwrap();
-        pool.acquire(tab(2), 3, None).unwrap();
+        pool.acquire(tab(1), 3, None, Profile::Default).unwrap();
+        pool.acquire(tab(2), 3, None, Profile::Default).unwrap();
         pool.release(tab(1));
 
-        assert_eq!(pool.acquire(tab(3), 3, None).unwrap(), Acquired::Free(SlotId(0)));
+        assert_eq!(
+            pool.acquire(tab(3), 3, None, Profile::Default).unwrap(),
+            Acquired::Free(SlotId(0))
+        );
         assert_eq!(pool.slots().len(), 2);
     }
 
     #[test]
     fn removing_a_slot_reports_the_tab_it_held() {
         let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, None).unwrap();
-        pool.acquire(tab(2), 2, None).unwrap();
+        pool.acquire(tab(1), 2, None, Profile::Default).unwrap();
+        pool.acquire(tab(2), 2, None, Profile::Default).unwrap();
 
         let removed = pool.remove(SlotId(0)).unwrap();
 
@@ -357,13 +455,16 @@ mod tests {
     }
 
     #[test]
-    fn growing_after_a_removal_reuses_the_lowest_free_id() {
+    fn growing_after_a_removal_uses_a_fresh_label() {
         let mut pool = WebviewPool::new(2);
-        pool.acquire(tab(1), 2, None).unwrap();
-        pool.acquire(tab(2), 2, None).unwrap();
+        pool.acquire(tab(1), 2, None, Profile::Default).unwrap();
+        pool.acquire(tab(2), 2, None, Profile::Default).unwrap();
         pool.remove(SlotId(0));
 
-        assert_eq!(pool.acquire(tab(3), 2, None).unwrap(), Acquired::Free(SlotId(0)));
+        assert_eq!(
+            pool.acquire(tab(3), 2, None, Profile::Default).unwrap(),
+            Acquired::Free(SlotId(2))
+        );
     }
 
     #[test]
