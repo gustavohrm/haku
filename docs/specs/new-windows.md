@@ -71,7 +71,7 @@ A page opened by script may close itself with `window.close()`, as a sign-in pop
 
 Closing a browser window closes its tabs, which are not remembered for reopening, and destroys the webviews in it. An ordinary browser window's last tab closing opens the home page in its place; the window stays. A private window's last tab closes that window.
 
-Ordinary and private browser windows both count toward the last browser window. Closing that last window quits Haku, popups included. Its tabs are kept for the next launch only if it is ordinary; private tabs are never persisted ([Private windows](../first-release.md#private-windows)).
+Ordinary and private browser windows both count toward the last browser window. Closing that last window quits Haku, popups included. Its tabs are kept for the next launch only if it is ordinary; private tabs are never persisted ([Private windows](../first-release.md#private-windows)). While only private windows are open the session is not written, so when the last ordinary window closes before them, the next launch restores that window, as Chrome does (decided 2026-10-30): saving then would store no window at all and lose its tabs.
 
 ## Launching again
 
