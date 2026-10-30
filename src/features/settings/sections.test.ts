@@ -37,6 +37,8 @@ describe("searchSettings", () => {
 
   it("matches keywords, not only what the row shows", () => {
     expect(ids("dark mode")).toContain("theme");
+    expect(ids("sidebar")).toContain("tabLayout");
+    expect(ids("auto-hide")).toContain("barLayout");
     expect(ids("duckduckgo")).toContain("searchUrl");
   });
 
@@ -46,10 +48,11 @@ describe("searchSettings", () => {
   });
 
   it("groups matches under their section, in page order", () => {
-    // "Loaded tabs" and the background-tab rows are in Tabs & memory; the home
-    // page, "Where new tabs and windows open", is in Browsing, which comes after.
-    expect(searchSettings("tabs").map((result) => result.section.id)).toEqual(["tabs", "browsing"]);
-    expect(ids("tabs")).toEqual(["capacity", "keptMemory", "freeze", "discard", "keptSites", "homeUrl"]);
+    // The Tabs layout is in Appearance, first; "Loaded tabs" and the
+    // background-tab rows are in Tabs & memory; the home page, "Where new tabs
+    // and windows open", is in Browsing, which comes after.
+    expect(searchSettings("tabs").map((result) => result.section.id)).toEqual(["appearance", "tabs", "browsing"]);
+    expect(ids("tabs")).toEqual(["tabLayout", "capacity", "keptMemory", "freeze", "discard", "keptSites", "homeUrl"]);
   });
 });
 
