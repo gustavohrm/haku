@@ -20,12 +20,23 @@ type FailureHandler = (error: HakuError) => void;
 let handler: FailureHandler | null = null;
 
 /**
- * Sets where command failures are reported.
+ * Sets where failures are reported: every failed command's, and every one
+ * Rust reports with no command waiting on it.
  *
  * @param next - Receives every failure, or `null` to stop reporting.
  */
-export function onCommandFailure(next: FailureHandler | null): void {
+export function onFailure(next: FailureHandler | null): void {
   handler = next;
+}
+
+/**
+ * Reports a failure no command call is waiting on, such as a shortcut's,
+ * where a failed command would have been reported.
+ *
+ * @param error - The failure Rust sent.
+ */
+export function reportFailure(error: HakuError): void {
+  handler?.(error);
 }
 
 function isFailure(value: unknown): value is { status: "error"; error: unknown } {

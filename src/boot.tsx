@@ -1,13 +1,13 @@
 import { App } from "@app/app";
 import { InterfaceCrash } from "@app/crash";
 import { notifyFailure, reportUnexpected } from "@features/feedback/feedback";
-import { onCommandFailure } from "@ipc/commands";
+import { onFailure } from "@ipc/commands";
 import { connect } from "@ipc/store";
 import { ErrorBoundary } from "@shared/error-boundary";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-onCommandFailure(notifyFailure);
+onFailure(notifyFailure);
 
 const container = document.querySelector("#root");
 if (!container) {

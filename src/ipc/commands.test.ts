@@ -14,14 +14,14 @@ vi.mock("@bindings", () => ({
   },
 }));
 
-const { commands, onCommandFailure } = await import("./commands");
+const { commands, onFailure, reportFailure } = await import("./commands");
 
 describe("commands", () => {
   const reported = vi.fn();
 
   beforeEach(() => {
     reported.mockReset();
-    onCommandFailure(reported);
+    onFailure(reported);
   });
 
   it("reports a failure and still hands the result back to the caller", async () => {
@@ -59,5 +59,11 @@ describe("commands", () => {
     const error = { kind: "Tauri", message: '{"kind":"Unknown","detail":1}' };
     expect(reported).toHaveBeenCalledWith(error);
     expect(result).toEqual({ status: "error", error });
+  });
+
+  it("reports a failure Rust sent with no command waiting to the same handler", () => {
+    reportFailure(failure);
+
+    expect(reported).toHaveBeenCalledWith(failure);
   });
 });

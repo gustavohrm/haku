@@ -43,7 +43,8 @@ use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{
-    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged,
+    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, FailureReported, MemoryChanged, SettingsChanged,
+    StateChanged,
 };
 use super::recovery;
 use super::shortcuts::Request as ShortcutRequest;
@@ -1248,6 +1249,11 @@ fn record_bounds(window: &tauri::Window, id: WindowId, state: &AppState) {
 #[specta::specta]
 pub fn get_state(webview: tauri::Webview, state: State<'_, AppState>) -> Result<BrowserState> {
     let window = ensure_chrome(&webview)?;
+    // The interface asks for its state once its listeners are attached, so
+    // this is the first moment a failure sent to it is not lost.
+    for failure in state.held_failures.take() {
+        let _ = FailureReported(failure).emit_to(&webview, webview.label());
+    }
     let browser = state
         .browser
         .read()

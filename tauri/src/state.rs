@@ -158,6 +158,27 @@ impl Changes {
     }
 }
 
+/// Failures that happened before any window's interface could listen, held
+/// until one can.
+///
+/// An event sent before the interface has attached its listener is lost, and
+/// at startup there is not even a window yet. The interface attaches its
+/// listeners before asking for its first state, so the first window to ask
+/// takes these, and no other window is sent them again.
+#[derive(Default)]
+pub struct HeldFailures(Mutex<Vec<HakuError>>);
+
+impl HeldFailures {
+    pub fn hold(&self, error: HakuError) {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).push(error);
+    }
+
+    /// Every failure held, in the order it happened, leaving none held.
+    pub fn take(&self) -> Vec<HakuError> {
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
 /// Everything the command layer needs, behind the locks that make it shareable.
 ///
 /// The browser is the only mutable authority over tabs. A change takes the
@@ -182,6 +203,7 @@ pub struct AppState {
     /// What the extensions folder installed at startup.
     pub extensions: RwLock<Extensions>,
     pub paths: Paths,
+    pub held_failures: HeldFailures,
     /// Held from capturing the session to writing it, so saves land in the
     /// order they captured and an older session never overwrites a newer one.
     session_saves: Mutex<()>,
@@ -200,6 +222,7 @@ impl AppState {
             previews: Mutex::new(Previews::default()),
             extensions: RwLock::new(Extensions::default()),
             paths,
+            held_failures: HeldFailures::default(),
             session_saves: Mutex::new(()),
         }
     }
@@ -330,6 +353,29 @@ mod tests {
         assert_eq!(report.slots[1].position, Some(Position::Visible));
         assert_eq!(report.budget, 1024);
         assert_eq!(report.kept, 42, "only kept tabs count against the budget");
+    }
+
+    #[test]
+    fn held_failures_are_taken_once_in_the_order_they_happened() {
+        let held = HeldFailures::default();
+        held.hold(HakuError::Storage("first".into()));
+        held.hold(HakuError::Storage("second".into()));
+
+        assert_eq!(
+            held.take(),
+            vec![HakuError::Storage("first".into()), HakuError::Storage("second".into())]
+        );
+        assert!(held.take().is_empty(), "a second window must not be sent them again");
+    }
+
+    #[test]
+    fn a_failure_held_after_one_was_taken_waits_for_the_next() {
+        let held = HeldFailures::default();
+        held.hold(HakuError::Storage("first".into()));
+        held.take();
+        held.hold(HakuError::Storage("later".into()));
+
+        assert_eq!(held.take(), vec![HakuError::Storage("later".into())]);
     }
 
     /// A tick decided before a select and applied after it blanks the

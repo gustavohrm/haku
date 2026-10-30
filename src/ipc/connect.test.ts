@@ -1,23 +1,33 @@
-import { type BrowserState, type Settings } from "@bindings";
+import { type BrowserState, type HakuError, type Settings } from "@bindings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { commands } from "./commands";
+import { commands, reportFailure } from "./commands";
 import { browserStore, connect, EMPTY_STATE, extensionsStore, reloadSettings, settingsStore } from "./store";
 
 const listen = vi.hoisted(() => vi.fn(async () => () => {}));
 const stateListen = vi.hoisted(() =>
   vi.fn<(callback: (event: { payload: BrowserState }) => void) => Promise<() => void>>(async () => () => {}),
 );
+const failureListen = vi.hoisted(() =>
+  vi.fn<(callback: (event: { payload: HakuError }) => void) => Promise<() => void>>(async () => () => {}),
+);
+const failureTarget = vi.hoisted(() => vi.fn());
 vi.mock("@bindings", () => ({
   events: {
     stateChanged: () => ({ listen: stateListen }),
+    failureReported: (target: unknown) => {
+      failureTarget(target);
+      return { listen: failureListen };
+    },
     settingsChanged: { listen },
     extensionsChanged: { listen },
   },
 }));
-vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({}) }));
+const CURRENT_WEBVIEW = vi.hoisted(() => ({ label: "window-1" }));
+vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => CURRENT_WEBVIEW }));
 vi.mock("./commands", () => ({
   commands: { getState: vi.fn(), getSettings: vi.fn(), extensions: vi.fn() },
+  reportFailure: vi.fn(),
 }));
 
 const STATE = { ...EMPTY_STATE, capacity: 3 };
@@ -53,6 +63,29 @@ describe("connect", () => {
     const stop = await connect();
     expect(browserStore.get()).toBe(newer);
     stop();
+  });
+
+  it("listens for this window's failures before asking for its state", async () => {
+    failureListen.mockClear();
+    let isListeningWhenAsked = false;
+    vi.mocked(commands.getState).mockImplementationOnce(async () => {
+      isListeningWhenAsked = failureListen.mock.calls.length > 0;
+      return { status: "ok", data: STATE };
+    });
+
+    await connect().catch(() => {});
+
+    expect(isListeningWhenAsked).toBe(true);
+    expect(failureTarget).toHaveBeenCalledWith(CURRENT_WEBVIEW);
+  });
+
+  it("reports a failure Rust sends as any other failure is reported", async () => {
+    await connect().catch(() => {});
+    const error = { kind: "Storage", message: "history could not be opened" } as const;
+
+    failureListen.mock.calls.at(-1)![0]({ payload: error });
+
+    expect(reportFailure).toHaveBeenCalledWith(error);
   });
 
   it("keeps settings that arrived while they were being read again", async () => {

@@ -6,7 +6,8 @@ mod shortcuts;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use events::{
-    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, MemoryChanged, SettingsChanged, StateChanged,
+    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, FailureReported, MemoryChanged, SettingsChanged,
+    StateChanged,
 };
 
 /// The single description of Haku's IPC surface.
@@ -55,7 +56,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             MemoryChanged,
             AddressFocusRequested,
             ExtensionsChanged,
-            ContextMenuRequested
+            ContextMenuRequested,
+            FailureReported
         ])
 }
 
