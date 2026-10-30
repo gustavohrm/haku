@@ -274,9 +274,9 @@ struct PendingRestore {
 /// Restores waiting per slot. Set by [`Effect::RestoreState`], taken when the
 /// document loads, and dropped whenever the slot is navigated elsewhere, so a
 /// restore never lands on another tab's page.
-static OBSERVERS: LazyLock<Mutex<HashMap<SlotId, Arc<std::sync::atomic::AtomicBool>>>> = LazyLock::new(Mutex::default);
-
 static PENDING_RESTORES: LazyLock<Mutex<HashMap<SlotId, PendingRestore>>> = LazyLock::new(Mutex::default);
+
+static OBSERVERS: LazyLock<Mutex<HashMap<SlotId, Arc<std::sync::atomic::AtomicBool>>>> = LazyLock::new(Mutex::default);
 
 /// Slots whose document was handed a scroll to restore, until it finishes
 /// loading. The page holds itself at that scroll while it is still growing,
@@ -890,11 +890,13 @@ fn create_slot<R: tauri::Runtime>(
                     observer(&app, slot, PageSignal::Loaded { url });
                 }
                 PageSignal::Completed { url } if set_scrolling(slot, false) => {
-                    let (app, observer) = (app.clone(), observer.clone());
+                    let (app, observer, alive) = (app.clone(), observer.clone(), alive.clone());
                     std::thread::spawn(move || {
-                        if wait_for_scroll(&app, slot) {
-                            observer(&app, slot, PageSignal::Completed { url });
-                        }
+                        complete_after_scroll(
+                            &alive,
+                            || wait_for_scroll(&app, slot),
+                            || observer(&app, slot, PageSignal::Completed { url }),
+                        );
                     });
                 }
                 signal => observer(&app, slot, signal),
@@ -1010,6 +1012,17 @@ fn private_slots() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<
     PRIVATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+fn complete_after_scroll(alive: &std::sync::atomic::AtomicBool, wait: impl FnOnce() -> bool, complete: impl FnOnce()) {
+    if wait() && alive.load(std::sync::atomic::Ordering::Acquire) {
+        complete();
+    }
+}
+
+fn close_page(forgotten: Result<()>, close: impl FnOnce() -> Result<()>) -> Result<()> {
+    let closed = close();
+    forgotten.and(closed)
+}
+
 fn destroy<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId) -> Result<()> {
     private_slots().remove(&slot);
     if let Some(alive) = OBSERVERS
@@ -1031,8 +1044,7 @@ fn destroy<R: tauri::Runtime>(app: &tauri::AppHandle<R>, slot: SlotId) -> Result
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .remove(&slot);
     if let Some(webview) = app.get_webview(&slot.label()) {
-        platform::forget_page(&webview)?;
-        webview.close()?;
+        close_page(platform::forget_page(&webview), || Ok(webview.close()?))?;
     }
     Ok(())
 }
@@ -1228,6 +1240,50 @@ fn parse_url(url: &str) -> Result<tauri::Url> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn destroying_an_observer_during_scroll_wait_suppresses_completion() {
+        let alive = std::sync::atomic::AtomicBool::new(true);
+        let notified = std::cell::Cell::new(false);
+        complete_after_scroll(
+            &alive,
+            || {
+                alive.store(false, std::sync::atomic::Ordering::Release);
+                true
+            },
+            || notified.set(true),
+        );
+        assert!(!notified.get());
+    }
+
+    #[test]
+    fn only_a_live_observer_with_settled_scroll_reports_completion() {
+        for live in [false, true] {
+            for settled in [false, true] {
+                let alive = std::sync::atomic::AtomicBool::new(live);
+                let notified = std::cell::Cell::new(false);
+                complete_after_scroll(&alive, || settled, || notified.set(true));
+                assert_eq!(notified.get(), live && settled);
+            }
+        }
+    }
+
+    #[test]
+    fn closing_a_page_still_runs_when_forgetting_it_fails() {
+        let closed = std::cell::Cell::new(false);
+        let result = close_page(Err(HakuError::WindowMissing("forget failed".into())), || {
+            closed.set(true);
+            Err(HakuError::WindowMissing("close failed".into()))
+        });
+        assert!(closed.get());
+        assert!(matches!(result, Err(HakuError::WindowMissing(message)) if message == "forget failed"));
+    }
+
+    #[test]
+    fn closing_a_page_propagates_close_failure_after_successful_forget() {
+        let result = close_page(Ok(()), || Err(HakuError::WindowMissing("close failed".into())));
+        assert!(matches!(result, Err(HakuError::WindowMissing(message)) if message == "close failed"));
+    }
 
     #[test]
     fn default_worker_watch_moves_before_ctrl_w_destroys_its_private_chrome() {
