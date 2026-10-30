@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::browser::BrowserState;
+use crate::browser::{BrowserState, Ending};
 use crate::error::HakuError;
-use crate::model::{ContextMenuRequestId, ContextMenuTarget, Extensions, NativeMenuItem, TabId};
+use crate::model::{ContextMenuRequestId, ContextMenuTarget, Download, Extensions, NativeMenuItem, TabId};
 use crate::state::MemoryReport;
 use crate::storage::Settings;
 
@@ -45,6 +45,29 @@ pub struct FailureReported(pub HakuError);
 /// the interface may already have asked for the list.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct ExtensionsChanged(pub Extensions);
+
+/// The downloads a window lists, newest first, whenever one starts, moves
+/// on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
+///
+/// Each window receives its own profile's only. Progress is sent at most
+/// every [`crate::model::download::PROGRESS_INTERVAL_MS`] per download.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct DownloadsChanged(pub Vec<Download>);
+
+/// Closing a tab or window would cancel downloads, so it was not done: the
+/// interface asks, and answers with
+/// [`confirm_close`](super::commands::confirm_close) to close anyway.
+/// [Downloads § Closing](../../../docs/specs/downloads.md#closing).
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseConfirmationRequested {
+    /// The tab being closed, or nothing when it is the window.
+    pub tab: Option<TabId>,
+    pub ending: Ending,
+    /// How many downloads closing would cancel.
+    #[specta(type = specta_typescript::Number)]
+    pub downloads: usize,
+}
 
 /// A page was right-clicked, and waits for the menu the interface draws.
 /// [Context menus § Contract](../../../docs/specs/context-menus.md#contract).

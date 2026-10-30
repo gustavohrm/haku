@@ -27,15 +27,16 @@ use std::time::Duration;
 use tauri::{Manager, State};
 use tauri_specta::Event;
 
+use crate::browser::Ending;
 use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    data_url, icon_file, is_internal, jpeg_data_url, popup_url, ContextMenuRequestId, DialogAnswer, DialogId,
-    Extension, Extensions, PageMenu, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId,
-    WindowId, WindowKind, WindowRequestId,
+    data_url, icon_file, is_internal, jpeg_data_url, popup_url, ContextMenuRequestId, DialogAnswer, DialogId, Download,
+    DownloadId, DownloadState, Extension, Extensions, PageMenu, Placement, Preset, Pressure, Profile, ScreenRect,
+    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
-use crate::platform::{self, KeySink, PageSignal, ProcessFailure};
+use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::{self, InstalledExtension, InstalledExtensions, Settings, WindowBounds};
@@ -43,11 +44,11 @@ use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{
-    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, FailureReported, MemoryChanged, SettingsChanged,
-    StateChanged,
+    AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, ExtensionsChanged, FailureReported,
+    MemoryChanged, SettingsChanged, StateChanged,
 };
-use super::recovery;
 use super::shortcuts::Request as ShortcutRequest;
+use super::{downloads, recovery};
 
 /// Rejects a command that only the interface may issue.
 ///
@@ -1053,7 +1054,9 @@ fn apply_effects(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -
     for effect in &effects {
         if let Effect::Destroy { slot } = effect {
             menu_owners().retain(|_, (owner, _)| owner != slot);
+            downloads::slot_gone(app, state, *slot);
         }
+        ask_to_close(app, effect);
     }
     let (mut departures, failed_slots, mut applied) =
         webview::apply(app, &effects, &state.viewports, &hooks, &placements, &bounds);
@@ -1075,6 +1078,19 @@ fn apply_effects(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -
         applied = applied.and(cleaned);
     }
     Ok((departures, applied))
+}
+
+/// Asks a window to confirm a close that would cancel downloads.
+fn ask_to_close(app: &tauri::AppHandle, effect: &Effect) {
+    if let Effect::ConfirmClose {
+        window,
+        tab,
+        ending,
+        downloads,
+    } = *effect
+    {
+        let _ = CloseConfirmationRequested { tab, ending, downloads }.emit_to(app, window.label());
+    }
 }
 
 /// Applies effects to real webviews and tells every window what changed.
@@ -1105,6 +1121,9 @@ fn commit(app: &tauri::AppHandle, state: &AppState, effects: &[Effect]) -> Resul
         // A closed tab's capture shows a page nobody can return to.
         if let Ok(mut previews) = state.previews.lock() {
             previews.retain(|id| browser.tabs().iter().any(|tab| tab.id == id));
+        }
+        if !browser.has_private_tabs() {
+            downloads::end_private_session(app, state);
         }
         window_states(&browser)
     };
@@ -1163,7 +1182,7 @@ fn read_running_pages(app: &tauri::AppHandle, state: &AppState) -> Vec<PageReadi
 /// The lock is released before webviews are touched, so a native call that
 /// blocks cannot stall a read; the next change waits for this one to be
 /// applied, through [`crate::state::Changes`].
-fn mutate<F>(app: &tauri::AppHandle, state: &AppState, mutate: F) -> Result<()>
+pub(super) fn mutate<F>(app: &tauri::AppHandle, state: &AppState, mutate: F) -> Result<()>
 where
     F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
 {
@@ -1223,15 +1242,19 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     }
 }
 
-/// Closes a browser window, or quits when it is the last one.
+/// Closes a browser window, or quits when it is the last one. A close that
+/// would cancel downloads asks the window to confirm it instead.
 ///
 /// Off the UI thread: closing drives webviews.
 fn close_window(app: &tauri::AppHandle, window: WindowId) {
     let state = app.state::<AppState>();
-    let last = state
-        .browser
-        .read()
-        .map_or(true, |browser| browser.is_last_window(window));
+    let (last, held) = state.browser.read().map_or((true, None), |browser| {
+        (browser.is_last_window(window), browser.close_held(window, None))
+    });
+    if let Some(held) = held {
+        ask_to_close(app, &held);
+        return;
+    }
     if last {
         // The session already holds the window's tabs; only where it was may
         // have changed since it was last saved.
@@ -2109,6 +2132,200 @@ pub fn open_extensions_folder(webview: tauri::Webview, state: State<'_, AppState
     std::fs::create_dir_all(&state.paths.extensions)
         .map_err(|error| HakuError::Storage(format!("{}: {error}", state.paths.extensions.display())))?;
     platform::reveal_folder(&state.paths.extensions)
+}
+
+/// The downloads this window lists, newest first: its own profile's only.
+#[tauri::command]
+#[specta::specta]
+pub fn downloads(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Vec<Download>> {
+    let window = ensure_chrome(&webview)?;
+    let private = is_private(&state, window)?;
+    Ok(downloads::lock(&state).list(private))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pause_download(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: DownloadId,
+) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    control_download(&app, &state, window, id, DownloadAction::Pause)
+}
+
+/// Resumes a paused download, or retries a failed one the engine can
+/// resume.
+#[tauri::command]
+#[specta::specta]
+pub async fn resume_download(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: DownloadId,
+) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    control_download(&app, &state, window, id, DownloadAction::Resume)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_download(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: DownloadId,
+) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    control_download(&app, &state, window, id, DownloadAction::Cancel)
+}
+
+/// Opens a completed download's file with the program the system gives it.
+///
+/// Only the chrome reaches this, and only for a path Haku recorded: a page
+/// can neither name a file nor ask for one to be opened.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_download(webview: tauri::Webview, state: State<'_, AppState>, id: DownloadId) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    let download = listed_download(&state, window, id)?;
+    if download.state != DownloadState::Completed {
+        return Err(HakuError::Unsupported(format!("download {} has not completed", id.0)));
+    }
+    let path = std::path::Path::new(&download.path);
+    if !path.is_file() {
+        return Err(HakuError::Storage(format!("{} is gone", path.display())));
+    }
+    platform::open_file(path)
+}
+
+/// Shows a download's file in its folder, or the folder when the file is
+/// not there.
+#[tauri::command]
+#[specta::specta]
+pub async fn show_download(webview: tauri::Webview, state: State<'_, AppState>, id: DownloadId) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    let download = listed_download(&state, window, id)?;
+    let path = std::path::Path::new(&download.path);
+    if path.is_file() {
+        return platform::show_file(path);
+    }
+    match path.parent().filter(|folder| folder.is_dir()) {
+        Some(folder) => platform::reveal_folder(folder),
+        None => Err(HakuError::Storage(format!("{} is gone", path.display()))),
+    }
+}
+
+/// Unlists this window's profile's ended downloads. Their files stay.
+#[tauri::command]
+#[specta::specta]
+pub fn clear_downloads(app: tauri::AppHandle, webview: tauri::Webview, state: State<'_, AppState>) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    let private = is_private(&state, window)?;
+    let cleared = downloads::lock(&state).clear_ended(private);
+    state
+        .history
+        .lock()
+        .map_err(|_| HakuError::Storage("history lock poisoned".into()))?
+        .forget_downloads(&cleared)?;
+    downloads::report(&app, &state);
+    Ok(())
+}
+
+/// Closes a tab, or the window when it is nothing, that was held because it
+/// would cancel downloads, cancelling them.
+/// [Downloads § Closing](../../../docs/specs/downloads.md#closing).
+#[tauri::command]
+#[specta::specta]
+pub async fn confirm_close(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: Option<TabId>,
+) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    let ending = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
+        .ending(window, tab);
+    let cancelling = match ending {
+        None => Vec::new(),
+        Some(Ending::Quit) => downloads::lock(&state).active(None),
+        Some(Ending::PrivateSession) => downloads::lock(&state).active(Some(Profile::Private)),
+    };
+    for id in &cancelling {
+        let _ = platform::control_download(&app, *id, DownloadAction::Cancel);
+    }
+    let (cancelled, downloading) = {
+        let mut downloads = downloads::lock(&state);
+        (downloads.cancel_all(&cancelling), downloads.downloading())
+    };
+    // Written now: quitting does not wait for the download queue.
+    if let Ok(history) = state.history.lock() {
+        for download in &cancelled {
+            let _ = history.save_download(download);
+        }
+    }
+    downloads::report(&app, &state);
+    match tab {
+        Some(tab) => {
+            let home = home_url(&state)?;
+            mutate(&app, &state, |browser| {
+                let mut effects = browser.set_downloading(downloading);
+                effects.extend(browser.close_tab(tab, &home)?);
+                Ok(effects)
+            })
+        }
+        None => {
+            mutate(&app, &state, |browser| Ok(browser.set_downloading(downloading)))?;
+            close_window(&app, window);
+            Ok(())
+        }
+    }
+}
+
+fn is_private(state: &AppState, window: WindowId) -> Result<bool> {
+    Ok(state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
+        .is_private(window))
+}
+
+/// A download as the window asking about it lists it.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] for one the window does not list, which
+/// includes every download of the other profile.
+fn listed_download(state: &AppState, window: WindowId, id: DownloadId) -> Result<Download> {
+    let private = is_private(state, window)?;
+    downloads::lock(state)
+        .entry(id)
+        .filter(|download| download.private == private)
+        .cloned()
+        .ok_or_else(|| HakuError::Unsupported(format!("download {} is not listed in this window", id.0)))
+}
+
+fn control_download(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    window: WindowId,
+    id: DownloadId,
+    action: DownloadAction,
+) -> Result<()> {
+    listed_download(state, window, id)?;
+    if !platform::control_download(app, id, action)? {
+        // The engine let go of it with the webview it ran in.
+        let mut downloads = downloads::lock(state);
+        if action == DownloadAction::Cancel {
+            downloads.cancel_all(&[id]);
+        }
+        downloads.lose(id);
+    }
+    downloads::queue(app, vec![id]);
+    Ok(())
 }
 
 // A popup can still be hidden when its captured page is replaced. Native

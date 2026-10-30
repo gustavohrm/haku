@@ -714,7 +714,7 @@ impl Browser {
         self.private_session == session && self.has_private_tabs()
     }
 
-    fn has_private_tabs(&self) -> bool {
+    pub fn has_private_tabs(&self) -> bool {
         self.tabs.iter().any(|tab| self.profile_of(tab.id) == Profile::Private)
     }
 

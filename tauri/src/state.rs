@@ -8,7 +8,9 @@ use specta::Type;
 use crate::browser::{Browser, Effect, Position};
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
-use crate::model::{Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId, WindowId};
+use crate::model::{
+    Downloads, Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId, WindowId,
+};
 use crate::platform::memory::{Attribution, UnattributedProcess};
 use crate::storage::{HistoryDb, Paths, Session, Settings, WindowBounds};
 use crate::webview::Viewports;
@@ -190,6 +192,9 @@ pub struct AppState {
     pub changes: Changes,
     pub settings: RwLock<Settings>,
     pub history: Mutex<HistoryDb>,
+    /// Every download listed, of both profiles. Reached from the UI thread,
+    /// so only ever held briefly.
+    pub downloads: Mutex<Downloads>,
     /// Where each window's page content goes.
     pub viewports: Viewports,
     /// Where each window was last seen on screen, for the session. Kept as
@@ -211,11 +216,14 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(browser: Browser, settings: Settings, history: HistoryDb, paths: Paths) -> Self {
+        // A download listed last time ran in a webview that is gone.
+        let downloads = Downloads::restored(history.downloads().unwrap_or_default());
         Self {
             browser: RwLock::new(browser),
             changes: Changes::default(),
             settings: RwLock::new(settings),
             history: Mutex::new(history),
+            downloads: Mutex::new(downloads),
             viewports: Viewports::default(),
             bounds: RwLock::new(HashMap::new()),
             memory: RwLock::new(MemoryReading::default()),

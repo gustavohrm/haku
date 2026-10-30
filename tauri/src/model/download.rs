@@ -224,7 +224,8 @@ impl Downloads {
     ///   or had already ended.
     pub fn settle(&mut self, id: DownloadId, settled: Settled) -> Option<&Download> {
         let download = self.entry_mut(id)?;
-        if !download.state.is_active() {
+        // A failure the engine can resume runs again once resumed.
+        if !download.state.is_active() && !download.can_resume {
             return None;
         }
         download.state = settled.state;
@@ -234,7 +235,9 @@ impl Downloads {
         download.total = settled.total.or(download.total);
         download.can_resume =
             settled.can_resume && matches!(settled.state, DownloadState::Paused | DownloadState::Failed);
-        if !download.state.is_active() {
+        // A download that may resume keeps its webview's slot, which runs it
+        // again; only an active one holds that webview.
+        if !download.state.is_active() && !download.can_resume {
             download.slot = None;
         }
         if download.state == DownloadState::Completed {
@@ -272,20 +275,24 @@ impl Downloads {
         let ids: Vec<DownloadId> = self
             .entries
             .iter()
-            .filter(|download| download.slot == Some(slot) && download.state.is_active())
+            .filter(|download| download.slot == Some(slot))
             .map(|download| download.id)
             .collect();
-        ids.into_iter()
-            .filter_map(|id| {
-                let download = self.entry_mut(id)?;
-                download.state = DownloadState::Failed;
-                download.failure = Some(DownloadFailure::Lost);
-                download.can_resume = false;
-                download.slot = None;
-                self.reported.remove(&id);
-                self.entry(id).cloned()
-            })
-            .collect()
+        ids.into_iter().filter_map(|id| self.lose(id).cloned()).collect()
+    }
+
+    /// Records that the engine no longer has a download to act on: one that
+    /// was running is lost, and none can resume.
+    pub fn lose(&mut self, id: DownloadId) -> Option<&Download> {
+        let download = self.entry_mut(id)?;
+        if download.state.is_active() {
+            download.state = DownloadState::Failed;
+            download.failure = Some(DownloadFailure::Lost);
+        }
+        download.can_resume = false;
+        download.slot = None;
+        self.reported.remove(&id);
+        self.entry(id)
     }
 
     /// Unlists the ended downloads of one profile; their files stay.
@@ -304,8 +311,12 @@ impl Downloads {
 
     /// Unlists every private download, when the private session ends: it
     /// leaves no trace in Haku, though its files stay.
-    pub fn end_private_session(&mut self) {
+    ///
+    /// @returns Whether any was listed.
+    pub fn end_private_session(&mut self) -> bool {
+        let before = self.entries.len();
         self.entries.retain(|download| !download.private);
+        self.entries.len() != before
     }
 
     pub fn entry(&self, id: DownloadId) -> Option<&Download> {
@@ -460,6 +471,26 @@ mod tests {
 
         assert_eq!(failed.failure, Some(DownloadFailure::Other));
         assert!(failed.can_resume);
+    }
+
+    #[test]
+    fn a_resumable_failure_runs_again_in_its_webview_until_that_goes() {
+        let mut downloads = Downloads::default();
+        let id = started(&mut downloads, 3, false);
+        downloads.settle(id, settled(DownloadState::Failed, Some(DownloadFailure::Network), true));
+        assert!(downloads.downloading().slots.is_empty(), "a failure holds no webview");
+
+        let resumed = downloads
+            .settle(id, settled(DownloadState::InProgress, None, false))
+            .unwrap();
+        assert_eq!(resumed.state, DownloadState::InProgress);
+        assert_eq!(downloads.downloading().slots, HashSet::from([SlotId(3)]));
+
+        downloads.settle(id, settled(DownloadState::Failed, Some(DownloadFailure::Network), true));
+        let gone = downloads.slot_gone(SlotId(3));
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].failure, Some(DownloadFailure::Network));
+        assert!(!gone[0].can_resume);
     }
 
     #[test]
