@@ -160,7 +160,12 @@ impl WebviewPool {
         let free = self
             .slots
             .iter()
-            .position(|slot| slot.occupant.is_none() && (slot.profile == profile || !self.is_anchor(slot.id)));
+            .position(|slot| slot.occupant.is_none() && slot.profile == profile)
+            .or_else(|| {
+                self.slots
+                    .iter()
+                    .position(|slot| slot.occupant.is_none() && !self.is_anchor(slot.id))
+            });
         let index = if let Some(index) = held.or(free) {
             index
         } else if self.slots.len() < effective_capacity {
@@ -274,6 +279,27 @@ impl WebviewPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_matching_free_slot_wins_over_an_earlier_mismatched_slot() {
+        for profile in [Profile::Default, Profile::Private] {
+            let other = if profile == Profile::Default {
+                Profile::Private
+            } else {
+                Profile::Default
+            };
+            let mut pool = WebviewPool::new(2);
+            pool.acquire_new(tab(1), other);
+            let matching = pool.acquire_new(tab(2), profile);
+            pool.release(tab(1));
+            pool.release(tab(2));
+
+            assert_eq!(
+                pool.acquire(tab(3), 2, None, profile).unwrap(),
+                Acquired::Free(matching)
+            );
+        }
+    }
 
     #[test]
     fn profile_mismatch_replaces_free_and_occupied_slots_in_both_directions() {
