@@ -64,6 +64,7 @@ fn changed(app: &tauri::AppHandle, id: DownloadId, signal: DownloadSignal) {
         match signal {
             DownloadSignal::Progress { received, total } => downloads.progress(id, received, total, now_ms()),
             DownloadSignal::Settled(settled) => downloads.settle(id, settled).is_some(),
+            DownloadSignal::Restarted { path, total } => downloads.restart(id, path, total).is_some(),
         }
     };
     if report {

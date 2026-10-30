@@ -166,8 +166,34 @@ thread_local! {
 
     /// Downloads that can still be paused, resumed or cancelled, with the
     /// slot each runs in. UI-thread only, like the engine's objects.
-    static DOWNLOADS: RefCell<HashMap<DownloadId, (ICoreWebView2DownloadOperation, Option<SlotId>)>> =
-        RefCell::new(HashMap::new());
+    static DOWNLOADS: RefCell<HashMap<DownloadId, Followed>> = RefCell::new(HashMap::new());
+
+    /// Failed downloads Haku resumed, with their address and slot, until
+    /// they run again. The engine resumes such a download as a new one,
+    /// into a new file, and leaves the old operation behind. UI-thread only.
+    static RESUMED: RefCell<Vec<(DownloadId, String, Option<SlotId>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A download Haku can still act on.
+struct Followed {
+    /// What the download runs as now.
+    operation: ICoreWebView2DownloadOperation,
+    slot: Option<SlotId>,
+    /// What it ran as before Haku resumed it after a failure. Kept alive:
+    /// once the last of these is released, the engine stops reporting the
+    /// operation that replaced it, though the file still grows.
+    replaced: Vec<ICoreWebView2DownloadOperation>,
+}
+
+/// Whether `operation` is the one a listed download runs as now, rather than
+/// one the engine left behind when it resumed the download as a new one.
+fn is_current(id: DownloadId, operation: &ICoreWebView2DownloadOperation) -> bool {
+    DOWNLOADS.with(|downloads| {
+        downloads
+            .borrow()
+            .get(&id)
+            .is_some_and(|followed| followed.operation == *operation)
+    })
 }
 
 /// Where downloads are reported, set once by [`observe_downloads`].
@@ -1098,19 +1124,31 @@ unsafe fn attach_downloads(core: &ICoreWebView2, slot: Option<SlotId>) -> window
         operation.Uri(&mut uri)?;
         let mut path = PWSTR::null();
         args.ResultFilePath(&mut path)?;
+        let (url, path) = (take_pwstr(uri), take_pwstr(path));
         let (_, total) = read_bytes(&operation)?;
-        let id = started(
-            slot,
-            DownloadStart {
-                url: take_pwstr(uri),
-                path: take_pwstr(path),
-                total,
-            },
-        );
+        let resumed = RESUMED.with(|resumed| {
+            let mut resumed = resumed.borrow_mut();
+            let at = resumed
+                .iter()
+                .position(|(_, address, owner)| *address == url && *owner == slot)?;
+            Some(resumed.remove(at).0)
+        });
+        let id = match resumed {
+            Some(id) => {
+                changed(id, DownloadSignal::Restarted { path, total });
+                id
+            }
+            None => started(slot, DownloadStart { url, path, total }),
+        };
 
         let mut token = 0i64;
         let on_bytes = BytesReceivedChangedEventHandler::create(Box::new(move |sender, _| {
             let Some(operation) = sender else { return Ok(()) };
+            if !is_current(id, &operation) {
+                return Ok(());
+            }
+            // Bytes arriving mean it runs on as the same download.
+            RESUMED.with(|resumed| resumed.borrow_mut().retain(|(resumed, ..)| *resumed != id));
             let (received, total) = read_bytes(&operation)?;
             changed(id, DownloadSignal::Progress { received, total });
             Ok(())
@@ -1118,6 +1156,9 @@ unsafe fn attach_downloads(core: &ICoreWebView2, slot: Option<SlotId>) -> window
         operation.add_BytesReceivedChanged(&on_bytes, &mut token)?;
         let on_state = StateChangedEventHandler::create(Box::new(move |sender, _| {
             let Some(operation) = sender else { return Ok(()) };
+            if !is_current(id, &operation) {
+                return Ok(());
+            }
             let settled = read_settled(&operation)?;
             // Nothing more can be done to one that ended for good.
             if !settled.state.is_active() && !settled.can_resume {
@@ -1127,7 +1168,25 @@ unsafe fn attach_downloads(core: &ICoreWebView2, slot: Option<SlotId>) -> window
             Ok(())
         }));
         operation.add_StateChanged(&on_state, &mut token)?;
-        DOWNLOADS.with(|downloads| downloads.borrow_mut().insert(id, (operation, slot)));
+        DOWNLOADS.with(|downloads| {
+            let mut downloads = downloads.borrow_mut();
+            let replaced = downloads
+                .remove(&id)
+                .map(|earlier| {
+                    let mut replaced = earlier.replaced;
+                    replaced.push(earlier.operation);
+                    replaced
+                })
+                .unwrap_or_default();
+            downloads.insert(
+                id,
+                Followed {
+                    operation,
+                    slot,
+                    replaced,
+                },
+            );
+        });
         Ok(())
     }));
     core.add_DownloadStarting(&on_download, &mut token)?;
@@ -1193,8 +1252,21 @@ pub fn control_download<R: tauri::Runtime>(
 ) -> Result<bool> {
     let (sender, receiver) = mpsc::channel();
     app.run_on_main_thread(move || {
-        let operation = DOWNLOADS.with(|downloads| downloads.borrow().get(&id).map(|(operation, _)| operation.clone()));
-        let acted = operation.is_some_and(|operation| unsafe {
+        let listed = DOWNLOADS.with(|downloads| {
+            downloads
+                .borrow()
+                .get(&id)
+                .map(|followed| (followed.operation.clone(), followed.slot))
+        });
+        let acted = listed.is_some_and(|(operation, slot)| unsafe {
+            if action == DownloadAction::Resume
+                && read_settled(&operation).is_ok_and(|settled| settled.state == DownloadState::Failed)
+            {
+                let mut uri = PWSTR::null();
+                if operation.Uri(&mut uri).is_ok() {
+                    RESUMED.with(|resumed| resumed.borrow_mut().push((id, take_pwstr(uri), slot)));
+                }
+            }
             match action {
                 DownloadAction::Pause => operation.Pause(),
                 DownloadAction::Resume => operation.Resume(),
@@ -1475,7 +1547,8 @@ pub fn forget_page<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()>
         }
         // The engine stops reporting a download whose webview is gone, and
         // no longer lets it be acted on.
-        DOWNLOADS.with(|downloads| downloads.borrow_mut().retain(|_, (_, owner)| *owner != slot));
+        DOWNLOADS.with(|downloads| downloads.borrow_mut().retain(|_, followed| followed.slot != slot));
+        RESUMED.with(|resumed| resumed.borrow_mut().retain(|(_, _, owner)| *owner != slot));
         let _ = sender.send(());
     })?;
     receiver

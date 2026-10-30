@@ -163,10 +163,19 @@ pub struct DownloadStart {
 }
 
 /// What the engine reports of a download after it started.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DownloadSignal {
-    Progress { received: u64, total: Option<u64> },
+    Progress {
+        received: u64,
+        total: Option<u64>,
+    },
     Settled(Settled),
+    /// A failed download Haku resumed runs again into a new file, which the
+    /// engine names as it did the first.
+    Restarted {
+        path: String,
+        total: Option<u64>,
+    },
 }
 
 /// Lists a download a webview started, in the slot it ran in, and returns

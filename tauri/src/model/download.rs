@@ -247,6 +247,24 @@ impl Downloads {
         self.entry(id)
     }
 
+    /// Records that a download runs again into a new file, as one the
+    /// network interrupted does once resumed.
+    ///
+    /// @returns The download as it is now, or nothing when it is not listed
+    ///   or had already ended.
+    pub fn restart(&mut self, id: DownloadId, path: String, total: Option<u64>) -> Option<&Download> {
+        let download = self.entry_mut(id)?;
+        if !download.state.is_active() && !download.can_resume {
+            return None;
+        }
+        download.path = path;
+        download.total = total.or(download.total);
+        download.state = DownloadState::InProgress;
+        download.failure = None;
+        download.can_resume = false;
+        self.entry(id)
+    }
+
     /// Records that the active downloads Haku is about to cancel itself are
     /// cancelled, without waiting for the engine to say so, which it may not
     /// once their webview is gone.
@@ -491,6 +509,24 @@ mod tests {
         assert_eq!(gone.len(), 1);
         assert_eq!(gone[0].failure, Some(DownloadFailure::Network));
         assert!(!gone[0].can_resume);
+    }
+
+    #[test]
+    fn a_failure_resumed_into_a_new_file_stays_one_entry() {
+        let mut downloads = Downloads::default();
+        let id = started(&mut downloads, 3, false);
+        downloads.settle(id, settled(DownloadState::Failed, Some(DownloadFailure::Network), true));
+
+        let restarted = downloads
+            .restart(id, String::from(r"C:\Users\me\Downloads\file (1).zip"), Some(10))
+            .unwrap();
+        assert_eq!(restarted.state, DownloadState::InProgress);
+        assert_eq!(restarted.failure, None);
+        assert_eq!(restarted.path, r"C:\Users\me\Downloads\file (1).zip");
+        assert_eq!(downloads.list(false).len(), 1);
+
+        downloads.cancel_all(&[id]);
+        assert!(downloads.restart(id, String::from("elsewhere"), None).is_none());
     }
 
     #[test]
