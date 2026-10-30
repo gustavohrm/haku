@@ -36,6 +36,8 @@ A tab is in exactly one of five states:
 
 Slots have a `Default` or `Private` profile. Acquiring a slot of another profile destroys it and creates a replacement with a fresh label, even for the same URL. Capacity remains global across profiles. Connected pages always get a fresh slot matching their opener's profile. A private adoption creates its replacement before destroying the parked anchor, so the native session never has a gap during replacement.
 
+A webview running an active download is held as the anchor is: pressure, trimming and lowering the capacity never destroy it, and closing its window moves it to another. A tab of its own profile may still load into it; one of the other profile grows the pool past it. [Downloads § Webviews](downloads.md#webviews) says why.
+
 While private tabs exist, at least one private slot stays alive, including when every private page is discarded or crashed or displays an internal page. This anchor counts in the global capacity and is reserved when no protected private page supplies it. Pressure and trimming cannot destroy it; closing its native window moves it to another private window. Closing the final private tab destroys every private slot, ending the shared private session. Private creation uses `incognito(true)` and verifies the native profile before navigation or adoption; a runtime that does not provide private mode fails the opening and closes its window.
 
 ```

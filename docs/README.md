@@ -51,3 +51,4 @@ Start with [Architecture](architecture.md).
 | [Crash recovery](specs/crash-recovery.md)     | Crashed pages, a crashed interface, a failed engine.    |
 | [Settings page](specs/settings-page.md)       | Sections, search and the row pattern of settings.       |
 | [Context menus](specs/context-menus.md)       | Page and interface menus; the menu component.           |
+| [Downloads](specs/downloads.md)               | Following downloads, the webviews they hold, storage.   |
