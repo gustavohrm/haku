@@ -85,6 +85,13 @@ describe("tabMenu", () => {
       expect(find(items, id!)).toMatchObject({ shortcut });
     }
     expect(find(items, "split")).not.toHaveProperty("shortcut");
+    const background = tabMenu(tabs[1]!, [...tabs, tab(3)], tabActions(), {
+      active: 3,
+      splits: [{ tabs: [1, 2], ratio: 0.5 }],
+    });
+    for (const id of ["reload", "duplicate", "separate", "close"]) {
+      expect(find(background, id)).toMatchObject({ shortcut: null });
+    }
     const strip = stripMenu({ newTab: vi.fn(), reopen: vi.fn() });
     expect(find(strip, "new")).toMatchObject({ shortcut: "Ctrl+T" });
     expect(find(strip, "reopen")).toMatchObject({ shortcut: "Ctrl+Shift+T" });

@@ -73,7 +73,10 @@ export function tabMenu(
   const index = tabs.findIndex((other) => other.id === tab.id);
   const others = tabs.filter((other) => other.id !== tab.id).map((other) => other.id);
   const right = tabs.slice(index + 1).map((other) => other.id);
-  const isPaired = splits.some((split) => split.tabs.includes(tab.id));
+  const pair = splits.find((split) => split.tabs.includes(tab.id));
+  const isPaired = pair !== undefined;
+  // Chords act on the focused tab; a background tab's menu acts on that tab.
+  const hint = (shortcut: string) => (tab.id === active ? shortcut : null);
   const isSelectedPaired = active !== null && splits.some((split) => split.tabs.includes(active));
   const disabledReason = isSelectedPaired
     ? t("split.selectedPaired")
@@ -86,14 +89,14 @@ export function tabMenu(
     {
       kind: "command",
       id: "reload",
-      shortcut: SHORTCUT_HINTS.reload,
+      shortcut: hint(SHORTCUT_HINTS.reload),
       label: t("menu.reload"),
       onSelect: () => actions.reload(tab.id),
     },
     {
       kind: "command",
       id: "duplicate",
-      shortcut: SHORTCUT_HINTS.duplicate,
+      shortcut: hint(SHORTCUT_HINTS.duplicate),
       label: t("menu.duplicate"),
       disabled: url === null,
       onSelect: () => url !== null && actions.duplicate(url),
@@ -119,7 +122,7 @@ export function tabMenu(
           {
             kind: "command" as const,
             id: "separate",
-            shortcut: SHORTCUT_HINTS.separate,
+            shortcut: active !== null && pair?.tabs.includes(active) ? SHORTCUT_HINTS.separate : null,
             label: t("split.separate"),
             onSelect: () => actions.separate(tab.id),
           },
@@ -128,7 +131,7 @@ export function tabMenu(
     {
       kind: "command",
       id: "close",
-      shortcut: SHORTCUT_HINTS.close,
+      shortcut: hint(SHORTCUT_HINTS.close),
       label: t("menu.close"),
       onSelect: () => actions.close([tab.id]),
     },
