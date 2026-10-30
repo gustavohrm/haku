@@ -2,7 +2,7 @@
 
 use crate::browser::{Browser, Effect, Pick};
 use crate::error::Result;
-use crate::model::{Shortcut, SlotId, TabId, WindowId};
+use crate::model::{Shortcut, SlotId, TabId, WindowId, WindowKind};
 
 #[derive(Clone, Copy)]
 pub(super) struct Request {
@@ -15,6 +15,7 @@ pub(super) struct Action {
     pub effects: Vec<Effect>,
     pub address: Option<TabId>,
     pub devtools: Option<SlotId>,
+    pub close: Option<WindowId>,
 }
 
 impl Request {
@@ -53,6 +54,14 @@ impl Request {
             }
             _ => focused,
         };
+        if browser.kind(self.window) == Some(WindowKind::Popup)
+            && matches!(
+                shortcut,
+                Shortcut::ToggleSplit | Shortcut::MoveTabLeft | Shortcut::MoveTabRight | Shortcut::DuplicateTab
+            )
+        {
+            return Ok(Action::default());
+        }
         let mut action = Action::default();
         let pick = match shortcut {
             Shortcut::NextTab => Some(Pick::Next),
@@ -76,6 +85,42 @@ impl Request {
                 };
                 action.address = Some(tab);
                 effects
+            }
+            Shortcut::ToggleSplit => {
+                if browser
+                    .state_in(self.window)
+                    .expect("focused window")
+                    .splits
+                    .iter()
+                    .any(|pair| pair.tabs.contains(&tab))
+                {
+                    browser.separate_tabs(self.window, tab)?
+                } else {
+                    // Keep the selected operand until split_tab has paired the new partner.
+                    let (partner, mut effects) = browser.open_tab_in(self.window, home, false);
+                    effects.extend(browser.split_tab(self.window, partner)?);
+                    action.address = Some(partner);
+                    effects
+                }
+            }
+            Shortcut::MoveTabLeft | Shortcut::MoveTabRight => {
+                browser.move_tab(tab, shortcut == Shortcut::MoveTabRight)?;
+                Vec::new()
+            }
+            Shortcut::CloseWindow => {
+                action.close = Some(self.window);
+                Vec::new()
+            }
+            Shortcut::Home => browser.navigate(tab, home)?,
+            Shortcut::Memory => browser.open_tab_in(self.window, "haku://memory", true).1,
+            Shortcut::DuplicateTab => {
+                let history = &browser.tab(tab)?.history;
+                if let Some(visit) = history.entries().get(history.index()) {
+                    let url = visit.url.clone();
+                    browser.open_tab_in(self.window, url, true).1
+                } else {
+                    Vec::new()
+                }
             }
             Shortcut::CloseTab => browser.close_tab(tab, home)?,
             Shortcut::ReopenClosedTab => browser.reopen_closed_tab(),
@@ -110,6 +155,219 @@ mod tests {
         let (b, _) = browser.open_tab("https://b.test", false);
         let (c, _) = browser.open_tab("https://c.test", false);
         (browser, [a, b, c])
+    }
+
+    fn run(browser: &mut Browser, chord: crate::model::Chord) -> Action {
+        let shortcut = crate::model::shortcut_for(chord).expect("approved shortcut");
+        Request::chrome(browser.main_window())
+            .prepare(browser, shortcut, HOME, 1)
+            .unwrap()
+    }
+
+    fn split_chord() -> crate::model::Chord {
+        crate::model::Chord {
+            shift: true,
+            ..crate::model::Chord::alt(crate::model::Key::Letter('N'))
+        }
+    }
+
+    #[test]
+    fn queued_new_shortcuts_use_focus_instead_of_the_replaced_source_page() {
+        let (mut browser, [a, b, _]) = pages(2);
+        let request = Request::page(&browser, browser.tab(a).unwrap().slot().unwrap()).unwrap();
+        browser.select_tab(b, 1).unwrap();
+        request.prepare(&mut browser, Shortcut::ToggleSplit, HOME, 2).unwrap();
+        let partner = browser.active().unwrap();
+        assert_eq!(browser.state().splits[0].tabs, [b, partner]);
+        request.prepare(&mut browser, Shortcut::ToggleSplit, HOME, 3).unwrap();
+        assert!(browser.state().splits.is_empty());
+        request.prepare(&mut browser, Shortcut::DuplicateTab, HOME, 4).unwrap();
+        assert_eq!(browser.tab(browser.active().unwrap()).unwrap().url(), HOME);
+        assert_ne!(browser.active(), Some(partner));
+    }
+
+    #[test]
+    fn pair_moves_over_another_pair_without_breaking_either_join() {
+        use crate::model::{Chord, Key};
+        let (mut browser, [a, b, c]) = pages(2);
+        let (d, _) = browser.open_tab("https://d.test", false);
+        browser.split_tab(browser.main_window(), b).unwrap();
+        browser.select_tab(c, 1).unwrap();
+        browser.split_tab(browser.main_window(), d).unwrap();
+        run(&mut browser, Chord::ctrl_shift(Key::PageUp));
+        assert_eq!(
+            browser.state().tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+            [c, d, a, b]
+        );
+        run(&mut browser, Chord::ctrl_shift(Key::PageUp));
+        assert_eq!(browser.state().tabs[0].id, c);
+        run(&mut browser, Chord::ctrl_shift(Key::PageDown));
+        run(&mut browser, Chord::ctrl_shift(Key::PageDown));
+        assert_eq!(
+            browser.state().tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+            [a, b, c, d]
+        );
+        assert_eq!(browser.active(), Some(d));
+    }
+
+    #[test]
+    fn close_window_keeps_the_origin_even_after_another_window_is_focused() {
+        let (mut browser, [a, _, _]) = pages(1);
+        let window = browser.window_of(a).unwrap();
+        let request = Request::page(&browser, browser.tab(a).unwrap().slot().unwrap()).unwrap();
+        browser.open_window(HOME);
+        assert_eq!(
+            request
+                .prepare(&mut browser, Shortcut::CloseWindow, HOME, 1)
+                .unwrap()
+                .close,
+            Some(window)
+        );
+    }
+
+    #[test]
+    fn home_navigates_the_focused_tab_to_the_configured_url() {
+        let (mut browser, [a, b, _]) = pages(2);
+        let request = Request::page(&browser, browser.tab(a).unwrap().slot().unwrap()).unwrap();
+        browser.select_tab(b, 1).unwrap();
+        request
+            .prepare(&mut browser, Shortcut::Home, "https://configured.test/home", 2)
+            .unwrap();
+        assert_eq!(browser.tab(b).unwrap().url(), "https://configured.test/home");
+        assert_eq!(browser.tab(a).unwrap().url(), "https://a.test");
+    }
+
+    #[test]
+    fn memory_opens_an_internal_foreground_tab() {
+        let (mut browser, _) = pages(1);
+        let request = Request::chrome(browser.main_window());
+        let action = request.prepare(&mut browser, Shortcut::Memory, HOME, 1).unwrap();
+        assert_eq!(browser.tab(browser.active().unwrap()).unwrap().url(), "haku://memory");
+        assert_eq!(browser.state().tabs.len(), 4);
+        assert!(action.address.is_none());
+    }
+
+    #[test]
+    fn popup_split_move_and_duplicate_do_nothing_but_close_names_the_popup() {
+        use crate::browser::Opening;
+        use crate::model::{Placement, WindowRequestId};
+        let (mut browser, [a, _, _]) = pages(2);
+        let (popup, _) = browser.open_from(
+            browser.tab(a).unwrap().slot().unwrap(),
+            "https://popup.test",
+            Opening::Popup {
+                request: WindowRequestId(1),
+                placement: Placement::default(),
+            },
+        );
+        let window = browser.window_of(popup).unwrap();
+        let request = Request::chrome(window);
+        let before = serde_json::to_value(browser.state_in(window)).unwrap();
+        for shortcut in [
+            Shortcut::ToggleSplit,
+            Shortcut::MoveTabLeft,
+            Shortcut::MoveTabRight,
+            Shortcut::DuplicateTab,
+        ] {
+            let action = request.prepare(&mut browser, shortcut, HOME, 1).unwrap();
+            assert!(action.effects.is_empty());
+            assert!(action.address.is_none());
+            assert_eq!(serde_json::to_value(browser.state_in(window)).unwrap(), before);
+        }
+        assert_eq!(
+            request
+                .prepare(&mut browser, Shortcut::CloseWindow, HOME, 1)
+                .unwrap()
+                .close,
+            Some(window)
+        );
+    }
+
+    #[test]
+    fn split_toggle_creates_a_focused_right_partner_and_requests_its_address() {
+        let (mut browser, [a, b, c]) = pages(2);
+        let action = run(&mut browser, split_chord());
+        let state = browser.state();
+        let partner = state.active.unwrap();
+        assert_ne!(partner, a);
+        assert_eq!(action.address, Some(partner));
+        assert_eq!(browser.tab(partner).unwrap().url(), HOME);
+        assert_eq!(state.splits[0].tabs, [a, partner]);
+        assert_eq!(state.splits[0].ratio, 0.5);
+        assert_eq!(
+            state.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+            [a, partner, b, c]
+        );
+    }
+
+    #[test]
+    fn split_toggle_separates_from_either_member_without_closing() {
+        for left in [true, false] {
+            let (mut browser, [a, b, _]) = pages(2);
+            browser.split_tab(browser.main_window(), b).unwrap();
+            let focused = if left { a } else { b };
+            browser.select_tab(focused, 1).unwrap();
+            let action = run(&mut browser, split_chord());
+            assert!(browser.state().splits.is_empty());
+            assert_eq!(browser.state().tabs.len(), 3);
+            assert_eq!(browser.active(), Some(focused));
+            assert!(action.address.is_none());
+        }
+    }
+
+    #[test]
+    fn move_shortcuts_step_over_pairs_and_stop_at_edges() {
+        use crate::model::{Chord, Key};
+        let (mut browser, [a, b, c]) = pages(2);
+        browser.split_tab(browser.main_window(), b).unwrap();
+        browser.select_tab(c, 1).unwrap();
+        run(&mut browser, Chord::ctrl_shift(Key::PageUp));
+        assert_eq!(
+            browser.state().tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+            [c, a, b]
+        );
+        run(&mut browser, Chord::ctrl_shift(Key::PageUp));
+        assert_eq!(browser.state().tabs[0].id, c);
+        run(&mut browser, Chord::ctrl_shift(Key::PageDown));
+        assert_eq!(
+            browser.state().tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+            [a, b, c]
+        );
+        run(&mut browser, Chord::ctrl_shift(Key::PageDown));
+        assert_eq!(browser.state().tabs[2].id, c);
+    }
+
+    #[test]
+    fn move_shortcuts_move_either_pair_member_as_one_unit() {
+        use crate::model::{Chord, Key};
+        for member in [0, 1] {
+            let (mut browser, [a, b, c]) = pages(2);
+            browser.split_tab(browser.main_window(), b).unwrap();
+            browser.select_tab([a, b][member], 1).unwrap();
+            run(&mut browser, Chord::ctrl_shift(Key::PageDown));
+            assert_eq!(
+                browser.state().tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+                [c, a, b]
+            );
+            run(&mut browser, Chord::ctrl_shift(Key::PageUp));
+            assert_eq!(
+                browser.state().tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+                [a, b, c]
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_opens_the_current_url_as_an_unpaired_foreground_tab() {
+        use crate::model::{Chord, Key};
+        let (mut browser, [_, b, _]) = pages(2);
+        browser.split_tab(browser.main_window(), b).unwrap();
+        run(&mut browser, Chord::ctrl_shift(Key::Letter('K')));
+        let active = browser.active().unwrap();
+        assert_ne!(active, b);
+        assert_eq!(browser.tab(active).unwrap().url(), "https://b.test");
+        assert_eq!(browser.state().tabs.len(), 4);
+        assert_eq!(browser.state().splits.len(), 1);
     }
 
     #[test]

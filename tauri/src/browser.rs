@@ -1533,6 +1533,31 @@ impl Browser {
         Ok(self.realize())
     }
 
+    /// Moves a tab or its pair over one neighboring strip unit, without wrapping.
+    ///
+    /// # Errors
+    /// Returns a tab-not-found error when the tab no longer exists.
+    pub fn move_tab(&mut self, id: TabId, is_right: bool) -> Result<()> {
+        self.tab(id)?;
+        let window = self.window_of(id).expect("validated tab");
+        let entry = self.window(window).expect("tab window");
+        if entry.kind != WindowKind::Normal {
+            return Ok(());
+        }
+        let members = entry.pair(id).map_or([id, id], |pair| pair.tabs);
+        let tabs: Vec<_> = self.tabs_in(window).map(|tab| tab.id).collect();
+        let start = tabs.iter().position(|tab| *tab == members[0]).expect("tab in window");
+        let width = if members[0] == members[1] { 1 } else { 2 };
+        let neighbor = if is_right {
+            tabs.get(start + width)
+        } else {
+            start.checked_sub(1).and_then(|at| tabs.get(at))
+        };
+        let Some(neighbor) = neighbor else { return Ok(()) };
+        let step = if entry.pair(*neighbor).is_some() { 2 } else { 1 };
+        self.reorder_tab(id, if is_right { start + step } else { start - step })
+    }
+
     /// Moves a tab to position `to` among its window's tabs.
     ///
     /// # Errors

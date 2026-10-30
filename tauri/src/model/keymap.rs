@@ -18,6 +18,8 @@ pub enum Key {
     Right,
     PageUp,
     PageDown,
+    Escape,
+    Home,
 }
 
 /// A key pressed with the modifiers held at the time.
@@ -66,6 +68,13 @@ impl Chord {
 pub enum Shortcut {
     NewTab,
     NewWindow,
+    ToggleSplit,
+    MoveTabLeft,
+    MoveTabRight,
+    CloseWindow,
+    Home,
+    Memory,
+    DuplicateTab,
     CloseTab,
     ReopenClosedTab,
     NextTab,
@@ -85,10 +94,17 @@ pub enum Shortcut {
 /// Modifiers must match exactly, so Ctrl+Shift+W is not Ctrl+W. The bindings
 /// follow Chrome's, since that is what the hands already know.
 pub fn shortcut_for(chord: Chord) -> Option<Shortcut> {
-    use Key::{Digit, Function, Left, Letter, PageDown, PageUp, Right, Tab};
+    use Key::{Digit, Escape, Function, Home, Left, Letter, PageDown, PageUp, Right, Tab};
 
     let Chord { key, ctrl, shift, alt } = chord;
     let shortcut = match (ctrl, shift, alt, key) {
+        (false, true, true, Letter('N')) => Shortcut::ToggleSplit,
+        (true, true, false, PageUp) => Shortcut::MoveTabLeft,
+        (true, true, false, PageDown) => Shortcut::MoveTabRight,
+        (true, true, false, Letter('W')) => Shortcut::CloseWindow,
+        (true, true, false, Letter('K')) => Shortcut::DuplicateTab,
+        (false, false, true, Home) => Shortcut::Home,
+        (false, true, false, Escape) => Shortcut::Memory,
         (true, false, false, Letter('T')) => Shortcut::NewTab,
         (true, false, false, Letter('N')) => Shortcut::NewWindow,
         (true, false, false, Letter('W') | Function(4)) => Shortcut::CloseTab,
@@ -112,6 +128,40 @@ pub fn shortcut_for(chord: Chord) -> Option<Shortcut> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approved_chords_are_bound_with_exact_modifiers() {
+        for (chord, expected) in [
+            (
+                Chord {
+                    shift: true,
+                    ..Chord::alt(Key::Letter('N'))
+                },
+                Shortcut::ToggleSplit,
+            ),
+            (Chord::alt(Key::Home), Shortcut::Home),
+            (
+                Chord {
+                    shift: true,
+                    ..Chord::plain(Key::Escape)
+                },
+                Shortcut::Memory,
+            ),
+            (Chord::ctrl_shift(Key::PageUp), Shortcut::MoveTabLeft),
+            (Chord::ctrl_shift(Key::PageDown), Shortcut::MoveTabRight),
+            (Chord::ctrl_shift(Key::Letter('W')), Shortcut::CloseWindow),
+            (Chord::ctrl_shift(Key::Letter('K')), Shortcut::DuplicateTab),
+        ] {
+            assert_eq!(shortcut_for(chord), Some(expected), "{chord:?}");
+            assert_ne!(
+                shortcut_for(chord),
+                shortcut_for(Chord {
+                    ctrl: !chord.ctrl,
+                    ..chord
+                })
+            );
+        }
+    }
 
     #[test]
     fn tab_shortcuts_follow_chrome() {
@@ -156,7 +206,9 @@ mod tests {
 
     #[test]
     fn modifiers_must_match_exactly() {
-        assert_eq!(shortcut_for(Chord::ctrl_shift(Key::Letter('W'))), None);
+        assert_eq!(shortcut_for(Chord::ctrl_shift(Key::Letter('N'))), None);
+        assert_eq!(shortcut_for(Chord::alt(Key::Letter('N'))), None);
+        assert_eq!(shortcut_for(Chord::plain(Key::Escape)), None);
         assert_eq!(shortcut_for(Chord::plain(Key::Letter('T'))), None);
         assert_eq!(shortcut_for(Chord::ctrl(Key::Left)), None);
     }

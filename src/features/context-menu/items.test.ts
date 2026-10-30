@@ -73,6 +73,29 @@ const select = (item: MenuItem | undefined) => {
 };
 
 describe("tabMenu", () => {
+  it("shows matching shortcut hints without advertising split creation on an existing partner", () => {
+    const tabs = [tab(1), tab(2)];
+    const items = tabMenu(tabs[0]!, tabs, tabActions(), { active: 1, splits: [{ tabs: [1, 2], ratio: 0.5 }] });
+    for (const [id, shortcut] of [
+      ["reload", "Ctrl+R"],
+      ["duplicate", "Ctrl+Shift+K"],
+      ["separate", "Alt+Shift+N"],
+      ["close", "Ctrl+W"],
+    ]) {
+      expect(find(items, id!)).toMatchObject({ shortcut });
+    }
+    expect(find(items, "split")).not.toHaveProperty("shortcut");
+    const background = tabMenu(tabs[1]!, [...tabs, tab(3)], tabActions(), {
+      active: 3,
+      splits: [{ tabs: [1, 2], ratio: 0.5 }],
+    });
+    for (const id of ["reload", "duplicate", "separate", "close"]) {
+      expect(find(background, id)).toMatchObject({ shortcut: null });
+    }
+    const strip = stripMenu({ newTab: vi.fn(), reopen: vi.fn() });
+    expect(find(strip, "new")).toMatchObject({ shortcut: "Ctrl+T" });
+    expect(find(strip, "reopen")).toMatchObject({ shortcut: "Ctrl+Shift+T" });
+  });
   const tabActions = () => ({
     reload: vi.fn(),
     duplicate: vi.fn(),
@@ -179,8 +202,10 @@ describe("pageMenu", () => {
   it("offers navigation on the page itself, from the tab's history", () => {
     const items = pageMenu(request({}), tab(1, ["a", "b"], 1), actions());
     expect(ids(items).slice(0, 3)).toEqual(["back", "forward", "reload"]);
-    expect(find(items, "back")).toMatchObject({ disabled: false });
-    expect(find(items, "forward")).toMatchObject({ disabled: true });
+    expect(find(items, "back")).toMatchObject({ disabled: false, shortcut: "Alt+Left" });
+    expect(find(items, "forward")).toMatchObject({ disabled: true, shortcut: "Alt+Right" });
+    expect(find(items, "reload")).toMatchObject({ shortcut: "Ctrl+R" });
+    expect(find(items, "inspect")).toMatchObject({ shortcut: "F12" });
   });
 
   it("drops navigation over a link, and opens the link", () => {
