@@ -65,8 +65,8 @@ function FloatingBar({ edge, contents, isNeeded, children }: BarSlotProps) {
       <div
         ref={panelRef}
         className={cx(
-          "bg-chrome border-text/15 relative flex min-h-0 flex-col",
-          isTop ? "border-b" : "absolute top-8.5 bottom-0 left-0 w-60 border-t border-r",
+          "bg-chrome border-text/15 flex min-h-0 flex-col",
+          isTop ? "relative border-b" : "absolute top-8.5 bottom-0 left-0 w-60 border-t border-r",
           revealed ? "pointer-events-auto" : "pointer-events-none [clip-path:inset(0_0_100%_0)]",
         )}
       >

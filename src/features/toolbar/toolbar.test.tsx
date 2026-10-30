@@ -1,4 +1,5 @@
 import type { Tab } from "@bindings";
+import { barHoldStore } from "@features/bars/holds";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +42,8 @@ describe("toolbar extension popups", () => {
 
   beforeEach(() => {
     state.private = false;
-    openExtensionPopup.mockClear();
+    openExtensionPopup.mockReset();
+    openExtensionPopup.mockResolvedValue({ status: "ok", data: null });
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -57,6 +59,8 @@ describe("toolbar extension popups", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    // Releases a popup's hold, which waits for a click in the chrome.
+    document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -117,5 +121,31 @@ describe("toolbar extension popups", () => {
     await act(async () => entry.click());
     expect(menu.getAttribute("aria-expanded")).toBe("true");
     expect(openExtensionPopup).not.toHaveBeenCalled();
+  });
+
+  it("holds the toolbar while the site or extensions menu is open", async () => {
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    const site = container.querySelector<HTMLButtonElement>('label [aria-expanded="false"]')!;
+    await act(async () => site.click());
+    expect(barHoldStore.get().toolbar).toBe(1);
+    await act(async () => site.click());
+    expect(barHoldStore.get().toolbar).toBe(0);
+    const menu = container.querySelector<HTMLButtonElement>('[aria-label="Extensions"]')!;
+    await act(async () => menu.click());
+    expect(barHoldStore.get().toolbar).toBe(1);
+    await act(async () => menu.click());
+    expect(barHoldStore.get().toolbar).toBe(0);
+  });
+
+  it("holds the toolbar for an extension popup, and lets go if it fails to open", async () => {
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Example extension"]')!;
+    await act(async () => button.click());
+    expect(barHoldStore.get().toolbar).toBe(1);
+    await act(async () => document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+    expect(barHoldStore.get().toolbar).toBe(0);
+    openExtensionPopup.mockResolvedValue({ status: "error", error: { kind: "notFound" } });
+    await act(async () => button.click());
+    expect(barHoldStore.get().toolbar).toBe(0);
   });
 });
