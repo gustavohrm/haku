@@ -137,6 +137,8 @@ The [Chrome layering](specs/chrome-layering.md) mechanism sets limits every appe
 
 ### Appearance is data
 
+**Tabs and Bars are implemented**: [Appearance](specs/appearance.md) has the settings, the shell attributes and how floating bars reveal. The other rows are not built.
+
 Appearance is a set of settings, not a set of stylesheets. The shell maps them to attributes and tokens, and the layout follows from CSS, because the viewport rectangles are measured, not computed.
 
 | Setting  | Values                                                  |

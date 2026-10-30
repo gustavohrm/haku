@@ -38,7 +38,7 @@ The current settings, regrouped by what a person comes looking for:
 
 | Section       | Address                      | Rows                                                                                                       |
 | ------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Appearance    | `haku://settings/appearance` | Theme. Later: tabs, bars, density, corners, surfaces, palette, presets, custom CSS.                        |
+| Appearance    | `haku://settings/appearance` | Theme; tabs; bars ([Appearance](appearance.md)). Later: density, corners, surfaces, palette, presets, CSS. |
 | Tabs & memory | `haku://settings/tabs`       | Preset; loaded tabs; background memory; freeze; discard. **New:** kept sites, listed with a remove button. |
 | Browsing      | `haku://settings/browsing`   | Search engine; home page.                                                                                  |
 | Extensions    | `haku://settings/extensions` | The current list and folder button, unchanged in behaviour.                                                |
