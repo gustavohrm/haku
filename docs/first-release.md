@@ -55,6 +55,8 @@ Capacity stays a single global count across profiles: memory is the constraint, 
 
 **Workspaces** are a grouping of tabs in the browser model, drawn by the interface. A workspace may name a default container for tabs opened in it. It is not itself a profile.
 
+Workspaces and tab groups are low priority (decided 2026-10-30). A workspace earns its place by separating logins, which only containers give it; before containers it is a way of sorting tabs, and so is a tab group.
+
 A webview's profile is an option of the WebView2 controller, so it is chosen when the controller is created and cannot be set afterwards, by `platform/` or anything else. What Tauri passes through decides what can be built (checked 2026-10-23 on Tauri 2.12.5, `tauri-runtime-wry` 2.12.3 and wry 0.57.0):
 
 - **Private** tabs use `WebviewBuilder::incognito`, which Tauri has, and can be built now.
@@ -184,6 +186,7 @@ There is no store. Extensions are installed from disk, at the user's own risk, i
 | HTTP login, certificates             | Login prompts and certificate errors drawn by the chrome, never by the page.                                                                                                                                                                  |
 | Crashed pages                        | **Implemented.** A webview whose process dies leaves its tab in a crashed state with a reload, not a blank viewport. See [Crash recovery](specs/crash-recovery.md).                                                                           |
 | Private tabs, containers, workspaces | See [Webviews belong to a profile](#webviews-belong-to-a-profile).                                                                                                                                                                            |
+| Tab groups                           | Named groups of tabs in a window's strip, collapsible, kept in the session. Low priority; see [Webviews belong to a profile](#webviews-belong-to-a-profile).                                                                                  |
 | Windows and tab tear-off             | See [One pool across windows](#one-pool-across-windows).                                                                                                                                                                                      |
 | Tab optimization, site menu          | See [Tab optimization](#tab-optimization).                                                                                                                                                                                                    |
 | Favicons, tab previews               | See [Observed, not reported](#observed-not-reported).                                                                                                                                                                                         |
