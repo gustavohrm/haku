@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 
 use crate::model::{Policy, Preset, DEFAULT_CAPACITY};
@@ -12,6 +12,35 @@ pub const OPENABLE_SCHEMES: &[&str] = &["http", "https", "file", "about", "haku"
 /// Schemes a search URL may use.
 const SEARCH_SCHEMES: &[&str] = &["http", "https"];
 const HTTPS_PREFIX: &str = "https://";
+
+/// Where the tabs are drawn.
+/// [Appearance § Tabs](../../../docs/specs/appearance.md#tabs).
+///
+/// Read leniently, as [`known_or_default`] explains.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TabLayout {
+    /// A strip across the top of the window.
+    #[default]
+    Horizontal,
+    /// A column down the left side of the window.
+    Vertical,
+}
+
+/// Whether the bars take space from the page or sit over it.
+/// [Appearance § Bars](../../../docs/specs/appearance.md#bars).
+///
+/// Read leniently, as [`known_or_default`] explains.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BarLayout {
+    /// Beside the page, which is sized to the space they leave.
+    #[default]
+    Docked,
+    /// Over the page, shown while the pointer is at the window's edge or
+    /// something in them is needed.
+    Floating,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +62,8 @@ pub struct Settings {
     pub kept_sites: Vec<String>,
     /// `system`, `light` or `dark`.
     pub theme: String,
+    pub tab_layout: TabLayout,
+    pub bar_layout: BarLayout,
     /// BCP-47 language tag the interface is shown in.
     pub locale: String,
     pub search_url: String,
@@ -56,6 +87,8 @@ impl Default for Settings {
             discard_tabs: Policy::Smart,
             kept_sites: Vec::new(),
             theme: "system".into(),
+            tab_layout: TabLayout::default(),
+            bar_layout: BarLayout::default(),
             locale: "en".into(),
             search_url: DEFAULT_SEARCH_URL.into(),
             home_url: DEFAULT_HOME_URL.into(),
@@ -133,6 +166,39 @@ impl Settings {
         Preset::ALL
             .into_iter()
             .find(|preset| self.clone().with_preset(*preset) == *self)
+    }
+}
+
+/// Reads one of `choices`, or the default when the value is none of them.
+///
+/// A stored document that fails to deserialize is set aside whole by
+/// `read_json`, so a strict read would trade every setting for one hand-edited
+/// or newer value. The command boundary reads leniently too, which is
+/// harmless: the interface only sends values the bindings allow. Written by
+/// hand rather than with `deserialize_with`, which splits `Settings` into a
+/// read and a written type in the bindings.
+fn known_or_default<'de, D, T>(deserializer: D, choices: &[T]) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Serialize + Default + Copy,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(choices
+        .iter()
+        .copied()
+        .find(|choice| serde_json::to_value(choice).is_ok_and(|spelled| spelled == value))
+        .unwrap_or_default())
+}
+
+impl<'de> Deserialize<'de> for TabLayout {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        known_or_default(deserializer, &[Self::Horizontal, Self::Vertical])
+    }
+}
+
+impl<'de> Deserialize<'de> for BarLayout {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        known_or_default(deserializer, &[Self::Docked, Self::Floating])
     }
 }
 
@@ -363,6 +429,79 @@ mod tests {
         .unwrap();
         assert_eq!(stored.kept_memory_mb, 512);
         assert!(stored.kept_sites.is_empty());
+    }
+
+    #[test]
+    fn layouts_default_to_horizontal_tabs_and_docked_bars() {
+        let settings = Settings::default();
+        assert_eq!(settings.tab_layout, TabLayout::Horizontal);
+        assert_eq!(settings.bar_layout, BarLayout::Docked);
+    }
+
+    #[test]
+    fn layouts_are_stored_under_their_names_and_values() {
+        let json = serde_json::to_value(Settings {
+            tab_layout: TabLayout::Vertical,
+            bar_layout: BarLayout::Floating,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert_eq!(json["tabLayout"], "vertical");
+        assert_eq!(json["barLayout"], "floating");
+    }
+
+    fn stored(document: serde_json::Value) -> Settings {
+        serde_json::from_value(crate::storage::merge::merge(
+            serde_json::to_value(Settings::default()).unwrap(),
+            document,
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_settings_file_from_before_layouts_gets_the_default_layouts() {
+        let settings = stored(serde_json::json!({ "theme": "dark" }));
+        assert_eq!(settings.tab_layout, TabLayout::Horizontal);
+        assert_eq!(settings.bar_layout, BarLayout::Docked);
+        assert_eq!(settings.theme, "dark");
+    }
+
+    #[test]
+    fn a_stored_layout_is_read_back() {
+        let settings = stored(serde_json::json!({ "tabLayout": "vertical", "barLayout": "floating" }));
+        assert_eq!(settings.tab_layout, TabLayout::Vertical);
+        assert_eq!(settings.bar_layout, BarLayout::Floating);
+    }
+
+    #[test]
+    fn an_unknown_layout_falls_back_to_its_default_and_keeps_the_other_settings() {
+        let settings = stored(serde_json::json!({
+            "tabLayout": "diagonal",
+            "barLayout": 3,
+            "homeUrl": "https://example.com",
+        }));
+        assert_eq!(settings.tab_layout, TabLayout::Horizontal);
+        assert_eq!(settings.bar_layout, BarLayout::Docked);
+        assert_eq!(settings.home_url, "https://example.com");
+    }
+
+    #[test]
+    fn an_unreadable_layout_in_a_settings_file_does_not_set_the_file_aside() {
+        let directory = std::env::temp_dir().join(format!("haku-layout-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{ "tabLayout": "Vertical", "searchUrl": "https://search.test/?q=" }"#,
+        )
+        .unwrap();
+
+        let settings: Settings = crate::storage::read_json(&path);
+
+        assert_eq!(settings.tab_layout, TabLayout::Horizontal);
+        assert_eq!(settings.search_url, "https://search.test/?q=");
+        assert!(!crate::storage::corrupt_path(&path).exists());
+        std::fs::remove_dir_all(&directory).unwrap();
     }
 
     #[test]

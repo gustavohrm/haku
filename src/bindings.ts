@@ -165,6 +165,21 @@ export const events = {
  */
 export type AddressFocusRequested = TabId;
 
+/**
+ *  Whether the bars take space from the page or sit over it.
+ *  [Appearance § Bars](../../../docs/specs/appearance.md#bars).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type BarLayout = 
+/**  Beside the page, which is sized to the space they leave. */
+"docked" | 
+/**
+ *  Over the page, shown while the pointer is at the window's edge or
+ *  something in them is needed.
+ */
+"floating";
+
 /**  The projection of browser state one window's interface renders. */
 export type BrowserState = {
 	kind: WindowKind,
@@ -469,6 +484,8 @@ export type Settings = {
 	keptSites: string[],
 	/**  `system`, `light` or `dark`. */
 	theme: string,
+	tabLayout: TabLayout,
+	barLayout: BarLayout,
 	/**  BCP-47 language tag the interface is shown in. */
 	locale: string,
 	searchUrl: string,
@@ -550,6 +567,18 @@ export type Tab = {
 };
 
 export type TabId = number;
+
+/**
+ *  Where the tabs are drawn.
+ *  [Appearance § Tabs](../../../docs/specs/appearance.md#tabs).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type TabLayout = 
+/**  A strip across the top of the window. */
+"horizontal" | 
+/**  A column down the left side of the window. */
+"vertical";
 
 /**  A persistent, ordered relationship; only the selected pair owns viewports. */
 export type TabPair = {
