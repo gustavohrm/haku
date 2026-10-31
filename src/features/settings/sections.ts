@@ -2,6 +2,7 @@ import { SETTINGS_URL } from "@app/router";
 import { t } from "@shared/i18n";
 
 import {
+  BarLayoutControl,
   CapacityControl,
   DiscardControl,
   ExtensionsControl,
@@ -14,6 +15,7 @@ import {
   MemoryPageControl,
   PresetControl,
   SearchUrlControl,
+  TabLayoutControl,
   ThemeControl,
   VersionControl,
 } from "./controls";
@@ -45,6 +47,22 @@ export const SECTIONS: SettingSection[] = [
             keywords: "settings.theme.keywords",
             labelsControl: false,
             Control: ThemeControl,
+          },
+          {
+            id: "tabLayout",
+            title: "settings.tabLayout",
+            description: "settings.tabLayout.help",
+            keywords: "settings.tabLayout.keywords",
+            labelsControl: false,
+            Control: TabLayoutControl,
+          },
+          {
+            id: "barLayout",
+            title: "settings.barLayout",
+            description: "settings.barLayout.help",
+            keywords: "settings.barLayout.keywords",
+            labelsControl: false,
+            Control: BarLayoutControl,
           },
         ],
       },

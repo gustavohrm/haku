@@ -79,7 +79,7 @@ What an InPrivate webview does next to default ones was measured on 2026-10-29, 
 
 #### Private windows
 
-Private windows are implemented in Rust and React. Browser and popup bars carry a persistent labelled **Private** marker on the existing raised chrome surface, keeping the monochrome palette and current theme. Private new-tab pages explain retention and clearing; extension controls and the site menu's persisted keep-site setting are hidden.
+Private windows are implemented in Rust and React. Browser and popup bars carry a persistent labelled **Private** marker on the existing raised chrome surface, keeping the monochrome palette and current theme. The bars of a private window stay docked whatever the Bars setting says, so the marker never hides ([Appearance § Private windows](specs/appearance.md#private-windows)). Private new-tab pages explain retention and clearing; extension controls and the site menu's persisted keep-site setting are hidden.
 
 Private browsing is a kind of browser window, not a kind of tab, as in other browsers (decided 2026-10-30). A window is private or not from when it opens, and every tab in it is private, so Ctrl+T, duplicating, a split's partner and a page's links follow the window without a rule of their own, and a split never pairs two profiles.
 
@@ -138,6 +138,8 @@ The [Chrome layering](specs/chrome-layering.md) mechanism sets limits every appe
 - A bar that floats over the page and reveals on hover keeps a thin strip at the window edge inside the chrome's region. Otherwise the page owns those pixels and the chrome never sees the pointer arrive.
 
 ### Appearance is data
+
+**Tabs and Bars are implemented**: [Appearance](specs/appearance.md) has the settings, the shell attributes and how floating bars reveal. The other rows are not built.
 
 Appearance is a set of settings, not a set of stylesheets. The shell maps them to attributes and tokens, and the layout follows from CSS, because the viewport rectangles are measured, not computed.
 

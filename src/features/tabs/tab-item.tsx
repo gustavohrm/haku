@@ -1,5 +1,5 @@
 import { internalTitle } from "@app/router";
-import { type Tab } from "@bindings";
+import { type Tab, type TabLayout } from "@bindings";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
@@ -10,6 +10,8 @@ interface TabItemProps {
   tab: Tab;
   active: boolean;
   pairPosition?: number;
+  /** A pair joins along the strip's axis: side by side, or stacked in a column. */
+  layout?: TabLayout;
   /** Opens the tab's menu at the pointer. */
   onMenu: (at: { x: number; y: number }) => void;
 }
@@ -26,7 +28,8 @@ interface TabItemProps {
  * Haku's own pages carry the Haku mark in the text's colour; a web page
  * carries its favicon, and one that crashed carries a warning in its place.
  */
-export function TabItem({ tab, active, pairPosition = -1, onMenu }: TabItemProps) {
+export function TabItem({ tab, active, pairPosition = -1, layout = "horizontal", onMenu }: TabItemProps) {
+  const isVertical = layout === "vertical";
   const { private: isPrivate } = useBrowserState();
   const membershipId = useId();
   const visit = tab.history.entries[tab.history.index];
@@ -54,8 +57,8 @@ export function TabItem({ tab, active, pairPosition = -1, onMenu }: TabItemProps
         }}
         className={cx(
           "group flex h-(--control-height) w-full min-w-0 items-center gap-1 rounded-(--radius-control) pr-1 pl-2 transition-colors",
-          pairPosition === 0 && "rounded-r-none",
-          pairPosition === 1 && "rounded-l-none",
+          pairPosition === 0 && (isVertical ? "rounded-b-none" : "rounded-r-none"),
+          pairPosition === 1 && (isVertical ? "rounded-t-none" : "rounded-l-none"),
           active ? "bg-chrome-raised text-text" : "text-text-secondary hover:bg-text/6 hover:text-text",
           discarded && !active && "opacity-70",
         )}

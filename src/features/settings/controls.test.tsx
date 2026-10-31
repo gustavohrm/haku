@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type UpdateSettings } from "./types";
 
-const { KeptSitesControl, ThemeControl } = await import("./controls");
+const { BarLayoutControl, KeptSitesControl, TabLayoutControl, ThemeControl } = await import("./controls");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -101,5 +101,37 @@ describe("ThemeControl", () => {
     await act(async () => radios[1]?.click());
 
     expect(radios.map((radio) => radio.checked)).toEqual([true, false, false]);
+  });
+});
+
+describe.each([
+  {
+    Control: TabLayoutControl,
+    field: "tabLayout",
+    labels: ["Horizontal", "Vertical"],
+    values: ["horizontal", "vertical"],
+  },
+  { Control: BarLayoutControl, field: "barLayout", labels: ["Docked", "Floating"], values: ["docked", "floating"] },
+] as const)("$field control", ({ Control, field, labels, values }) => {
+  it("offers each layout as a named radio and stores the one picked", () => {
+    const update = vi.fn<UpdateSettings>(async () => null);
+    act(() =>
+      root.render(
+        <Control
+          settings={{ [field]: values[0] } as unknown as Settings}
+          update={update}
+          id="c"
+          labelId="l"
+          describedBy={undefined}
+          disabled={false}
+        />,
+      ),
+    );
+    const radios = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")];
+
+    expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual(labels);
+    expect(radios.map((radio) => radio.checked)).toEqual([true, false]);
+    act(() => radios[1]?.click());
+    expect(update).toHaveBeenCalledWith({ [field]: values[1] });
   });
 });

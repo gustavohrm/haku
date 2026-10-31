@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: Index of the project documentation.
 ---
 
@@ -50,4 +50,5 @@ Start with [Architecture](architecture.md).
 | [Errors](specs/errors.md)                     | How failures are represented.                           |
 | [Crash recovery](specs/crash-recovery.md)     | Crashed pages, a crashed interface, a failed engine.    |
 | [Settings page](specs/settings-page.md)       | Sections, search and the row pattern of settings.       |
+| [Appearance](specs/appearance.md)             | Tab and bar layouts; floating bars and their reveal.    |
 | [Context menus](specs/context-menus.md)       | Page and interface menus; the menu component.           |

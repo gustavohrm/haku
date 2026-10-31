@@ -5,7 +5,7 @@ import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { displayAddress, editableAddress, isInsecure } from "./address";
 import { PrivateBadge } from "./private-badge";
@@ -14,9 +14,14 @@ import { useAddressFocus } from "./use-address-focus";
 
 interface ToolbarProps {
   tab: Tab | null;
+  /**
+   * Drawn at the right end, for the window controls when the tabs are in a
+   * column: the toolbar is then the window's top row, and a drag region.
+   */
+  trailing?: ReactNode;
 }
 
-export function Toolbar({ tab }: ToolbarProps) {
+export function Toolbar({ tab, trailing }: ToolbarProps) {
   const { private: isPrivate } = useBrowserState();
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
@@ -43,8 +48,12 @@ export function Toolbar({ tab }: ToolbarProps) {
   return (
     <nav
       data-toolbar
-      className="haku-bar flex items-center gap-0.75 px-1.5 pb-0.75"
+      className={cx(
+        "haku-bar flex items-center gap-0.75 pl-1.5",
+        trailing === undefined ? "pr-1.5 pb-0.75" : "h-8.5 shrink-0",
+      )}
       aria-label={t("toolbar.navigation")}
+      data-tauri-drag-region={trailing === undefined ? undefined : true}
     >
       <ToolbarButton
         icon="ic-arrow-left"
@@ -131,6 +140,7 @@ export function Toolbar({ tab }: ToolbarProps) {
         label={t("toolbar.settings")}
         onClick={() => void commands.openTab(SETTINGS_URL, true)}
       />
+      {trailing !== undefined && <div className="ml-1.5 flex shrink-0 self-stretch">{trailing}</div>}
     </nav>
   );
 }

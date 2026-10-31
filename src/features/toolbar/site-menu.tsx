@@ -1,4 +1,5 @@
 import { type Tab } from "@bindings";
+import { useBarHold } from "@features/bars/holds";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
@@ -55,6 +56,7 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
 
   // The menu hangs over the page, so it must be registered to be clickable.
   useOverlay(menuRef, open);
+  useBarHold("toolbar", open);
 
   const close = useCallback(() => setAnchor(null), []);
   useMenuDismiss(open, close, menuRef, buttonRef);

@@ -18,6 +18,8 @@ const SETTINGS: Settings = {
   discardTabs: "never",
   keptSites: [],
   theme: "system",
+  tabLayout: "horizontal",
+  barLayout: "docked",
   locale: "en",
   searchUrl: "https://example.com/?q=%s",
   homeUrl: "haku://new-tab",
