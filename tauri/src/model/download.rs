@@ -164,6 +164,16 @@ impl Downloads {
         }
     }
 
+    /// For when the stored downloads could not be read: lists none, and
+    /// numbers new ones from `now`, in milliseconds, which is past any stored
+    /// id, so none of them replaces a stored download.
+    pub fn unread(now: u64) -> Self {
+        Self {
+            next_id: now,
+            ..Self::default()
+        }
+    }
+
     /// Lists a download the engine started.
     pub fn start(
         &mut self,
@@ -580,6 +590,16 @@ mod tests {
     }
 
     #[test]
+    fn progress_leaves_an_ended_download_as_it_ended() {
+        let mut downloads = Downloads::default();
+        let id = started(&mut downloads, 0, false);
+        downloads.cancel_all(&[id]);
+
+        assert!(!downloads.progress(id, 512, Some(1024), PROGRESS_INTERVAL_MS * 10));
+        assert_eq!(downloads.entry(id).unwrap().received, 0);
+    }
+
+    #[test]
     fn clearing_unlists_the_ended_downloads_of_one_profile_only() {
         let mut downloads = Downloads::default();
         let done = started(&mut downloads, 0, false);
@@ -596,16 +616,6 @@ mod tests {
             [running]
         );
         assert_eq!(downloads.list(true).len(), 1);
-    }
-
-    #[test]
-    fn progress_leaves_an_ended_download_as_it_ended() {
-        let mut downloads = Downloads::default();
-        let id = started(&mut downloads, 0, false);
-        downloads.cancel_all(&[id]);
-
-        assert!(!downloads.progress(id, 512, Some(1024), PROGRESS_INTERVAL_MS * 10));
-        assert_eq!(downloads.entry(id).unwrap().received, 0);
     }
 
     #[test]

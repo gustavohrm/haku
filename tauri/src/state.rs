@@ -217,7 +217,14 @@ pub struct AppState {
 impl AppState {
     pub fn new(browser: Browser, settings: Settings, history: HistoryDb, paths: Paths) -> Self {
         // A download listed last time ran in a webview that is gone.
-        let downloads = Downloads::restored(history.downloads().unwrap_or_default());
+        let (downloads, unread) = match history.downloads() {
+            Ok(stored) => (Downloads::restored(stored), None),
+            Err(error) => (Downloads::unread(now_ms()), Some(error)),
+        };
+        let held_failures = HeldFailures::default();
+        if let Some(error) = unread {
+            held_failures.hold(error);
+        }
         Self {
             browser: RwLock::new(browser),
             changes: Changes::default(),
@@ -230,7 +237,7 @@ impl AppState {
             previews: Mutex::new(Previews::default()),
             extensions: RwLock::new(Extensions::default()),
             paths,
-            held_failures: HeldFailures::default(),
+            held_failures,
             session_saves: Mutex::new(()),
         }
     }
