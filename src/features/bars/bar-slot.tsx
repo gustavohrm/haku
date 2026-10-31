@@ -1,12 +1,14 @@
 import { useOverlay } from "@features/overlays/use-overlay";
-import { cx } from "@shared/class-names";
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { type BarContent } from "./holds";
 import { useReveal } from "./use-reveal";
 
+/** The stacking order the next bar to show takes, above every bar shown before it. */
+let nextLayer = 1;
+
 interface BarSlotProps {
-  /** The window edge the bar belongs to: the top, or the left side for the tab column. */
+  /** The window edge the bar belongs to: the top, or the sidebar's side. */
   edge: "top" | "side";
   /** What the bar holds, so a hold on it shows the bar. */
   contents: readonly BarContent[];
@@ -19,20 +21,33 @@ interface BarSlotProps {
 /**
  * Where a bar goes: in the shell's grid while docked, or over the page while
  * floating, shown as [Appearance § Bars](../../../docs/specs/appearance.md#bars)
- * describes.
+ * describes. Its geometry is in `src/styles/index.css`, read from the shell's
+ * layout attributes, so mirroring the sidebar is a stylesheet concern.
  *
  * A floating bar keeps a strip at its window edge, in the page's margin, which
  * is chrome rather than page: that is where the chrome sees the pointer
- * arrive. Hidden, the bar is clipped rather than removed, so it stays in the
- * tab order and focusing it, as Ctrl+L does, is what shows it. Shown, it is
- * opaque, square and edged on its page side, and registered as an overlay so
- * it takes input over the page.
+ * arrive. Hidden, the bar is moved off its edge rather than removed, so it
+ * stays in the tab order and focusing it, as Ctrl+L does, is what shows it.
+ * Shown, it slides in as a rounded, opaque card edged all round, registered as
+ * an overlay that follows it while it moves, so it takes input over the page.
+ * Floating bars can overlap where the column meets the toolbar; the one shown
+ * last is on top, so the bar the pointer just reached for is the one it gets.
  */
 export function BarSlot({ edge, contents, floating, isNeeded, children }: BarSlotProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const { revealed, handlers } = useReveal(contents, isNeeded);
-  useOverlay(panelRef, floating && revealed);
-  const isTop = edge === "top";
+  const isShown = floating && revealed;
+  useOverlay(panelRef, isShown);
+  // Taken as it shows, during render rather than in an effect, so it is on
+  // top from its first frame.
+  const [layer, setLayer] = useState(0);
+  const [wasShown, setWasShown] = useState(false);
+  if (isShown !== wasShown) {
+    setWasShown(isShown);
+    if (isShown) {
+      setLayer(nextLayer++);
+    }
+  }
 
   // Docked and floating render the same tree, so switching between them
   // restyles the bar rather than remounting it: typed address text, focus and
@@ -42,35 +57,18 @@ export function BarSlot({ edge, contents, floating, isNeeded, children }: BarSlo
     // chrome draws, anything outside the strip and the shown bar must reach
     // the page.
     <div
-      className={cx(
-        "haku-bar-slot min-h-0 min-w-0",
-        floating
-          ? cx("pointer-events-none absolute left-0 z-1", isTop ? "top-0 right-0" : "top-0 bottom-0 w-60")
-          : "flex flex-col",
-      )}
+      className="haku-bar-slot"
       data-edge={edge}
+      data-floating={floating}
       data-revealed={floating ? revealed : undefined}
+      // Kept while it leaves, so a bar sliding away stays where it was.
+      style={floating ? { zIndex: layer } : undefined}
       // Tracked while docked too, so a bar in use stays shown when it starts
       // floating.
       {...handlers}
     >
-      {floating && (
-        <div
-          aria-hidden="true"
-          data-bar-edge
-          className={cx("pointer-events-auto absolute top-0 left-0", isTop ? "right-0 h-1" : "bottom-0 w-1")}
-        />
-      )}
-      <div
-        ref={panelRef}
-        className={cx(
-          "flex min-h-0 min-w-0 flex-col",
-          !floating && "flex-1",
-          floating && "bg-chrome border-text/15",
-          floating && (isTop ? "relative border-b" : "absolute top-8.5 bottom-0 left-0 w-60 border-t border-r"),
-          floating && (revealed ? "pointer-events-auto" : "pointer-events-none [clip-path:inset(0_0_100%_0)]"),
-        )}
-      >
+      {floating && <div aria-hidden="true" data-bar-edge className="haku-bar-edge" />}
+      <div ref={panelRef} className="haku-bar-panel">
         {children}
       </div>
     </div>

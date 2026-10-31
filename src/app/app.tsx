@@ -1,17 +1,18 @@
 import { applyTheme, isThemePreference } from "@app/theme";
 import { BarSlot } from "@features/bars/bar-slot";
 import { shellLayout } from "@features/bars/shell-layout";
+import { SidebarResizer } from "@features/bars/sidebar-resizer";
 import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
 import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
-import { Toolbar } from "@features/toolbar/toolbar";
+import { SidebarActions, SidebarToolbar, Toolbar } from "@features/toolbar/toolbar";
 import { ViewportPanes } from "@features/viewport/viewport-panes";
 import { WindowControls } from "@features/window-controls/window-controls";
 import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
-import { useEffect } from "react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
 
 export function App() {
   const { kind, private: isPrivate, tabs, active } = useBrowserState();
@@ -35,10 +36,27 @@ export function App() {
   const toolbarNeeded = tab !== null && tab.dialog !== null;
   const tabsNeeded = tabs.some((other) => other.id !== active && other.dialog !== null);
 
+  // The column, docked or floating, and the edge that resizes it.
+  const sidebar = (contents: ReactNode) => (
+    <div className="haku-bar haku-sidebar" data-tauri-drag-region>
+      {contents}
+      <SidebarResizer side={layout.side} width={layout.sidebarWidth} />
+    </div>
+  );
+
   return (
     // Compact is the default density; the attribute is where a density setting
-    // will plug in. The layout attributes are read by the shell's grid.
-    <div className="haku-shell" data-density="compact" data-tabs={layout.tabs} data-bars={layout.bars}>
+    // will plug in. The layout attributes are read by the shell's grid, and
+    // the sidebar's width by its column, floating or docked.
+    <div
+      className="haku-shell"
+      data-density="compact"
+      data-tabs={layout.tabs}
+      data-bars={layout.bars}
+      data-side={layout.side}
+      data-toolbar={layout.toolbar}
+      style={{ "--haku-sidebar-width": `${layout.sidebarWidth}px` } as CSSProperties}
+    >
       {/* A popup shows one page, so it has no tabs and no address to edit. */}
       {kind === "popup" ? (
         <BarSlot edge="top" contents={["toolbar"]} floating={false} isNeeded={false}>
@@ -46,12 +64,32 @@ export function App() {
         </BarSlot>
       ) : layout.tabs === "horizontal" ? (
         <BarSlot edge="top" contents={["tabs", "toolbar"]} floating={isFloating} isNeeded={toolbarNeeded || tabsNeeded}>
-          <header className="haku-bar flex h-8.5 shrink-0 items-center gap-2 pl-1.5" data-tauri-drag-region>
+          <header
+            className="haku-bar flex h-[calc(var(--control-height)+var(--haku-gap))] shrink-0 items-end gap-(--haku-gap) pl-(--haku-gap)"
+            data-tauri-drag-region
+          >
             <TabStrip />
             <WindowControls />
           </header>
 
           <Toolbar tab={tab} />
+        </BarSlot>
+      ) : layout.toolbar === "sidebar" ? (
+        // One bar: the toolbar heads the column, which runs the window's height.
+        // No window controls: its free space moves and maximizes the window.
+        <BarSlot
+          edge="side"
+          contents={["tabs", "toolbar"]}
+          floating={isFloating}
+          isNeeded={toolbarNeeded || tabsNeeded}
+        >
+          {sidebar(
+            <>
+              <SidebarToolbar tab={tab} />
+              <TabStrip layout="vertical" />
+              <SidebarActions tab={tab} />
+            </>,
+          )}
         </BarSlot>
       ) : (
         <>
@@ -59,9 +97,7 @@ export function App() {
             <Toolbar tab={tab} trailing={<WindowControls />} />
           </BarSlot>
           <BarSlot edge="side" contents={["tabs"]} floating={isFloating} isNeeded={tabsNeeded}>
-            <div className="haku-bar flex min-h-0 flex-1 flex-col pt-px">
-              <TabStrip layout="vertical" />
-            </div>
+            {sidebar(<TabStrip layout="vertical" />)}
           </BarSlot>
         </>
       )}

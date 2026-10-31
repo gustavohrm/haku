@@ -27,6 +27,20 @@
 
 :root {
   --font-default: "Inter", "Segoe UI", system-ui, sans-serif;
+
+  /* The frame: one gap for every space in the chrome, the window's edge, the
+     page, a bar's edge, the groups inside a bar and the items of a group, so
+     the chrome is even and spends as little height as it can. Controls in a
+     bar have a 6px radius; containers take that plus the gap, so a control
+     nests concentric in a card's corner. */
+  --haku-gap: 0.1875rem;
+  --haku-radius: calc(0.375rem + var(--haku-gap));
+
+  /* Motion, defined once: entrances settle, exits get out of the way faster. */
+  --haku-enter: 180ms;
+  --haku-exit: 120ms;
+  --haku-ease-enter: cubic-bezier(0.2, 0, 0, 1);
+  --haku-ease-exit: cubic-bezier(0.3, 0, 1, 1);
 }
 
 /*
@@ -37,11 +51,19 @@
   with the tabs and the address field.
 */
 [data-density="compact"] {
-  --haku-viewport-radius: var(--radius-control);
+  --haku-viewport-radius: var(--haku-radius);
 }
 
 [data-density="compact"] .haku-bar {
   --control-height: 1.75rem;
+  --radius-control: 0.375rem;
+}
+
+/* A column is read top to bottom and clicked by row: taller rows are easier
+   to hit and to scan than the strip's, which shares its height with the
+   window controls. */
+[data-density="compact"] .haku-sidebar {
+  --control-height: 2rem;
 }
 
 /* Icon buttons in the bars are squares of the control height, so they line up
@@ -104,10 +126,14 @@ dialog[data-toast-instance]::backdrop {
 
   The page's margin is chrome. Floating, it is the strip at the window's edge
   where the pointer reveals a bar, so it stays on every side.
+
+  Clipped rather than hidden: a hidden floating bar waits past the window's
+  edge, and focusing it must not scroll the shell to it.
 */
 .haku-shell {
   display: grid;
   height: 100%;
+  overflow: clip;
   grid-template: "top" auto "page" minmax(0, 1fr) / minmax(0, 1fr);
 }
 
@@ -115,7 +141,22 @@ dialog[data-toast-instance]::backdrop {
   grid-template:
     "top top" auto
     "side page" minmax(0, 1fr)
-    / 15rem minmax(0, 1fr);
+    / var(--haku-sidebar-width) minmax(0, 1fr);
+}
+
+.haku-shell[data-tabs="vertical"][data-bars="docked"][data-side="right"] {
+  grid-template:
+    "top top" auto
+    "page side" minmax(0, 1fr)
+    / minmax(0, 1fr) var(--haku-sidebar-width);
+}
+
+.haku-shell[data-toolbar="sidebar"][data-bars="docked"] {
+  grid-template: "side page" minmax(0, 1fr) / var(--haku-sidebar-width) minmax(0, 1fr);
+}
+
+.haku-shell[data-toolbar="sidebar"][data-bars="docked"][data-side="right"] {
+  grid-template: "page side" minmax(0, 1fr) / minmax(0, 1fr) var(--haku-sidebar-width);
 }
 
 .haku-shell[data-bars="floating"] {
@@ -123,27 +164,231 @@ dialog[data-toast-instance]::backdrop {
   grid-template: "page" minmax(0, 1fr) / minmax(0, 1fr);
 }
 
-.haku-shell[data-bars="docked"] > [data-edge="top"] {
-  grid-area: top;
-}
-
-.haku-shell[data-bars="docked"] > [data-edge="side"] {
-  grid-area: side;
-}
-
-/* 1px under the toolbar, 4px elsewhere; beside a docked column, its own
-   padding is the gap. */
+/* Under a top bar, the bar's own padding is the gap; beside a docked column,
+   the column's. Everywhere else, the frame's gap. */
 .haku-page {
   grid-area: page;
-  margin: 1px 4px 4px;
+  margin: 0 var(--haku-gap) var(--haku-gap);
 }
 
 .haku-shell[data-tabs="vertical"][data-bars="docked"] .haku-page {
-  margin-left: 0;
+  margin-inline-start: 0;
+}
+
+.haku-shell[data-tabs="vertical"][data-bars="docked"][data-side="right"] .haku-page {
+  margin-inline: var(--haku-gap) 0;
+}
+
+.haku-shell[data-toolbar="sidebar"][data-bars="docked"] .haku-page {
+  margin-block-start: var(--haku-gap);
 }
 
 .haku-shell[data-bars="floating"] .haku-page {
-  margin: 4px;
+  margin: var(--haku-gap);
+}
+
+/* Docked bars: in the grid, and nothing else. */
+.haku-bar-slot,
+.haku-bar-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.haku-bar-slot[data-floating="false"] > .haku-bar-panel {
+  flex: 1;
+}
+
+.haku-bar-slot[data-floating="false"][data-edge="top"] {
+  grid-area: top;
+}
+
+.haku-bar-slot[data-floating="false"][data-edge="side"] {
+  grid-area: side;
+}
+
+/*
+  Floating bars: rounded cards inset by the frame's gap, over the page. The
+  slot takes no input; only the strip at the window's edge and the shown card
+  do. A card is opaque and edged all round, since over an unknown page a
+  border is what separates it, and it casts no shadow, which the page would
+  cover. Hidden, it waits just past its edge, still focusable; shown, it
+  slides in from there. `useOverlay` follows it while it moves, so the page
+  does not cover the part that has arrived.
+*/
+/* Its stacking order is set on it as it shows, so the last bar shown is on top. */
+.haku-bar-slot[data-floating="true"] {
+  position: absolute;
+  pointer-events: none;
+}
+
+.haku-bar-slot[data-floating="true"][data-edge="top"] {
+  inset: 0 0 auto;
+}
+
+.haku-bar-slot[data-floating="true"][data-edge="side"] {
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: calc(var(--haku-sidebar-width) + 2 * var(--haku-gap));
+}
+
+[data-side="right"] > .haku-bar-slot[data-floating="true"][data-edge="side"] {
+  inset-inline: auto 0;
+}
+
+.haku-bar-edge {
+  position: absolute;
+  pointer-events: auto;
+}
+
+[data-edge="top"] > .haku-bar-edge {
+  inset: 0 0 auto;
+  height: var(--haku-gap);
+}
+
+[data-edge="side"] > .haku-bar-edge {
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: var(--haku-gap);
+}
+
+/* The top strip owns the corner where the two edges meet. */
+[data-toolbar="top"] > [data-edge="side"] > .haku-bar-edge {
+  inset-block-start: var(--haku-gap);
+}
+
+[data-side="right"] > [data-edge="side"] > .haku-bar-edge {
+  inset-inline: auto 0;
+}
+
+.haku-bar-slot[data-floating="true"] > .haku-bar-panel {
+  pointer-events: none;
+  border: 1px solid color-mix(in oklab, var(--color-text) 15%, transparent);
+  border-radius: var(--haku-radius);
+  background: var(--color-chrome);
+  transition: transform var(--haku-exit) var(--haku-ease-exit);
+}
+
+[data-edge="top"][data-floating="true"] > .haku-bar-panel {
+  margin: var(--haku-gap) var(--haku-gap) 0;
+  transform: translateY(calc(-100% - var(--haku-gap) - 1px));
+}
+
+[data-edge="side"][data-floating="true"] > .haku-bar-panel {
+  position: absolute;
+  inset-block: var(--haku-gap);
+  inset-inline-start: var(--haku-gap);
+  width: var(--haku-sidebar-width);
+  transform: translateX(calc(-100% - var(--haku-gap) - 1px));
+}
+
+[data-side="right"] > [data-edge="side"][data-floating="true"] > .haku-bar-panel {
+  inset-inline: auto var(--haku-gap);
+  transform: translateX(calc(100% + var(--haku-gap) + 1px));
+}
+
+/* After the hidden positions, which it overrides. */
+.haku-bar-slot[data-floating="true"][data-revealed="true"] > .haku-bar-panel {
+  pointer-events: auto;
+  transform: none;
+  transition: transform var(--haku-enter) var(--haku-ease-enter);
+}
+
+/* A card's corner rounds the window controls in it, whose hover fills it. */
+[data-floating="true"] .haku-window-controls {
+  overflow: hidden;
+  border-start-end-radius: calc(var(--haku-radius) - 1px);
+}
+
+[data-tabs="vertical"][data-toolbar="top"] > [data-edge="top"][data-floating="true"] .haku-window-controls {
+  border-end-end-radius: calc(var(--haku-radius) - 1px);
+}
+
+/* The tab column, docked or floating, with the edge that resizes it. Under a
+   docked top bar, the bar's own padding is the gap above it. */
+.haku-sidebar {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--haku-gap);
+  min-height: 0;
+  padding: var(--haku-gap);
+}
+
+[data-bars="docked"][data-toolbar="top"] .haku-sidebar {
+  padding-block-start: 0;
+}
+
+.haku-sidebar-resizer {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  z-index: 2;
+  /* Wider than the gap it sits on, so it is a target a pointer can find; the
+     rest overlaps the column's edge rather than the page, which takes no
+     chrome input. */
+  width: 0.375rem;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+[data-side="right"] .haku-sidebar-resizer {
+  inset-inline: 0 auto;
+}
+
+/* A line shows where to grab once the pointer has rested on the edge. */
+.haku-sidebar-resizer::after {
+  position: absolute;
+  inset-block: var(--haku-gap);
+  inset-inline-start: calc(50% - 1px);
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--color-text) 25%, transparent);
+  opacity: 0;
+  content: "";
+  transition: opacity var(--haku-exit) var(--haku-ease-exit);
+}
+
+.haku-sidebar-resizer:hover::after,
+.haku-sidebar-resizer:active::after {
+  opacity: 1;
+  transition: opacity var(--haku-enter) var(--haku-ease-enter) 150ms;
+}
+
+.haku-sidebar-resizer:focus-visible::after {
+  background: var(--color-accent);
+  opacity: 1;
+  transition: none;
+}
+
+/* The address in a sidebar grows over the page while it is edited, toward
+   the page, so a long address has room however narrow the column is. */
+.haku-address-expandable {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 10;
+  width: 100%;
+  outline-offset: -2px;
+  transition: width var(--haku-enter) var(--haku-ease-enter);
+}
+
+.haku-address-expandable[data-expanded] {
+  width: max(100%, min(40rem, 60vw));
+}
+
+[data-side="right"] .haku-address-expandable {
+  inset-inline: auto 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .haku-bar-panel,
+  .haku-address-expandable {
+    transition: none !important;
+  }
 }
 
 .haku-viewport {

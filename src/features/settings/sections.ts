@@ -15,8 +15,10 @@ import {
   MemoryPageControl,
   PresetControl,
   SearchUrlControl,
+  SidebarSideControl,
   TabLayoutControl,
   ThemeControl,
+  ToolbarPlacementControl,
   VersionControl,
 } from "./controls";
 import { type SettingRowDefinition, type SettingSection } from "./types";
@@ -26,6 +28,10 @@ import { type SettingRowDefinition, type SettingSection } from "./types";
   cannot disagree about what exists, and a new setting is a row here, never a
   new layout.
 */
+
+// The sidebar's settings only shape a sidebar.
+const unlessVerticalTabs = (settings: { tabLayout: string }) =>
+  settings.tabLayout === "vertical" ? null : ("settings.needsVerticalTabs" as const);
 
 // Discarding every background tab leaves nothing to freeze, nothing for extra
 // slots to hold and nothing to spend a budget on.
@@ -55,6 +61,24 @@ export const SECTIONS: SettingSection[] = [
             keywords: "settings.tabLayout.keywords",
             labelsControl: false,
             Control: TabLayoutControl,
+          },
+          {
+            id: "sidebarSide",
+            title: "settings.sidebarSide",
+            description: "settings.sidebarSide.help",
+            keywords: "settings.sidebarSide.keywords",
+            labelsControl: false,
+            disabledReason: unlessVerticalTabs,
+            Control: SidebarSideControl,
+          },
+          {
+            id: "toolbarPlacement",
+            title: "settings.toolbarPlacement",
+            description: "settings.toolbarPlacement.help",
+            keywords: "settings.toolbarPlacement.keywords",
+            labelsControl: false,
+            disabledReason: unlessVerticalTabs,
+            Control: ToolbarPlacementControl,
           },
           {
             id: "barLayout",
