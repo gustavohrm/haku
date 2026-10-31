@@ -151,6 +151,7 @@ export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
 	contextMenuRequested: makeEvent<ContextMenuRequested>("context-menu-requested"),
 	extensionsChanged: makeEvent<ExtensionsChanged>("extensions-changed"),
+	failureReported: makeEvent<FailureReported>("failure-reported"),
 	memoryChanged: makeEvent<MemoryChanged>("memory-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	stateChanged: makeEvent<StateChanged>("state-changed"),
@@ -274,6 +275,15 @@ export type Extensions = {
  *  the interface may already have asked for the list.
  */
 export type ExtensionsChanged = Extensions;
+
+/**
+ *  A failure no command call is waiting on, such as a shortcut's, a page's
+ *  request for a window, or one at startup.
+ *  [Errors § Failures no command is waiting on](../../../docs/specs/errors.md#failures-no-command-is-waiting-on).
+ * 
+ *  Sent to one window only, so it is shown once.
+ */
+export type FailureReported = HakuError;
 
 /**
  *  Every failure Haku exposes across the IPC boundary.

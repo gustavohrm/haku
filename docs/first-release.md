@@ -89,7 +89,7 @@ Private browsing is a kind of browser window, not a kind of tab, as in other bro
 - Nothing about it is written: no history visit or title, no window in the session, no closed tab to reopen, and no setting taken from a site in it. An engine restart therefore loses it.
 - Its tabs show a generic icon. The interface fetching a favicon would send the default profile's cookies to the private site.
 - It has no extension toolbar, since extensions do not run in it.
-- A slot created for it that reports private mode off is destroyed, and the window fails to open, rather than browse in the default profile. Opened through a command, the failure reaches the interface. Opened by Ctrl+Shift+N or by a page, the window closes without saying why, as any failed shortcut or page request does, because Rust has no way yet to send a failure to the interface unasked ([Errors](specs/errors.md#failures-that-must-not-propagate)). Only a runtime without InPrivate support fails here, and the evergreen runtime updates itself. Accepted on 2026-10-30; a general error event would fix it with the other cases.
+- A slot created for it that reports private mode off is destroyed, and the window fails to open, rather than browse in the default profile. However it was opened, the failure is shown in the window it was opened from: through the command's reply, or, by Ctrl+Shift+N or by a page, through the failure event ([Errors](specs/errors.md#failures-no-command-is-waiting-on)). Only a runtime without InPrivate support fails here, and the evergreen runtime updates itself.
 - Its service workers are watched from the DevTools session of one of its own slots.
 
 ### One pool across windows

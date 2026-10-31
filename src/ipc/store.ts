@@ -9,7 +9,7 @@
 import { events, type BrowserState, type Extensions, type Preset, type Settings } from "@bindings";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
-import { commands } from "./commands";
+import { commands, reportFailure } from "./commands";
 import { unwrap, type CommandResult } from "./result";
 
 type Listener = () => void;
@@ -69,19 +69,21 @@ export const extensionsStore = createStore<Extensions | null>(null);
  * during startup is not lost between the two. What loads is kept even when
  * another part fails, and the first failure is then thrown.
  *
- * Browser state is this window's own, so it is listened for on this webview
- * only: a listener for any target also receives what Rust sends every other
- * window.
+ * Browser state and failures are this window's own, so they are listened for
+ * on this webview only: a listener for any target also receives what Rust
+ * sends every other window. Rust holds a failure from before any window could
+ * listen until the state is asked for, which is why that comes second.
  *
  * @returns A function that detaches every listener.
  */
 export async function connect(): Promise<() => void> {
   let hasStateEvent = false;
-  const [stopState, stopSettings, stopExtensions] = await Promise.all([
+  const [stopState, stopFailures, stopSettings, stopExtensions] = await Promise.all([
     events.stateChanged(getCurrentWebview()).listen((event) => {
       hasStateEvent = true;
       browserStore.set(event.payload);
     }),
+    events.failureReported(getCurrentWebview()).listen((event) => reportFailure(event.payload)),
     events.settingsChanged.listen((event) => settingsStore.set(event.payload)),
     // The folder is installed after startup, possibly once this has loaded.
     events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
@@ -113,6 +115,7 @@ export async function connect(): Promise<() => void> {
 
   return () => {
     stopState();
+    stopFailures();
     stopSettings();
     stopExtensions();
   };

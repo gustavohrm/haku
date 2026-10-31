@@ -12,7 +12,7 @@ use rusqlite::{params, Connection, ErrorCode};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::error::Result;
+use crate::error::{HakuError, Result};
 use crate::storage::corrupt_path;
 
 /// Suffixes of the SQLite files that belong to the main database file.
@@ -94,16 +94,25 @@ impl HistoryDb {
     /// The browser is still usable without its history file, and Haku has no
     /// window yet to say why it would not start. A file another Haku holds
     /// locked, or one that cannot be read, is left untouched for the next run,
-    /// except by [`Self::clear`].
+    /// except by [`Self::clear`]. The failure is returned alongside, for the
+    /// user to be told once a window can show it.
     ///
     /// # Panics
     /// Panics if SQLite cannot create an in-memory database with the fixed
     /// schema, which leaves nothing to fall back to.
-    pub fn open_or_in_memory(path: &Path) -> Self {
-        Self::open_or_set_aside(path).unwrap_or_else(|_| Self {
-            unopened: Some(path.to_path_buf()),
-            ..Self::in_memory().expect("an in-memory history database could not be created")
-        })
+    pub fn open_or_in_memory(path: &Path) -> (Self, Option<HakuError>) {
+        match Self::open_or_set_aside(path) {
+            Ok(database) => (database, None),
+            Err(error) => (
+                Self {
+                    unopened: Some(path.to_path_buf()),
+                    ..Self::in_memory().expect("an in-memory history database could not be created")
+                },
+                Some(HakuError::Storage(format!(
+                    "history could not be opened, so this run's visits will not be kept: {error}"
+                ))),
+            ),
+        }
     }
 
     fn connect(path: &Path) -> rusqlite::Result<Self> {
@@ -310,11 +319,21 @@ mod tests {
         let path = temp_path("unopenable");
         fs::create_dir_all(&path).unwrap();
 
-        let database = HistoryDb::open_or_in_memory(&path);
+        let (database, failure) = HistoryDb::open_or_in_memory(&path);
         database.record("https://a.test", "A", 1).unwrap();
 
         assert_eq!(database.recent(10).unwrap().len(), 1);
         assert!(path.is_dir());
+        assert!(matches!(failure, Some(HakuError::Storage(_))));
+    }
+
+    #[test]
+    fn a_file_that_opens_reports_no_failure() {
+        let path = temp_path("opens");
+
+        let (_, failure) = HistoryDb::open_or_in_memory(&path);
+
+        assert_eq!(failure, None);
     }
 
     #[test]
@@ -327,7 +346,7 @@ mod tests {
         let holder = Connection::open(&path).unwrap();
         holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
 
-        let database = HistoryDb::open_or_in_memory(&path);
+        let (database, _) = HistoryDb::open_or_in_memory(&path);
         database.record("https://b.test", "B", 2).unwrap();
         assert_eq!(database.recent(10).unwrap().len(), 1);
         assert!(database.clear().is_err());

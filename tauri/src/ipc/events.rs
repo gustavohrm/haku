@@ -3,6 +3,7 @@ use specta::Type;
 use tauri_specta::Event;
 
 use crate::browser::BrowserState;
+use crate::error::HakuError;
 use crate::model::{ContextMenuRequestId, ContextMenuTarget, Extensions, NativeMenuItem, TabId};
 use crate::state::MemoryReport;
 use crate::storage::Settings;
@@ -31,6 +32,14 @@ pub struct MemoryChanged(pub MemoryReport);
 /// sends it before the interface has rendered that tab.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct AddressFocusRequested(pub TabId);
+
+/// A failure no command call is waiting on, such as a shortcut's, a page's
+/// request for a window, or one at startup.
+/// [Errors § Failures no command is waiting on](../../../docs/specs/errors.md#failures-no-command-is-waiting-on).
+///
+/// Sent to one window only, so it is shown once.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct FailureReported(pub HakuError);
 
 /// Emitted once the extensions folder has been installed, which happens after
 /// the interface may already have asked for the list.

@@ -23,6 +23,11 @@ impl Request {
         Self { window, source: None }
     }
 
+    /// The window the shortcut was pressed in.
+    pub fn window(self) -> WindowId {
+        self.window
+    }
+
     pub fn page(browser: &Browser, slot: SlotId) -> Option<Self> {
         let tab = browser.tab_in(slot)?;
         Some(Self {

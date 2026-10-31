@@ -69,7 +69,7 @@ pub fn run() {
                 settings = settings.with_preset(Preset::Balanced);
             }
             let session: Session = storage::read_json(&paths.session);
-            let history = HistoryDb::open_or_in_memory(&paths.history);
+            let (history, unopened) = HistoryDb::open_or_in_memory(&paths.history);
 
             let (browser, restored) = session.restore(settings.pool_capacity(), &settings.home_url);
             let browser = browser
@@ -77,6 +77,9 @@ pub fn run() {
                 .with_keeping(settings.kept_memory_bytes(), settings.kept_sites.clone());
             let windows: Vec<_> = browser.window_ids().into_iter().zip(restored).collect();
             app.manage(AppState::new(browser, settings, history, paths));
+            if let Some(failure) = unopened {
+                app.state::<AppState>().held_failures.hold(failure);
+            }
             if first_launch {
                 let _ = app.state::<AppState>().save_settings();
             }

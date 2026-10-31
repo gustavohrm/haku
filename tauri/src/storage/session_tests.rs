@@ -29,7 +29,7 @@ fn closing_the_last_ordinary_window_before_a_private_one_keeps_its_tabs() {
     let state = AppState::new(
         browser,
         Settings::default(),
-        HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")),
+        HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")).0,
         Paths::under(&dir),
     );
     state.save_session().unwrap();
@@ -48,7 +48,7 @@ fn app_state(browser: Browser) -> AppState {
     AppState::new(
         browser,
         Settings::default(),
-        HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")),
+        HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")).0,
         Paths::under(&std::env::temp_dir().join("haku-session-tests")),
     )
 }
