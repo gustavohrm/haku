@@ -179,6 +179,15 @@ describe("BarSlot", () => {
     expect(revealed()).toBe(true);
   });
 
+  it("stays shown when it starts floating under the pointer, without waiting", async () => {
+    await render({ floating: false });
+    await pointer("pointerover", host.querySelector("input")!);
+
+    await render();
+
+    expect(revealed()).toBe(true);
+  });
+
   it("shows while a menu opened from it holds it", async () => {
     await render();
 
@@ -223,7 +232,7 @@ describe("BarSlot", () => {
     await act(async () => holdBar("toolbar"));
     expect(layer(top!)).toBeGreaterThan(layer(side!));
 
-    releases.splice(0).forEach((release) => release());
+    await act(async () => releases.splice(0).forEach((release) => release()));
     await act(async () => vi.advanceTimersByTime(HIDE_DELAY_MS));
     await act(async () => holdBar("tabs"));
     expect(layer(side!)).toBeGreaterThan(layer(top!));

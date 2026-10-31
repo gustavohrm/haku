@@ -29,8 +29,9 @@ interface Reveal {
  *
  * @param contents - What the bar holds, so holds on it count.
  * @param isNeeded - Something in it needs attention without a pointer.
+ * @param floating - Whether the bar floats; a docked bar is already on screen.
  */
-export function useReveal(contents: readonly BarContent[], isNeeded: boolean): Reveal {
+export function useReveal(contents: readonly BarContent[], isNeeded: boolean, floating: boolean): Reveal {
   const [isHovered, setHovered] = useState(false);
   const [isFocused, setFocused] = useState(false);
   const holds = useSyncExternalStore(barHoldStore.subscribe, barHoldStore.get);
@@ -53,9 +54,11 @@ export function useReveal(contents: readonly BarContent[], isNeeded: boolean): R
       onPointerEnter: () => {
         clearTimeout(hideTimer.current);
         clearTimeout(showTimer.current);
-        // A bar already on screen keeps the pointer at once; only reaching
-        // for a hidden one waits, since then the pointer can only be at the edge.
-        if (revealed) {
+        // A bar already on screen, shown or docked, keeps the pointer at
+        // once; only reaching for a hidden one waits, since then the pointer
+        // can only be at the edge. A docked bar is tracked without delay, so
+        // no timer started there is left to show the bar once it floats.
+        if (revealed || !floating) {
           setHovered(true);
         } else {
           showTimer.current = setTimeout(() => setHovered(true), SHOW_DELAY_MS);

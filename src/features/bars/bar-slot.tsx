@@ -35,7 +35,7 @@ interface BarSlotProps {
  */
 export function BarSlot({ edge, contents, floating, isNeeded, children }: BarSlotProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const { revealed, handlers } = useReveal(contents, isNeeded);
+  const { revealed, handlers } = useReveal(contents, isNeeded, floating);
   const isShown = floating && revealed;
   useOverlay(panelRef, isShown);
   // Taken as it shows, during render rather than in an effect, so it is on
