@@ -297,19 +297,27 @@ impl HistoryDb {
             "SELECT id, url, path, received, total, state, failure, started_at
              FROM downloads ORDER BY started_at DESC, id DESC",
         )?;
+        // A negative value is refused rather than wrapped, since a huge id
+        // would overflow the next one.
+        fn unsigned(column: usize, value: i64) -> rusqlite::Result<u64> {
+            u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(column, value))
+        }
         let rows = statement.query_map([], |row| {
             let state: String = row.get(5)?;
             let failure: Option<String> = row.get(6)?;
             Ok(Download {
-                id: DownloadId(row.get::<_, i64>(0)? as u64),
+                id: DownloadId(unsigned(0, row.get(0)?)?),
                 url: row.get(1)?,
                 path: row.get(2)?,
-                received: row.get::<_, i64>(3)? as u64,
-                total: row.get::<_, Option<i64>>(4)?.map(|total| total as u64),
+                received: unsigned(3, row.get(3)?)?,
+                total: row
+                    .get::<_, Option<i64>>(4)?
+                    .map(|total| unsigned(4, total))
+                    .transpose()?,
                 state: state_from(&state),
                 failure: failure.as_deref().map(failure_from),
                 can_resume: false,
-                started_at: row.get::<_, i64>(7)? as u64,
+                started_at: unsigned(7, row.get(7)?)?,
                 recent: false,
                 private: false,
                 slot: None,
@@ -640,6 +648,15 @@ mod tests {
         assert_eq!(stored[1].total, Some(100));
         assert_eq!(stored[1].state, DownloadState::InProgress);
         assert!(!stored[1].recent && stored[1].slot.is_none());
+    }
+
+    #[test]
+    fn a_negative_stored_download_value_is_refused_rather_than_wrapped() {
+        let database = database();
+        database.save_download(&download(1, false)).unwrap();
+        database.connection.execute("UPDATE downloads SET id = -1", []).unwrap();
+
+        assert!(database.downloads().is_err());
     }
 
     #[test]
