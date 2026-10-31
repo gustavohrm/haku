@@ -14,6 +14,8 @@ vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "
 vi.mock("@features/feedback/feedback", () => ({ feedback: () => ({ dialog: { confirm } }) }));
 vi.mock("@ipc/commands", () => ({ commands: { confirmClose: vi.fn() } }));
 
+import { commands } from "@ipc/commands";
+
 import { useCloseConfirmation } from "./use-close-confirmation";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,6 +51,16 @@ describe("useCloseConfirmation", () => {
     expect(options.title).toBe("Quit Haku?");
     expect(message).toBe("2 downloads are still running. Quitting cancels them.");
     expect(options.confirmLabel).toBe("Quit and cancel");
+  });
+
+  it("makes the close once it is confirmed, and not before", async () => {
+    await ask({ tab: 3, ending: "privateSession", downloads: 1 });
+    expect(commands.confirmClose).not.toHaveBeenCalled();
+
+    confirm.mockReturnValueOnce(Object.assign(Promise.resolve(true), { dismiss: vi.fn() }));
+    await ask({ tab: 3, ending: "privateSession", downloads: 1 });
+
+    expect(commands.confirmClose).toHaveBeenCalledWith(3);
   });
 
   it("speaks of closing when the close ends private browsing", async () => {
