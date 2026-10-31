@@ -607,6 +607,13 @@ export type Settings = {
 	theme: string,
 	tabLayout: TabLayout,
 	barLayout: BarLayout,
+	sidebarSide: SidebarSide,
+	toolbarPlacement: ToolbarPlacement,
+	/**
+	 *  The tab column's width in CSS pixels, between [`MIN_SIDEBAR_WIDTH`]
+	 *  and [`MAX_SIDEBAR_WIDTH`].
+	 */
+	sidebarWidth: number,
 	/**  BCP-47 language tag the interface is shown in. */
 	locale: string,
 	searchUrl: string,
@@ -626,6 +633,18 @@ export type Settings = {
 };
 
 export type SettingsChanged = Settings;
+
+/**
+ *  Which side of the window the tab column is on.
+ *  [Appearance § Sidebar](../../../docs/specs/appearance.md#sidebar).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type SidebarSide = 
+/**  Down the left side of the window. */
+"left" | 
+/**  Down the right side of the window. */
+"right";
 
 export type SlotId = number;
 
@@ -729,6 +748,18 @@ export type TabPresence =
  *  not crash again and again.
  */
 { status: "crashed"; cause: CrashCause };
+
+/**
+ *  Where the toolbar goes when the tabs are in a column.
+ *  [Appearance § Sidebar](../../../docs/specs/appearance.md#sidebar).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type ToolbarPlacement = 
+/**  A row across the top of the window. */
+"top" | 
+/**  At the head of the tab column, which then runs the window's full height. */
+"sidebar";
 
 /**
  *  A process no slot accounts for: the browser, GPU and utility processes, and

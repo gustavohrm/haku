@@ -140,7 +140,9 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
   return (
     <div
       className={
-        isVertical ? "flex min-h-0 flex-1 flex-col gap-0.5 px-1.5 pb-1" : "flex min-w-0 flex-1 items-center gap-1.5"
+        isVertical
+          ? "flex min-h-0 flex-1 flex-col gap-(--haku-gap)"
+          : "flex min-w-0 flex-1 items-center gap-(--haku-gap)"
       }
       data-tauri-drag-region
       onContextMenu={(event) => {
@@ -163,7 +165,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
       <ul
         ref={strip}
         className={cx(
-          "relative flex gap-0.5",
+          "relative flex gap-(--haku-gap)",
           isVertical ? "min-h-0 flex-col overflow-y-auto" : "min-w-0 shrink items-center",
         )}
         aria-label={t("tabs.list")}
@@ -289,7 +291,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
         // A row like the tabs above it, so the column reads as one list.
         <button
           type="button"
-          className="btn ghost text-text-secondary h-(--control-height) shrink-0 justify-start gap-2 px-2 font-normal"
+          className="btn ghost text-text-secondary h-(--control-height) w-full shrink-0 justify-start gap-2 px-2 font-normal"
           onClick={() => void commands.openTab(null, true)}
         >
           <i className="ic-plus ic-md" aria-hidden="true" />

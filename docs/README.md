@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 scope: Index of the project documentation.
 ---
 
@@ -36,20 +36,20 @@ Start with [Architecture](architecture.md).
 
 ## Specifications
 
-| Document                                      | Contains                                                |
-| --------------------------------------------- | ------------------------------------------------------- |
-| [Webview pool](specs/webview-pool.md)         | How tabs share webviews; discarding, pinning, eviction. |
-| [Split view](specs/split-view.md)             | Panes, focus, layout and session restoration.           |
-| [Tab optimization](specs/tab-optimization.md) | Which tabs keep a webview, and why; previews on reload. |
-| [Chrome layering](specs/chrome-layering.md)   | How the interface renders above page content.           |
-| [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.         |
-| [Shortcuts](specs/shortcuts.md)               | The keymap, native key handling, reopening closed tabs. |
-| [Extensions](specs/extensions.md)             | Installing unpacked extensions, the toolbar, popups.    |
-| [Windows and popups](specs/new-windows.md)    | Browser windows, popups, and links that open them.      |
-| [Tests](specs/tests.md)                       | Test categories, locations, tooling, and coverage.      |
-| [Errors](specs/errors.md)                     | How failures are represented.                           |
-| [Crash recovery](specs/crash-recovery.md)     | Crashed pages, a crashed interface, a failed engine.    |
-| [Settings page](specs/settings-page.md)       | Sections, search and the row pattern of settings.       |
-| [Appearance](specs/appearance.md)             | Tab and bar layouts; floating bars and their reveal.    |
-| [Context menus](specs/context-menus.md)       | Page and interface menus; the menu component.           |
-| [Downloads](specs/downloads.md)               | Following downloads, the webviews they hold, storage.   |
+| Document                                      | Contains                                                      |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| [Webview pool](specs/webview-pool.md)         | How tabs share webviews; discarding, pinning, eviction.       |
+| [Split view](specs/split-view.md)             | Panes, focus, layout and session restoration.                 |
+| [Tab optimization](specs/tab-optimization.md) | Which tabs keep a webview, and why; previews on reload.       |
+| [Chrome layering](specs/chrome-layering.md)   | How the interface renders above page content.                 |
+| [Page observation](specs/page-observation.md) | How page URLs become tab history; page dialogs.               |
+| [Shortcuts](specs/shortcuts.md)               | The keymap, native key handling, reopening closed tabs.       |
+| [Extensions](specs/extensions.md)             | Installing unpacked extensions, the toolbar, popups.          |
+| [Windows and popups](specs/new-windows.md)    | Browser windows, popups, and links that open them.            |
+| [Tests](specs/tests.md)                       | Test categories, locations, tooling, and coverage.            |
+| [Errors](specs/errors.md)                     | How failures are represented.                                 |
+| [Crash recovery](specs/crash-recovery.md)     | Crashed pages, a crashed interface, a failed engine.          |
+| [Settings page](specs/settings-page.md)       | Sections, search and the row pattern of settings.             |
+| [Appearance](specs/appearance.md)             | Tab, sidebar and bar layouts; spacing; floating bars, reveal. |
+| [Context menus](specs/context-menus.md)       | Page and interface menus; the menu component.                 |
+| [Downloads](specs/downloads.md)               | Following downloads, the webviews they hold, storage.         |

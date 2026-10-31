@@ -1,5 +1,12 @@
 import { type ThemePreference } from "@app/theme";
-import { type BarLayout, type Policy, type Preset, type TabLayout } from "@bindings";
+import {
+  type BarLayout,
+  type Policy,
+  type Preset,
+  type SidebarSide,
+  type TabLayout,
+  type ToolbarPlacement,
+} from "@bindings";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { useExtensions } from "@ipc/hooks";
@@ -114,18 +121,70 @@ export function BarLayoutControl({ labelId, describedBy, settings, update }: Con
   );
 }
 
+const SIDEBAR_SIDES: { value: SidebarSide; icon: string; label: TranslationKey }[] = [
+  { value: "left", icon: "ic-panel-left", label: "settings.sidebarSide.left" },
+  { value: "right", icon: "ic-panel-right", label: "settings.sidebarSide.right" },
+];
+
+/** Which side the tab column is on, as the theme's icon buttons. */
+export function SidebarSideControl({ labelId, describedBy, disabled, settings, update }: ControlProps) {
+  return (
+    <IconChoices
+      labelId={labelId}
+      describedBy={describedBy}
+      disabled={disabled}
+      choices={SIDEBAR_SIDES}
+      value={settings.sidebarSide}
+      onChoose={(sidebarSide) => void update({ sidebarSide })}
+    />
+  );
+}
+
+const TOOLBAR_PLACEMENTS: { value: ToolbarPlacement; icon: string; label: TranslationKey }[] = [
+  { value: "top", icon: "ic-panel-top", label: "settings.toolbarPlacement.top" },
+  { value: "sidebar", icon: "ic-panel-left-dashed", label: "settings.toolbarPlacement.sidebar" },
+];
+
+/** Whether the toolbar is a row on top or heads the sidebar, as the theme's icon buttons. */
+export function ToolbarPlacementControl({ labelId, describedBy, disabled, settings, update }: ControlProps) {
+  return (
+    <IconChoices
+      labelId={labelId}
+      describedBy={describedBy}
+      disabled={disabled}
+      choices={TOOLBAR_PLACEMENTS}
+      value={settings.toolbarPlacement}
+      onChoose={(toolbarPlacement) => void update({ toolbarPlacement })}
+    />
+  );
+}
+
 interface IconChoicesProps<T extends string> {
   labelId: string;
   describedBy: string | undefined;
+  /** The row has no effect right now; the choice still shows what is stored. */
+  disabled?: boolean;
   choices: readonly { value: T; icon: string; label: TranslationKey }[];
   value: string;
   onChoose: (value: T) => void;
 }
 
-function IconChoices<T extends string>({ labelId, describedBy, choices, value, onChoose }: IconChoicesProps<T>) {
+function IconChoices<T extends string>({
+  labelId,
+  describedBy,
+  disabled = false,
+  choices,
+  value,
+  onChoose,
+}: IconChoicesProps<T>) {
   const name = useId();
   return (
-    <fieldset aria-labelledby={labelId} aria-describedby={describedBy} className="m-0 flex gap-0.5 border-0 p-0">
+    <fieldset
+      aria-labelledby={labelId}
+      aria-describedby={describedBy}
+      disabled={disabled}
+      className="m-0 flex gap-0.5 border-0 p-0 disabled:opacity-50 [&:disabled_label]:pointer-events-none"
+    >
       {choices.map((choice) => (
         <ThemeOption
           key={choice.value}

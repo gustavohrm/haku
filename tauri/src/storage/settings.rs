@@ -42,6 +42,41 @@ pub enum BarLayout {
     Floating,
 }
 
+/// Which side of the window the tab column is on.
+/// [Appearance § Sidebar](../../../docs/specs/appearance.md#sidebar).
+///
+/// Read leniently, as [`known_or_default`] explains.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SidebarSide {
+    /// Down the left side of the window.
+    #[default]
+    Left,
+    /// Down the right side of the window.
+    Right,
+}
+
+/// Where the toolbar goes when the tabs are in a column.
+/// [Appearance § Sidebar](../../../docs/specs/appearance.md#sidebar).
+///
+/// Read leniently, as [`known_or_default`] explains.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolbarPlacement {
+    /// A row across the top of the window.
+    #[default]
+    Top,
+    /// At the head of the tab column, which then runs the window's full height.
+    Sidebar,
+}
+
+/// The tab column's width, in CSS pixels, before the user resizes it.
+pub const DEFAULT_SIDEBAR_WIDTH: u32 = 240;
+/// The narrowest the tab column may be, in CSS pixels.
+pub const MIN_SIDEBAR_WIDTH: u32 = 224;
+/// The widest the tab column may be, in CSS pixels.
+pub const MAX_SIDEBAR_WIDTH: u32 = 480;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -64,6 +99,11 @@ pub struct Settings {
     pub theme: String,
     pub tab_layout: TabLayout,
     pub bar_layout: BarLayout,
+    pub sidebar_side: SidebarSide,
+    pub toolbar_placement: ToolbarPlacement,
+    /// The tab column's width in CSS pixels, between [`MIN_SIDEBAR_WIDTH`]
+    /// and [`MAX_SIDEBAR_WIDTH`].
+    pub sidebar_width: u32,
     /// BCP-47 language tag the interface is shown in.
     pub locale: String,
     pub search_url: String,
@@ -89,6 +129,9 @@ impl Default for Settings {
             theme: "system".into(),
             tab_layout: TabLayout::default(),
             bar_layout: BarLayout::default(),
+            sidebar_side: SidebarSide::default(),
+            toolbar_placement: ToolbarPlacement::default(),
+            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             locale: "en".into(),
             search_url: DEFAULT_SEARCH_URL.into(),
             home_url: DEFAULT_HOME_URL.into(),
@@ -105,6 +148,7 @@ impl Settings {
     /// not a web address has to be survivable rather than fatal.
     pub fn sanitized(mut self) -> Self {
         self.webview_capacity = self.webview_capacity.max(1);
+        self.sidebar_width = self.sidebar_width.clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
         self.search_url = normalized_search_url(&self.search_url);
         self.home_url = normalized_home_url(&self.home_url);
         // Hosts are compared as `host_of` gives them, so a hand-edited entry
@@ -199,6 +243,18 @@ impl<'de> Deserialize<'de> for TabLayout {
 impl<'de> Deserialize<'de> for BarLayout {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         known_or_default(deserializer, &[Self::Docked, Self::Floating])
+    }
+}
+
+impl<'de> Deserialize<'de> for SidebarSide {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        known_or_default(deserializer, &[Self::Left, Self::Right])
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolbarPlacement {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        known_or_default(deserializer, &[Self::Top, Self::Sidebar])
     }
 }
 
@@ -502,6 +558,54 @@ mod tests {
         assert_eq!(settings.search_url, "https://search.test/?q=");
         assert!(!crate::storage::corrupt_path(&path).exists());
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn the_sidebar_defaults_to_the_left_with_the_toolbar_on_top() {
+        let settings = stored(serde_json::json!({ "theme": "dark" }));
+        assert_eq!(settings.sidebar_side, SidebarSide::Left);
+        assert_eq!(settings.toolbar_placement, ToolbarPlacement::Top);
+        assert_eq!(settings.sidebar_width, DEFAULT_SIDEBAR_WIDTH);
+    }
+
+    #[test]
+    fn the_sidebar_settings_are_stored_and_read_back() {
+        let json = serde_json::to_value(Settings {
+            sidebar_side: SidebarSide::Right,
+            toolbar_placement: ToolbarPlacement::Sidebar,
+            sidebar_width: 300,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert_eq!(json["sidebarSide"], "right");
+        assert_eq!(json["toolbarPlacement"], "sidebar");
+        assert_eq!(json["sidebarWidth"], 300);
+
+        let settings = stored(json);
+        assert_eq!(settings.sidebar_side, SidebarSide::Right);
+        assert_eq!(settings.toolbar_placement, ToolbarPlacement::Sidebar);
+        assert_eq!(settings.sidebar_width, 300);
+    }
+
+    #[test]
+    fn an_unknown_sidebar_value_falls_back_to_its_default() {
+        let settings = stored(serde_json::json!({ "sidebarSide": "top", "toolbarPlacement": "Sidebar" }));
+        assert_eq!(settings.sidebar_side, SidebarSide::Left);
+        assert_eq!(settings.toolbar_placement, ToolbarPlacement::Top);
+    }
+
+    #[test]
+    fn the_sidebar_width_is_clamped_when_sanitized() {
+        let narrow = Settings {
+            sidebar_width: 10,
+            ..Settings::default()
+        };
+        let wide = Settings {
+            sidebar_width: 5000,
+            ..Settings::default()
+        };
+        assert_eq!(narrow.sanitized().sidebar_width, MIN_SIDEBAR_WIDTH);
+        assert_eq!(wide.sanitized().sidebar_width, MAX_SIDEBAR_WIDTH);
     }
 
     #[test]

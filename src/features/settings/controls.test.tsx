@@ -5,7 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type UpdateSettings } from "./types";
 
-const { BarLayoutControl, KeptSitesControl, TabLayoutControl, ThemeControl } = await import("./controls");
+const {
+  BarLayoutControl,
+  KeptSitesControl,
+  SidebarSideControl,
+  TabLayoutControl,
+  ThemeControl,
+  ToolbarPlacementControl,
+} = await import("./controls");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -112,6 +119,13 @@ describe.each([
     values: ["horizontal", "vertical"],
   },
   { Control: BarLayoutControl, field: "barLayout", labels: ["Docked", "Floating"], values: ["docked", "floating"] },
+  { Control: SidebarSideControl, field: "sidebarSide", labels: ["Left", "Right"], values: ["left", "right"] },
+  {
+    Control: ToolbarPlacementControl,
+    field: "toolbarPlacement",
+    labels: ["Top", "In the sidebar"],
+    values: ["top", "sidebar"],
+  },
 ] as const)("$field control", ({ Control, field, labels, values }) => {
   it("offers each layout as a named radio and stores the one picked", () => {
     const update = vi.fn<UpdateSettings>(async () => null);
@@ -133,5 +147,29 @@ describe.each([
     expect(radios.map((radio) => radio.checked)).toEqual([true, false]);
     act(() => radios[1]?.click());
     expect(update).toHaveBeenCalledWith({ [field]: values[1] });
+  });
+});
+
+describe("a disabled layout control", () => {
+  it("shows the stored choice but takes none", () => {
+    const update = vi.fn<UpdateSettings>(async () => null);
+    act(() =>
+      root.render(
+        <SidebarSideControl
+          settings={{ sidebarSide: "right" } as unknown as Settings}
+          update={update}
+          id="c"
+          labelId="l"
+          describedBy={undefined}
+          disabled
+        />,
+      ),
+    );
+    const radios = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")];
+
+    expect(container.querySelector("fieldset")?.disabled).toBe(true);
+    expect(radios.map((radio) => radio.checked)).toEqual([false, true]);
+    act(() => radios[0]?.click());
+    expect(update).not.toHaveBeenCalled();
   });
 });

@@ -16,7 +16,7 @@ export function WindowControls() {
   // Looked up on click, not while rendering: the interface's crash bar draws
   // these, and must not fail the same way when the window is out of reach.
   return (
-    <div className="flex shrink-0 items-stretch self-stretch">
+    <div className="haku-window-controls flex shrink-0 items-stretch self-stretch">
       <WindowButton icon="ic-minus" label={t("window.minimize")} onClick={() => void getCurrentWindow().minimize()} />
       <WindowButton
         icon="ic-square"

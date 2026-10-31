@@ -48,11 +48,20 @@ describe("searchSettings", () => {
   });
 
   it("groups matches under their section, in page order", () => {
-    // The Tabs layout is in Appearance, first; "Loaded tabs" and the
-    // background-tab rows are in Tabs & memory; the home page, "Where new tabs
+    // The Tabs layout and the sidebar side are in Appearance, first; "Loaded
+    // tabs" and the background-tab rows are in Tabs & memory; the home page, "Where new tabs
     // and windows open", is in Browsing, which comes after.
     expect(searchSettings("tabs").map((result) => result.section.id)).toEqual(["appearance", "tabs", "browsing"]);
-    expect(ids("tabs")).toEqual(["tabLayout", "capacity", "keptMemory", "freeze", "discard", "keptSites", "homeUrl"]);
+    expect(ids("tabs")).toEqual([
+      "tabLayout",
+      "sidebarSide",
+      "capacity",
+      "keptMemory",
+      "freeze",
+      "discard",
+      "keptSites",
+      "homeUrl",
+    ]);
   });
 });
 

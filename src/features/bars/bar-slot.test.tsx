@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BarSlot } from "./bar-slot";
 import { barHoldStore, holdBar as hold } from "./holds";
-import { HIDE_DELAY_MS } from "./use-reveal";
+import { HIDE_DELAY_MS, SHOW_DELAY_MS } from "./use-reveal";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -74,19 +74,45 @@ describe("BarSlot", () => {
     expect(overlayStore.get()).toHaveLength(0);
   });
 
-  it("shows when the pointer reaches the window edge, and registers as an overlay", async () => {
+  it("shows once the pointer has rested at the window edge, and registers as an overlay", async () => {
     await render();
 
     await pointer("pointerover", host.querySelector("[data-bar-edge]")!);
+    expect(revealed()).toBe(false);
+    await act(async () => vi.advanceTimersByTime(SHOW_DELAY_MS));
 
     expect(revealed()).toBe(true);
     expect(overlayStore.get()).toHaveLength(1);
+  });
+
+  it("does not show for a pointer passing over the edge", async () => {
+    await render();
+    const edge = host.querySelector("[data-bar-edge]")!;
+
+    await pointer("pointerover", edge);
+    await act(async () => vi.advanceTimersByTime(SHOW_DELAY_MS - 1));
+    await pointer("pointerout", edge, document.body);
+    await act(async () => vi.advanceTimersByTime(SHOW_DELAY_MS));
+
+    expect(revealed()).toBe(false);
+    expect(overlayStore.get()).toHaveLength(0);
+  });
+
+  it("takes the pointer at once when it is already shown", async () => {
+    await render({ isNeeded: true });
+    const edge = host.querySelector("[data-bar-edge]")!;
+    await pointer("pointerover", edge);
+
+    await render();
+
+    expect(revealed()).toBe(true);
   });
 
   it("hides a moment after the pointer leaves, not at once", async () => {
     await render();
     const edge = host.querySelector("[data-bar-edge]")!;
     await pointer("pointerover", edge);
+    await act(async () => vi.advanceTimersByTime(SHOW_DELAY_MS));
 
     await pointer("pointerout", edge, document.body);
     expect(revealed()).toBe(true);
@@ -100,6 +126,7 @@ describe("BarSlot", () => {
     await render();
     const edge = host.querySelector("[data-bar-edge]")!;
     await pointer("pointerover", edge);
+    await act(async () => vi.advanceTimersByTime(SHOW_DELAY_MS));
     await pointer("pointerout", edge, document.body);
 
     await pointer("pointerover", edge, document.body);
@@ -152,6 +179,15 @@ describe("BarSlot", () => {
     expect(revealed()).toBe(true);
   });
 
+  it("stays shown when it starts floating under the pointer, without waiting", async () => {
+    await render({ floating: false });
+    await pointer("pointerover", host.querySelector("input")!);
+
+    await render();
+
+    expect(revealed()).toBe(true);
+  });
+
   it("shows while a menu opened from it holds it", async () => {
     await render();
 
@@ -174,5 +210,31 @@ describe("BarSlot", () => {
     await render({ isNeeded: true });
 
     expect(revealed()).toBe(true);
+  });
+
+  it("puts the bar shown last above the others", async () => {
+    await act(async () =>
+      root.render(
+        <>
+          <BarSlot edge="top" contents={["toolbar"]} floating isNeeded={false}>
+            <input aria-label="Address" />
+          </BarSlot>
+          <BarSlot edge="side" contents={["tabs"]} floating isNeeded={false}>
+            <button type="button">Tab</button>
+          </BarSlot>
+        </>,
+      ),
+    );
+    const [top, side] = host.querySelectorAll<HTMLElement>(".haku-bar-slot");
+    const layer = (element: HTMLElement) => Number(element.style.zIndex);
+
+    await act(async () => holdBar("tabs"));
+    await act(async () => holdBar("toolbar"));
+    expect(layer(top!)).toBeGreaterThan(layer(side!));
+
+    await act(async () => releases.splice(0).forEach((release) => release()));
+    await act(async () => vi.advanceTimersByTime(HIDE_DELAY_MS));
+    await act(async () => holdBar("tabs"));
+    expect(layer(side!)).toBeGreaterThan(layer(top!));
   });
 });
