@@ -2283,11 +2283,18 @@ pub async fn confirm_close(
     match tab {
         Some(tab) => {
             let home = home_url(&state)?;
+            // Held webviews are released even when the close fails, as the
+            // browser has already recorded them.
+            let mut closed = Ok(());
             mutate(&app, &state, |browser| {
                 let mut effects = browser.set_downloading(downloading);
-                effects.extend(browser.close_tab(tab, &home)?);
+                match browser.close_tab(tab, &home) {
+                    Ok(more) => effects.extend(more),
+                    Err(error) => closed = Err(error),
+                }
                 Ok(effects)
-            })
+            })?;
+            closed
         }
         None => {
             mutate(&app, &state, |browser| Ok(browser.set_downloading(downloading)))?;
