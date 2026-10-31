@@ -55,6 +55,8 @@ A failed download the engine can resume keeps its webview's slot recorded but do
 
 The hold is per webview, not per tab, because the download outlives the tab: a tab closed, discarded or navigated away no longer says anything about it.
 
+The hold starts with the download. The engine reports a start on the UI thread, which must not change the browser ([Architecture § Threading](../architecture.md#threading)), so every change to the browser first reads which webviews the list holds now. A close or trim decided in the moment after a download starts sees it, and does not wait for the queue that stores and reports it.
+
 ## Closing
 
 Quitting cancels every download, and ending the private session cancels the private ones; the engine deletes their partial files. A close that would do either while downloads are active is held: Rust closes nothing and sends the window `CloseConfirmationRequested { tab, ending, downloads }`, where `ending` is `quit` or `privateSession` and `downloads` is how many would be cancelled. The interface asks, with **Close and cancel** and **Keep downloading**. Confirming calls `confirm_close(tab)`, which cancels those downloads, records them cancelled at once, since the engine may not report it in time, and then closes. Keeping downloading does nothing.

@@ -605,9 +605,11 @@ fn run_shortcut_in(
             ) {
                 browser.set_pressure(pressure);
             }
+            let mut effects = downloads::hold(state, browser);
             let action = request.prepare(browser, shortcut, &home, now_ms())?;
             native.set((action.address, action.devtools, action.close));
-            Ok(action.effects)
+            effects.extend(action.effects);
+            Ok(effects)
         },
         |effects| {
             // Internal pages and strip moves can change state without native effects.
@@ -913,10 +915,12 @@ pub fn tick_periodically(app: tauri::AppHandle) {
             let _ = state.changes.run(
                 &state.browser,
                 |browser| {
-                    let mut effects: Vec<Effect> = readings
-                        .into_iter()
-                        .flat_map(|(tab, reading)| browser.report_state(tab, reading))
-                        .collect();
+                    let mut effects = downloads::hold(&state, browser);
+                    effects.extend(
+                        readings
+                            .into_iter()
+                            .flat_map(|(tab, reading)| browser.report_state(tab, reading)),
+                    );
                     effects.extend(browser.tick(now_ms(), pressure, memory));
                     Ok(effects)
                 },
@@ -1186,9 +1190,15 @@ pub(super) fn mutate<F>(app: &tauri::AppHandle, state: &AppState, mutate: F) -> 
 where
     F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
 {
-    state
-        .changes
-        .run(&state.browser, mutate, |effects| commit(app, state, effects))
+    state.changes.run(
+        &state.browser,
+        |browser| {
+            let mut effects = downloads::hold(state, browser);
+            effects.extend(mutate(browser)?);
+            Ok(effects)
+        },
+        |effects| commit(app, state, effects),
+    )
 }
 
 /// [`mutate`], for a command a window's interface called.
@@ -1749,12 +1759,12 @@ pub async fn set_layout(
     state.changes.run(
         &state.browser,
         |browser| {
+            let mut effects = downloads::hold(&state, browser);
             accepted.set(state.set_layout(browser, window, &layout)?);
-            Ok(if accepted.get() {
-                browser.reconcile()
-            } else {
-                Vec::new()
-            })
+            if accepted.get() {
+                effects.extend(browser.reconcile());
+            }
+            Ok(effects)
         },
         |effects| {
             if accepted.get() {

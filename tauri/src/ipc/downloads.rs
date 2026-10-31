@@ -11,6 +11,7 @@ use std::sync::{mpsc, Arc, MutexGuard, OnceLock, PoisonError};
 use tauri::Manager;
 use tauri_specta::Event;
 
+use crate::browser::{Browser, Effect};
 use crate::error::Result;
 use crate::model::{DownloadId, Downloading, Downloads, Profile, SlotId};
 use crate::platform::{self, DownloadSignal, DownloadStart};
@@ -37,6 +38,16 @@ pub fn lock(state: &AppState) -> MutexGuard<'_, Downloads> {
     // Every change to the list completes under the lock, so a panic leaves
     // nothing half-written.
     state.downloads.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Gives the browser what downloads hold back now, before it decides a
+/// change: a download that just started is not reported to it until the
+/// queue gets to it, and closing or trimming must not miss it meanwhile.
+///
+/// Takes the list's lock under the browser's, which is safe because the
+/// list is never held while waiting on anything.
+pub fn hold(state: &AppState, browser: &mut Browser) -> Vec<Effect> {
+    browser.set_downloading(lock(state).downloading())
 }
 
 fn started(app: &tauri::AppHandle, slot: Option<SlotId>, start: DownloadStart) -> DownloadId {
