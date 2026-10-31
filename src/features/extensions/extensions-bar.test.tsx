@@ -89,7 +89,7 @@ it("moves a pin to where it is dropped", async () => {
   expect(saved()).toEqual(["b", "c", "a"]);
 });
 
-it("keeps the order for a click, a drop off the toolbar, or Escape", async () => {
+it("keeps the order for a click, a drop off the toolbar on any side, or Escape", async () => {
   await pointer(pin("a"), "pointerdown", 16);
   await pointer(pin("a"), "pointerup", 18);
 
@@ -98,10 +98,24 @@ it("keeps the order for a click, a drop off the toolbar, or Escape", async () =>
   await pointer(pin("a"), "pointerup", 90, 200);
 
   await pointer(pin("a"), "pointerdown", 16);
+  await pointer(pin("a"), "pointermove", 400);
+  await pointer(pin("a"), "pointerup", 400);
+
+  await pointer(pin("a"), "pointerdown", 16);
   await pointer(pin("a"), "pointermove", 90);
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
   await pointer(pin("a"), "pointerup", 90);
 
+  expect(updateSettings).not.toHaveBeenCalled();
+});
+
+it("does not open a popup for a press dragged away vertically", async () => {
+  const { commands } = await import("@ipc/commands");
+  await pointer(pin("a"), "pointerdown", 16);
+  await pointer(pin("a"), "pointermove", 16, 200);
+  await pointer(pin("a"), "pointerup", 16, 200);
+  await act(async () => pin("a").dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+  expect(commands.openExtensionPopup).not.toHaveBeenCalled();
   expect(updateSettings).not.toHaveBeenCalled();
 });
 

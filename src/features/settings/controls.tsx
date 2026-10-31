@@ -10,7 +10,7 @@ import {
 } from "@bindings";
 import { openMenu } from "@features/context-menu/store";
 import { ExtensionIcon } from "@features/extensions/extension-icon";
-import { addExtension, removeExtension, useExtensionChange } from "@features/extensions/manage";
+import { ADDING, addExtension, removeExtension, useExtensionChange } from "@features/extensions/manage";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
 import { commands } from "@ipc/commands";
@@ -444,7 +444,7 @@ export function HomeUrlControl({ id, describedBy, settings, update }: ControlPro
  */
 export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
   const change = useExtensionChange();
-  const adding = change === "add";
+  const adding = change === ADDING;
   return (
     <fieldset className="m-0 flex gap-2 border-0 p-0" aria-labelledby={labelId} aria-describedby={describedBy}>
       <button
@@ -550,7 +550,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
   if (extensions === null) {
     return null;
   }
-  const isEmpty = extensions.installed.length === 0 && extensions.failed.length === 0;
+  const isEmpty = extensions.installed.length === 0 && extensions.failed.length === 0 && extensions.error === null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -595,7 +595,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
                 <input
                   type="checkbox"
                   className="switch"
-                  aria-label={t("settings.extensions.switch").replace("{name}", extension.name)}
+                  aria-labelledby={nameId}
                   checked={isOn}
                   disabled={isRemoving}
                   onChange={(event) => setEnabled(extension.id, event.target.checked)}

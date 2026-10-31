@@ -13,7 +13,13 @@ import { useSyncExternalStore } from "react";
  * [Extensions § Settings](../../../docs/specs/extensions.md#settings).
  */
 
-/** What is changing: `"add"`, or the folder of the extension being removed. */
+/**
+ * What is changing while an add runs. A folder starting with `.` is never an
+ * extension's, so this is never the folder of one being removed.
+ */
+export const ADDING = ".add";
+
+/** What is changing: {@link ADDING}, or the folder of the extension being removed. */
 let busy: string | null = null;
 const listeners = new Set<() => void>();
 
@@ -44,7 +50,7 @@ export async function addExtension(source: ExtensionSource): Promise<void> {
   if (busy !== null) {
     return;
   }
-  setBusy("add");
+  setBusy(ADDING);
   try {
     const result = await commands.addExtension(source);
     if (result.status === "error" || result.data === null) {

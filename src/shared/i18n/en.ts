@@ -150,7 +150,6 @@ export const en = {
     "Download an extension as a .crx file, or as the .zip its developer releases, then add it above.",
   "settings.extensions.failed": "Could not install",
   "settings.extensions.error": "Something went wrong with extensions:",
-  "settings.extensions.switch": "Switch {name} on",
   "settings.extensions.actions": "More for {name}",
   "settings.extensions.noVersion": "No version",
   "settings.extensions.off": "Off",

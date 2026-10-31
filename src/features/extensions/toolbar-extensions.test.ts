@@ -41,6 +41,12 @@ describe("movePin", () => {
     expect(movePin(pinned, ["a"], "a", 0)).toBe(pinned);
   });
 
+  it("moves nothing when the pins changed since they were shown", () => {
+    const pinned = ["a", "b"];
+    expect(movePin(pinned, ["a", "b", "c"], "c", 0)).toBe(pinned);
+    expect(movePin(pinned, ["a", "c", "b"], "b", 1)).toBe(pinned);
+  });
+
   it("keeps a hidden pin beside the shown pin it followed", () => {
     // `x` is switched off: moving `c` before `b` counts only what shows.
     expect(movePin(["a", "x", "b", "c"], ["a", "b", "c"], "c", 1)).toEqual(["a", "x", "c", "b"]);

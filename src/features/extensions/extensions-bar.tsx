@@ -24,6 +24,7 @@ interface PinDrag {
   pointerId: number;
   target: HTMLElement;
   x: number;
+  y: number;
   started: boolean;
   /** The gap it would land in: before the shown pin at this index. */
   gap: number | null;
@@ -254,8 +255,9 @@ function PinnedExtensions({ pinned, refs, canOpen, onOpen }: PinnedExtensionsPro
     if (!current || !box || !indicator.current) {
       return;
     }
-    // Released well off the toolbar, it lands nowhere.
-    if (y < box.top - box.height || y > box.bottom + box.height) {
+    // Released well off the pinned buttons, it lands nowhere.
+    const margin = box.height;
+    if (y < box.top - margin || y > box.bottom + margin || x < box.left - margin || x > box.right + margin) {
       current.gap = null;
       indicator.current.hidden = true;
       return;
@@ -358,6 +360,7 @@ function PinnedExtensions({ pinned, refs, canOpen, onOpen }: PinnedExtensionsPro
           pointerId: event.pointerId,
           target,
           x: event.clientX,
+          y: event.clientY,
           started: false,
           gap: null,
           release: null,
@@ -370,7 +373,7 @@ function PinnedExtensions({ pinned, refs, canOpen, onOpen }: PinnedExtensionsPro
         if (!current || current.pointerId !== event.pointerId) {
           return;
         }
-        if (!current.started && Math.abs(event.clientX - current.x) < DRAG_THRESHOLD) {
+        if (!current.started && Math.hypot(event.clientX - current.x, event.clientY - current.y) < DRAG_THRESHOLD) {
           return;
         }
         if (!current.started) {
