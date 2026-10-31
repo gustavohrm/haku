@@ -13,6 +13,7 @@ describe("download descriptions", () => {
     expect(formatSize(1536)).toBe("2 kB");
     expect(formatSize(1024 * 1024 - 1)).toBe("1 MB");
     expect(formatSize(5.25 * 1024 * 1024)).toBe("5.3 MB");
+    expect(formatSize(1024 ** 4)).toBe("1 TB");
   });
 
   it("shows progress against the size only when the server gave one", () => {

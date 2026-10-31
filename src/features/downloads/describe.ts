@@ -1,7 +1,7 @@
 import type { Download } from "@bindings";
 import { locale, t, type TranslationKey } from "@shared/i18n";
 
-const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
+const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte"] as const;
 
 /**
  * A file's size, in the largest unit it fills, as file managers show it.
