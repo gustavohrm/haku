@@ -3915,3 +3915,119 @@ fn closes_that_cancel_no_download_are_not_held() {
         None
     );
 }
+
+// -- fullscreen ---------------------------------------------------------
+
+fn fullscreen_of(browser: &Browser, window: WindowId) -> Option<TabId> {
+    browser.state_in(window).unwrap().fullscreen
+}
+
+#[test]
+fn a_shown_page_entering_fullscreen_takes_its_window_fullscreen() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let window = browser.main_window();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.report_fullscreen(slot, true);
+
+    assert_eq!(fullscreen_of(&browser, window), Some(ids[0]));
+    assert_eq!(
+        effects,
+        vec![Effect::SetFullscreen {
+            window,
+            fullscreen: true
+        }]
+    );
+    assert!(
+        browser.report_fullscreen(slot, true).is_empty(),
+        "a repeated report changes nothing"
+    );
+}
+
+#[test]
+fn a_page_leaving_fullscreen_restores_its_window() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let window = browser.main_window();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_fullscreen(slot, true);
+
+    let effects = browser.report_fullscreen(slot, false);
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    assert_eq!(
+        effects,
+        vec![Effect::SetFullscreen {
+            window,
+            fullscreen: false
+        }]
+    );
+}
+
+#[test]
+fn selecting_another_tab_leaves_fullscreen_and_asks_the_page_to_exit() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let window = browser.main_window();
+    let slot = slot_of(&browser, ids[1]).unwrap();
+    browser.report_fullscreen(slot, true);
+
+    let effects = browser.select_tab(ids[0], 0).unwrap();
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    assert!(effects.contains(&Effect::SetFullscreen {
+        window,
+        fullscreen: false
+    }));
+    assert!(effects.contains(&Effect::ExitPageFullscreen { slot }));
+    // The page's own report that it left arrives afterwards and changes nothing.
+    assert!(browser.report_fullscreen(slot, false).is_empty());
+}
+
+#[test]
+fn closing_the_fullscreen_tab_restores_its_window() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let window = browser.main_window();
+    browser.report_fullscreen(slot_of(&browser, ids[1]).unwrap(), true);
+
+    let effects = browser.close_tab(ids[1], HOME).unwrap();
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    assert!(effects.contains(&Effect::SetFullscreen {
+        window,
+        fullscreen: false
+    }));
+}
+
+#[test]
+fn a_crashed_fullscreen_page_restores_its_window() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test"]);
+    let window = browser.main_window();
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_fullscreen(slot, true);
+
+    let effects = browser.page_crashed(slot, ids[0], CrashCause::Unknown);
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    assert!(effects.contains(&Effect::SetFullscreen {
+        window,
+        fullscreen: false
+    }));
+    assert!(!effects.contains(&Effect::ExitPageFullscreen { slot }));
+}
+
+#[test]
+fn a_hidden_page_entering_fullscreen_is_asked_to_exit() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let window = browser.main_window();
+    let hidden = slot_of(&browser, ids[0]).unwrap();
+
+    let effects = browser.report_fullscreen(hidden, true);
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    assert_eq!(effects, vec![Effect::ExitPageFullscreen { slot: hidden }]);
+}
+
+#[test]
+fn an_unknown_slot_entering_fullscreen_changes_nothing() {
+    let (mut browser, _) = browser_with(2, &["https://a.test"]);
+    assert!(browser.report_fullscreen(SlotId(9), true).is_empty());
+}

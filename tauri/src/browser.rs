@@ -138,6 +138,16 @@ pub enum Effect {
     CloseWindow {
         window: WindowId,
     },
+    /// Take a window to the whole screen, or back to where it was, for a page
+    /// in it entering or leaving fullscreen. [Fullscreen](../../docs/specs/fullscreen.md).
+    SetFullscreen {
+        window: WindowId,
+        fullscreen: bool,
+    },
+    /// Ask the slot's page to leave fullscreen. Its window has already left.
+    ExitPageFullscreen {
+        slot: SlotId,
+    },
     /// Bring a window to the front, when something the user did in another
     /// one opened a tab in it.
     FocusWindow {
@@ -238,6 +248,8 @@ pub struct BrowserState {
     pub splits: Vec<TabPair>,
     #[specta(type = specta_typescript::Number)]
     pub layout_revision: u64,
+    /// The shown tab whose page is fullscreen, which takes the window with it.
+    pub fullscreen: Option<TabId>,
     /// Exported as a JavaScript number: every value here is a counter, a
     /// small capacity, or a millisecond timestamp, all far inside the range a
     /// double represents exactly.
@@ -287,6 +299,8 @@ struct Window {
     awaiting_layout: bool,
     /// Explicit native focus waits for geometry, tied to this pane and tab.
     pending_focus: Option<(String, TabId)>,
+    /// The shown tab whose page is fullscreen.
+    fullscreen: Option<TabId>,
 }
 
 impl Window {
@@ -302,6 +316,7 @@ impl Window {
             next_viewport: 2,
             awaiting_layout: false,
             pending_focus: None,
+            fullscreen: None,
         }
     }
 
@@ -580,6 +595,7 @@ impl Browser {
             focused_viewport: entry.focused_viewport.clone(),
             splits: entry.splits.clone(),
             layout_revision: entry.layout_revision,
+            fullscreen: entry.fullscreen,
             capacity: self.pool.capacity(),
             live_count: self.tabs.iter().filter(|tab| tab.slot().is_some()).count(),
         })
@@ -2000,6 +2016,81 @@ impl Browser {
 
     // -- reports from the page -------------------------------------------
 
+    /// Records whether a slot's page has a fullscreen element.
+    ///
+    /// Only a page shown in its window takes the window fullscreen; one that
+    /// is not shown is asked to leave. [`Browser::realize`] ends it when the
+    /// tab stops being shown.
+    pub fn report_fullscreen(&mut self, slot: SlotId, fullscreen: bool) -> Vec<Effect> {
+        let Some(tab) = self.occupant_of(slot) else {
+            return Vec::new();
+        };
+        let Some(window) = self.window_of(tab) else {
+            return Vec::new();
+        };
+        let shown = self
+            .window(window)
+            .is_some_and(|entry| entry.viewports.iter().any(|pane| pane.tab == tab));
+        let current = self.window(window).and_then(|entry| entry.fullscreen);
+        let mut effects = Vec::new();
+        match (fullscreen, shown) {
+            (true, false) => effects.push(Effect::ExitPageFullscreen { slot }),
+            (true, true) if current != Some(tab) => {
+                // A pane beside it that was fullscreen gives way.
+                if let Some(other) = current.and_then(|other| self.tab(other).ok()?.slot()) {
+                    effects.push(Effect::ExitPageFullscreen { slot: other });
+                }
+                self.set_fullscreen(window, Some(tab));
+                if current.is_none() {
+                    effects.push(Effect::SetFullscreen {
+                        window,
+                        fullscreen: true,
+                    });
+                }
+            }
+            (false, _) if current == Some(tab) => {
+                self.set_fullscreen(window, None);
+                effects.push(Effect::SetFullscreen {
+                    window,
+                    fullscreen: false,
+                });
+            }
+            _ => {}
+        }
+        effects
+    }
+
+    fn set_fullscreen(&mut self, window: WindowId, tab: Option<TabId>) {
+        if let Some(entry) = self.windows.iter_mut().find(|entry| entry.id == window) {
+            entry.fullscreen = tab;
+        }
+    }
+
+    /// Ends fullscreen in each window whose fullscreen tab is no longer shown
+    /// there with a live page, and asks a page still running to leave too.
+    fn settle_fullscreen(&mut self) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        for index in 0..self.windows.len() {
+            let entry = &self.windows[index];
+            let Some(tab) = entry.fullscreen else { continue };
+            let slot = self.tab(tab).ok().and_then(Tab::slot);
+            let shown = entry.viewports.iter().any(|pane| pane.tab == tab);
+            if shown && slot.is_some() {
+                continue;
+            }
+            let window = entry.id;
+            self.windows[index].fullscreen = None;
+            if let Some(slot) = slot {
+                effects.push(Effect::ExitPageFullscreen { slot });
+            }
+            effects.push(Effect::SetFullscreen {
+                window,
+                fullscreen: false,
+            });
+        }
+        effects
+    }
+
     /// Records whether a slot's page is playing audio.
     ///
     /// A smart policy leaves a playing tab running, so a tab that falls silent
@@ -2234,9 +2325,11 @@ impl Browser {
     fn realize(&mut self) -> Vec<Effect> {
         self.pool.keep_private = self.has_private_tabs();
         let visible = self.visible();
+        // Before anything hides its page or takes its slot.
+        let mut effects = self.settle_fullscreen();
         // Before anything hides it or takes its slot: a page can only be
         // captured while it is still on screen.
-        let mut effects = self.leave_shown();
+        effects.extend(self.leave_shown());
 
         for &id in &visible {
             effects.extend(self.bind(id));

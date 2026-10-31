@@ -88,6 +88,8 @@ pub enum PageSignal {
     DialogRequested(PageDialog),
     /// The page started or stopped playing audio.
     AudioChanged { playing: bool },
+    /// The page gained or lost a fullscreen element.
+    FullscreenChanged { fullscreen: bool },
     /// A navigation of the top frame started. `form` is set when it carries a
     /// form submission, which makes the page it loads the user's work.
     NavigationStarted { form: bool },

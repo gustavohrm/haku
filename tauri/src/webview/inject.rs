@@ -345,6 +345,11 @@ pub fn scroll_settled_expression() -> String {
     format!(r#"typeof window.{STATE_READER} === "object" ? window.{STATE_READER}.settled() : true"#)
 }
 
+/// Expression Rust evaluates to end a page's fullscreen, which WebView2 has no
+/// call for. A page that is not fullscreen is left alone, and a page that
+/// refuses is not an error: its window has already left.
+pub const EXIT_FULLSCREEN: &str = "document.fullscreenElement && document.exitFullscreen().catch(() => {})";
+
 /// Reads what [`page_state_drain_expression`] evaluated to.
 ///
 /// @param json - The evaluation result, as JSON.
