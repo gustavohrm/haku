@@ -19,7 +19,7 @@ Both are fields of the Rust `Settings`, stored in `settings.json` with the rest 
 
 The defaults are what Haku drew before the settings existed, so an existing settings file opens unchanged.
 
-Each is an enum in Rust (`TabLayout`, `BarLayout`) and a string union in the bindings. A stored value Haku does not know, such as a hand-edited `"Vertical"` or one written by a later version, reads as the default and leaves every other setting as stored. `read_json` sets a whole file aside when it fails to deserialize, so a strict read would trade every setting for one unknown value. The leniency is written as the enums' own `Deserialize`, because a `deserialize_with` field attribute makes the binding generator split `Settings` into separate read and written types.
+Each is an enum in Rust (`TabLayout`, `BarLayout`) and a string union in the bindings. A stored value Haku does not know, such as a hand-edited `"Vertical"` or one written by a later version, reads as the default and leaves every other setting as stored. The next save writes that default over it, so the newer value is lost once anything in settings changes. `read_json` sets a whole file aside when it fails to deserialize, so a strict read would trade every setting for one unknown value. The leniency is written as the enums' own `Deserialize`, because a `deserialize_with` field attribute makes the binding generator split `Settings` into separate read and written types.
 
 Changing either goes through `set_settings` like any setting, and `SettingsChanged` reaches every window, which re-renders in the new layout at once. No command or event was added.
 
@@ -43,7 +43,7 @@ Everything the strip does, the column does, because it is the same component on 
 
 - Dragging a tab or a pair reorders it, with the drop line between units, never inside a pair. The drop position is read from the units' measured geometry along the column, and a pointer outside the column's width offers no drop.
 - A split pair is one joined unit, stacked: the left member above the right, with one outer shape. Membership and position are announced as in the strip.
-- Fixed tabs, the private icon, the waiting-dialog badge, the discarded, frozen, crashed and unloaded markers, middle-click to close, and the tab and strip menus are unchanged.
+- Fixed tabs, the favicons a private window leaves out, the waiting-dialog badge, the discarded, frozen, crashed and unloaded markers, middle-click to close, and the tab and strip menus are unchanged.
 - Each tab is a button in tab order, and the keyboard opens its menu as in the strip.
 
 Dragging does not scroll the column. A tab can be dropped on any position the column shows; reaching a position scrolled out of view takes two drags.
