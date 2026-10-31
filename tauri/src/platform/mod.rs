@@ -255,7 +255,8 @@ pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSi
 /// instead. Set once, before any content webview exists.
 ///
 /// # Errors
-/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation,
+/// and when downloads are already observed.
 pub fn observe_downloads(started: DownloadStartSink, changed: DownloadSink) -> Result<()> {
     backend::observe_downloads(started, changed)
 }
