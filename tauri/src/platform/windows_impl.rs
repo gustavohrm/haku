@@ -1258,7 +1258,7 @@ pub fn control_download<R: tauri::Runtime>(
                 .get(&id)
                 .map(|followed| (followed.operation.clone(), followed.slot))
         });
-        let acted = listed.is_some_and(|(operation, slot)| unsafe {
+        let acted = listed.map(|(operation, slot)| unsafe {
             if action == DownloadAction::Resume
                 && read_settled(&operation).is_ok_and(|settled| settled.state == DownloadState::Failed)
             {
@@ -1267,18 +1267,27 @@ pub fn control_download<R: tauri::Runtime>(
                     RESUMED.with(|resumed| resumed.borrow_mut().push((id, take_pwstr(uri), slot)));
                 }
             }
-            match action {
+            let result = match action {
                 DownloadAction::Pause => operation.Pause(),
                 DownloadAction::Resume => operation.Resume(),
                 DownloadAction::Cancel => operation.Cancel(),
+            };
+            if result.is_err() {
+                // No restart follows a resume the engine refused.
+                RESUMED.with(|resumed| resumed.borrow_mut().retain(|(resumed, ..)| *resumed != id));
             }
-            .is_ok()
+            result.map_err(|error| error.message())
         });
         let _ = sender.send(acted);
     })?;
-    receiver
+    match receiver
         .recv_timeout(DISPATCH_TIMEOUT)
-        .map_err(|error| HakuError::WindowMissing(error.to_string()))
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+    {
+        None => Ok(false),
+        Some(Ok(())) => Ok(true),
+        Some(Err(message)) => Err(HakuError::Unsupported(format!("download {}: {message}", id.0))),
+    }
 }
 
 pub fn open_file(path: &Path) -> Result<()> {

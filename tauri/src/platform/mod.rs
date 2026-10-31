@@ -268,8 +268,9 @@ pub fn observe_downloads(started: DownloadStartSink, changed: DownloadSink) -> R
 ///   once the webview that ran it is gone.
 ///
 /// # Errors
-/// Returns [`HakuError::Unsupported`] on platforms without an implementation,
-/// and [`HakuError::WindowMissing`] when the UI thread does not answer.
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation
+/// or when the engine refuses the action on a download it still has, and
+/// [`HakuError::WindowMissing`] when the UI thread does not answer.
 pub fn control_download<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     id: DownloadId,
