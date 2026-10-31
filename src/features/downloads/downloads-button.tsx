@@ -1,4 +1,5 @@
 import { DOWNLOADS_URL } from "@app/router";
+import { useBarHold } from "@features/bars/holds";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
@@ -28,6 +29,7 @@ export function DownloadsButton() {
 
   // The list hangs over the page, so it must be registered to be clickable.
   useOverlay(listRef, open);
+  useBarHold("toolbar", open);
   const close = useCallback(() => setAnchor(null), []);
   useMenuDismiss(open, close, listRef, buttonRef);
 

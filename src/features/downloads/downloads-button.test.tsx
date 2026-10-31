@@ -1,4 +1,5 @@
 import type { Download } from "@bindings";
+import { barHoldStore } from "@features/bars/holds";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +72,16 @@ describe("DownloadsButton", () => {
 
     await act(async () => list()?.querySelector<HTMLButtonElement>('[aria-label="Pause: report (1).pdf"]')?.click());
     expect(commands.pauseDownload).toHaveBeenCalledWith(2);
+  });
+
+  it("holds a floating toolbar while the list is open", async () => {
+    listed.downloads = [download()];
+    await act(async () => root.render(<DownloadsButton />));
+
+    await act(async () => button()?.click());
+    expect(barHoldStore.get().toolbar).toBe(1);
+    await act(async () => button()?.click());
+    expect(barHoldStore.get().toolbar).toBe(0);
   });
 
   it("opens a completed file, or its folder, through Rust", async () => {
