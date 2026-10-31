@@ -128,11 +128,11 @@ headroom = min(available_physical / total_physical, (commit_limit - commit_total
 
 Both terms come from `GetPerformanceInfo`. Commit is included because running out of commit, not physical memory, is what makes allocations fail and processes die.
 
-| Level        | Headroom     | What changes                                                   |
-| ------------ | ------------ | -------------------------------------------------------------- |
-| **Normal**   | 15 % or more | [The rule](#deciding) as written                               |
-| **Tight**    | under 15 %   | No grace. State tabs are discarded. No parked webview is kept. |
-| **Critical** | under 7 %    | As Tight, and Work tabs are discarded too, all at once.        |
+| Level        | Headroom     | What changes                                                                              |
+| ------------ | ------------ | ----------------------------------------------------------------------------------------- |
+| **Normal**   | 15 % or more | [The rule](#deciding) as written                                                          |
+| **Tight**    | under 15 %   | No grace. State tabs are discarded. No parked webview is kept but one running a download. |
+| **Critical** | under 7 %    | As Tight, and Work tabs are discarded too, all at once.                                   |
 
 A level is left only once headroom is 3 points above its threshold, so a reading that hovers does not flap.
 

@@ -341,7 +341,7 @@ export type DownloadState = "inProgress" | "paused" | "completed" | "cancelled" 
  *  The downloads a window lists, newest first, whenever one starts, moves
  *  on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
  * 
- *  Each window receives its own profile's only. A running download's
+ *  Each window receives only its own profile's downloads. A running download's
  *  progress is sent at most four times a second.
  */
 export type DownloadsChanged = Download[];
