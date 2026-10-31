@@ -112,7 +112,7 @@ describe("connect", () => {
     await connect().catch(() => {});
 
     expect(isListeningWhenAsked).toBe(true);
-    expect(failureTarget).toHaveBeenCalledWith(CURRENT_WEBVIEW);
+    expect(failureTarget).toHaveBeenLastCalledWith(CURRENT_WEBVIEW);
   });
 
   it("reports a failure Rust sends as any other failure is reported", async () => {
