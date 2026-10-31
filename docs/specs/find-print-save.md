@@ -1,12 +1,12 @@
 ---
-status: DRAFT
+status: APPROVED
 last_updated: 2026-10-31
 scope: Finding text in a page, printing a page and saving a page, and the bar, shortcuts and menu items that start them.
 ---
 
 # Find, print and save
 
-A draft for approval. It adds IPC commands and an event, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) plans find as "WebView2's find API, with a bar drawn by the chrome", and print and save as WebView2's dialogs driven from Rust.
+Approved on 2026-10-31. It adds IPC commands and an event, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) plans find as "WebView2's find API, with a bar drawn by the chrome", and print and save as WebView2's dialogs driven from Rust.
 
 ## Problem
 
