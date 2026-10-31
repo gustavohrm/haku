@@ -1977,9 +1977,21 @@ pub fn uninstall_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: St
                     return Ok(());
                 }
                 Ok(Some(extension)) => {
+                    // Forgotten only if still the one cached now: an install of
+                    // the same id may have cached another by the time it is done.
+                    let cached = EXTENSIONS.with(|extensions| extensions.borrow().get(&id).cloned());
                     let done = {
                         let sender = sender.clone();
+                        let id = id.clone();
                         BrowserExtensionRemoveCompletedHandler::create(Box::new(move |status| {
+                            if status.is_ok() {
+                                EXTENSIONS.with(|extensions| {
+                                    let mut extensions = extensions.borrow_mut();
+                                    if extensions.get(&id) == cached.as_ref() {
+                                        extensions.remove(&id);
+                                    }
+                                });
+                            }
                             let _ = sender.send(status.map_err(|error| engine_error("uninstalling", &error)));
                             Ok(())
                         }))
@@ -1995,6 +2007,58 @@ pub fn uninstall_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: St
         }));
         profile.GetBrowserExtensions(&handler)
     })
+}
+
+pub fn pick_extension<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    source: crate::model::ExtensionSource,
+) -> Result<Option<std::path::PathBuf>> {
+    use windows::Win32::Foundation::ERROR_CANCELLED;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
+    use windows::Win32::UI::Shell::{
+        FileOpenDialog, IFileOpenDialog, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    };
+
+    let picker_error = |error: windows::core::Error| HakuError::Unsupported(format!("picking an extension: {error}"));
+    // A window handle is not `Send`; its value is all the picker needs.
+    let owner = window
+        .hwnd()
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+        .0 as isize;
+    // A thread of its own, so the picker gets the single-threaded COM
+    // apartment it needs whatever the caller's thread has.
+    let picked = std::thread::spawn(move || unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+        let picked = (|| {
+            let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
+            let options = dialog.GetOptions()? | FOS_FORCEFILESYSTEM;
+            match source {
+                crate::model::ExtensionSource::Folder => dialog.SetOptions(options | FOS_PICKFOLDERS)?,
+                crate::model::ExtensionSource::File => {
+                    // Named by its patterns, which read the same in every language.
+                    dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
+                        pszName: windows::core::w!("*.crx, *.zip"),
+                        pszSpec: windows::core::w!("*.crx;*.zip"),
+                    }])?;
+                    dialog.SetOptions(options | FOS_FILEMUSTEXIST)?;
+                }
+            }
+            match dialog.Show(Some(HWND(owner as *mut _))) {
+                Err(error) if error.code() == ERROR_CANCELLED.to_hresult() => return Ok(None),
+                shown => shown?,
+            }
+            let path = dialog.GetResult()?.GetDisplayName(SIGDN_FILESYSPATH)?;
+            Ok(Some(std::path::PathBuf::from(take_pwstr(path))))
+        })();
+        CoUninitialize();
+        picked
+    })
+    .join()
+    .map_err(|_| HakuError::Unsupported("picking an extension: the picker failed".into()))?;
+    picked.map_err(picker_error)
 }
 
 pub fn reveal_folder(folder: &Path) -> Result<()> {

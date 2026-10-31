@@ -118,7 +118,7 @@ pub fn run() {
                 ipc::commands::answer_launches();
                 if let Ok(chrome) = webview::chrome(&handle) {
                     let _ = platform::stop_idle_workers(&chrome);
-                    ipc::commands::sync_extensions(&handle);
+                    ipc::extensions::sync(&handle);
                 }
             });
             Ok(())

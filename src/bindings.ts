@@ -130,6 +130,22 @@ export const commands = {
 	 */
 	openExtensionsFolder: () => typedError<null, HakuError>(__TAURI_INVOKE("open_extensions_folder")),
 	/**
+	 *  Asks the user for an extension with the system's picker, owned by the
+	 *  calling window, and adds it, or updates the installed one it is a version
+	 *  of. Answers nothing when the picker was cancelled. The interface never
+	 *  names a path: it only says what to pick.
+	 */
+	addExtension: (source: ExtensionSource) => typedError<{
+	extension: Extension,
+	/**  The version it replaced, when it updated one already installed. */
+	replaced: string | null,
+} | null, HakuError>(__TAURI_INVOKE("add_extension", { source })),
+	/**
+	 *  Uninstalls the extension installed from `folder`, with what it stored, and
+	 *  deletes the folder; or deletes a folder that failed to install.
+	 */
+	removeExtension: (folder: string) => typedError<null, HakuError>(__TAURI_INVOKE("remove_extension", { folder })),
+	/**
 	 *  Opens an extension's toolbar popup, for the named visible tab of the window that
 	 *  called, just below `anchor`: the button it was opened from, in the
 	 *  interface's logical pixels.
@@ -191,6 +207,13 @@ export const events = {
 };
 
 /* Types */
+/**  An extension added from settings. */
+export type AddedExtension = {
+	extension: Extension,
+	/**  The version it replaced, when it updated one already installed. */
+	replaced: string | null,
+};
+
 /**
  *  Asks the interface to focus the address field, for the given tab.
  * 
@@ -374,6 +397,18 @@ export type Ending =
 export type Extension = {
 	id: string,
 	name: string,
+	/**  The manifest's `version`, or empty when it declares none. */
+	version: string,
+	/**
+	 *  The subfolder of the extensions folder it was installed from, which
+	 *  names it to `remove_extension`.
+	 */
+	folder: string,
+	/**
+	 *  Its options page, as a `chrome-extension://` URL, when its manifest
+	 *  declares one.
+	 */
+	options: string | null,
 	/**  The page its toolbar button opens, as a `chrome-extension://` URL. */
 	popup: string | null,
 	/**
@@ -384,14 +419,21 @@ export type Extension = {
 	icon: string | null,
 };
 
+/**  What `add_extension` asks the user to pick. */
+export type ExtensionSource = 
+/**  A packed extension: a `.crx` or `.zip` file. */
+"file" | 
+/**  An unpacked extension: a folder holding its `manifest.json`. */
+"folder";
+
 /**  What the extensions folder holds, as last installed. */
 export type Extensions = {
 	installed: Extension[],
 	/**
-	 *  Folders the engine would not install, by name, so a broken or
-	 *  unsupported extension is not silently missing.
+	 *  Folders the engine would not install, so a broken or unsupported
+	 *  extension is not silently missing.
 	 */
-	failed: string[],
+	failed: FailedExtension[],
 	/**  The first other failure while installing the folder, if any. */
 	error: HakuError | null,
 };
@@ -401,6 +443,12 @@ export type Extensions = {
  *  the interface may already have asked for the list.
  */
 export type ExtensionsChanged = Extensions;
+
+/**  A subfolder of the extensions folder that the engine would not install. */
+export type FailedExtension = {
+	folder: string,
+	error: HakuError,
+};
 
 /**
  *  A failure no command call is waiting on, such as a shortcut's, a page's

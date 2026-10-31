@@ -32,23 +32,23 @@ use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, O
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    data_url, icon_file, is_internal, jpeg_data_url, popup_url, ContextMenuRequestId, DialogAnswer, DialogId, Download,
-    DownloadId, DownloadState, Extension, Extensions, PageMenu, Placement, Preset, Pressure, Profile, ScreenRect,
-    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    is_internal, jpeg_data_url, AddedExtension, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId,
+    DownloadState, ExtensionSource, Extensions, PageMenu, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut,
+    SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
-use crate::storage::{self, InstalledExtension, InstalledExtensions, Settings, WindowBounds};
+use crate::storage::{Settings, WindowBounds};
 use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{
-    AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, ExtensionsChanged, FailureReported,
-    MemoryChanged, SettingsChanged, StateChanged,
+    AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, FailureReported, MemoryChanged,
+    SettingsChanged, StateChanged,
 };
 use super::shortcuts::Request as ShortcutRequest;
-use super::{downloads, recovery};
+use super::{downloads, extensions, recovery};
 
 /// Rejects a command that only the interface may issue.
 ///
@@ -737,132 +737,13 @@ fn home_url(state: &AppState) -> Result<String> {
     Ok(settings.home_url.clone())
 }
 
-/// Installs every extension in the extensions folder into the shared profile,
-/// switches each on or off as the settings say, and uninstalls the ones Haku
-/// installed before whose folder is gone.
-///
-/// Only ids Haku recorded installing are uninstalled: the engine lists its own
-/// built-in extensions alongside the user's, with nothing to tell them apart,
-/// and refuses to remove those. One that fails to uninstall stays recorded, to
-/// be tried again at the next start.
-///
-/// Runs once, at startup and off the UI thread: the engine has to be asked
-/// and waited on for each extension.
-///
-/// A failure is kept in [`Extensions::error`] for the settings page to show,
-/// since nothing is waiting on startup to report it.
-pub fn sync_extensions(app: &tauri::AppHandle) {
-    let state = app.state::<AppState>();
-    let extensions = install_extensions(app, &state).unwrap_or_else(|error| Extensions {
-        error: Some(error),
-        ..Extensions::default()
-    });
-    if let Ok(mut stored) = state.extensions.write() {
-        *stored = extensions.clone();
-    }
-    webview::extensions_installed(app);
-    let _ = ExtensionsChanged(extensions).emit(app);
-}
-
-/// # Errors
-/// Fails when the chrome webview cannot be reached. A folder that does not
-/// install is reported in [`Extensions::failed`], and any other step that
-/// fails in [`Extensions::error`], without stopping the rest.
-fn install_extensions(app: &tauri::AppHandle, state: &AppState) -> Result<Extensions> {
-    let chrome = webview::chrome(app)?;
-    let mut problems = Vec::new();
-
-    let mut installed = Vec::new();
-    let mut now = Vec::new();
-    let mut failed = Vec::new();
-    let mut folders: Vec<std::path::PathBuf> = match std::fs::read_dir(&state.paths.extensions) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect(),
-        // No folder yet means no extensions.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => {
-            problems.push(HakuError::from(error));
-            Vec::new()
-        }
-    };
-    // The order the file system lists folders in is not stable.
-    folders.sort();
-    for folder in folders {
-        match platform::install_extension(&chrome, &folder) {
-            Ok((id, name)) => {
-                let manifest = std::fs::read_to_string(folder.join("manifest.json")).unwrap_or_default();
-                let icon = icon_file(&manifest).and_then(|(path, mime)| {
-                    std::fs::read(folder.join(path))
-                        .ok()
-                        .map(|bytes| data_url(mime, &bytes))
-                });
-                now.push(InstalledExtension {
-                    id: id.clone(),
-                    folder: folder.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-                });
-                installed.push(Extension {
-                    popup: popup_url(&id, &manifest),
-                    icon,
-                    id,
-                    name,
-                });
-            }
-            Err(_) => failed.push(folder.file_name().unwrap_or_default().to_string_lossy().into_owned()),
-        }
-    }
-
-    let disabled = state
-        .settings
-        .read()
-        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
-        .disabled_extensions
-        .clone();
-    for extension in &installed {
-        let enabled = !disabled.contains(&extension.id);
-        if let Err(error) = platform::set_extension_enabled(&chrome, extension.id.clone(), enabled) {
-            problems.push(error);
-        }
-    }
-
-    let before: InstalledExtensions = storage::read_json(&state.paths.installed_extensions);
-    let mut recorded: Vec<InstalledExtension> = before
-        .installed
-        .iter()
-        .filter(|old| !now.iter().any(|new| new.id == old.id))
-        .cloned()
-        .collect();
-    // An extension with a `key` keeps its id when its folder moves: still
-    // installed, from its new folder.
-    let gone = before
-        .removed(|folder| state.paths.extensions.join(folder).is_dir())
-        .into_iter()
-        .filter(|old| !now.iter().any(|new| new.id == old.id));
-    for gone in gone {
-        match platform::uninstall_extension(&chrome, gone.id.clone()) {
-            Ok(()) => recorded.retain(|kept| kept.id != gone.id),
-            Err(error) => problems.push(error),
-        }
-    }
-    recorded.extend(now);
-    if let Err(error) = storage::write_json(
-        &state.paths.installed_extensions,
-        &InstalledExtensions { installed: recorded },
-    ) {
-        problems.push(error);
-    }
-
-    Ok(Extensions {
-        installed,
-        failed,
-        error: problems.into_iter().next(),
-    })
-}
-
 /// Switches installed extensions on or off where the settings changed them.
+///
+/// Waits for an add or a removal that is running, so it never switches an
+/// extension while that replaces it, or that switches it from settings older
+/// than these.
 fn switch_extensions(app: &tauri::AppHandle, state: &AppState, before: &[String], after: &[String]) -> Result<()> {
+    let _turn = super::extensions::lock(state);
     let installed: Vec<String> = state
         .extensions
         .read()
@@ -2228,6 +2109,30 @@ pub async fn open_extension_popup(
         })
     });
     Ok(true)
+}
+
+/// Asks the user for an extension with the system's picker, owned by the
+/// calling window, and adds it, or updates the installed one it is a version
+/// of. Answers nothing when the picker was cancelled. The interface never
+/// names a path: it only says what to pick.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_extension(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    source: ExtensionSource,
+) -> Result<Option<AddedExtension>> {
+    ensure_chrome(&webview)?;
+    extensions::add(&app, &webview.window(), source)
+}
+
+/// Uninstalls the extension installed from `folder`, with what it stored, and
+/// deletes the folder; or deletes a folder that failed to install.
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_extension(app: tauri::AppHandle, webview: tauri::Webview, folder: String) -> Result<()> {
+    ensure_chrome(&webview)?;
+    extensions::remove(&app, &folder)
 }
 
 /// Opens the extensions folder, creating it first, so an unpacked extension

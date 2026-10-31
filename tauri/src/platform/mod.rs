@@ -464,6 +464,22 @@ pub fn uninstall_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: St
     backend::uninstall_extension(chrome, id)
 }
 
+/// Asks the user for an extension with the system's own picker, owned by
+/// `window`: a `.crx` or `.zip` file, or a folder. Answers nothing when the
+/// picker is cancelled.
+///
+/// Blocks until the user answers, so it must not be called on the UI thread.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the picker cannot be shown, and on
+/// platforms without an implementation.
+pub fn pick_extension<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    source: crate::model::ExtensionSource,
+) -> Result<Option<std::path::PathBuf>> {
+    backend::pick_extension(window, source)
+}
+
 /// Opens a folder in the system's file manager.
 ///
 /// # Errors

@@ -14,7 +14,17 @@ vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup } }));
 vi.mock("@ipc/hooks", () => ({
   useBrowserState: () => state,
   useExtensions: () => ({
-    installed: [{ id: "extension", name: "Example extension", popup: "chrome-extension://id/popup.html", icon: null }],
+    installed: [
+      {
+        id: "extension",
+        name: "Example extension",
+        popup: "chrome-extension://id/popup.html",
+        icon: null,
+        version: "1.0",
+        folder: "example",
+        options: null,
+      },
+    ],
   }),
   useSettings: () => ({ pinnedExtensions: ["extension"], disabledExtensions: [], keptSites: [] }),
   useDownloads: () => [],
@@ -113,7 +123,7 @@ describe("toolbar extension popups", () => {
     await act(async () => root.render(<Toolbar tab={null} />));
     const button = container.querySelector<HTMLButtonElement>('[aria-label="Example extension"]')!;
     await act(async () => button.click());
-    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(openExtensionPopup).not.toHaveBeenCalled();
     const menu = container.querySelector<HTMLButtonElement>('[aria-label="Extensions"]')!;
     await act(async () => menu.click());

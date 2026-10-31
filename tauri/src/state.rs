@@ -205,8 +205,12 @@ pub struct AppState {
     /// What each tab showed as it was left, to cover its page while it
     /// reloads. Never written to disk.
     pub previews: Mutex<Previews>,
-    /// What the extensions folder installed at startup.
+    /// What the extensions folder has installed.
     pub extensions: RwLock<Extensions>,
+    /// Held for the whole of installing at startup, adding, updating or
+    /// uninstalling an extension, so they never interleave over the
+    /// extensions folder or `extensions.json`.
+    pub extension_changes: Mutex<()>,
     pub paths: Paths,
     pub held_failures: HeldFailures,
     /// Held from capturing the session to writing it, so saves land in the
@@ -236,6 +240,7 @@ impl AppState {
             memory: RwLock::new(MemoryReading::default()),
             previews: Mutex::new(Previews::default()),
             extensions: RwLock::new(Extensions::default()),
+            extension_changes: Mutex::new(()),
             paths,
             held_failures,
             session_saves: Mutex::new(()),

@@ -8,6 +8,7 @@
 pub mod extensions;
 pub mod history_db;
 pub mod merge;
+pub mod package;
 pub mod session;
 pub mod settings;
 
