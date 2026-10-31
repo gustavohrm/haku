@@ -472,6 +472,7 @@ export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
 export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
   const extensions = useExtensions();
   const change = useExtensionChange();
+  const ids = useId();
   const disabled = settings.disabledExtensions;
   const pinned = settings.pinnedExtensions;
 
@@ -572,10 +573,10 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
 
       {extensions.installed.length > 0 && (
         <ul className="flex flex-col gap-1" aria-labelledby={labelId}>
-          {extensions.installed.map((extension) => {
+          {extensions.installed.map((extension, index) => {
             const isOn = !disabled.includes(extension.id);
             const isRemoving = change === extension.folder;
-            const nameId = `extension-name-${extension.folder}`;
+            const nameId = `${ids}-name-${index}`;
             const details = [
               isRemoving ? t("settings.extensions.removing") : extension.version || t("settings.extensions.noVersion"),
               !isOn && t("settings.extensions.off"),
@@ -621,13 +622,13 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
         <section className="flex flex-col gap-1" aria-label={t("settings.extensions.failed")}>
           <h3 className="text-text-secondary text-sm font-medium">{t("settings.extensions.failed")}</h3>
           <ul className="flex flex-col gap-1">
-            {extensions.failed.map((failed) => (
+            {extensions.failed.map((failed, index) => (
               <li key={failed.folder} className="flex min-h-12 items-center gap-3" aria-busy={change === failed.folder}>
                 <span className="grid size-8 shrink-0 place-items-center">
                   <i className="ic-triangle-alert ic-md text-destructive" aria-hidden="true" />
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span id={`extension-failed-${failed.folder}`} className="truncate">
+                  <span id={`${ids}-failed-${index}`} className="truncate">
                     {failed.folder}
                   </span>
                   <span className="text-text-secondary text-sm break-words">{describeError(failed.error)}</span>
@@ -635,7 +636,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
                 <button
                   type="button"
                   className="btn soft edgeless"
-                  aria-describedby={`extension-failed-${failed.folder}`}
+                  aria-describedby={`${ids}-failed-${index}`}
                   disabled={change !== null}
                   onClick={() => void removeExtension(failed.folder, null)}
                 >

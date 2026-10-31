@@ -245,14 +245,23 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
     };
     let named = folder_name(&name);
     // Two extensions that both have a key are the same only when the keys
-    // match; a shared name is not enough.
+    // match; a shared name is not enough. Of those with the name, in its
+    // folder or a numbered one, one that has no key either is the likeliest.
     let previous = key_id
         .as_ref()
         .and_then(|id| installed.iter().find(|extension| &extension.id == id))
         .or_else(|| {
-            installed
+            let candidates: Vec<(&Extension, bool)> = installed
                 .iter()
-                .find(|extension| extension.folder == named && (key_id.is_none() || !keyed(extension)))
+                .filter(|extension| numbered_from(&extension.folder, &named))
+                .map(|extension| (extension, keyed(extension)))
+                .filter(|(_, has_key)| key_id.is_none() || !has_key)
+                .collect();
+            candidates
+                .iter()
+                .find(|(_, has_key)| key_id.is_none() && !has_key)
+                .or_else(|| candidates.first())
+                .map(|(extension, _)| *extension)
         })
         .cloned();
     let folder = match &previous {
@@ -287,7 +296,7 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
     // Answers the error to report: the one that stopped the update, or, when
     // the old version could not be put back, that it comes back at the next
     // start, from where it was set aside.
-    let put_back = |error: HakuError| {
+    let put_back = |error: HakuError| -> HakuError {
         let restored = retrying(|| match std::fs::remove_dir_all(&target) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             removed => removed,
@@ -306,6 +315,8 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
         }
         if set_aside && previous.is_some() {
             if let Err(reinstall) = platform::install_extension(&chrome, &target) {
+                // Still installed from before, only switched off.
+                restore_previous();
                 return HakuError::Storage(format!(
                     "{error}; the previous version could not be installed again until the next start: {reinstall}"
                 ));
@@ -439,6 +450,16 @@ fn listed(id: String, name: String, folder: &Path) -> Extension {
     }
 }
 
+/// Whether `folder` is `named`, or `named` with a number after it, as
+/// [`free_folder`] gives.
+fn numbered_from(folder: &str, named: &str) -> bool {
+    folder == named
+        || folder
+            .strip_prefix(named)
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// `named`, or, when it is `taken`, `named` with the first free number
 /// after it.
 fn free_folder(named: &str, taken: impl Fn(&str) -> bool) -> String {
@@ -524,6 +545,15 @@ mod tests {
         assert_eq!(set_aside_from(".adding-123"), None);
         assert_eq!(set_aside_from(".replaced-12x-a"), None);
         assert_eq!(set_aside_from(".replaced-1-.hidden"), None);
+    }
+
+    #[test]
+    fn a_numbered_folder_belongs_to_its_name() {
+        assert!(numbered_from("dark-reader", "dark-reader"));
+        assert!(numbered_from("dark-reader-2", "dark-reader"));
+        assert!(!numbered_from("dark-reader-pro", "dark-reader"));
+        assert!(!numbered_from("dark-reader-", "dark-reader"));
+        assert!(!numbered_from("dark", "dark-reader"));
     }
 
     #[test]
