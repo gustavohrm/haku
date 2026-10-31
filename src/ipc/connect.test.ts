@@ -1,8 +1,16 @@
-import { type BrowserState, type HakuError, type Settings } from "@bindings";
+import { type BrowserState, type Download, type HakuError, type Settings } from "@bindings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { commands, reportFailure } from "./commands";
-import { browserStore, connect, EMPTY_STATE, extensionsStore, reloadSettings, settingsStore } from "./store";
+import {
+  browserStore,
+  connect,
+  downloadsStore,
+  EMPTY_STATE,
+  extensionsStore,
+  reloadSettings,
+  settingsStore,
+} from "./store";
 
 const listen = vi.hoisted(() => vi.fn(async () => () => {}));
 const stateListen = vi.hoisted(() =>
@@ -10,6 +18,9 @@ const stateListen = vi.hoisted(() =>
 );
 const failureListen = vi.hoisted(() =>
   vi.fn<(callback: (event: { payload: HakuError }) => void) => Promise<() => void>>(async () => () => {}),
+);
+const downloadsListen = vi.hoisted(() =>
+  vi.fn<(callback: (event: { payload: Download[] }) => void) => Promise<() => void>>(async () => () => {}),
 );
 const failureTarget = vi.hoisted(() => vi.fn());
 vi.mock("@bindings", () => ({
@@ -21,7 +32,7 @@ vi.mock("@bindings", () => ({
     },
     settingsChanged: { listen },
     extensionsChanged: { listen },
-    downloadsChanged: () => ({ listen }),
+    downloadsChanged: () => ({ listen: downloadsListen }),
   },
 }));
 const CURRENT_WEBVIEW = vi.hoisted(() => ({ label: "window-1" }));
@@ -40,6 +51,7 @@ describe("connect", () => {
     browserStore.set(EMPTY_STATE);
     settingsStore.set(null);
     extensionsStore.set(null);
+    downloadsStore.set([]);
     vi.mocked(commands.getState).mockResolvedValue({ status: "ok", data: STATE });
     vi.mocked(commands.getSettings).mockResolvedValue(failure);
     vi.mocked(commands.extensions).mockResolvedValue({ status: "ok", data: { installed: [] } } as never);
@@ -52,6 +64,28 @@ describe("connect", () => {
     expect(browserStore.get()).toBe(STATE);
     expect(extensionsStore.get()).toEqual({ installed: [] });
     expect(settingsStore.get()).toBeNull();
+  });
+
+  it("keeps the downloads that loaded when another part fails to", async () => {
+    const listed = [{ id: 1 }] as Download[];
+    vi.mocked(commands.downloads).mockResolvedValueOnce({ status: "ok", data: listed });
+
+    await expect(connect()).rejects.toThrow("locked");
+
+    expect(downloadsStore.get()).toBe(listed);
+  });
+
+  it("keeps a downloads event over a delayed startup list", async () => {
+    const newer = [{ id: 2 }] as Download[];
+    vi.mocked(commands.getSettings).mockResolvedValueOnce({ status: "ok", data: SETTINGS });
+    vi.mocked(commands.downloads).mockImplementationOnce(async () => {
+      downloadsListen.mock.calls.at(-1)![0]({ payload: newer });
+      return { status: "ok", data: [] };
+    });
+
+    const stop = await connect();
+    expect(downloadsStore.get()).toBe(newer);
+    stop();
   });
 
   it.each([1, 2])("keeps a state event at revision %s over a delayed startup snapshot", async (layoutRevision) => {
