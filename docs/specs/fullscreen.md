@@ -1,12 +1,12 @@
 ---
-status: APPROVED
+status: IMPLEMENTED
 last_updated: 2026-10-31
 scope: What happens when a page asks for fullscreen, such as a video player's fullscreen button, and how it ends.
 ---
 
 # Fullscreen
 
-Approved on 2026-10-31. It adds a field to `BrowserState`, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) lists the feature as "A page entering fullscreen hides the bars and its viewport fills the window"; this spec widens that to the whole screen (see [Decisions](#decisions)).
+Approved and implemented on 2026-10-31. It adds a field to `BrowserState`, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) first listed the feature as filling only the window; this spec widened it to the whole screen (see [Decisions](#decisions)).
 
 ## Problem
 
@@ -38,7 +38,7 @@ Popup windows and private windows behave the same. Each window is fullscreen on 
 
 ## Esc
 
-Whether the engine ends fullscreen on Esc by itself is not known yet; it is checked when this is built. If it does, Haku leaves Esc to it. If it does not, Haku intercepts Esc natively, like any other shortcut ([Shortcuts](shortcuts.md)), only while the window is fullscreen, and asks the page to exit. Esc is otherwise passed to the page as today.
+The engine ends a page's fullscreen on Esc by itself and reports it like any other exit, so Haku binds no key: checked in the running app on 2026-10-31 (WebView2 156). Esc is otherwise passed to the page as today.
 
 ## Mechanism
 
