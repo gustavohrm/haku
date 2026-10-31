@@ -5,9 +5,21 @@ import { t, type TranslationKey } from "@shared/i18n";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect } from "react";
 
-const TITLES: Record<CloseConfirmationRequested["ending"], TranslationKey> = {
-  quit: "downloads.confirm.quit",
-  privateSession: "downloads.confirm.private",
+type Wording = Readonly<Record<"title" | "one" | "many" | "close", TranslationKey>>;
+
+const WORDING: Record<CloseConfirmationRequested["ending"], Wording> = {
+  quit: {
+    title: "downloads.confirm.quit",
+    one: "downloads.confirm.quit.one",
+    many: "downloads.confirm.quit.many",
+    close: "downloads.confirm.quit.close",
+  },
+  privateSession: {
+    title: "downloads.confirm.private",
+    one: "downloads.confirm.one",
+    many: "downloads.confirm.many",
+    close: "downloads.confirm.close",
+  },
 };
 
 /**
@@ -23,14 +35,13 @@ export function useCloseConfirmation(): void {
     const ask = async (payload: CloseConfirmationRequested) => {
       // Asking twice at once, from the button and a shortcut, asks once.
       open?.dismiss();
+      const wording = WORDING[payload.ending];
       const message =
-        payload.downloads === 1
-          ? t("downloads.confirm.one")
-          : t("downloads.confirm.many").replace("{count}", String(payload.downloads));
+        payload.downloads === 1 ? t(wording.one) : t(wording.many).replace("{count}", String(payload.downloads));
       const asked = feedback().dialog.confirm(message, {
-        title: t(TITLES[payload.ending]),
+        title: t(wording.title),
         type: "error",
-        confirmLabel: t("downloads.confirm.close"),
+        confirmLabel: t(wording.close),
         cancelLabel: t("downloads.confirm.keep"),
       });
       open = asked;

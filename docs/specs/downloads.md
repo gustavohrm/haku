@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 scope: How Haku follows the downloads pages start, what keeps their webviews alive, closing with downloads running, and where downloads are stored and shown.
 ---
 
@@ -59,7 +59,7 @@ The hold starts with the download. The engine reports a start on the UI thread, 
 
 ## Closing
 
-Quitting cancels every download, and ending the private session cancels the private ones; the engine deletes their partial files. A close that would do either while downloads are active is held: Rust closes nothing and sends the window `CloseConfirmationRequested { tab, ending, downloads }`, where `ending` is `quit` or `privateSession` and `downloads` is how many would be cancelled. The interface asks, with **Close and cancel** and **Keep downloading**. Confirming calls `confirm_close(tab)`, which cancels those downloads, records them cancelled at once, since the engine may not report it in time, and then closes. Keeping downloading does nothing.
+Quitting cancels every download, and ending the private session cancels the private ones; the engine deletes their partial files. A close that would do either while downloads are active is held: Rust closes nothing and sends the window `CloseConfirmationRequested { tab, ending, downloads }`, where `ending` is `quit` or `privateSession` and `downloads` is how many would be cancelled. The interface asks, with **Close and cancel**, or **Quit and cancel** when quitting, and **Keep downloading**. Confirming calls `confirm_close(tab)`, which cancels those downloads, records them cancelled at once, since the engine may not report it in time, and then closes. Keeping downloading does nothing.
 
 Closing an ordinary tab or a window that is not the last never asks: its downloads keep running in their held webviews.
 

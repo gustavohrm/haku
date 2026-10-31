@@ -187,6 +187,9 @@ export const en = {
   "downloads.confirm.one": "A download is still running. Closing cancels it.",
   "downloads.confirm.many": "{count} downloads are still running. Closing cancels them.",
   "downloads.confirm.close": "Close and cancel",
+  "downloads.confirm.quit.one": "A download is still running. Quitting cancels it.",
+  "downloads.confirm.quit.many": "{count} downloads are still running. Quitting cancels them.",
+  "downloads.confirm.quit.close": "Quit and cancel",
   "downloads.confirm.keep": "Keep downloading",
 
   "memory.title": "Memory",
