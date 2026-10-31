@@ -53,13 +53,16 @@ describe("useOverlay", () => {
     expect(overlayStore.get()).toHaveLength(0);
   });
 
-  it("stays registered while it animates away, then releases", () => {
+  it("stays registered while it animates away, following it, then releases", () => {
     act(() => root.render(<Floating open />));
+    const element = host.firstElementChild!;
 
     animating = true;
     act(() => root.render(<Floating open={false} />));
+    element.getBoundingClientRect = () => new DOMRect(-40, 0, 200, 30);
     act(() => vi.advanceTimersToNextFrame());
     expect(overlayStore.get()).toHaveLength(1);
+    expect(overlayStore.get()[0]?.rect.x).toBe(-40);
 
     animating = false;
     act(() => vi.advanceTimersToNextFrame());
