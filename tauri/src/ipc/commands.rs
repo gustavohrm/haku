@@ -586,6 +586,7 @@ fn run_shortcut_in(
     let home = home_url(state)?;
     let pressure = read_pressure(state);
     let native = std::cell::Cell::new((None, None, None));
+    let failed = std::cell::Cell::new(None);
     state.changes.run(
         &state.browser,
         |browser| {
@@ -605,13 +606,16 @@ fn run_shortcut_in(
             ) {
                 browser.set_pressure(pressure);
             }
-            let mut effects = downloads::hold(state, browser);
-            let action = request.prepare(browser, shortcut, &home, now_ms())?;
-            native.set((action.address, action.devtools, action.close));
-            effects.extend(action.effects);
-            Ok(effects)
+            Ok(hold_then(state, browser, &failed, |browser| {
+                let action = request.prepare(browser, shortcut, &home, now_ms())?;
+                native.set((action.address, action.devtools, action.close));
+                Ok(action.effects)
+            }))
         },
         |effects| {
+            if let Some(failure) = failed.take() {
+                return commit_held(app, state, effects, failure);
+            }
             // Internal pages and strip moves can change state without native effects.
             if !effects.is_empty()
                 || matches!(
@@ -1190,15 +1194,48 @@ pub(super) fn mutate<F>(app: &tauri::AppHandle, state: &AppState, mutate: F) -> 
 where
     F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
 {
+    let failed = std::cell::Cell::new(None);
     state.changes.run(
         &state.browser,
-        |browser| {
-            let mut effects = downloads::hold(state, browser);
-            effects.extend(mutate(browser)?);
-            Ok(effects)
+        |browser| Ok(hold_then(state, browser, &failed, mutate)),
+        |effects| match failed.take() {
+            Some(failure) => commit_held(app, state, effects, failure),
+            None => commit(app, state, effects),
         },
-        |effects| commit(app, state, effects),
     )
+}
+
+/// Holds the webviews downloads run in, then runs `change`.
+///
+/// A failed change is set in `failed` rather than returned, so the hold's
+/// effects survive it: the pool has already let go of the webviews they
+/// destroy, and dropping them would leak those webviews.
+fn hold_then<F>(
+    state: &AppState,
+    browser: &mut Browser,
+    failed: &std::cell::Cell<Option<HakuError>>,
+    change: F,
+) -> Vec<Effect>
+where
+    F: FnOnce(&mut Browser) -> Result<Vec<Effect>>,
+{
+    let mut effects = downloads::hold(state, browser);
+    match change(browser) {
+        Ok(more) => effects.extend(more),
+        Err(failure) => failed.set(Some(failure)),
+    }
+    effects
+}
+
+/// Commits what [`hold_then`] held before its change failed.
+///
+/// @returns The change's failure, which is what its caller asked about, in
+///   place of any failure applying the hold.
+fn commit_held(app: &tauri::AppHandle, state: &AppState, effects: &[Effect], failure: HakuError) -> Result<()> {
+    if !effects.is_empty() {
+        let _ = commit(app, state, effects);
+    }
+    Err(failure)
 }
 
 /// [`mutate`], for a command a window's interface called.
@@ -1756,17 +1793,23 @@ pub async fn set_layout(
     let window = ensure_chrome(&webview)?;
 
     let accepted = std::cell::Cell::new(false);
+    let failed = std::cell::Cell::new(None);
     state.changes.run(
         &state.browser,
         |browser| {
-            let mut effects = downloads::hold(&state, browser);
-            accepted.set(state.set_layout(browser, window, &layout)?);
-            if accepted.get() {
-                effects.extend(browser.reconcile());
-            }
-            Ok(effects)
+            Ok(hold_then(&state, browser, &failed, |browser| {
+                accepted.set(state.set_layout(browser, window, &layout)?);
+                Ok(if accepted.get() {
+                    browser.reconcile()
+                } else {
+                    Vec::new()
+                })
+            }))
         },
         |effects| {
+            if let Some(failure) = failed.take() {
+                return commit_held(&app, &state, effects, failure);
+            }
             if accepted.get() {
                 // Bounds, mask and reconciliation share the serialized change turn.
                 let bounds = {
@@ -1851,6 +1894,47 @@ mod layout_tests {
         );
         assert!(committed.get());
         assert!(matches!(result, Err(HakuError::Tauri(message)) if message == "mask"));
+    }
+}
+
+#[cfg(test)]
+mod hold_tests {
+    use super::*;
+    use crate::model::{Downloading, Policy, Pressure};
+    use crate::storage::{HistoryDb, Paths, Settings};
+
+    #[test]
+    fn a_failed_change_keeps_what_the_download_hold_decided() {
+        // A webview the pool kept only for a download whose end the browser
+        // has not heard of yet.
+        let mut browser = Browser::new(2);
+        let (tab, _) = browser.open_tab("https://a.test", true);
+        browser.open_tab("https://b.test", true);
+        let slot = browser.tab(tab).unwrap().slot().unwrap();
+        browser.set_downloading(Downloading {
+            slots: std::collections::HashSet::from([slot]),
+            ordinary: 1,
+            private: 0,
+        });
+        browser.set_pressure(Pressure::Tight);
+        browser.set_optimization(1, Policy::Always, Policy::Always);
+        let state = AppState::new(
+            browser,
+            Settings::default(),
+            HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")).0,
+            Paths::under(&std::env::temp_dir().join("haku-hold-tests")),
+        );
+        let failed = std::cell::Cell::new(None);
+
+        let effects = {
+            let mut browser = state.browser.write().unwrap();
+            hold_then(&state, &mut browser, &failed, |_| {
+                Err(HakuError::Tauri("change".into()))
+            })
+        };
+
+        assert!(effects.contains(&Effect::Destroy { slot }));
+        assert!(matches!(failed.take(), Some(HakuError::Tauri(message)) if message == "change"));
     }
 }
 
