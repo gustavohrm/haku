@@ -1784,7 +1784,12 @@ pub async fn set_layout(
                     || commit(&app, &state, effects),
                 );
             }
-            Ok(())
+            // A stale layout changes nothing, but a download that ended may
+            // have trimmed the pool, and its webviews still have to go.
+            if effects.is_empty() {
+                return Ok(());
+            }
+            commit(&app, &state, effects)
         },
     )?;
     let browser = state
