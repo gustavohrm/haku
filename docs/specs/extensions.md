@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
 last_updated: 2026-10-31
-scope: How Chrome extensions are added, updated and uninstalled, switched on and off, pinned, and opened from the toolbar.
+scope: How Chrome extensions are added, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
 ---
 
 # Extensions
@@ -87,7 +87,9 @@ Right of the address field, before the developer tools button, the toolbar has a
 
 The Extensions button opens a menu of every extension switched on, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings at its Extensions section, `haku://settings/extensions`. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address field still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
 
-`pinnedExtensions` in the settings holds the ids pinned, in the order they were pinned, so a new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it.
+`pinnedExtensions` in the settings holds the ids pinned, in the order their buttons show, left to right. A new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it, in its place.
+
+Pinned buttons are reordered by dragging one along the toolbar, as tabs are along the strip: past a few pixels the press becomes a drag, a line shows where it will land, and releasing it there moves it; Escape or releasing it off the toolbar cancels. A press that does not become a drag is a click. Dragging is pointer-driven, for the reason [Adding and updating](#adding-and-updating) gives. A pinned button's context menu has **Move left**, **Move right**, **Unpin** and **Manage extensions**, so ordering does not need a pointer. A move counts only buttons that show: a hidden pin keeps its place among them.
 
 Rejected: a button for every extension, Chrome's old behaviour, which crowds the toolbar with extensions that are never opened from it.
 
