@@ -137,13 +137,15 @@ export const commands = {
 	 *  Opening it from the button of the popup open now closes it instead, as
 	 *  in other browsers.
 	 * 
+	 *  @returns Whether a popup opened: not when the click closed the one open.
+	 * 
 	 *  # Errors
 	 *  Returns [`HakuError::Unsupported`] for an extension that is not
 	 *  installed, has no popup or is switched off, or a hidden/foreign tab;
 	 *  [`HakuError::TabNotFound`] for an unknown tab, and propagates the failure to
 	 *  open the popup's window.
 	 */
-	openExtensionPopup: (id: string, tab: TabId, anchor: Viewport) => typedError<null, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, tab, anchor })),
+	openExtensionPopup: (id: string, tab: TabId, anchor: Viewport) => typedError<boolean, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, tab, anchor })),
 	/**  The downloads this window lists, newest first: its own profile's only. */
 	downloads: () => typedError<Download[], HakuError>(__TAURI_INVOKE("downloads")),
 	pauseDownload: (id: DownloadId) => typedError<null, HakuError>(__TAURI_INVOKE("pause_download", { id })),
@@ -196,6 +198,21 @@ export const events = {
  *  sends it before the interface has rendered that tab.
  */
 export type AddressFocusRequested = TabId;
+
+/**
+ *  Whether the bars take space from the page or sit over it.
+ *  [Appearance § Bars](../../../docs/specs/appearance.md#bars).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type BarLayout = 
+/**  Beside the page, which is sized to the space they leave. */
+"docked" | 
+/**
+ *  Over the page, shown while the pointer is at the window's edge or
+ *  something in them is needed.
+ */
+"floating";
 
 /**  The projection of browser state one window's interface renders. */
 export type BrowserState = {
@@ -588,6 +605,8 @@ export type Settings = {
 	keptSites: string[],
 	/**  `system`, `light` or `dark`. */
 	theme: string,
+	tabLayout: TabLayout,
+	barLayout: BarLayout,
 	/**  BCP-47 language tag the interface is shown in. */
 	locale: string,
 	searchUrl: string,
@@ -669,6 +688,18 @@ export type Tab = {
 };
 
 export type TabId = number;
+
+/**
+ *  Where the tabs are drawn.
+ *  [Appearance § Tabs](../../../docs/specs/appearance.md#tabs).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type TabLayout = 
+/**  A strip across the top of the window. */
+"horizontal" | 
+/**  A column down the left side of the window. */
+"vertical";
 
 /**  A persistent, ordered relationship; only the selected pair owns viewports. */
 export type TabPair = {

@@ -96,6 +96,56 @@ dialog[data-toast-instance]::backdrop {
   backdrop-filter: none;
 }
 
+/*
+  The shell: the bars and the page, placed from the layout settings
+  (docs/specs/appearance.md). Docked bars take grid areas; floating bars are
+  positioned over the page, which then fills the window. The page is measured
+  wherever it lands, so nothing here is mirrored in Rust.
+
+  The page's margin is chrome. Floating, it is the strip at the window's edge
+  where the pointer reveals a bar, so it stays on every side.
+*/
+.haku-shell {
+  display: grid;
+  height: 100%;
+  grid-template: "top" auto "page" minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.haku-shell[data-tabs="vertical"][data-bars="docked"] {
+  grid-template:
+    "top top" auto
+    "side page" minmax(0, 1fr)
+    / 15rem minmax(0, 1fr);
+}
+
+.haku-shell[data-bars="floating"] {
+  position: relative;
+  grid-template: "page" minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.haku-shell[data-bars="docked"] > [data-edge="top"] {
+  grid-area: top;
+}
+
+.haku-shell[data-bars="docked"] > [data-edge="side"] {
+  grid-area: side;
+}
+
+/* 1px under the toolbar, 4px elsewhere; beside a docked column, its own
+   padding is the gap. */
+.haku-page {
+  grid-area: page;
+  margin: 1px 4px 4px;
+}
+
+.haku-shell[data-tabs="vertical"][data-bars="docked"] .haku-page {
+  margin-left: 0;
+}
+
+.haku-shell[data-bars="floating"] .haku-page {
+  margin: 4px;
+}
+
 .haku-viewport {
   border-radius: var(--haku-viewport-radius);
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-border) 45%, transparent);

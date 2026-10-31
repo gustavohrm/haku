@@ -1,8 +1,10 @@
-import { type Tab } from "@bindings";
+import { type Tab, type TabLayout } from "@bindings";
+import { holdBar } from "@features/bars/holds";
 import { stripMenu, tabMenu } from "@features/context-menu/items";
 import { openMenu } from "@features/context-menu/store";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
+import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useEffect, useRef } from "react";
 
@@ -22,16 +24,27 @@ interface TabDrag {
   started: boolean;
 }
 
+/** The edges of a box along the strip's axis, and across it. */
+function along(rect: DOMRect, isVertical: boolean) {
+  return isVertical
+    ? { start: rect.top, end: rect.bottom, size: rect.height, crossStart: rect.left, crossEnd: rect.right }
+    : { start: rect.left, end: rect.right, size: rect.width, crossStart: rect.top, crossEnd: rect.bottom };
+}
+
 /**
- * The tab bar.
+ * The tab bar: a strip across the top, or a column down the side.
  *
  * Ordering comes from Rust and is rendered as given. Reordering is a command
- * rather than local state, so the strip has nothing to keep in sync.
+ * rather than local state, so the strip has nothing to keep in sync. Both
+ * layouts are this one component on another axis, so the column cannot lose
+ * something the strip does ([Appearance § Tabs](../../../docs/specs/appearance.md#tabs)).
  *
  * The new-tab button follows the last tab instead of sitting at the far end,
- * and whatever width the tabs leave free stays a drag region for the window.
+ * and whatever space the tabs leave free stays a drag region for the window.
+ * A menu opened here holds a floating bar on screen until it closes.
  */
-export function TabStrip() {
+export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
+  const isVertical = layout === "vertical";
   const { tabs, active, splits } = useBrowserState();
   const drag = useRef<TabDrag | null>(null);
   const strip = useRef<HTMLUListElement>(null);
@@ -74,34 +87,41 @@ export function TabStrip() {
     if (!current || !strip.current || !indicator.current) {
       return;
     }
-    const bounds = strip.current.getBoundingClientRect();
-    if (y < bounds.top || y > bounds.bottom) {
+    const [position, across] = isVertical ? [y, x] : [x, y];
+    const bounds = along(strip.current.getBoundingClientRect(), isVertical);
+    if (across < bounds.crossStart || across > bounds.crossEnd) {
       current.gap = null;
       indicator.current.hidden = true;
       delete indicator.current.dataset.dropGap;
       return;
     }
     let gap = 0;
-    let edge = bounds.left;
+    let edge = bounds.start;
     for (const [index, unit] of units.entries()) {
-      const rect = strip.current.children[index]!.getBoundingClientRect();
-      if (x < rect.left + rect.width / 2) {
-        edge = rect.left;
+      const rect = along(strip.current.children[index]!.getBoundingClientRect(), isVertical);
+      if (position < rect.start + rect.size / 2) {
+        edge = rect.start;
         break;
       }
       gap += unit.length;
-      edge = rect.right;
+      edge = rect.end;
     }
     current.gap = gap;
     indicator.current.hidden = false;
     indicator.current.dataset.dropGap = String(gap);
-    indicator.current.style.left = `${edge - bounds.left}px`;
+    // The column scrolls, and the line sits in its scrolled content.
+    if (isVertical) {
+      indicator.current.style.top = `${edge - bounds.start + strip.current.scrollTop}px`;
+    } else {
+      indicator.current.style.left = `${edge - bounds.start}px`;
+    }
   };
 
   const openTabMenu = (tab: Tab, at: { x: number; y: number }) =>
     openMenu({
       at,
       label: t("menu.tab"),
+      onClose: holdBar("tabs"),
       items: tabMenu(
         tab,
         tabs,
@@ -119,7 +139,9 @@ export function TabStrip() {
 
   return (
     <div
-      className="flex min-w-0 flex-1 items-center gap-1.5"
+      className={
+        isVertical ? "flex min-h-0 flex-1 flex-col gap-0.5 px-1.5 pb-1" : "flex min-w-0 flex-1 items-center gap-1.5"
+      }
       data-tauri-drag-region
       onContextMenu={(event) => {
         // A tab answers with its own menu first.
@@ -130,6 +152,7 @@ export function TabStrip() {
         openMenu({
           at: { x: event.clientX, y: event.clientY },
           label: t("menu.tabs"),
+          onClose: holdBar("tabs"),
           items: stripMenu({
             newTab: () => void commands.openTab(null, true),
             reopen: () => void commands.reopenClosedTab(),
@@ -139,7 +162,10 @@ export function TabStrip() {
     >
       <ul
         ref={strip}
-        className="relative flex min-w-0 shrink items-center gap-0.5"
+        className={cx(
+          "relative flex gap-0.5",
+          isVertical ? "min-h-0 flex-col overflow-y-auto" : "min-w-0 shrink items-center",
+        )}
         aria-label={t("tabs.list")}
         onClickCapture={(event) => {
           if (suppressClick.current && event.detail !== 0) {
@@ -157,11 +183,12 @@ export function TabStrip() {
             <li
               key={first.id}
               data-tab-unit
-              className={
-                unit.length === 2
-                  ? "bg-text/6 flex w-100 min-w-20 shrink touch-none rounded-(--radius-control) select-none"
-                  : "flex w-50 min-w-10 shrink touch-none select-none"
-              }
+              className={cx(
+                "flex touch-none select-none",
+                unit.length === 2 && "bg-text/6 rounded-(--radius-control)",
+                isVertical ? "shrink-0" : "shrink",
+                !isVertical && (unit.length === 2 ? "w-100 min-w-20" : "w-50 min-w-10"),
+              )}
               onPointerDown={(event) => {
                 if (event.button !== 0 || !event.isPrimary || drag.current) {
                   return;
@@ -230,13 +257,17 @@ export function TabStrip() {
                 }
               }}
             >
-              <ul className="flex min-w-0 flex-1" aria-label={unit.length === 2 ? t("split.membership") : undefined}>
+              <ul
+                className={cx("flex min-w-0 flex-1", isVertical && "flex-col")}
+                aria-label={unit.length === 2 ? t("split.membership") : undefined}
+              >
                 {unit.map((tab, position) => (
                   <TabItem
                     key={tab.id}
                     tab={tab}
                     active={tab.id === active}
                     pairPosition={unit.length === 2 ? position : -1}
+                    layout={layout}
                     onMenu={(at) => openTabMenu(tab, at)}
                   />
                 ))}
@@ -248,18 +279,33 @@ export function TabStrip() {
           ref={indicator}
           hidden
           aria-hidden="true"
-          className="bg-accent pointer-events-none absolute inset-y-0 w-0.5"
+          className={cx(
+            "bg-accent pointer-events-none absolute",
+            isVertical ? "inset-x-0 top-0 h-0.5" : "inset-y-0 w-0.5",
+          )}
         />
       </ul>
-      <button
-        type="button"
-        className="btn icon ghost shrink-0"
-        aria-label={t("tabs.new")}
-        title={t("tabs.new")}
-        onClick={() => void commands.openTab(null, true)}
-      >
-        <i className="ic-plus ic-sm" aria-hidden="true" />
-      </button>
+      {isVertical ? (
+        // A row like the tabs above it, so the column reads as one list.
+        <button
+          type="button"
+          className="btn ghost text-text-secondary h-(--control-height) shrink-0 justify-start gap-2 px-2 font-normal"
+          onClick={() => void commands.openTab(null, true)}
+        >
+          <i className="ic-plus ic-md" aria-hidden="true" />
+          {t("tabs.new")}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn icon ghost shrink-0"
+          aria-label={t("tabs.new")}
+          title={t("tabs.new")}
+          onClick={() => void commands.openTab(null, true)}
+        >
+          <i className="ic-plus ic-sm" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { SETTINGS_URL } from "@app/router";
 import { type Extension, type TabId } from "@bindings";
+import { holdBarForWindow, useBarHold } from "@features/bars/holds";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
@@ -40,6 +41,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
 
   // The menu hangs over the page, so it must be registered to be clickable.
   useOverlay(menuRef, open);
+  useBarHold("toolbar", open);
 
   const close = useCallback(() => setMenuAt(null), []);
   useMenuDismiss(open, close, menuRef, buttonRef);
@@ -53,18 +55,24 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
     );
   };
 
-  const openPopup = (extension: Extension, from: HTMLElement | null) => {
+  const openPopup = async (extension: Extension, from: HTMLElement | null) => {
     setMenuAt(null);
     const anchor = from?.getBoundingClientRect();
     if (!anchor || tab === undefined) {
       return;
     }
-    void commands.openExtensionPopup(extension.id, tab, {
+    // The popup is a window of its own, and Rust does not report it closing.
+    const release = holdBarForWindow("toolbar");
+    const result = await commands.openExtensionPopup(extension.id, tab, {
       x: anchor.left,
       y: anchor.top,
       width: anchor.width,
       height: anchor.height,
     });
+    // Nothing opened when the click closed the popup that was open.
+    if (result.status === "error" || !result.data) {
+      release();
+    }
   };
 
   const setPinned = (id: string, isPinned: boolean) => {
@@ -91,7 +99,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
           aria-label={extension.name}
           title={extension.name}
           disabled={extension.popup === null || tab === undefined}
-          onClick={(event) => openPopup(extension, event.currentTarget)}
+          onClick={(event) => void openPopup(extension, event.currentTarget)}
         >
           <ExtensionIcon extension={extension} />
         </button>
@@ -139,7 +147,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
                     className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px] disabled:opacity-50"
                     title={extension.popup === null ? t("extensions.noPopup") : extension.name}
                     disabled={extension.popup === null || tab === undefined}
-                    onClick={() => openPopup(extension, pinnedRefs.current.get(extension.id) ?? buttonRef.current)}
+                    onClick={() => void openPopup(extension, pinnedRefs.current.get(extension.id) ?? buttonRef.current)}
                   >
                     <ExtensionIcon extension={extension} />
                     <span className="truncate">{extension.name}</span>

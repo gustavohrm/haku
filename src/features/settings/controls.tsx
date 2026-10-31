@@ -1,5 +1,5 @@
 import { type ThemePreference } from "@app/theme";
-import { type Policy, type Preset } from "@bindings";
+import { type BarLayout, type Policy, type Preset, type TabLayout } from "@bindings";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { useExtensions } from "@ipc/hooks";
@@ -65,19 +65,75 @@ const THEMES: { value: ThemePreference; icon: string; label: TranslationKey }[] 
  * text colour, which reads on either theme where a surface token would not.
  */
 export function ThemeControl({ labelId, describedBy, settings, update }: ControlProps) {
+  return (
+    <IconChoices
+      labelId={labelId}
+      describedBy={describedBy}
+      choices={THEMES}
+      value={settings.theme}
+      // Only stored here: the shell applies the theme Rust stored, so a
+      // failed write cannot leave the page in a theme the settings lack.
+      onChoose={(theme) => void update({ theme })}
+    />
+  );
+}
+
+const TAB_LAYOUTS: { value: TabLayout; icon: string; label: TranslationKey }[] = [
+  { value: "horizontal", icon: "ic-panel-top", label: "settings.tabLayout.horizontal" },
+  { value: "vertical", icon: "ic-panel-left", label: "settings.tabLayout.vertical" },
+];
+
+/** Where the tabs go, as the theme's icon buttons; every window follows what is stored. */
+export function TabLayoutControl({ labelId, describedBy, settings, update }: ControlProps) {
+  return (
+    <IconChoices
+      labelId={labelId}
+      describedBy={describedBy}
+      choices={TAB_LAYOUTS}
+      value={settings.tabLayout}
+      onChoose={(tabLayout) => void update({ tabLayout })}
+    />
+  );
+}
+
+const BAR_LAYOUTS: { value: BarLayout; icon: string; label: TranslationKey }[] = [
+  { value: "docked", icon: "ic-app-window", label: "settings.barLayout.docked" },
+  { value: "floating", icon: "ic-panel-top-dashed", label: "settings.barLayout.floating" },
+];
+
+/** Whether the bars take space or float over the page, as the theme's icon buttons. */
+export function BarLayoutControl({ labelId, describedBy, settings, update }: ControlProps) {
+  return (
+    <IconChoices
+      labelId={labelId}
+      describedBy={describedBy}
+      choices={BAR_LAYOUTS}
+      value={settings.barLayout}
+      onChoose={(barLayout) => void update({ barLayout })}
+    />
+  );
+}
+
+interface IconChoicesProps<T extends string> {
+  labelId: string;
+  describedBy: string | undefined;
+  choices: readonly { value: T; icon: string; label: TranslationKey }[];
+  value: string;
+  onChoose: (value: T) => void;
+}
+
+function IconChoices<T extends string>({ labelId, describedBy, choices, value, onChoose }: IconChoicesProps<T>) {
   const name = useId();
   return (
     <fieldset aria-labelledby={labelId} aria-describedby={describedBy} className="m-0 flex gap-0.5 border-0 p-0">
-      {THEMES.map((theme) => (
+      {choices.map((choice) => (
         <ThemeOption
-          key={theme.value}
+          key={choice.value}
           name={name}
-          icon={theme.icon}
-          label={t(theme.label)}
-          checked={settings.theme === theme.value}
-          // Only stored here: the shell applies the theme Rust stored, so a
-          // failed write cannot leave the page in a theme the settings lack.
-          onChoose={() => void update({ theme: theme.value })}
+          icon={choice.icon}
+          label={t(choice.label)}
+          checked={value === choice.value}
+          onChoose={() => onChoose(choice.value)}
         />
       ))}
     </fieldset>

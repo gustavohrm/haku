@@ -1,5 +1,6 @@
 // oxlint-disable no-await-in-loop -- Each gesture and assertion runs in order.
 import type { Tab } from "@bindings";
+import { barHoldStore } from "@features/bars/holds";
 import { openMenu } from "@features/context-menu/store";
 import { commands } from "@ipc/commands";
 import { browserStore, EMPTY_STATE } from "@ipc/store";
@@ -232,4 +233,49 @@ it("uses a generic icon in private windows even when state supplies a favicon", 
   await act(async () => browserStore.set({ ...initial, tabs, splits: [], private: true }));
   expect(host.querySelector("img")).toBeNull();
   expect(host.querySelector(".ic-globe")).not.toBeNull();
+});
+
+async function renderVertical() {
+  await act(async () => root.render(<TabStrip layout="vertical" />));
+  const units = host.querySelectorAll<HTMLElement>("[data-tab-unit]");
+  const column = units[0]!.parentElement!;
+  vi.spyOn(column, "getBoundingClientRect").mockReturnValue(columnRect(0, 500));
+  for (const [index, unit] of Array.from(units).entries()) {
+    vi.spyOn(unit, "getBoundingClientRect").mockReturnValue(columnRect(index * 100, 100));
+  }
+  return column;
+}
+
+function columnRect(top: number, height: number): DOMRect {
+  return { top, bottom: top + height, height, left: 0, right: 240, width: 240 } as DOMRect;
+}
+
+it("reads drop gaps down the column and stacks pairs", async () => {
+  const column = await renderVertical();
+  expect(column.className).toContain("flex-col");
+  expect(host.querySelector(".rounded-b-none")?.contains(member(0))).toBe(true);
+  expect(host.querySelector(".rounded-t-none")?.contains(member(1))).toBe(true);
+  const source = member(2);
+  await pointer(source, "pointerdown", 100, { y: 150 });
+  await pointer(source, "pointermove", 100, { y: 260 });
+  expect(host.querySelector<HTMLElement>('[data-drop-gap="5"]')?.style.top).toBe("300px");
+  await pointer(source, "pointermove", 300, { y: 260 });
+  expect(host.querySelector("[data-drop-gap]")).toBeNull();
+  await pointer(source, "pointermove", 100, { y: 10 });
+  expect(host.querySelector<HTMLElement>('[data-drop-gap="0"]')?.style.top).toBe("0px");
+  await pointer(source, "pointerup", 100, { y: 10 });
+  expect(commands.reorderTab).toHaveBeenCalledExactlyOnceWith(3, 0);
+});
+
+it("labels the column's new-tab row and holds the tabs bar while a menu is open", async () => {
+  const column = await renderVertical();
+  const newTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "New tab");
+  expect(newTab).toBeDefined();
+  expect(column.nextElementSibling).toBe(newTab);
+  // Earlier tests' menus are mocked and never close, so their holds remain.
+  const held = barHoldStore.get().tabs;
+  await act(async () => member(0).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
+  expect(barHoldStore.get().tabs).toBe(held + 1);
+  await act(async () => vi.mocked(openMenu).mock.lastCall![0].onClose!(false));
+  expect(barHoldStore.get().tabs).toBe(held);
 });
