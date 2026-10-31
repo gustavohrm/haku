@@ -31,6 +31,7 @@ describe("useCloseConfirmation", () => {
 
   beforeEach(async () => {
     confirm.mockClear();
+    vi.mocked(commands.confirmClose).mockClear();
     container = document.createElement("div");
     root = createRoot(container);
     await act(async () => root.render(<Asker />));
