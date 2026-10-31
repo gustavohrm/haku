@@ -1,12 +1,12 @@
 ---
-status: DRAFT
+status: APPROVED
 last_updated: 2026-10-31
 scope: What happens when a page asks for fullscreen, such as a video player's fullscreen button, and how it ends.
 ---
 
 # Fullscreen
 
-It adds a field to `BrowserState`, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) lists the feature as "A page entering fullscreen hides the bars and its viewport fills the window"; this spec widens that to the whole screen (see [Decisions](#decisions)).
+Approved on 2026-10-31. It adds a field to `BrowserState`, so it is a contract decision under [Agent instructions § Judgment](../../AGENTS.md#judgment). [First release](../first-release.md#features) lists the feature as "A page entering fullscreen hides the bars and its viewport fills the window"; this spec widens that to the whole screen (see [Decisions](#decisions)).
 
 ## Problem
 
