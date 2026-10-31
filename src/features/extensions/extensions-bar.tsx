@@ -69,7 +69,8 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
       width: anchor.width,
       height: anchor.height,
     });
-    if (result.status === "error") {
+    // Nothing opened when the click closed the popup that was open.
+    if (result.status === "error" || !result.data) {
       release();
     }
   };

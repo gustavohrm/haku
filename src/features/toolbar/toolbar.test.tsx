@@ -43,7 +43,7 @@ describe("toolbar extension popups", () => {
   beforeEach(() => {
     state.private = false;
     openExtensionPopup.mockReset();
-    openExtensionPopup.mockResolvedValue({ status: "ok", data: null });
+    openExtensionPopup.mockResolvedValue({ status: "ok", data: true });
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -146,6 +146,16 @@ describe("toolbar extension popups", () => {
     expect(barHoldStore.get().toolbar).toBe(0);
     openExtensionPopup.mockResolvedValue({ status: "error", error: { kind: "notFound" } });
     await act(async () => button.click());
+    expect(barHoldStore.get().toolbar).toBe(0);
+  });
+
+  it("lets go of the toolbar when the click closed the open popup", async () => {
+    openExtensionPopup.mockResolvedValue({ status: "ok", data: false });
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Example extension"]')!;
+
+    await act(async () => button.click());
+
     expect(barHoldStore.get().toolbar).toBe(0);
   });
 });

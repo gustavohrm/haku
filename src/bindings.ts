@@ -137,13 +137,15 @@ export const commands = {
 	 *  Opening it from the button of the popup open now closes it instead, as
 	 *  in other browsers.
 	 * 
+	 *  @returns Whether a popup opened: not when the click closed the one open.
+	 * 
 	 *  # Errors
 	 *  Returns [`HakuError::Unsupported`] for an extension that is not
 	 *  installed, has no popup or is switched off, or a hidden/foreign tab;
 	 *  [`HakuError::TabNotFound`] for an unknown tab, and propagates the failure to
 	 *  open the popup's window.
 	 */
-	openExtensionPopup: (id: string, tab: TabId, anchor: Viewport) => typedError<null, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, tab, anchor })),
+	openExtensionPopup: (id: string, tab: TabId, anchor: Viewport) => typedError<boolean, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, tab, anchor })),
 };
 
 /** Events */

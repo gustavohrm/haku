@@ -1957,6 +1957,8 @@ const ENGINE_WINDOW_TIMEOUT: Duration = Duration::from_millis(500);
 /// Opening it from the button of the popup open now closes it instead, as
 /// in other browsers.
 ///
+/// @returns Whether a popup opened: not when the click closed the one open.
+///
 /// # Errors
 /// Returns [`HakuError::Unsupported`] for an extension that is not
 /// installed, has no popup or is switched off, or a hidden/foreign tab;
@@ -1971,7 +1973,7 @@ pub async fn open_extension_popup(
     id: String,
     tab: TabId,
     anchor: webview::Viewport,
-) -> Result<()> {
+) -> Result<bool> {
     let window = ensure_chrome(&webview)?;
     let (slot, source) = {
         let browser = state
@@ -2009,7 +2011,7 @@ pub async fn open_extension_popup(
             .map_err(|_| HakuError::Storage("popup lock poisoned".into()))?;
         let closed = popup.closed.take();
         if closed.is_some_and(|(closed, at)| closed == url && at.elapsed() < POPUP_TOGGLE) {
-            return Ok(());
+            return Ok(false);
         }
         popup.open = Some(url.clone());
     }
@@ -2058,7 +2060,7 @@ pub async fn open_extension_popup(
             is_current
         })
     });
-    Ok(())
+    Ok(true)
 }
 
 /// Opens the extensions folder, creating it first, so an unpacked extension
