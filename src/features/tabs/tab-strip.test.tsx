@@ -1,5 +1,6 @@
 // oxlint-disable no-await-in-loop -- Each gesture and assertion runs in order.
 import type { Tab } from "@bindings";
+import { barHoldStore } from "@features/bars/holds";
 import { openMenu } from "@features/context-menu/store";
 import { commands } from "@ipc/commands";
 import { browserStore, EMPTY_STATE } from "@ipc/store";
@@ -267,9 +268,14 @@ it("reads drop gaps down the column and stacks pairs", async () => {
 });
 
 it("labels the column's new-tab row and holds the tabs bar while a menu is open", async () => {
-  await renderVertical();
+  const column = await renderVertical();
   const newTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "New tab");
   expect(newTab).toBeDefined();
+  expect(column.nextElementSibling).toBe(newTab);
+  // Earlier tests' menus are mocked and never close, so their holds remain.
+  const held = barHoldStore.get().tabs;
   await act(async () => member(0).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
-  expect(vi.mocked(openMenu).mock.lastCall![0].onClose).toBeTypeOf("function");
+  expect(barHoldStore.get().tabs).toBe(held + 1);
+  await act(async () => vi.mocked(openMenu).mock.lastCall![0].onClose!(false));
+  expect(barHoldStore.get().tabs).toBe(held);
 });
