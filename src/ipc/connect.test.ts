@@ -23,6 +23,7 @@ const downloadsListen = vi.hoisted(() =>
   vi.fn<(callback: (event: { payload: Download[] }) => void) => Promise<() => void>>(async () => () => {}),
 );
 const failureTarget = vi.hoisted(() => vi.fn());
+const downloadsTarget = vi.hoisted(() => vi.fn());
 vi.mock("@bindings", () => ({
   events: {
     stateChanged: () => ({ listen: stateListen }),
@@ -32,7 +33,10 @@ vi.mock("@bindings", () => ({
     },
     settingsChanged: { listen },
     extensionsChanged: { listen },
-    downloadsChanged: () => ({ listen: downloadsListen }),
+    downloadsChanged: (target: unknown) => {
+      downloadsTarget(target);
+      return { listen: downloadsListen };
+    },
   },
 }));
 const CURRENT_WEBVIEW = vi.hoisted(() => ({ label: "window-1" }));
@@ -86,6 +90,12 @@ describe("connect", () => {
     const stop = await connect();
     expect(downloadsStore.get()).toBe(newer);
     stop();
+  });
+
+  it("listens only for this window's downloads", async () => {
+    await connect().catch(() => {});
+
+    expect(downloadsTarget).toHaveBeenLastCalledWith(CURRENT_WEBVIEW);
   });
 
   it.each([1, 2])("keeps a state event at revision %s over a delayed startup snapshot", async (layoutRevision) => {
