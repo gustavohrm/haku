@@ -1451,9 +1451,11 @@ dependencies = [
 name = "haku"
 version = "0.1.0"
 dependencies = [
+ "miniz_oxide 0.8.9",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "specta",
  "specta-typescript",
  "tauri",

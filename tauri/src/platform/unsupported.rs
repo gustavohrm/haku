@@ -64,6 +64,13 @@ pub fn set_extension_enabled<R: tauri::Runtime>(
     Err(unsupported("switching extensions"))
 }
 
+pub fn pick_extension<R: tauri::Runtime>(
+    _window: &tauri::Window<R>,
+    _source: crate::model::ExtensionSource,
+) -> Result<Option<std::path::PathBuf>> {
+    Err(unsupported("picking an extension"))
+}
+
 pub fn reveal_folder(_folder: &Path) -> Result<()> {
     Err(unsupported("opening a folder"))
 }

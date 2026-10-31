@@ -2,6 +2,7 @@ import { SETTINGS_URL } from "@app/router";
 import { t } from "@shared/i18n";
 
 import {
+  AddExtensionControl,
   BarLayoutControl,
   CapacityControl,
   DiscardControl,
@@ -189,6 +190,14 @@ export const SECTIONS: SettingSection[] = [
       {
         rows: [
           {
+            id: "addExtension",
+            title: "settings.extensions.add",
+            description: "settings.extensions.add.help",
+            keywords: "settings.extensions.add.keywords",
+            labelsControl: false,
+            Control: AddExtensionControl,
+          },
+          {
             id: "installed",
             title: "settings.extensions.installed",
             keywords: "settings.extensions.keywords",
@@ -198,9 +207,9 @@ export const SECTIONS: SettingSection[] = [
           },
           {
             id: "extensionsFolder",
-            title: "settings.extensions.add",
-            description: "settings.extensions.help",
-            keywords: "settings.extensions.keywords",
+            title: "settings.extensions.folderTitle",
+            description: "settings.extensions.folder.help",
+            keywords: "settings.extensions.folder.keywords",
             Control: ExtensionsFolderControl,
           },
         ],

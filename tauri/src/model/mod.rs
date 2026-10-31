@@ -19,7 +19,9 @@ pub use context_menu::{
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
 pub use download::{Download, DownloadFailure, DownloadId, DownloadState, Downloading, Downloads, Settled};
 pub use extension::{
-    icon_file, popup_origin, popup_size, popup_url, Extension, Extensions, ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
+    default_locale, display_name, folder_name, icon_file, id_from_key, key, options_url, popup_origin, popup_size,
+    popup_url, version, AddedExtension, Extension, ExtensionSource, Extensions, FailedExtension, ScreenRect,
+    POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
 pub use history::{Commit, History, NavigationKind, Visit};
 pub use keymap::{shortcut_for, Chord, Key, Shortcut};

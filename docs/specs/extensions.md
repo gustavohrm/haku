@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-30
-scope: How unpacked Chrome extensions are installed and uninstalled, switched on and off, pinned, and opened from the toolbar.
+last_updated: 2026-10-31
+scope: How Chrome extensions are added, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
 ---
 
 # Extensions
@@ -15,9 +15,13 @@ Each subfolder of `extensions/` in the application data directory (`%APPDATA%\co
 1. installs every subfolder into the default profile, so an extension runs in ordinary pages;
 2. switches each one on or off as the settings say.
 
-The folder is the list. Rejected: a list of paths in the settings, added by typing a path. It lets extensions live anywhere, at the cost of a persisted list and interface to edit it, and nothing needed that yet. Settings has a button that opens the folder.
+The folder is the list. Rejected: a list of paths in the settings, added by typing a path. It lets extensions live anywhere, at the cost of a persisted list and interface to edit it, and nothing needed that yet. Settings adds, updates and uninstalls extensions by managing that folder ([Adding and updating](#adding-and-updating)), and keeps a button that opens it.
 
-A folder the engine will not install is listed in settings by name, and any other failure is shown there as a typed `HakuError`, as [Errors](errors.md) requires, so a broken or unsupported extension is not silently missing. Folders are installed in name order, so the list does not shuffle between launches. Changes to the folder take effect on the next start.
+A folder whose name starts with `.` is Haku's own working space, never an extension: it is not installed, and is deleted at startup ([Adding and updating](#adding-and-updating)).
+
+A folder the engine will not install is listed in settings by name with the engine's reason, and any other failure is shown there as a typed `HakuError`, as [Errors](errors.md) requires, so a broken or unsupported extension is not silently missing. Folders are installed in name order, so the list does not shuffle between launches. Changes made to the folder by hand take effect on the next start; changes made from settings take effect at once.
+
+Settings shows each extension's `version` and, when its manifest declares one in `options_ui.page` or `options_page`, a link to its options page, opened as a tab.
 
 Each extension's toolbar icon is read from its manifest at install, `action.default_icon` or else `icons`, the smallest at least 32 pixels, and reaches the interface as a `data:` URL in `Extension.icon`. The engine does not report the icon an extension sets while it runs.
 
@@ -25,9 +29,31 @@ Until the folder is installed, a tab sent to a `chrome-extension://` page, such 
 
 An unpacked extension's id follows from its folder's path unless its manifest declares a `key`, so moving a folder without one makes it a different extension, with its own storage.
 
-### Uninstalling
+## Adding and updating
 
-Deleting an extension's folder uninstalls it at the next start, with what it stored.
+Settings has **Add extension**, which offers a packed extension, a `.crx` or `.zip` file, or an unpacked one, a folder. Rust shows the system's own file or folder picker, owned by the window that asked, so the interface never names a path: the command takes only which of the two to pick. Cancelling the picker adds nothing.
+
+Rejected: dropping a file onto settings. A drop onto the chrome webview needs its HTML drop handling, which [`tauri/AGENTS.md`](../../tauri/AGENTS.md) records as a way for a dropped link to navigate the chrome.
+
+The extension is unpacked, or copied, into a staging folder inside `extensions/`, named with a leading `.`. A `.zip` whose files sit in one top folder, as some release archives do, is unpacked from inside it. What it holds must have a `manifest.json`, or nothing is added. A file larger than 512 MB, or one whose files declare more than that in total, is refused before it is unpacked: extensions are a few megabytes, and unpacking happens in memory, so the limit stops a crafted archive from exhausting it. A `.crx` is a `.zip` with a signed header before it; the header is not verified, since the user picked the file, but the public key it is signed with is written into the manifest as `key` when the manifest has none. That gives the extension the id it has in the Chrome Web Store, whatever its folder, so a later version keeps what it stored.
+
+The staging folder then becomes `extensions/<name>`, where `<name>` is the extension's name in lower case, with every run of other characters than letters and digits made one `-`. A name the manifest takes from its locale messages, `__MSG_…__`, is read from its `default_locale`.
+
+An extension is an **update** of one already installed when its id, known before installing only from a `key`, matches, or else when its folder name does, numbered or not, and at most one of the two has a `key`: the same name is taken to be the same extension, preferring one that has no `key` either. Two extensions that both have a `key` are the same only when their keys are, so one never replaces another of the same name; a new extension whose folder name is taken gets the first free one with a number after it, such as `dark-reader-2`.
+
+For an update, the installed one is switched off, its folder is set aside under a `.` name that keeps its folder name, and the new one takes its place, at the same path, so an extension without a `key` keeps its id and what it stored. It is installed again from there and switched on or off as the settings say. If the engine refuses the new version, the old folder is put back and installed again, so a broken update leaves the working one. A folder that cannot be set aside, because a file in it is in use, fails the update and changes nothing. An old version that cannot be put back is reported, and the next start puts it back before installing, when its folder is free.
+
+An update whose id changes, which happens when its `key` gives another id than the installed one's, including when a key is added or removed, uninstalls the old id, with what it stored, since nothing else would. Its switch and its pin, kept by id, do not follow it.
+
+The command answers with the extension and, for an update, the version it replaced, and settings says which happened. Every change from settings is serialized with the others and with installing at startup.
+
+Haku does not look for new versions: an update is the user adding the newer file. The Web Store's update service would find them, at the cost of Haku contacting Google on a schedule, which [First release § Extensions](../first-release.md#extensions) has not decided.
+
+## Uninstalling
+
+**Uninstall** in settings, after a confirmation that says the extension's data goes with it, removes the extension from the engine at once, with what it stored, and deletes its folder. A folder that cannot be deleted at once is renamed under a `.` name, which the next start deletes; one that cannot be renamed either is reported, and comes back at the next start. A folder that failed to install can be removed the same way. Its pin and its switch are kept, as for any extension no longer installed ([The toolbar](#the-toolbar)).
+
+Deleting an extension's folder by hand uninstalls it at the next start, with what it stored.
 
 The engine's list of installed extensions (`GetBrowserExtensions`) includes its own built-in ones, the Edge PDF viewer and the Microsoft Clipboard extension, and gives only an id and a name, so nothing in it tells them apart from the user's. Treating every listed extension without a folder as deleted tried to remove both, and the engine refused with `E_FAIL`. Haku therefore remembers what it installed: `extensions.json`, next to `settings.json`, records each extension's id and the folder it came from, and is rewritten once the extensions have been installed and removed at startup. An extension installed by a start that ends before then is not recorded, and deleting its folder later leaves it installed. It is internal state, not a setting.
 
@@ -35,9 +61,19 @@ At startup, an extension recorded there whose folder no longer exists is removed
 
 An extension installed before Haku recorded them is not in the file, so deleting its folder leaves it installed and switchable.
 
+## Settings
+
+The Extensions section has three rows.
+
+- **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, and that adding a newer version of an installed extension updates it and keeps its data. It holds two buttons, **File…** and **Folder…**.
+- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Remove**. With nothing installed and nothing failed to load, the row says how to get an extension: download its `.crx` or release `.zip`, then add it.
+- **Extensions folder** opens the folder.
+
+Only one add or removal runs at a time. While one runs, the add, update and remove buttons are disabled; an add shows **Adding…**, and uninstalling an extension shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
+
 ## Switching on and off
 
-`disabledExtensions` in the settings holds the ids switched off; every other installed extension is on, so a newly added one starts enabled. A switch applies at once, in every page, without a restart: the engine enables and disables an installed extension live.
+`disabledExtensions` in the settings holds the ids switched off; every other installed extension is on, so a newly added one starts enabled. A switch applies at once, in every page, without a restart: the engine enables and disables an installed extension live. A switch made while an extension is being added or removed waits for that to finish.
 
 Rejected: one switch for all extensions. Per-extension switches cover that case one by one, and also comparing the memory of one extension against another.
 
@@ -53,7 +89,9 @@ Right of the address field, before the developer tools button, the toolbar has a
 
 The Extensions button opens a menu of every extension switched on, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings at its Extensions section, `haku://settings/extensions`. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address field still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
 
-`pinnedExtensions` in the settings holds the ids pinned, in the order they were pinned, so a new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it.
+`pinnedExtensions` in the settings holds the ids pinned, in the order their buttons show, left to right. A new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it, in its place.
+
+Pinned buttons are reordered by dragging one along the toolbar, as tabs are along the strip: past a few pixels the press becomes a drag, a line shows where it will land, and releasing it there moves it; Escape or releasing it well away from the pinned buttons, on any side, cancels. A press that does not become a drag is a click. Dragging is pointer-driven, for the reason [Adding and updating](#adding-and-updating) gives. A pinned button's context menu has **Move left**, **Move right**, **Unpin** and **Manage extensions**, so ordering does not need a pointer. A move counts only buttons that show: a hidden pin keeps its place among them.
 
 Rejected: a button for every extension, Chrome's old behaviour, which crowds the toolbar with extensions that are never opened from it.
 

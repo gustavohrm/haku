@@ -36,13 +36,13 @@ The page keeps using the package's own sizing, not the compact bar density, as [
 
 The current settings, regrouped by what a person comes looking for:
 
-| Section       | Address                      | Rows                                                                                                                                        |
-| ------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Appearance    | `haku://settings/appearance` | Theme; tabs; sidebar side; toolbar placement; bars ([Appearance](appearance.md)). Later: density, corners, surfaces, palette, presets, CSS. |
-| Tabs & memory | `haku://settings/tabs`       | Preset; loaded tabs; background memory; freeze; discard. **New:** kept sites, listed with a remove button.                                  |
-| Browsing      | `haku://settings/browsing`   | Search engine; home page.                                                                                                                   |
-| Extensions    | `haku://settings/extensions` | The current list and folder button, unchanged in behaviour.                                                                                 |
-| About         | `haku://settings/about`      | Version, the mark and wordmark, links to Memory (`haku://memory`) and History. **New**, read-only.                                          |
+| Section       | Address                      | Rows                                                                                                                                                              |
+| ------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Appearance    | `haku://settings/appearance` | Theme; tabs; sidebar side; toolbar placement; bars ([Appearance](appearance.md)). Later: density, corners, surfaces, palette, presets, CSS.                       |
+| Tabs & memory | `haku://settings/tabs`       | Preset; loaded tabs; background memory; freeze; discard. **New:** kept sites, listed with a remove button.                                                        |
+| Browsing      | `haku://settings/browsing`   | Search engine; home page.                                                                                                                                         |
+| Extensions    | `haku://settings/extensions` | Add extension; each extension with its switch, version and actions; folders that failed; the extensions folder ([Extensions § Settings](extensions.md#settings)). |
+| About         | `haku://settings/about`      | Version, the mark and wordmark, links to Memory (`haku://memory`) and History. **New**, read-only.                                                                |
 
 `haku://settings` shows Appearance. **Kept sites** are already stored in `Settings.keptSites` but can only be removed today by visiting each site in an ordinary window and opening its site menu; the list makes them reviewable. Private windows hide the site menu's kept-site control, and `set_settings` refuses a newly kept site from one, so a private visit cannot write a site-derived setting. Removing a kept site from settings works in any window. **About** needs the app version, which the interface reads with Tauri's `getVersion()` from `@tauri-apps/api/app`. The chrome's capability already grants it through `core:default`, so it needs no new command or permission.
 
