@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FocusEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent } from "react";
 
 import { barHoldStore, type BarContent } from "./holds";
 
@@ -10,7 +10,7 @@ interface Reveal {
   /** Spread on the element holding the bar and its edge. */
   handlers: {
     onPointerEnter: () => void;
-    onPointerLeave: () => void;
+    onPointerLeave: (event: PointerEvent<HTMLElement>) => void;
     onFocus: () => void;
     onBlur: (event: FocusEvent<HTMLElement>) => void;
   };
@@ -41,8 +41,13 @@ export function useReveal(contents: readonly BarContent[], isNeeded: boolean): R
         clearTimeout(hideTimer.current);
         setHovered(true);
       },
-      onPointerLeave: () => {
+      onPointerLeave: (event) => {
         clearTimeout(hideTimer.current);
+        // A focused element removed from the bar, such as a closed tab's
+        // close button, fires no blur, so focus is checked again here.
+        if (!event.currentTarget.contains(document.activeElement)) {
+          setFocused(false);
+        }
         hideTimer.current = setTimeout(() => setHovered(false), HIDE_DELAY_MS);
       },
       onFocus: () => setFocused(true),

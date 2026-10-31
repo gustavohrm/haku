@@ -119,6 +119,19 @@ describe("BarSlot", () => {
     expect(revealed()).toBe(false);
   });
 
+  it("hides once the pointer leaves after its focused element is removed", async () => {
+    await render();
+    const input = host.querySelector("input")!;
+    await act(async () => input.focus());
+    await act(async () => input.remove());
+    expect(revealed()).toBe(true);
+
+    await pointer("pointerout", slot(), document.body);
+    await act(async () => vi.advanceTimersByTime(HIDE_DELAY_MS));
+
+    expect(revealed()).toBe(false);
+  });
+
   it("keeps its contents when it switches between docked and floating", async () => {
     await render({ floating: false });
     const input = host.querySelector("input")!;
