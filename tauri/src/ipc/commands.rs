@@ -1282,16 +1282,21 @@ fn record_bounds(window: &tauri::Window, id: WindowId, state: &AppState) {
 #[specta::specta]
 pub fn get_state(webview: tauri::Webview, state: State<'_, AppState>) -> Result<BrowserState> {
     let window = ensure_chrome(&webview)?;
-    let browser_state = state
-        .browser
-        .read()
-        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
-        .state_in(window)
-        .ok_or_else(|| HakuError::WindowMissing(window.label()))?;
     // The interface asks for its state once its listeners are attached, so
     // this is the first moment a failure sent to it is not lost. A window that
-    // is already closing leaves them held for the next one.
-    for failure in state.held_failures.take() {
+    // is closing leaves them held for the next one: the browser stays locked
+    // from the check to the take, so the window cannot close between them.
+    let (browser_state, failures) = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let browser_state = browser
+            .state_in(window)
+            .ok_or_else(|| HakuError::WindowMissing(window.label()))?;
+        (browser_state, state.held_failures.take())
+    };
+    for failure in failures {
         let _ = FailureReported(failure).emit_to(&webview, webview.label());
     }
     Ok(browser_state)
