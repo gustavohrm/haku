@@ -143,6 +143,15 @@ describe("BarSlot", () => {
     expect(input.value).toBe("typed");
   });
 
+  it("stays shown when it starts floating while focused", async () => {
+    await render({ floating: false });
+    await act(async () => host.querySelector("input")!.focus());
+
+    await render();
+
+    expect(revealed()).toBe(true);
+  });
+
   it("shows while a menu opened from it holds it", async () => {
     await render();
 

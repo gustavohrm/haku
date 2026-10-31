@@ -50,7 +50,9 @@ export function BarSlot({ edge, contents, floating, isNeeded, children }: BarSlo
       )}
       data-edge={edge}
       data-revealed={floating ? revealed : undefined}
-      {...(floating ? handlers : {})}
+      // Tracked while docked too, so a bar in use stays shown when it starts
+      // floating.
+      {...handlers}
     >
       {floating && (
         <div
