@@ -51,7 +51,7 @@ export function DownloadItem({ download }: { download: Download }) {
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="progressbar"
             className={cx("progress h-1", share === null && "indeterminate")}
-            aria-label={t("downloads.progressLabel")}
+            aria-label={`${t("downloads.progressLabel")}: ${name}`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={share === null ? undefined : Math.round(share * 100)}
