@@ -3851,17 +3851,17 @@ fn quitting_with_a_download_running_asks_first_and_closes_nothing() {
     let (mut browser, ids) = browser_with(1, &["https://a.test"]);
     let window = browser.main_window();
     browser.set_downloading(downloading(slot_of(&browser, ids[0]).unwrap(), false));
+    let held = Effect::ConfirmClose {
+        window,
+        tab: None,
+        ending: Ending::Quit,
+        downloads: 1,
+    };
 
     assert_eq!(browser.ending(window, None), Some(Ending::Quit));
-    assert_eq!(
-        browser.close_held(window, None),
-        Some(Effect::ConfirmClose {
-            window,
-            tab: None,
-            ending: Ending::Quit,
-            downloads: 1
-        })
-    );
+    assert_eq!(browser.close_held(window, None), Some(held.clone()));
+    assert_eq!(browser.close_window(window), [held]);
+    assert!(browser.tab(ids[0]).is_ok(), "nothing was closed");
     browser.set_downloading(Downloading::default());
     assert_eq!(browser.close_held(window, None), None);
 }
