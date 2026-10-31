@@ -318,15 +318,19 @@ impl HistoryDb {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
-    /// Forgets stored downloads. Their files stay.
+    /// Forgets stored downloads, all or none. Their files stay.
     ///
     /// # Errors
     /// Returns [`crate::error::HakuError::Storage`] when the delete fails.
     pub fn forget_downloads(&self, ids: &[DownloadId]) -> Result<()> {
-        let mut statement = self.connection.prepare("DELETE FROM downloads WHERE id = ?1")?;
-        for id in ids {
-            statement.execute([id.0 as i64])?;
+        let transaction = self.connection.unchecked_transaction()?;
+        {
+            let mut statement = transaction.prepare("DELETE FROM downloads WHERE id = ?1")?;
+            for id in ids {
+                statement.execute([id.0 as i64])?;
+            }
         }
+        transaction.commit()?;
         Ok(())
     }
 }

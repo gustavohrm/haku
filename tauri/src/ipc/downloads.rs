@@ -112,12 +112,15 @@ pub fn queue(app: &tauri::AppHandle, changed: Vec<DownloadId>) {
 /// @returns What downloads hold back now.
 fn settle(app: &tauri::AppHandle, changed: &[DownloadId], held: Downloading) -> Downloading {
     let state = app.state::<AppState>();
+    // Read under the store's lock, so a download cleared meanwhile is not
+    // written back. The list is never waited on while storing.
+    let history = state.history.lock();
     let (stored, downloading) = {
         let downloads = lock(&state);
         let stored: Vec<_> = changed.iter().filter_map(|id| downloads.entry(*id).cloned()).collect();
         (stored, downloads.downloading())
     };
-    if let Ok(history) = state.history.lock() {
+    if let Ok(history) = history {
         for download in &stored {
             let _ = history.save_download(download);
         }

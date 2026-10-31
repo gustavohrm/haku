@@ -313,18 +313,19 @@ impl Downloads {
         self.entry(id)
     }
 
-    /// Unlists the ended downloads of one profile; their files stay.
-    ///
-    /// @returns The ids removed, for the store to forget.
-    pub fn clear_ended(&mut self, private: bool) -> Vec<DownloadId> {
-        let ended: Vec<DownloadId> = self
-            .entries
+    /// The ended downloads of one profile, which **Clear finished** forgets
+    /// and unlists; their files stay.
+    pub fn ended(&self, private: bool) -> Vec<DownloadId> {
+        self.entries
             .iter()
             .filter(|download| download.private == private && !download.state.is_active())
             .map(|download| download.id)
-            .collect();
-        self.entries.retain(|download| !ended.contains(&download.id));
-        ended
+            .collect()
+    }
+
+    /// Unlists downloads.
+    pub fn unlist(&mut self, ids: &[DownloadId]) {
+        self.entries.retain(|download| !ids.contains(&download.id));
     }
 
     /// Unlists every private download, when the private session ends: it
@@ -586,7 +587,9 @@ mod tests {
         let private = started(&mut downloads, 1, true);
         downloads.cancel_all(&[private]);
 
-        assert_eq!(downloads.clear_ended(false), [done]);
+        let ended = downloads.ended(false);
+        assert_eq!(ended, [done]);
+        downloads.unlist(&ended);
         assert_eq!(
             downloads.list(false).iter().map(|d| d.id).collect::<Vec<_>>(),
             [running]

@@ -2223,12 +2223,18 @@ pub async fn show_download(webview: tauri::Webview, state: State<'_, AppState>, 
 pub fn clear_downloads(app: tauri::AppHandle, webview: tauri::Webview, state: State<'_, AppState>) -> Result<()> {
     let window = ensure_chrome(&webview)?;
     let private = is_private(&state, window)?;
-    let cleared = downloads::lock(&state).clear_ended(private);
-    state
-        .history
-        .lock()
-        .map_err(|_| HakuError::Storage("history lock poisoned".into()))?
-        .forget_downloads(&cleared)?;
+    {
+        // Held throughout, so a queued save cannot write back a download
+        // between forgetting it and unlisting it. Forgotten first, so a failed
+        // delete leaves the list as stored.
+        let history = state
+            .history
+            .lock()
+            .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
+        let ended = downloads::lock(&state).ended(private);
+        history.forget_downloads(&ended)?;
+        downloads::lock(&state).unlist(&ended);
+    }
     downloads::report(&app, &state);
     Ok(())
 }
