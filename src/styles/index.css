@@ -197,6 +197,25 @@ dialog[data-toast-instance]::backdrop {
   margin: var(--haku-gap);
 }
 
+/* A fullscreen page: no bars, no margin, no corners, edge to edge.
+   [Fullscreen](../../docs/specs/fullscreen.md). */
+.haku-shell[data-fullscreen] {
+  --haku-viewport-radius: 0;
+  grid-template: "page" minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.haku-shell[data-fullscreen] .haku-bar-slot {
+  display: none;
+}
+
+.haku-shell[data-fullscreen] .haku-page {
+  margin: 0;
+}
+
+.haku-shell[data-fullscreen] .haku-viewport {
+  box-shadow: none;
+}
+
 /* Docked bars: in the grid, and nothing else. */
 .haku-bar-slot,
 .haku-bar-panel {
