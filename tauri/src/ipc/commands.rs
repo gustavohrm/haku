@@ -738,7 +738,12 @@ fn home_url(state: &AppState) -> Result<String> {
 }
 
 /// Switches installed extensions on or off where the settings changed them.
+///
+/// Waits for an add or a removal that is running, so it never switches an
+/// extension while that replaces it, or that switches it from settings older
+/// than these.
 fn switch_extensions(app: &tauri::AppHandle, state: &AppState, before: &[String], after: &[String]) -> Result<()> {
+    let _turn = super::extensions::lock(state);
     let installed: Vec<String> = state
         .extensions
         .read()

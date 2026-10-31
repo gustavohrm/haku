@@ -132,6 +132,14 @@ pub fn folder_name(name: &str) -> String {
     if folder.is_empty() {
         folder.push_str("extension");
     }
+    // Windows keeps these names for devices, so no folder can have one.
+    let device = matches!(folder.as_str(), "con" | "prn" | "aux" | "nul")
+        || (folder.len() == 4
+            && (folder.starts_with("com") || folder.starts_with("lpt"))
+            && folder.as_bytes()[3].is_ascii_digit());
+    if device {
+        folder.push_str("-extension");
+    }
     folder
 }
 
@@ -306,6 +314,14 @@ mod tests {
             "bitwarden-password-manager"
         );
         assert_eq!(folder_name("../.."), "extension");
+    }
+
+    #[test]
+    fn a_folder_is_never_named_as_a_windows_device() {
+        assert_eq!(folder_name("CON"), "con-extension");
+        assert_eq!(folder_name("Lpt1"), "lpt1-extension");
+        assert_eq!(folder_name("Console"), "console");
+        assert_eq!(folder_name("com"), "com");
     }
 
     #[test]

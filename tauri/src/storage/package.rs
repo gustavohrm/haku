@@ -203,12 +203,13 @@ fn read_zip(archive: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
     const CENTRAL: usize = 0x0201_4b50;
     const LOCAL: usize = 0x0403_4b50;
 
-    // The end record is last, after a comment of up to 64 KiB.
+    // The end record is last, after a comment of up to 64 KiB, which may hold
+    // the record's own signature: the record is the one whose comment ends
+    // the archive.
     let search_from = archive.len().saturating_sub(22 + usize::from(u16::MAX));
-    let end = archive[search_from..]
-        .windows(4)
-        .rposition(|window| window == END)
-        .map(|at| search_from + at)
+    let end = (search_from..archive.len().saturating_sub(21))
+        .rev()
+        .find(|&at| archive[at..].starts_with(END) && u16_at(archive, at + 20) == Some(archive.len() - at - 22))
         .ok_or_else(|| malformed("it is not a ZIP archive"))?;
     let bad = || malformed("its ZIP directory is damaged");
     let count = u16_at(archive, end + 10).ok_or_else(bad)?;
@@ -417,6 +418,17 @@ mod tests {
             r#"{"name": "A"}"#
         );
         std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn a_comment_holding_the_end_signature_is_not_the_end() {
+        let mut archive = zip(&[("manifest.json", b"{}")]);
+        let comment = [b"note PK".as_slice(), &[0; 30]].concat();
+        let at = archive.len() - 2;
+        archive[at..].copy_from_slice(&(comment.len() as u16).to_le_bytes());
+        archive.extend(&comment);
+        let files = read_zip(&archive).unwrap();
+        assert_eq!(files[0].0, "manifest.json");
     }
 
     #[test]

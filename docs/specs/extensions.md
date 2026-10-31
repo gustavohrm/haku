@@ -39,9 +39,11 @@ The extension is unpacked, or copied, into a staging folder inside `extensions/`
 
 The staging folder then becomes `extensions/<name>`, where `<name>` is the extension's name in lower case, with every run of other characters than letters and digits made one `-`. A name the manifest takes from its locale messages, `__MSG_…__`, is read from its `default_locale`.
 
-An extension is an **update** of one already installed when its id, known before installing only from a `key`, matches, or else when its folder name does: the same name is taken to be the same extension. The installed one is switched off, its folder is set aside under a `.` name and the new one takes its place, at the same path, so an extension without a `key` keeps its id and what it stored. It is installed again from there and switched on or off as the settings say. If the engine refuses the new version, the old folder is put back and installed again, so a broken update leaves the working one. A folder that cannot be set aside, because a file in it is in use, fails the update and changes nothing.
+An extension is an **update** of one already installed when its id, known before installing only from a `key`, matches, or else when its folder name does and at most one of the two has a `key`: the same name is taken to be the same extension. Two extensions that both have a `key` are the same only when their keys are, so one never replaces another of the same name; a new extension whose folder name is taken gets the first free one with a number after it, such as `dark-reader-2`.
 
-An update whose id changes, which only happens between a version with a `key` and one without, uninstalls the old id, with what it stored, since nothing else would.
+For an update, the installed one is switched off, its folder is set aside under a `.` name that keeps its folder name, and the new one takes its place, at the same path, so an extension without a `key` keeps its id and what it stored. It is installed again from there and switched on or off as the settings say. If the engine refuses the new version, the old folder is put back and installed again, so a broken update leaves the working one. A folder that cannot be set aside, because a file in it is in use, fails the update and changes nothing. An old version that cannot be put back is reported, and the next start puts it back before installing, when its folder is free.
+
+An update whose id changes, which happens when its `key` gives another id than the installed one's, including when a key is added or removed, uninstalls the old id, with what it stored, since nothing else would. Its switch and its pin, kept by id, do not follow it.
 
 The command answers with the extension and, for an update, the version it replaced, and settings says which happened. Every change from settings is serialized with the others and with installing at startup.
 
@@ -64,14 +66,14 @@ An extension installed before Haku recorded them is not in the file, so deleting
 The Extensions section has three rows.
 
 - **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, and that adding a newer version of an installed extension updates it and keeps its data. It holds two buttons, **File…** and **Folder…**.
-- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page and is switched on; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Remove**. With nothing installed, the row says how to get an extension: download its `.crx` or release `.zip`, then add it.
+- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Remove**. With nothing installed and nothing failed to load, the row says how to get an extension: download its `.crx` or release `.zip`, then add it.
 - **Extensions folder** opens the folder.
 
-Only one add or removal runs at a time. While one runs, the add, update and remove buttons are disabled; an add shows **Adding…**, and a removal shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
+Only one add or removal runs at a time. While one runs, the add, update and remove buttons are disabled; an add shows **Adding…**, and uninstalling an extension shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
 
 ## Switching on and off
 
-`disabledExtensions` in the settings holds the ids switched off; every other installed extension is on, so a newly added one starts enabled. A switch applies at once, in every page, without a restart: the engine enables and disables an installed extension live.
+`disabledExtensions` in the settings holds the ids switched off; every other installed extension is on, so a newly added one starts enabled. A switch applies at once, in every page, without a restart: the engine enables and disables an installed extension live. A switch made while an extension is being added or removed waits for that to finish.
 
 Rejected: one switch for all extensions. Per-extension switches cover that case one by one, and also comparing the memory of one extension against another.
 
@@ -89,7 +91,7 @@ The Extensions button opens a menu of every extension switched on, each with its
 
 `pinnedExtensions` in the settings holds the ids pinned, in the order their buttons show, left to right. A new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it, in its place.
 
-Pinned buttons are reordered by dragging one along the toolbar, as tabs are along the strip: past a few pixels the press becomes a drag, a line shows where it will land, and releasing it there moves it; Escape or releasing it off the toolbar cancels. A press that does not become a drag is a click. Dragging is pointer-driven, for the reason [Adding and updating](#adding-and-updating) gives. A pinned button's context menu has **Move left**, **Move right**, **Unpin** and **Manage extensions**, so ordering does not need a pointer. A move counts only buttons that show: a hidden pin keeps its place among them.
+Pinned buttons are reordered by dragging one along the toolbar, as tabs are along the strip: past a few pixels the press becomes a drag, a line shows where it will land, and releasing it there moves it; Escape or releasing it well away from the pinned buttons, on any side, cancels. A press that does not become a drag is a click. Dragging is pointer-driven, for the reason [Adding and updating](#adding-and-updating) gives. A pinned button's context menu has **Move left**, **Move right**, **Unpin** and **Manage extensions**, so ordering does not need a pointer. A move counts only buttons that show: a hidden pin keeps its place among them.
 
 Rejected: a button for every extension, Chrome's old behaviour, which crowds the toolbar with extensions that are never opened from it.
 

@@ -32,7 +32,7 @@ use super::events::ExtensionsChanged;
 const FOLDER_ATTEMPTS: u32 = 10;
 const FOLDER_RETRY: Duration = Duration::from_millis(100);
 
-fn lock(state: &AppState) -> MutexGuard<'_, ()> {
+pub(crate) fn lock(state: &AppState) -> MutexGuard<'_, ()> {
     // The guard protects no data of its own, only the order of changes.
     state.extension_changes.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -80,20 +80,12 @@ fn install_all(app: &tauri::AppHandle, state: &AppState) -> Result<Extensions> {
     let mut installed = Vec::new();
     let mut now = Vec::new();
     let mut failed = Vec::new();
+    tidy(root);
     let mut folders: Vec<PathBuf> = match std::fs::read_dir(root) {
         Ok(entries) => entries
             .flatten()
             .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .filter(|path| {
-                // Left over from a change that did not finish, or a folder
-                // that could not be deleted at once: never an extension.
-                if folder_of(path).starts_with('.') {
-                    let _ = std::fs::remove_dir_all(path);
-                    return false;
-                }
-                true
-            })
+            .filter(|path| path.is_dir() && !folder_of(path).starts_with('.'))
             .collect(),
         // No folder yet means no extensions.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
@@ -162,6 +154,42 @@ fn install_all(app: &tauri::AppHandle, state: &AppState) -> Result<Extensions> {
     })
 }
 
+/// Clears Haku's working folders, the ones whose name starts with `.`: left
+/// over from a change that did not finish, or a folder that could not be
+/// deleted at once, and never an extension. A version an update set aside and
+/// could not put back is put back instead, when its folder is free, so the
+/// extension keeps its folder and its id.
+fn tidy(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for path in entries.flatten().map(|entry| entry.path()) {
+        let name = folder_of(&path);
+        if !name.starts_with('.') || !path.is_dir() {
+            continue;
+        }
+        if let Some(original) = set_aside_from(&name) {
+            let target = root.join(original);
+            if !target.exists() && std::fs::rename(&path, &target).is_ok() {
+                continue;
+            }
+        }
+        let _ = std::fs::remove_dir_all(&path);
+    }
+}
+
+/// The name a version set aside by an update is kept under: `.replaced-`, the
+/// time, and the folder it came from, so it can be put back.
+fn set_aside_name(folder: &str) -> String {
+    format!(".replaced-{}-{folder}", now_ms())
+}
+
+/// The folder a version named by [`set_aside_name`] came from.
+fn set_aside_from(name: &str) -> Option<&str> {
+    let (time, folder) = name.strip_prefix(".replaced-")?.split_once('-')?;
+    (time.bytes().all(|b| b.is_ascii_digit()) && !folder.is_empty() && !folder.starts_with('.')).then_some(folder)
+}
+
 /// Asks the user for an extension, then adds it, or updates the one already
 /// installed that it is a version of. Answers nothing when the picker was
 /// cancelled.
@@ -209,17 +237,29 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
         .map(|bytes| id_from_key(&bytes));
 
     let installed = read(state)?.installed;
+    let keyed = |extension: &Extension| {
+        std::fs::read_to_string(root.join(&extension.folder).join("manifest.json"))
+            .ok()
+            .and_then(|manifest| key(&manifest))
+            .is_some()
+    };
+    let named = folder_name(&name);
+    // Two extensions that both have a key are the same only when the keys
+    // match; a shared name is not enough.
     let previous = key_id
         .as_ref()
         .and_then(|id| installed.iter().find(|extension| &extension.id == id))
         .or_else(|| {
-            let folder = folder_name(&name);
-            installed.iter().find(|extension| extension.folder == folder)
+            installed
+                .iter()
+                .find(|extension| extension.folder == named && (key_id.is_none() || !keyed(extension)))
         })
         .cloned();
-    let folder = previous
-        .as_ref()
-        .map_or_else(|| folder_name(&name), |previous| previous.folder.clone());
+    let folder = match &previous {
+        Some(previous) => previous.folder.clone(),
+        // A new extension never takes a folder already there, installed or not.
+        None => free_folder(&named, |folder| root.join(folder).exists()),
+    };
     let target = root.join(&folder);
     let disabled = disabled(state)?;
 
@@ -233,7 +273,7 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
             let _ = platform::set_extension_enabled(&chrome, previous.id.clone(), enabled);
         }
     };
-    let aside = root.join(format!(".replaced-{}", now_ms()));
+    let aside = root.join(set_aside_name(&folder));
     let set_aside = target.exists();
     if set_aside {
         if let Err(error) = retrying(|| std::fs::rename(&target, &aside)) {
@@ -244,26 +284,42 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
             )));
         }
     }
-    let put_back = || {
-        let _ = std::fs::remove_dir_all(&target);
-        if set_aside {
-            let _ = std::fs::rename(&aside, &target);
-            if previous.is_some() {
-                let _ = platform::install_extension(&chrome, &target);
+    // Answers the error to report: the one that stopped the update, or, when
+    // the old version could not be put back, that it comes back at the next
+    // start, from where it was set aside.
+    let put_back = |error: HakuError| {
+        let restored = retrying(|| match std::fs::remove_dir_all(&target) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            removed => removed,
+        })
+        .and_then(|()| {
+            if set_aside {
+                retrying(|| std::fs::rename(&aside, &target))
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(stuck) = restored {
+            return HakuError::Storage(format!(
+                "{error}; the previous version could not be put back, and comes back at the next start: {stuck}"
+            ));
+        }
+        if set_aside && previous.is_some() {
+            if let Err(reinstall) = platform::install_extension(&chrome, &target) {
+                return HakuError::Storage(format!(
+                    "{error}; the previous version could not be installed again until the next start: {reinstall}"
+                ));
             }
         }
         restore_previous();
+        error
     };
     if let Err(error) = std::fs::rename(staging, &target) {
-        put_back();
-        return Err(error.into());
+        return Err(put_back(error.into()));
     }
     let (id, engine_name) = match platform::install_extension(&chrome, &target) {
         Ok(installed) => installed,
-        Err(error) => {
-            put_back();
-            return Err(error);
-        }
+        Err(error) => return Err(put_back(error)),
     };
     let mut problems = Vec::new();
     if let Err(error) = platform::set_extension_enabled(&chrome, id.clone(), !disabled.contains(&id)) {
@@ -284,13 +340,17 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
     }
 
     let extension = listed(id.clone(), engine_name, &target);
-    record(state, |recorded| {
+    // The engine has the new version now, so the state follows it even when
+    // the record cannot be written; the next start writes it again.
+    if let Err(error) = record(state, |recorded| {
         recorded.retain(|entry| entry.folder != folder && entry.id != id && Some(&entry.id) != replaced_id.as_ref());
         recorded.push(InstalledExtension {
             id: id.clone(),
             folder: folder.clone(),
         });
-    })?;
+    }) {
+        problems.push(error);
+    }
     update(state, |extensions| {
         extensions
             .installed
@@ -379,6 +439,18 @@ fn listed(id: String, name: String, folder: &Path) -> Extension {
     }
 }
 
+/// `named`, or, when it is `taken`, `named` with the first free number
+/// after it.
+fn free_folder(named: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(named) {
+        return named.to_owned();
+    }
+    (2u32..)
+        .map(|n| format!("{named}-{n}"))
+        .find(|folder| !taken(folder))
+        .unwrap_or_else(|| named.to_owned())
+}
+
 fn folder_of(path: &Path) -> String {
     path.file_name().unwrap_or_default().to_string_lossy().into_owned()
 }
@@ -435,5 +507,55 @@ fn retrying(mut attempt: impl FnMut() -> std::io::Result<()>) -> std::io::Result
                 std::thread::sleep(FOLDER_RETRY);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_version_set_aside_names_the_folder_it_came_from() {
+        assert_eq!(
+            set_aside_from(&set_aside_name("ublock-origin-lite")),
+            Some("ublock-origin-lite")
+        );
+        assert_eq!(set_aside_from(".replaced-123"), None);
+        assert_eq!(set_aside_from(".adding-123"), None);
+        assert_eq!(set_aside_from(".replaced-12x-a"), None);
+        assert_eq!(set_aside_from(".replaced-1-.hidden"), None);
+    }
+
+    #[test]
+    fn a_new_extension_takes_the_first_free_folder() {
+        assert_eq!(free_folder("dark-reader", |_| false), "dark-reader");
+        assert_eq!(
+            free_folder("dark-reader", |folder| ["dark-reader", "dark-reader-2"]
+                .contains(&folder)),
+            "dark-reader-3"
+        );
+    }
+
+    #[test]
+    fn a_folder_left_by_an_update_is_put_back_and_any_other_cleared() {
+        let root = std::env::temp_dir().join(format!("haku-tidy-{}", now_ms()));
+        let aside = root.join(set_aside_name("kept"));
+        std::fs::create_dir_all(&aside).unwrap();
+        std::fs::write(aside.join("manifest.json"), "{}").unwrap();
+        std::fs::create_dir_all(root.join(".adding-1")).unwrap();
+        std::fs::create_dir_all(root.join("taken")).unwrap();
+        std::fs::create_dir_all(root.join(set_aside_name("taken"))).unwrap();
+
+        tidy(&root);
+
+        let mut left: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["kept", "taken"]);
+        assert!(root.join("kept/manifest.json").is_file());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

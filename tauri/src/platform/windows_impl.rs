@@ -1977,12 +1977,20 @@ pub fn uninstall_extension<R: tauri::Runtime>(chrome: &tauri::Webview<R>, id: St
                     return Ok(());
                 }
                 Ok(Some(extension)) => {
+                    // Forgotten only if still the one cached now: an install of
+                    // the same id may have cached another by the time it is done.
+                    let cached = EXTENSIONS.with(|extensions| extensions.borrow().get(&id).cloned());
                     let done = {
                         let sender = sender.clone();
                         let id = id.clone();
                         BrowserExtensionRemoveCompletedHandler::create(Box::new(move |status| {
                             if status.is_ok() {
-                                EXTENSIONS.with(|extensions| extensions.borrow_mut().remove(&id));
+                                EXTENSIONS.with(|extensions| {
+                                    let mut extensions = extensions.borrow_mut();
+                                    if extensions.get(&id) == cached.as_ref() {
+                                        extensions.remove(&id);
+                                    }
+                                });
                             }
                             let _ = sender.send(status.map_err(|error| engine_error("uninstalling", &error)));
                             Ok(())
