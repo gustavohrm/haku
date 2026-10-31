@@ -386,7 +386,8 @@ dialog[data-toast-instance]::backdrop {
 
 @media (prefers-reduced-motion: reduce) {
   .haku-bar-panel,
-  .haku-address-expandable {
+  .haku-address-expandable,
+  .haku-sidebar-resizer::after {
     transition: none !important;
   }
 }
