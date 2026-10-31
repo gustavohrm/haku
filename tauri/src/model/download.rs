@@ -202,7 +202,8 @@ impl Downloads {
     /// @returns Whether to report it, at most once per
     ///   [`PROGRESS_INTERVAL_MS`] for each download.
     pub fn progress(&mut self, id: DownloadId, received: u64, total: Option<u64>, now: u64) -> bool {
-        let Some(download) = self.entry_mut(id) else {
+        // A late report must not change, or store again, one that has ended.
+        let Some(download) = self.entry_mut(id).filter(|download| download.state.is_active()) else {
             return false;
         };
         download.received = received;
@@ -595,6 +596,16 @@ mod tests {
             [running]
         );
         assert_eq!(downloads.list(true).len(), 1);
+    }
+
+    #[test]
+    fn progress_leaves_an_ended_download_as_it_ended() {
+        let mut downloads = Downloads::default();
+        let id = started(&mut downloads, 0, false);
+        downloads.cancel_all(&[id]);
+
+        assert!(!downloads.progress(id, 512, Some(1024), PROGRESS_INTERVAL_MS * 10));
+        assert_eq!(downloads.entry(id).unwrap().received, 0);
     }
 
     #[test]
