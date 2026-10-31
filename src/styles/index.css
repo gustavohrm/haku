@@ -119,6 +119,16 @@ dialog[data-toast-instance]::backdrop {
 }
 
 /*
+  A toast slides in and out without fading. A region over a page shows the
+  chrome, not the page, so a fading toast would blend with the chrome's grey
+  instead of with the page. Important declarations outrank the toaster's
+  animation, which still moves it.
+*/
+[data-haku-feedback] .coden-toast {
+  opacity: 1 !important;
+}
+
+/*
   The shell: the bars and the page, placed from the layout settings
   (docs/specs/appearance.md). Docked bars take grid areas; floating bars are
   positioned over the page, which then fills the window. The page is measured
