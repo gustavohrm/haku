@@ -132,4 +132,21 @@ describe("SidebarResizer", () => {
     expect(shell.style.getPropertyValue("--haku-sidebar-width")).toBe("240px");
     expect(updateSettings).not.toHaveBeenCalled();
   });
+
+  it("starts a drag from where the edge is, before the stored width catches up", async () => {
+    const handle = render("left");
+    const pointer = (type: string, clientX: number) =>
+      Object.assign(new MouseEvent(type, { bubbles: true, button: 0, clientX }), { pointerId: 1, isPrimary: true });
+    handle.setPointerCapture = () => {};
+
+    await act(async () => {
+      handle.dispatchEvent(pointer("pointerdown", 100));
+      handle.dispatchEvent(pointer("pointermove", 160));
+      handle.dispatchEvent(pointer("pointerup", 160));
+      handle.dispatchEvent(pointer("pointerdown", 160));
+      handle.dispatchEvent(pointer("pointermove", 170));
+    });
+
+    expect(shell.style.getPropertyValue("--haku-sidebar-width")).toBe("310px");
+  });
 });

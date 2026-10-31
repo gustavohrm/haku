@@ -111,11 +111,14 @@ export function SidebarResizer({ side, width }: SidebarResizerProps) {
         event.preventDefault();
         event.currentTarget.focus();
         event.currentTarget.setPointerCapture(event.pointerId);
+        // From where the edge is, which a drag just ended may have moved
+        // ahead of the stored width.
+        const start = shown();
         drag.current = {
           pointerId: event.pointerId,
           x: event.clientX,
-          width,
-          current: width,
+          width: start,
+          current: start,
         };
       }}
       onPointerMove={onPointerMove}
