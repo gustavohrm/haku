@@ -2251,11 +2251,16 @@ pub async fn confirm_close(
     tab: Option<TabId>,
 ) -> Result<()> {
     let window = ensure_chrome(&webview)?;
-    let ending = state
-        .browser
-        .read()
-        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
-        .ending(window, tab);
+    let ending = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        if let Some(tab) = tab.filter(|tab| browser.window_of(*tab) != Some(window)) {
+            return Err(HakuError::TabNotFound(tab.0.to_string()));
+        }
+        browser.ending(window, tab)
+    };
     let cancelling = match ending {
         None => Vec::new(),
         Some(Ending::Quit) => downloads::lock(&state).active(None),
