@@ -97,4 +97,4 @@ Appearance shows **Tabs** and **Bars** after Theme, each a group of icon buttons
 
 Rust tests cover the defaults, the stored spelling, settings files from before the fields, and unknown values falling back without setting the file aside. Vitest covers the shell attributes, the vertical strip's drag targets and joined pairs, the reveal rules and holds, and the settings rows.
 
-What only the running app shows, checked by hand: the edge margin taking the pointer over a native page, a shown bar taking clicks over the page and hiding when the pointer leaves for it, the page keeping its size as bars show and hide, and the layout following a change made in another window.
+What only the running app shows, not yet checked by hand: the edge margin taking the pointer over a native page, a shown bar taking clicks over the page and hiding when the pointer leaves for it, the page keeping its size as bars show and hide, and the layout following a change made in another window.
