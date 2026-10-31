@@ -3,7 +3,15 @@ import { describe, expect, it } from "vitest";
 
 import { toolbarExtensions } from "./toolbar-extensions";
 
-const extension = (id: string): Extension => ({ id, name: id, popup: null, icon: null });
+const extension = (id: string): Extension => ({
+  id,
+  name: id,
+  version: "1",
+  folder: id,
+  options: null,
+  popup: null,
+  icon: null,
+});
 const installed = [extension("a"), extension("b"), extension("c")];
 
 describe("toolbarExtensions", () => {

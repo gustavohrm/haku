@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod downloads;
 pub mod events;
+pub mod extensions;
 pub mod recovery;
 mod shortcuts;
 
@@ -49,6 +50,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::tab_preview,
             commands::extensions,
             commands::open_extensions_folder,
+            commands::add_extension,
+            commands::remove_extension,
             commands::open_extension_popup,
             commands::downloads,
             commands::pause_download,

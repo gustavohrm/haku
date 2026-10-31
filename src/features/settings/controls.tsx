@@ -1,13 +1,18 @@
 import { type ThemePreference } from "@app/theme";
 import {
   type BarLayout,
+  type Extension,
   type Policy,
   type Preset,
   type SidebarSide,
   type TabLayout,
   type ToolbarPlacement,
 } from "@bindings";
+import { openMenu } from "@features/context-menu/store";
+import { ExtensionIcon } from "@features/extensions/extension-icon";
+import { addExtension, removeExtension, useExtensionChange } from "@features/extensions/manage";
 import { reportUnexpected } from "@features/feedback/feedback";
+import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
 import { commands } from "@ipc/commands";
 import { useExtensions } from "@ipc/hooks";
 import { describeError } from "@ipc/result";
@@ -437,9 +442,38 @@ export function HomeUrlControl({ id, describedBy, settings, update }: ControlPro
  * Switching one off is stored as an exception in the settings, which Rust
  * applies to every page at once. Popups are opened from the toolbar.
  */
+export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
+  const change = useExtensionChange();
+  const adding = change === "add";
+  return (
+    <fieldset className="m-0 flex gap-2 border-0 p-0" aria-labelledby={labelId} aria-describedby={describedBy}>
+      <button
+        type="button"
+        className="btn soft edgeless gap-2"
+        disabled={change !== null}
+        onClick={() => void addExtension("file")}
+      >
+        <i className="ic-file-archive ic-sm" aria-hidden="true" />
+        {adding ? t("settings.extensions.adding") : t("settings.extensions.addFile")}
+      </button>
+      <button
+        type="button"
+        className="btn soft edgeless gap-2"
+        disabled={change !== null}
+        onClick={() => void addExtension("folder")}
+      >
+        <i className="ic-folder-plus ic-sm" aria-hidden="true" />
+        {t("settings.extensions.addFolder")}
+      </button>
+    </fieldset>
+  );
+}
+
 export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
   const extensions = useExtensions();
+  const change = useExtensionChange();
   const disabled = settings.disabledExtensions;
+  const pinned = settings.pinnedExtensions;
 
   const setEnabled = (id: string, enabled: boolean) => {
     void update((current) => {
@@ -447,40 +481,172 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
       return { ...current, disabledExtensions: enabled ? others : [...others, id] };
     });
   };
+  const setPinned = (id: string, isPinned: boolean) => {
+    void update((current) => {
+      const others = current.pinnedExtensions.filter((other) => other !== id);
+      return { ...current, pinnedExtensions: isPinned ? [...others, id] : others };
+    });
+  };
+
+  const openActions = (extension: Extension, button: HTMLElement) => {
+    const isOn = !disabled.includes(extension.id);
+    const isPinned = pinned.includes(extension.id);
+    const box = button.getBoundingClientRect();
+    openMenu({
+      at: { x: box.left, y: box.bottom + MENU_GAP },
+      label: extension.name,
+      items: [
+        ...(extension.options === null
+          ? []
+          : [
+              {
+                kind: "command" as const,
+                id: "options",
+                label: t("settings.extensions.options"),
+                icon: "ic-settings-2",
+                disabled: !isOn,
+                disabledReason: isOn ? undefined : t("settings.extensions.options.off"),
+                onSelect: () => void commands.openTab(extension.options, true),
+              },
+            ]),
+        {
+          kind: "checkbox",
+          id: "pin",
+          label: t("extensions.pin"),
+          icon: "ic-pin",
+          checked: isPinned,
+          onSelect: () => setPinned(extension.id, !isPinned),
+        },
+        { kind: "separator", id: "update" },
+        {
+          kind: "command",
+          id: "updateFile",
+          label: t("settings.extensions.updateFile"),
+          icon: "ic-file-archive",
+          disabled: change !== null,
+          onSelect: () => void addExtension("file"),
+        },
+        {
+          kind: "command",
+          id: "updateFolder",
+          label: t("settings.extensions.updateFolder"),
+          icon: "ic-folder-plus",
+          disabled: change !== null,
+          onSelect: () => void addExtension("folder"),
+        },
+        { kind: "separator", id: "uninstall" },
+        {
+          kind: "command",
+          id: "uninstall",
+          label: t("settings.extensions.uninstall"),
+          icon: "ic-trash-2",
+          disabled: change !== null,
+          onSelect: () => void removeExtension(extension.folder, extension),
+        },
+      ],
+    });
+  };
+
+  if (extensions === null) {
+    return null;
+  }
+  const isEmpty = extensions.installed.length === 0 && extensions.failed.length === 0;
 
   return (
-    <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0" aria-labelledby={labelId}>
-      {extensions !== null && extensions.error !== null && (
+    <div className="flex flex-col gap-3">
+      {extensions.error !== null && (
         <p className="text-text-secondary text-sm">
           {t("settings.extensions.error")} {describeError(extensions.error)}
         </p>
       )}
 
-      {extensions?.installed.length === 0 && extensions.error === null && (
-        <p className="text-text-secondary text-sm">{t("settings.extensions.empty")}</p>
-      )}
-
-      {extensions?.installed.map((extension) => (
-        <div key={extension.id} className="flex items-center gap-1.5">
-          <label htmlFor={`extension-${extension.id}`} className="min-w-0 flex-1 truncate">
-            {extension.name}
-          </label>
-          <input
-            id={`extension-${extension.id}`}
-            type="checkbox"
-            className="switch"
-            checked={!disabled.includes(extension.id)}
-            onChange={(event) => setEnabled(extension.id, event.target.checked)}
-          />
+      {isEmpty && (
+        <div className="text-text-secondary flex items-center gap-3 py-2">
+          <i className="ic-puzzle ic-lg shrink-0" aria-hidden="true" />
+          <p className="flex flex-col text-sm">
+            <span className="text-text">{t("settings.extensions.empty")}</span>
+            {t("settings.extensions.empty.help")}
+          </p>
         </div>
-      ))}
-
-      {extensions !== null && extensions.failed.length > 0 && (
-        <p className="text-text-secondary text-sm">
-          {t("settings.extensions.failed")} {extensions.failed.join(", ")}
-        </p>
       )}
-    </fieldset>
+
+      {extensions.installed.length > 0 && (
+        <ul className="flex flex-col gap-1" aria-labelledby={labelId}>
+          {extensions.installed.map((extension) => {
+            const isOn = !disabled.includes(extension.id);
+            const isRemoving = change === extension.folder;
+            const nameId = `extension-name-${extension.folder}`;
+            const details = [
+              isRemoving ? t("settings.extensions.removing") : extension.version || t("settings.extensions.noVersion"),
+              !isOn && t("settings.extensions.off"),
+              isOn && pinned.includes(extension.id) && t("settings.extensions.pinned"),
+            ].filter(Boolean);
+            return (
+              <li key={extension.folder} className="flex min-h-12 items-center gap-3" aria-busy={isRemoving}>
+                <span className={cx("grid size-8 shrink-0 place-items-center", !isOn && "opacity-40 grayscale")}>
+                  <ExtensionIcon extension={extension} large />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span id={nameId} className={cx("truncate", !isOn && "text-text-secondary")}>
+                    {extension.name}
+                  </span>
+                  <span className="text-text-secondary truncate text-sm tabular-nums">{details.join(" · ")}</span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="switch"
+                  aria-label={t("settings.extensions.switch").replace("{name}", extension.name)}
+                  checked={isOn}
+                  disabled={isRemoving}
+                  onChange={(event) => setEnabled(extension.id, event.target.checked)}
+                />
+                <button
+                  type="button"
+                  className="btn icon ghost"
+                  aria-label={t("settings.extensions.actions").replace("{name}", extension.name)}
+                  aria-haspopup="menu"
+                  title={t("settings.extensions.actions").replace("{name}", extension.name)}
+                  disabled={isRemoving}
+                  onClick={(event) => openActions(extension, event.currentTarget)}
+                >
+                  <i className="ic-ellipsis ic-sm" aria-hidden="true" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {extensions.failed.length > 0 && (
+        <section className="flex flex-col gap-1" aria-label={t("settings.extensions.failed")}>
+          <h3 className="text-text-secondary text-sm font-medium">{t("settings.extensions.failed")}</h3>
+          <ul className="flex flex-col gap-1">
+            {extensions.failed.map((failed) => (
+              <li key={failed.folder} className="flex min-h-12 items-center gap-3" aria-busy={change === failed.folder}>
+                <span className="grid size-8 shrink-0 place-items-center">
+                  <i className="ic-triangle-alert ic-md text-destructive" aria-hidden="true" />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span id={`extension-failed-${failed.folder}`} className="truncate">
+                    {failed.folder}
+                  </span>
+                  <span className="text-text-secondary text-sm break-words">{describeError(failed.error)}</span>
+                </span>
+                <button
+                  type="button"
+                  className="btn soft edgeless"
+                  aria-describedby={`extension-failed-${failed.folder}`}
+                  disabled={change !== null}
+                  onClick={() => void removeExtension(failed.folder, null)}
+                >
+                  {t("settings.extensions.remove")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -489,10 +655,11 @@ export function ExtensionsFolderControl({ id, describedBy }: ControlProps) {
     <button
       id={id}
       type="button"
-      className="btn"
+      className="btn soft edgeless gap-2"
       aria-describedby={describedBy}
       onClick={() => void commands.openExtensionsFolder()}
     >
+      <i className="ic-folder-open ic-sm" aria-hidden="true" />
       {t("settings.extensions.folder")}
     </button>
   );

@@ -32,6 +32,12 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 # A second launch hands over to the running Haku instead of sharing its
 # profile, session and history files with it.
 tauri-plugin-single-instance = "2"
+# Inflates the files of an extension archive; reading the archive around them
+# is Haku's own (`storage::package`). Already built as part of Tauri.
+miniz_oxide = "0.8"
+# Chrome derives an extension's id from the SHA-256 of its key. Already built
+# as part of Tauri.
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 # `windows` and `webview2-com` must match the versions Tauri's runtime (wry) uses:
@@ -44,6 +50,7 @@ windows = { version = "0.62", features = [
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
   "Win32_UI_WindowsAndMessaging",
 ] }
 webview2-com = "0.39"

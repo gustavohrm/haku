@@ -14,6 +14,14 @@ const ICON_SIZE: u64 = 32;
 pub struct Extension {
     pub id: String,
     pub name: String,
+    /// The manifest's `version`, or empty when it declares none.
+    pub version: String,
+    /// The subfolder of the extensions folder it was installed from, which
+    /// names it to `remove_extension`.
+    pub folder: String,
+    /// Its options page, as a `chrome-extension://` URL, when its manifest
+    /// declares one.
+    pub options: Option<String>,
     /// The page its toolbar button opens, as a `chrome-extension://` URL.
     pub popup: Option<String>,
     /// Its toolbar icon as a `data:` URL, read from the manifest. The engine
@@ -27,11 +35,116 @@ pub struct Extension {
 #[serde(rename_all = "camelCase")]
 pub struct Extensions {
     pub installed: Vec<Extension>,
-    /// Folders the engine would not install, by name, so a broken or
-    /// unsupported extension is not silently missing.
-    pub failed: Vec<String>,
+    /// Folders the engine would not install, so a broken or unsupported
+    /// extension is not silently missing.
+    pub failed: Vec<FailedExtension>,
     /// The first other failure while installing the folder, if any.
     pub error: Option<HakuError>,
+}
+
+/// A subfolder of the extensions folder that the engine would not install.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedExtension {
+    pub folder: String,
+    pub error: HakuError,
+}
+
+/// What `add_extension` asks the user to pick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionSource {
+    /// A packed extension: a `.crx` or `.zip` file.
+    File,
+    /// An unpacked extension: a folder holding its `manifest.json`.
+    Folder,
+}
+
+/// An extension added from settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedExtension {
+    pub extension: Extension,
+    /// The version it replaced, when it updated one already installed.
+    pub replaced: Option<String>,
+}
+
+/// The manifest's `version`, or empty when it declares none.
+pub fn version(manifest: &str) -> String {
+    parse(manifest)
+        .and_then(|manifest| manifest.get("version")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// The `chrome-extension://` URL of an extension's options page, from
+/// `options_ui.page` or else `options_page`, or nothing when it declares none.
+pub fn options_url(id: &str, manifest: &str) -> Option<String> {
+    let manifest = parse(manifest)?;
+    let page = manifest
+        .get("options_ui")
+        .and_then(|options| options.get("page"))
+        .or_else(|| manifest.get("options_page"))?
+        .as_str()?
+        .trim_start_matches('/');
+    (!page.is_empty()).then(|| format!("chrome-extension://{id}/{page}"))
+}
+
+/// The manifest's `key`, when it declares one.
+pub fn key(manifest: &str) -> Option<String> {
+    parse(manifest)?.get("key")?.as_str().map(str::to_string)
+}
+
+/// The locale whose messages give the extension's name, when it has one.
+pub fn default_locale(manifest: &str) -> Option<String> {
+    parse(manifest)?.get("default_locale")?.as_str().map(str::to_string)
+}
+
+/// The extension's name as a person reads it: the manifest's `name`, or, for
+/// a `__MSG_<name>__` name, that message from `messages`, the default
+/// locale's `messages.json`. Message names are matched without regard to
+/// case, as Chrome matches them.
+pub fn display_name(manifest: &str, messages: Option<&str>) -> Option<String> {
+    let name = parse(manifest)?.get("name")?.as_str()?.to_string();
+    let Some(message) = name.strip_prefix("__MSG_").and_then(|rest| rest.strip_suffix("__")) else {
+        return Some(name);
+    };
+    parse(messages?)?
+        .as_object()?
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(message))
+        .and_then(|(_, entry)| entry.get("message")?.as_str().map(str::to_string))
+}
+
+/// The folder an extension named `name` is kept in: the name in lower case,
+/// with every run of characters other than letters and digits made one `-`.
+/// A name with no letter or digit gives `extension`.
+pub fn folder_name(name: &str) -> String {
+    let mut folder = String::new();
+    for part in name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+    {
+        if !folder.is_empty() {
+            folder.push('-');
+        }
+        folder.extend(part.chars().flat_map(char::to_lowercase));
+    }
+    if folder.is_empty() {
+        folder.push_str("extension");
+    }
+    folder
+}
+
+/// The id Chrome gives an extension whose manifest `key` decodes to
+/// `public_key`: the first 16 bytes of its SHA-256, each half-byte written as
+/// a letter from `a` to `p`.
+pub fn id_from_key(public_key: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(public_key)[..16]
+        .iter()
+        .flat_map(|byte| [byte >> 4, byte & 0xf])
+        .map(|half| char::from(b'a' + half))
+        .collect()
 }
 
 fn parse(manifest: &str) -> Option<serde_json::Value> {
@@ -152,6 +265,53 @@ mod tests {
             popup_url("abc", manifest).as_deref(),
             Some("chrome-extension://abc/popup/index.html")
         );
+    }
+
+    #[test]
+    fn the_version_and_options_come_from_the_manifest() {
+        let manifest = r#"{"version": "1.2.3", "options_ui": {"page": "/options.html"}, "options_page": "old.html"}"#;
+        assert_eq!(version(manifest), "1.2.3");
+        assert_eq!(
+            options_url("abc", manifest).as_deref(),
+            Some("chrome-extension://abc/options.html")
+        );
+        assert_eq!(
+            options_url("abc", r#"{"options_page": "old.html"}"#).as_deref(),
+            Some("chrome-extension://abc/old.html")
+        );
+        assert_eq!(options_url("abc", "{}"), None);
+        assert_eq!(version("{}"), "");
+    }
+
+    #[test]
+    fn a_localized_name_is_read_from_the_default_locale() {
+        let manifest = r#"{"name": "__MSG_extName__", "default_locale": "en"}"#;
+        let messages = r#"{"extname": {"message": "Bitwarden Password Manager"}}"#;
+        assert_eq!(
+            display_name(manifest, Some(messages)).as_deref(),
+            Some("Bitwarden Password Manager")
+        );
+        assert_eq!(display_name(manifest, None), None);
+        assert_eq!(
+            display_name(r#"{"name": "uBlock Origin Lite"}"#, None).as_deref(),
+            Some("uBlock Origin Lite")
+        );
+    }
+
+    #[test]
+    fn a_folder_is_named_after_the_extension() {
+        assert_eq!(folder_name("uBlock Origin Lite"), "ublock-origin-lite");
+        assert_eq!(
+            folder_name("  Bitwarden: Password Manager! "),
+            "bitwarden-password-manager"
+        );
+        assert_eq!(folder_name("../.."), "extension");
+    }
+
+    #[test]
+    fn an_id_follows_from_its_key_as_in_chrome() {
+        // SHA-256 of nothing starts e3 b0 c4 42 98 fc 1c 14 9a fb f4 c8 99 6f b9 24.
+        assert_eq!(id_from_key(b""), "odlameecjipmbmbejkplpemijjgpljce");
     }
 
     #[test]
