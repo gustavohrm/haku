@@ -44,6 +44,9 @@ export function SidebarResizer({ side, width }: SidebarResizerProps) {
   const handleRef = useRef<HTMLDivElement>(null);
 
   const shell = () => handleRef.current?.closest<HTMLElement>(".haku-shell") ?? null;
+  // What the edge shows, which runs ahead of the stored width until a write
+  // lands: keys pressed in quick succession each step from the last one.
+  const shown = () => Number(handleRef.current?.getAttribute("aria-valuenow") ?? width);
   const show = (next: number) => {
     shell()?.style.setProperty(WIDTH_PROPERTY, `${next}px`);
     handleRef.current?.setAttribute("aria-valuenow", String(next));
@@ -76,6 +79,15 @@ export function SidebarResizer({ side, width }: SidebarResizerProps) {
     drag.current = null;
     void store(current.current);
   };
+  // A drag the system takes away is not a choice: the edge goes back.
+  const cancel = (event: PointerEvent<HTMLDivElement>) => {
+    const current = drag.current;
+    if (!current || current.pointerId !== event.pointerId) {
+      return;
+    }
+    drag.current = null;
+    show(current.width);
+  };
 
   return (
     <div
@@ -94,7 +106,10 @@ export function SidebarResizer({ side, width }: SidebarResizerProps) {
         if (event.button !== 0 || !event.isPrimary) {
           return;
         }
+        // No text selection while dragging; focus is given by hand instead,
+        // so the keys resize it straight after.
         event.preventDefault();
+        event.currentTarget.focus();
         event.currentTarget.setPointerCapture(event.pointerId);
         drag.current = {
           pointerId: event.pointerId,
@@ -105,7 +120,7 @@ export function SidebarResizer({ side, width }: SidebarResizerProps) {
       }}
       onPointerMove={onPointerMove}
       onPointerUp={end}
-      onPointerCancel={end}
+      onPointerCancel={cancel}
       onLostPointerCapture={end}
       onDoubleClick={() => {
         show(DEFAULT_SIDEBAR_WIDTH);
@@ -116,9 +131,9 @@ export function SidebarResizer({ side, width }: SidebarResizerProps) {
         const shrink = side === "left" ? "ArrowLeft" : "ArrowRight";
         const next =
           event.key === grow
-            ? width + KEY_STEP
+            ? shown() + KEY_STEP
             : event.key === shrink
-              ? width - KEY_STEP
+              ? shown() - KEY_STEP
               : event.key === "Home"
                 ? MIN_SIDEBAR_WIDTH
                 : event.key === "End"

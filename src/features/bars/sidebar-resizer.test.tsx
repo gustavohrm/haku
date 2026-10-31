@@ -89,4 +89,47 @@ describe("SidebarResizer", () => {
 
     expect(await storedWidth()).toBe(240);
   });
+
+  it("steps each key from the last, before the stored width catches up", async () => {
+    const handle = render("left");
+    const key = () => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+
+    await act(async () => {
+      key();
+      key();
+    });
+
+    expect(await storedWidth()).toBe(272);
+  });
+
+  it("takes focus when dragged, so the keys resize it next", async () => {
+    const handle = render("left");
+    handle.setPointerCapture = () => {};
+    const down = Object.assign(new MouseEvent("pointerdown", { bubbles: true, button: 0 }), {
+      pointerId: 1,
+      isPrimary: true,
+    });
+
+    await act(async () => handle.dispatchEvent(down));
+
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it("goes back to where it started when the system cancels a drag", async () => {
+    const handle = render("left");
+    const pointer = (type: string, clientX: number) =>
+      Object.assign(new MouseEvent(type, { bubbles: true, button: 0, clientX }), { pointerId: 1, isPrimary: true });
+    handle.setPointerCapture = () => {};
+
+    await act(async () => {
+      handle.dispatchEvent(pointer("pointerdown", 100));
+      handle.dispatchEvent(pointer("pointermove", 160));
+    });
+    expect(shell.style.getPropertyValue("--haku-sidebar-width")).toBe("300px");
+
+    await act(async () => handle.dispatchEvent(pointer("pointercancel", 160)));
+
+    expect(shell.style.getPropertyValue("--haku-sidebar-width")).toBe("240px");
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
 });
