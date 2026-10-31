@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
@@ -42,6 +42,30 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_SELECTED_TEXT, COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_VIDEO,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
+    ICoreWebView2DownloadOperation, ICoreWebView2_4, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_DOWNLOAD_PROCESS_CRASHED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_ACCESS_DENIED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_BLOCKED_BY_POLICY, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_FAILED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_HASH_MISMATCH, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_MALICIOUS,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NAME_TOO_LONG, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NO_SPACE,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_SECURITY_CHECK_FAILED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_LARGE, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_SHORT,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TRANSIENT_ERROR,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_DISCONNECTED, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_INVALID_REQUEST,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_SERVER_DOWN, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_TIMEOUT,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_BAD_CONTENT,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CERTIFICATE_PROBLEM,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CONTENT_LENGTH_MISMATCH,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CROSS_ORIGIN_REDIRECT,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FAILED, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_NO_RANGE, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNAUTHORIZED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNEXPECTED_RESPONSE,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN, COREWEBVIEW2_DOWNLOAD_STATE,
+    COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED, COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS,
+};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2ProcessFailedEventArgs2, COREWEBVIEW2_PROCESS_FAILED_KIND,
     COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED, COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_REASON, COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY,
@@ -56,14 +80,15 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 };
 use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
-    BrowserExtensionRemoveCompletedHandler, CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
-    ContextMenuRequestedEventHandler, DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler,
-    DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler, FocusChangedEventHandler,
+    BrowserExtensionRemoveCompletedHandler, BytesReceivedChangedEventHandler,
+    CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, ContextMenuRequestedEventHandler,
+    DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
+    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, FocusChangedEventHandler,
     GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
     NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
     PermissionRequestedEventHandler, ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler,
     ProfileGetBrowserExtensionsCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
-    TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
+    StateChangedEventHandler, TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
@@ -80,14 +105,18 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_ESCAPE, VK_F1, VK_F24, VK_HOME,
     VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_SHIFT, VK_TAB, VK_Z,
 };
-use windows::Win32::UI::Shell::SHCreateMemStream;
+use windows::Win32::UI::Shell::{SHCreateMemStream, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOWNA,
+    SW_SHOWNORMAL,
 };
 
 use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
-use super::{FailureSink, KeySink, PageSignal, PageSink, PhysicalRect, ProcessFailure, RoundedRect};
+use super::{
+    DownloadAction, DownloadSignal, DownloadSink, DownloadStart, DownloadStartSink, FailureSink, KeySink, PageSignal,
+    PageSink, PhysicalRect, ProcessFailure, RoundedRect,
+};
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
 use crate::model::{
@@ -95,8 +124,8 @@ use crate::model::{
     NativeMenuItemKind, PageMenu,
 };
 use crate::model::{
-    shortcut_for, Chord, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Key, MemoryStatus, NavigationKind,
-    PageDialog, Placement, SlotId, WindowRequestId,
+    shortcut_for, Chord, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, DownloadFailure, DownloadId,
+    DownloadState, Key, MemoryStatus, NavigationKind, PageDialog, Placement, Settled, SlotId, WindowRequestId,
 };
 use crate::webview::inject;
 
@@ -148,7 +177,41 @@ thread_local! {
     /// Extensions this process installed, by id, as the engine handed them
     /// over, to switch on and off. UI-thread only, like the engine's objects.
     static EXTENSIONS: RefCell<HashMap<String, ICoreWebView2BrowserExtension>> = RefCell::new(HashMap::new());
+
+    /// Downloads that can still be paused, resumed or cancelled, with the
+    /// slot each runs in. UI-thread only, like the engine's objects.
+    static DOWNLOADS: RefCell<HashMap<DownloadId, Followed>> = RefCell::new(HashMap::new());
+
+    /// Failed downloads Haku resumed, with their address and slot, until
+    /// they run again. The engine resumes such a download as a new one,
+    /// into a new file, and leaves the old operation behind. UI-thread only.
+    static RESUMED: RefCell<Vec<(DownloadId, String, Option<SlotId>)>> = const { RefCell::new(Vec::new()) };
 }
+
+/// A download Haku can still act on.
+struct Followed {
+    /// What the download runs as now.
+    operation: ICoreWebView2DownloadOperation,
+    slot: Option<SlotId>,
+    /// What it ran as before Haku resumed it after a failure. Kept alive:
+    /// once the last of these is released, the engine stops reporting the
+    /// operation that replaced it, though the file still grows.
+    replaced: Vec<ICoreWebView2DownloadOperation>,
+}
+
+/// Whether `operation` is the one a listed download runs as now, rather than
+/// one the engine left behind when it resumed the download as a new one.
+fn is_current(id: DownloadId, operation: &ICoreWebView2DownloadOperation) -> bool {
+    DOWNLOADS.with(|downloads| {
+        downloads
+            .borrow()
+            .get(&id)
+            .is_some_and(|followed| followed.operation == *operation)
+    })
+}
+
+/// Where downloads are reported, set once by [`observe_downloads`].
+static DOWNLOAD_SINKS: OnceLock<(DownloadStartSink, DownloadSink)> = OnceLock::new();
 
 /// Runs `action` against the container HWND of `webview`, on the UI thread.
 ///
@@ -951,6 +1014,7 @@ unsafe fn attach_observers(
 
     attach_window_requests(&core, sink, slot)?;
     attach_context_menu(&core, sink, slot)?;
+    attach_downloads(&core, slot)?;
 
     // Whether a page is playing audio decides whether a smart policy leaves it
     // running in the background. Older runtimes lack the event, and a page is
@@ -1047,6 +1111,244 @@ unsafe fn attach_window_requests(
     };
     core.add_WindowCloseRequested(&on_close, &mut token)?;
     Ok(())
+}
+
+pub fn observe_downloads(started: DownloadStartSink, changed: DownloadSink) -> Result<()> {
+    DOWNLOAD_SINKS
+        .set((started, changed))
+        .map_err(|_| HakuError::Unsupported("downloads are already observed".into()))
+}
+
+/// Takes over the downloads a webview starts: the engine's own download
+/// interface never shows, the file goes where the engine would put it, and
+/// what happens to it is reported to [`DOWNLOAD_SINKS`]. Older runtimes lack
+/// the event, and keep the engine's interface.
+unsafe fn attach_downloads(core: &ICoreWebView2, slot: Option<SlotId>) -> windows::core::Result<()> {
+    let Ok(core) = core.cast::<ICoreWebView2_4>() else {
+        return Ok(());
+    };
+    let mut token = 0i64;
+    let on_download = DownloadStartingEventHandler::create(Box::new(move |_, args| {
+        let (Some(args), Some((started, changed))) = (args, DOWNLOAD_SINKS.get()) else {
+            return Ok(());
+        };
+        args.SetHandled(true)?;
+        let operation = args.DownloadOperation()?;
+        let mut uri = PWSTR::null();
+        operation.Uri(&mut uri)?;
+        let mut path = PWSTR::null();
+        args.ResultFilePath(&mut path)?;
+        let (url, path) = (take_pwstr(uri), take_pwstr(path));
+        let (_, total) = read_bytes(&operation)?;
+        let resumed = RESUMED.with(|resumed| {
+            let mut resumed = resumed.borrow_mut();
+            let at = resumed
+                .iter()
+                .position(|(_, address, owner)| *address == url && *owner == slot)?;
+            Some(resumed.remove(at).0)
+        });
+        let id = match resumed {
+            Some(id) => {
+                changed(id, DownloadSignal::Restarted { path, total });
+                id
+            }
+            None => started(slot, DownloadStart { url, path, total }),
+        };
+
+        let mut token = 0i64;
+        let on_bytes = BytesReceivedChangedEventHandler::create(Box::new(move |sender, _| {
+            let Some(operation) = sender else { return Ok(()) };
+            if !is_current(id, &operation) {
+                return Ok(());
+            }
+            // Bytes arriving mean it runs on as the same download.
+            RESUMED.with(|resumed| resumed.borrow_mut().retain(|(resumed, ..)| *resumed != id));
+            let (received, total) = read_bytes(&operation)?;
+            changed(id, DownloadSignal::Progress { received, total });
+            Ok(())
+        }));
+        operation.add_BytesReceivedChanged(&on_bytes, &mut token)?;
+        let on_state = StateChangedEventHandler::create(Box::new(move |sender, _| {
+            let Some(operation) = sender else { return Ok(()) };
+            if !is_current(id, &operation) {
+                return Ok(());
+            }
+            let settled = read_settled(&operation)?;
+            // Nothing more can be done to one that ended for good.
+            if !settled.state.is_active() && !settled.can_resume {
+                DOWNLOADS.with(|downloads| downloads.borrow_mut().remove(&id));
+            }
+            changed(id, DownloadSignal::Settled(settled));
+            Ok(())
+        }));
+        operation.add_StateChanged(&on_state, &mut token)?;
+        DOWNLOADS.with(|downloads| {
+            let mut downloads = downloads.borrow_mut();
+            let replaced = downloads
+                .remove(&id)
+                .map(|earlier| {
+                    let mut replaced = earlier.replaced;
+                    replaced.push(earlier.operation);
+                    replaced
+                })
+                .unwrap_or_default();
+            downloads.insert(
+                id,
+                Followed {
+                    operation,
+                    slot,
+                    replaced,
+                },
+            );
+        });
+        Ok(())
+    }));
+    core.add_DownloadStarting(&on_download, &mut token)?;
+    Ok(())
+}
+
+/// Bytes received, and the file's size when the server said.
+unsafe fn read_bytes(operation: &ICoreWebView2DownloadOperation) -> windows::core::Result<(u64, Option<u64>)> {
+    let (mut received, mut total) = (0i64, 0i64);
+    operation.BytesReceived(&mut received)?;
+    operation.TotalBytesToReceive(&mut total)?;
+    // An unknown size reads as -1.
+    Ok((received.max(0).cast_unsigned(), u64::try_from(total).ok()))
+}
+
+unsafe fn read_settled(operation: &ICoreWebView2DownloadOperation) -> windows::core::Result<Settled> {
+    let mut state = COREWEBVIEW2_DOWNLOAD_STATE::default();
+    operation.State(&mut state)?;
+    let mut reason = COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON::default();
+    operation.InterruptReason(&mut reason)?;
+    let mut can_resume = BOOL::default();
+    operation.CanResume(&mut can_resume)?;
+    let (received, total) = read_bytes(operation)?;
+    let (state, failure) = match state {
+        COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS => (DownloadState::InProgress, None),
+        COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED => (DownloadState::Completed, None),
+        _ => interruption(reason),
+    };
+    Ok(Settled {
+        state,
+        failure,
+        received,
+        total,
+        can_resume: can_resume.as_bool(),
+    })
+}
+
+/// What an interrupted download's reason means to Haku.
+fn interruption(reason: COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON) -> (DownloadState, Option<DownloadFailure>) {
+    let failure = match reason {
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED => return (DownloadState::Paused, None),
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN => {
+            return (DownloadState::Cancelled, None)
+        }
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_TIMEOUT
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_DISCONNECTED
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_SERVER_DOWN
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_INVALID_REQUEST => DownloadFailure::Network,
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_DOWNLOAD_PROCESS_CRASHED => DownloadFailure::Other,
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_FAILED
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_ACCESS_DENIED
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NO_SPACE
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NAME_TOO_LONG
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_LARGE
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_MALICIOUS
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TRANSIENT_ERROR
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_BLOCKED_BY_POLICY
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_SECURITY_CHECK_FAILED
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_SHORT
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_HASH_MISMATCH => DownloadFailure::File,
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FAILED
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_NO_RANGE
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_BAD_CONTENT
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNAUTHORIZED
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CERTIFICATE_PROBLEM
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNEXPECTED_RESPONSE
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CONTENT_LENGTH_MISMATCH
+        | COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_CROSS_ORIGIN_REDIRECT => DownloadFailure::Server,
+        _ => DownloadFailure::Other,
+    };
+    (DownloadState::Failed, Some(failure))
+}
+
+pub fn control_download<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: DownloadId,
+    action: DownloadAction,
+) -> Result<bool> {
+    let (sender, receiver) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let listed = DOWNLOADS.with(|downloads| {
+            downloads
+                .borrow()
+                .get(&id)
+                .map(|followed| (followed.operation.clone(), followed.slot))
+        });
+        let acted = listed.map(|(operation, slot)| unsafe {
+            if action == DownloadAction::Resume
+                && read_settled(&operation).is_ok_and(|settled| settled.state == DownloadState::Failed)
+            {
+                let mut uri = PWSTR::null();
+                if operation.Uri(&mut uri).is_ok() {
+                    RESUMED.with(|resumed| resumed.borrow_mut().push((id, take_pwstr(uri), slot)));
+                }
+            }
+            let result = match action {
+                DownloadAction::Pause => operation.Pause(),
+                DownloadAction::Resume => operation.Resume(),
+                DownloadAction::Cancel => operation.Cancel(),
+            };
+            if result.is_err() {
+                // No restart follows a resume the engine refused.
+                RESUMED.with(|resumed| resumed.borrow_mut().retain(|(resumed, ..)| *resumed != id));
+            }
+            result.map_err(|error| error.message())
+        });
+        let _ = sender.send(acted);
+    })?;
+    match receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+    {
+        None => Ok(false),
+        Some(Ok(())) => Ok(true),
+        Some(Err(message)) => Err(HakuError::Unsupported(format!("download {}: {message}", id.0))),
+    }
+}
+
+pub fn open_file(path: &Path) -> Result<()> {
+    let opened = unsafe {
+        ShellExecuteW(
+            None,
+            &HSTRING::from("open"),
+            &HSTRING::from(path.as_os_str()),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+    // Anything above 32 is success; the rest are error codes.
+    if opened.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err(HakuError::Unsupported(format!("opening {}", path.display())))
+    }
+}
+
+pub fn show_file(path: &Path) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    // Explorer reads `/select,` and the quoted path as one argument; a
+    // Windows path never holds a quote.
+    std::process::Command::new("explorer")
+        .raw_arg(format!("/select,\"{}\"", path.display()))
+        .spawn()
+        .map(drop)
+        .map_err(|error| HakuError::Unsupported(format!("showing {}: {error}", path.display())))
 }
 
 /// A page's context menu waiting on an answer, and what it offered.
@@ -1283,6 +1585,10 @@ pub fn forget_page<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()>
         for menu in menus {
             let _ = unsafe { menu.deferral.Complete() };
         }
+        // The engine stops reporting a download whose webview is gone, and
+        // no longer lets it be acted on.
+        DOWNLOADS.with(|downloads| downloads.borrow_mut().retain(|_, followed| followed.slot != slot));
+        RESUMED.with(|resumed| resumed.borrow_mut().retain(|(_, _, owner)| *owner != slot));
         let _ = sender.send(());
     })?;
     receiver
@@ -1697,4 +2003,33 @@ pub fn reveal_folder(folder: &Path) -> Result<()> {
         .spawn()
         .map(drop)
         .map_err(|error| HakuError::Unsupported(format!("opening {}: {error}", folder.display())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failure(reason: i32) -> Option<DownloadFailure> {
+        interruption(COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON(reason)).1
+    }
+
+    #[test]
+    fn interrupt_reasons_name_the_failure_by_the_engine_numbers() {
+        assert_eq!(failure(1), Some(DownloadFailure::File));
+        assert_eq!(failure(11), Some(DownloadFailure::File));
+        assert_eq!(failure(12), Some(DownloadFailure::Network));
+        assert_eq!(failure(16), Some(DownloadFailure::Network));
+        assert_eq!(failure(17), Some(DownloadFailure::Server));
+        assert_eq!(failure(22), Some(DownloadFailure::Server));
+        assert_eq!(failure(25), Some(DownloadFailure::Server));
+        assert_eq!(failure(29), Some(DownloadFailure::Other));
+        assert_eq!(
+            interruption(COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON(28)),
+            (DownloadState::Paused, None)
+        );
+        assert_eq!(
+            interruption(COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON(26)),
+            (DownloadState::Cancelled, None)
+        );
+    }
 }

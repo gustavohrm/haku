@@ -1,4 +1,5 @@
 import { type TabId } from "@bindings";
+import { DownloadsPage } from "@features/downloads/downloads-page";
 import { HistoryPage } from "@features/history/history-page";
 import { MemoryPage } from "@features/memory/memory-page";
 import { SettingsPage } from "@features/settings/settings-page";
@@ -18,6 +19,9 @@ const INTERNAL_PREFIX = "haku://";
 /** Where the settings page lives, for anything that opens it. */
 export const SETTINGS_URL = "haku://settings";
 
+/** Where every download is listed. */
+export const DOWNLOADS_URL = "haku://downloads";
+
 /** What every internal page is rendered with: which tab it is in, and its full URL. */
 export interface InternalPageProps {
   tabId: TabId;
@@ -33,6 +37,7 @@ const routes: Record<string, { page: ComponentType<InternalPageProps>; title: Tr
   settings: { page: SettingsPage, title: "settings.title" },
   history: { page: HistoryPage, title: "history.title" },
   memory: { page: MemoryPage, title: "memory.title" },
+  downloads: { page: DownloadsPage, title: "downloads.title" },
 };
 
 export function isInternalUrl(url: string): boolean {

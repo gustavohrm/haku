@@ -79,6 +79,9 @@ pub struct PageMenu {
 /// Names are as WebView2 reported them in the app; its documentation lists
 /// only examples. `spellCheck` and `extension` come from that documentation
 /// and are not yet seen in the app.
+///
+/// `saveLinkAs` and `saveImageAs` start a download Haku follows. The page's
+/// `saveAs` does not, so it stays out with `print`; see `docs/specs/downloads.md`.
 const KEPT: &[&str] = &[
     "undo",
     "redo",
@@ -92,6 +95,8 @@ const KEPT: &[&str] = &[
     "copyImage",
     "copyImageLocation",
     "copyLinkLocation",
+    "saveLinkAs",
+    "saveImageAs",
     "extension",
 ];
 
@@ -182,6 +187,17 @@ mod tests {
             command(5, "inspectElement"),
         ];
         assert_eq!(names(&allowed_items(items)), ["cut", "copy"]);
+    }
+
+    #[test]
+    fn saves_links_and_images_but_not_the_page_or_a_print() {
+        let items = vec![
+            command(1, "saveLinkAs"),
+            command(2, "saveImageAs"),
+            command(3, "saveAs"),
+            command(4, "print"),
+        ];
+        assert_eq!(names(&allowed_items(items)), ["saveLinkAs", "saveImageAs"]);
     }
 
     #[test]

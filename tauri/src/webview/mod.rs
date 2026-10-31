@@ -514,6 +514,8 @@ pub fn apply<R: tauri::Runtime>(
     let apply = |effect: &Effect| {
         match effect {
             Effect::Quit => app.exit(0),
+            // Asked by the command layer, which holds the interface's events.
+            Effect::ConfirmClose { .. } => {}
             Effect::EnsureSlot {
                 slot,
                 url,

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{HakuError, Result};
+use crate::model::{Download, DownloadFailure, DownloadId, DownloadState};
 use crate::storage::corrupt_path;
 
 /// Suffixes of the SQLite files that belong to the main database file.
@@ -24,14 +25,28 @@ const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 /// Schema revisions, applied in order to whatever version a database is on.
 ///
 /// Migrations are append-only: never edit a shipped entry, add a new one.
-const MIGRATIONS: &[&str] = &["CREATE TABLE visits (
+const MIGRATIONS: &[&str] = &[
+    "CREATE TABLE visits (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         url        TEXT    NOT NULL,
         title      TEXT    NOT NULL,
         visited_at INTEGER NOT NULL
     );
     CREATE INDEX idx_visits_visited_at ON visits (visited_at DESC);
-    CREATE INDEX idx_visits_url ON visits (url);"];
+    CREATE INDEX idx_visits_url ON visits (url);",
+    // Downloads share the file with history, as in Chrome: both are records
+    // of what was fetched, they grow without limit, and they are kept as long.
+    "CREATE TABLE downloads (
+        id         INTEGER PRIMARY KEY,
+        url        TEXT    NOT NULL,
+        path       TEXT    NOT NULL,
+        received   INTEGER NOT NULL,
+        total      INTEGER,
+        state      TEXT    NOT NULL,
+        failure    TEXT,
+        started_at INTEGER NOT NULL
+    );",
+];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -242,6 +257,130 @@ impl HistoryDb {
             Self::connect(path)?.clear()?;
         }
         Ok(())
+    }
+}
+
+impl HistoryDb {
+    /// Stores a download as it is now, replacing what was stored of it.
+    ///
+    /// A private download is never written, whoever asks.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the write fails.
+    pub fn save_download(&self, download: &Download) -> Result<()> {
+        if download.private {
+            return Ok(());
+        }
+        self.connection.execute(
+            "INSERT OR REPLACE INTO downloads (id, url, path, received, total, state, failure, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                download.id.0 as i64,
+                download.url,
+                download.path,
+                download.received as i64,
+                download.total.map(|total| total as i64),
+                state_name(download.state),
+                download.failure.map(failure_name),
+                download.started_at as i64,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Every stored download, newest first.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the query fails.
+    pub fn downloads(&self) -> Result<Vec<Download>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, url, path, received, total, state, failure, started_at
+             FROM downloads ORDER BY started_at DESC, id DESC",
+        )?;
+        // A negative value is refused rather than wrapped, since a huge id
+        // would overflow the next one.
+        fn unsigned(column: usize, value: i64) -> rusqlite::Result<u64> {
+            u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(column, value))
+        }
+        let rows = statement.query_map([], |row| {
+            let state: String = row.get(5)?;
+            let failure: Option<String> = row.get(6)?;
+            Ok(Download {
+                id: DownloadId(unsigned(0, row.get(0)?)?),
+                url: row.get(1)?,
+                path: row.get(2)?,
+                received: unsigned(3, row.get(3)?)?,
+                total: row
+                    .get::<_, Option<i64>>(4)?
+                    .map(|total| unsigned(4, total))
+                    .transpose()?,
+                state: state_from(&state),
+                failure: failure.as_deref().map(failure_from),
+                can_resume: false,
+                started_at: unsigned(7, row.get(7)?)?,
+                recent: false,
+                private: false,
+                slot: None,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Forgets stored downloads, all or none. Their files stay.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the delete fails.
+    pub fn forget_downloads(&self, ids: &[DownloadId]) -> Result<()> {
+        let transaction = self.connection.unchecked_transaction()?;
+        {
+            let mut statement = transaction.prepare("DELETE FROM downloads WHERE id = ?1")?;
+            for id in ids {
+                statement.execute([id.0 as i64])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+}
+
+fn state_name(state: DownloadState) -> &'static str {
+    match state {
+        DownloadState::InProgress => "inProgress",
+        DownloadState::Paused => "paused",
+        DownloadState::Completed => "completed",
+        DownloadState::Cancelled => "cancelled",
+        DownloadState::Failed => "failed",
+    }
+}
+
+/// An unknown name, written by a later Haku, reads as a failure.
+fn state_from(name: &str) -> DownloadState {
+    match name {
+        "inProgress" => DownloadState::InProgress,
+        "paused" => DownloadState::Paused,
+        "completed" => DownloadState::Completed,
+        "cancelled" => DownloadState::Cancelled,
+        _ => DownloadState::Failed,
+    }
+}
+
+fn failure_name(failure: DownloadFailure) -> &'static str {
+    match failure {
+        DownloadFailure::Network => "network",
+        DownloadFailure::Server => "server",
+        DownloadFailure::File => "file",
+        DownloadFailure::Lost => "lost",
+        DownloadFailure::Other => "other",
+    }
+}
+
+fn failure_from(name: &str) -> DownloadFailure {
+    match name {
+        "network" => DownloadFailure::Network,
+        "server" => DownloadFailure::Server,
+        "file" => DownloadFailure::File,
+        "lost" => DownloadFailure::Lost,
+        _ => DownloadFailure::Other,
     }
 }
 
@@ -474,6 +613,118 @@ mod tests {
         database.retitle("https://a.test", "A").unwrap();
 
         assert!(database.recent(10).unwrap().is_empty());
+    }
+
+    fn download(id: u64, private: bool) -> Download {
+        Download {
+            id: DownloadId(id),
+            url: "https://a.test/file.zip".into(),
+            path: r"C:\Users\me\Downloads\file.zip".into(),
+            received: 40,
+            total: Some(100),
+            state: DownloadState::InProgress,
+            failure: None,
+            can_resume: true,
+            started_at: id * 10,
+            recent: true,
+            private,
+            slot: Some(crate::model::SlotId(2)),
+        }
+    }
+
+    #[test]
+    fn a_stored_download_is_read_back_newest_first() {
+        let database = database();
+        database.save_download(&download(1, false)).unwrap();
+        database.save_download(&download(2, false)).unwrap();
+
+        let stored = database.downloads().unwrap();
+
+        assert_eq!(
+            stored.iter().map(|d| d.id).collect::<Vec<_>>(),
+            [DownloadId(2), DownloadId(1)]
+        );
+        assert_eq!(stored[1].url, "https://a.test/file.zip");
+        assert_eq!(stored[1].total, Some(100));
+        assert_eq!(stored[1].state, DownloadState::InProgress);
+        assert!(!stored[1].recent && stored[1].slot.is_none());
+    }
+
+    #[test]
+    fn a_negative_stored_download_value_is_refused_rather_than_wrapped() {
+        let database = database();
+        database.save_download(&download(1, false)).unwrap();
+        database.connection.execute("UPDATE downloads SET id = -1", []).unwrap();
+
+        assert!(database.downloads().is_err());
+    }
+
+    #[test]
+    fn saving_a_download_again_replaces_what_was_stored() {
+        let database = database();
+        let mut entry = download(1, false);
+        database.save_download(&entry).unwrap();
+        entry.state = DownloadState::Failed;
+        entry.failure = Some(DownloadFailure::Network);
+        database.save_download(&entry).unwrap();
+
+        let stored = database.downloads().unwrap();
+
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].state, DownloadState::Failed);
+        assert_eq!(stored[0].failure, Some(DownloadFailure::Network));
+    }
+
+    #[test]
+    fn a_private_download_is_never_written() {
+        let database = database();
+        database.save_download(&download(1, true)).unwrap();
+
+        assert!(database.downloads().unwrap().is_empty());
+        let rows: i64 = database
+            .connection
+            .query_row("SELECT COUNT(*) FROM downloads", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+    }
+
+    #[test]
+    fn forgotten_downloads_are_removed_and_others_kept() {
+        let database = database();
+        database.save_download(&download(1, false)).unwrap();
+        database.save_download(&download(2, false)).unwrap();
+
+        database.forget_downloads(&[DownloadId(1)]).unwrap();
+
+        let stored = database.downloads().unwrap();
+        assert_eq!(stored.iter().map(|d| d.id).collect::<Vec<_>>(), [DownloadId(2)]);
+    }
+
+    #[test]
+    fn clearing_history_keeps_downloads() {
+        let database = database();
+        database.save_download(&download(1, false)).unwrap();
+
+        database.clear().unwrap();
+
+        assert_eq!(database.downloads().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_database_from_before_downloads_is_migrated_with_its_visits() {
+        let mut database = HistoryDb {
+            connection: Connection::open_in_memory().unwrap(),
+            unopened: None,
+        };
+        database.connection.execute_batch(MIGRATIONS[0]).unwrap();
+        database.connection.pragma_update(None, "user_version", 1).unwrap();
+        database.record("https://a.test", "A", 1).unwrap();
+
+        database.migrate().unwrap();
+
+        assert_eq!(database.recent(10).unwrap().len(), 1);
+        database.save_download(&download(1, false)).unwrap();
+        assert_eq!(database.downloads().unwrap().len(), 1);
     }
 
     #[test]

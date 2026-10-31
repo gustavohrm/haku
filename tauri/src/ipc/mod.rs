@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod downloads;
 pub mod events;
 pub mod recovery;
 mod shortcuts;
@@ -6,8 +7,8 @@ mod shortcuts;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use events::{
-    AddressFocusRequested, ContextMenuRequested, ExtensionsChanged, FailureReported, MemoryChanged, SettingsChanged,
-    StateChanged,
+    AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, DownloadsChanged, ExtensionsChanged,
+    FailureReported, MemoryChanged, SettingsChanged, StateChanged,
 };
 
 /// The single description of Haku's IPC surface.
@@ -49,6 +50,14 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::extensions,
             commands::open_extensions_folder,
             commands::open_extension_popup,
+            commands::downloads,
+            commands::pause_download,
+            commands::resume_download,
+            commands::cancel_download,
+            commands::open_download,
+            commands::show_download,
+            commands::clear_downloads,
+            commands::confirm_close,
         ])
         .events(collect_events![
             StateChanged,
@@ -57,7 +66,9 @@ pub fn builder() -> Builder<tauri::Wry> {
             AddressFocusRequested,
             ExtensionsChanged,
             ContextMenuRequested,
-            FailureReported
+            FailureReported,
+            DownloadsChanged,
+            CloseConfirmationRequested
         ])
 }
 

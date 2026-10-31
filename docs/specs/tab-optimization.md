@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 scope: Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a discarded tab gets back when it reloads.
 ---
 
@@ -116,6 +116,8 @@ A Work tab is evicted only when every other occupant is protected. It is still e
 
 Discarding often leaves a webview parked on `about:blank`. At normal pressure one parked webview is kept as a warm spare and any others are destroyed. Under pressure none is kept.
 
+A parked webview running a download is kept at any pressure, and is not counted as the spare: destroying it would stop Haku following the download ([Downloads § Webviews](downloads.md#webviews)). A tab that needs a webview of the other profile grows the pool past it rather than replacing it.
+
 ## Memory pressure
 
 Pressure is Haku's own reading of the system, not `LowMemoryResourceNotification`, which fires too late to act on.
@@ -126,11 +128,11 @@ headroom = min(available_physical / total_physical, (commit_limit - commit_total
 
 Both terms come from `GetPerformanceInfo`. Commit is included because running out of commit, not physical memory, is what makes allocations fail and processes die.
 
-| Level        | Headroom     | What changes                                                   |
-| ------------ | ------------ | -------------------------------------------------------------- |
-| **Normal**   | 15 % or more | [The rule](#deciding) as written                               |
-| **Tight**    | under 15 %   | No grace. State tabs are discarded. No parked webview is kept. |
-| **Critical** | under 7 %    | As Tight, and Work tabs are discarded too, all at once.        |
+| Level        | Headroom     | What changes                                                                              |
+| ------------ | ------------ | ----------------------------------------------------------------------------------------- |
+| **Normal**   | 15 % or more | [The rule](#deciding) as written                                                          |
+| **Tight**    | under 15 %   | No grace. State tabs are discarded. No parked webview is kept but one running a download. |
+| **Critical** | under 7 %    | As Tight, and Work tabs are discarded too, all at once.                                   |
 
 A level is left only once headroom is 3 points above its threshold, so a reading that hovers does not flap.
 

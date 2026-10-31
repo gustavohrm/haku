@@ -9,9 +9,9 @@
 use std::path::Path;
 
 use super::memory::EngineSnapshot;
-use super::{FailureSink, KeySink, PageSink, RoundedRect};
+use super::{DownloadAction, DownloadSink, DownloadStartSink, FailureSink, KeySink, PageSink, RoundedRect};
 use crate::error::{HakuError, Result};
-use crate::model::{ContextMenuRequestId, DialogAnswer, DialogId, MemoryStatus, SlotId, WindowRequestId};
+use crate::model::{ContextMenuRequestId, DialogAnswer, DialogId, DownloadId, MemoryStatus, SlotId, WindowRequestId};
 
 fn unsupported(operation: &str) -> HakuError {
     HakuError::Unsupported(format!("{operation} is only implemented on Windows"))
@@ -66,6 +66,26 @@ pub fn set_extension_enabled<R: tauri::Runtime>(
 
 pub fn reveal_folder(_folder: &Path) -> Result<()> {
     Err(unsupported("opening a folder"))
+}
+
+pub fn observe_downloads(_started: DownloadStartSink, _changed: DownloadSink) -> Result<()> {
+    Err(unsupported("following downloads"))
+}
+
+pub fn control_download<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _id: DownloadId,
+    _action: DownloadAction,
+) -> Result<bool> {
+    Err(unsupported("controlling downloads"))
+}
+
+pub fn open_file(_path: &Path) -> Result<()> {
+    Err(unsupported("opening a file"))
+}
+
+pub fn show_file(_path: &Path) -> Result<()> {
+    Err(unsupported("showing a file in its folder"))
 }
 
 pub fn stop_idle_workers<R: tauri::Runtime>(_chrome: &tauri::Webview<R>) -> Result<()> {

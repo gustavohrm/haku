@@ -146,12 +146,43 @@ export const commands = {
 	 *  open the popup's window.
 	 */
 	openExtensionPopup: (id: string, tab: TabId, anchor: Viewport) => typedError<boolean, HakuError>(__TAURI_INVOKE("open_extension_popup", { id, tab, anchor })),
+	/**  The downloads this window lists, newest first: its own profile's only. */
+	downloads: () => typedError<Download[], HakuError>(__TAURI_INVOKE("downloads")),
+	pauseDownload: (id: DownloadId) => typedError<null, HakuError>(__TAURI_INVOKE("pause_download", { id })),
+	/**
+	 *  Resumes a paused download, or retries a failed one the engine can
+	 *  resume.
+	 */
+	resumeDownload: (id: DownloadId) => typedError<null, HakuError>(__TAURI_INVOKE("resume_download", { id })),
+	cancelDownload: (id: DownloadId) => typedError<null, HakuError>(__TAURI_INVOKE("cancel_download", { id })),
+	/**
+	 *  Opens a completed download's file with the program the system gives it.
+	 * 
+	 *  Only the chrome reaches this, and only for a path Haku recorded: a page
+	 *  can neither name a file nor ask for one to be opened.
+	 */
+	openDownload: (id: DownloadId) => typedError<null, HakuError>(__TAURI_INVOKE("open_download", { id })),
+	/**
+	 *  Shows a download's file in its folder, or the folder when the file is
+	 *  not there.
+	 */
+	showDownload: (id: DownloadId) => typedError<null, HakuError>(__TAURI_INVOKE("show_download", { id })),
+	/**  Unlists this window's profile's ended downloads. Their files stay. */
+	clearDownloads: () => typedError<null, HakuError>(__TAURI_INVOKE("clear_downloads")),
+	/**
+	 *  Closes a tab, or the window when it is nothing, that was held because it
+	 *  would cancel downloads, cancelling them.
+	 *  [Downloads § Closing](../../../docs/specs/downloads.md#closing).
+	 */
+	confirmClose: (tab: number | null) => typedError<null, HakuError>(__TAURI_INVOKE("confirm_close", { tab })),
 };
 
 /** Events */
 export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
+	closeConfirmationRequested: makeEvent<CloseConfirmationRequested>("close-confirmation-requested"),
 	contextMenuRequested: makeEvent<ContextMenuRequested>("context-menu-requested"),
+	downloadsChanged: makeEvent<DownloadsChanged>("downloads-changed"),
 	extensionsChanged: makeEvent<ExtensionsChanged>("extensions-changed"),
 	failureReported: makeEvent<FailureReported>("failure-reported"),
 	memoryChanged: makeEvent<MemoryChanged>("memory-changed"),
@@ -202,6 +233,20 @@ export type BrowserState = {
 	capacity: number,
 	/**  Tabs holding a webview, across every window: the pool is shared. */
 	liveCount: number,
+};
+
+/**
+ *  Closing a tab or window would cancel downloads, so it was not done: the
+ *  interface asks, and answers with
+ *  [`confirm_close`](super::commands::confirm_close) to close anyway.
+ *  [Downloads § Closing](../../../docs/specs/downloads.md#closing).
+ */
+export type CloseConfirmationRequested = {
+	/**  The tab being closed, or nothing when it is the window. */
+	tab: TabId | null,
+	ending: Ending,
+	/**  How many downloads closing would cancel. */
+	downloads: number,
 };
 
 /**
@@ -260,6 +305,70 @@ export type DialogId = number;
 export type DialogKind = "alert" | "confirm" | "prompt" | 
 /**  "Leave site?", raised by a page's `beforeunload` handler. */
 "beforeUnload";
+
+/**  One download, as the interface lists it. */
+export type Download = {
+	id: DownloadId,
+	url: string,
+	/**  Where the file is written, chosen by the engine. */
+	path: string,
+	/**  Bytes received so far. */
+	received: number,
+	/**  The file's size, when the server said. */
+	total: number | null,
+	state: DownloadState,
+	/**  Set only while [`Self::state`] is [`DownloadState::Failed`]. */
+	failure: DownloadFailure | null,
+	/**
+	 *  Whether the engine can carry on from where it stopped: a paused
+	 *  download, or one a failure interrupted, that the server lets resume.
+	 */
+	canResume: boolean,
+	/**  Milliseconds since the Unix epoch. */
+	startedAt: number,
+	/**  Started since Haku last launched. The toolbar lists only these. */
+	recent: boolean,
+	/**  Started in a private window. Never written to disk. */
+	private: boolean,
+};
+
+/**  Why a download failed. */
+export type DownloadFailure = "network" | 
+/**  The server refused or broke off the transfer. */
+"server" | 
+/**
+ *  The file could not be written: no space, no permission, a name too
+ *  long, or a scan that blocked it.
+ */
+"file" | 
+/**
+ *  Haku stopped following it: its webview was destroyed, or Haku ended
+ *  while it ran. What became of the file is unknown.
+ */
+"lost" | "other";
+
+/**  Identifies one download, unique across runs: stored downloads keep theirs. */
+export type DownloadId = number;
+
+export type DownloadState = "inProgress" | "paused" | "completed" | "cancelled" | 
+/**  Stopped by a failure. [`Download::failure`] says which. */
+"failed";
+
+/**
+ *  The downloads a window lists, newest first, whenever one starts, moves
+ *  on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
+ * 
+ *  Each window receives only its own profile's downloads. A running download's
+ *  progress is sent at most four times a second.
+ */
+export type DownloadsChanged = Download[];
+
+/**  What a close ends beyond the tabs it closes. */
+export type Ending = 
+/**  It closes the last browser window, which quits Haku. */
+"quit" | 
+/**  It closes the last private tab, which ends the private session. */
+"privateSession";
 
 /**  An installed extension, as the interface lists it. */
 export type Extension = {

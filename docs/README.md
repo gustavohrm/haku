@@ -52,3 +52,4 @@ Start with [Architecture](architecture.md).
 | [Settings page](specs/settings-page.md)       | Sections, search and the row pattern of settings.       |
 | [Appearance](specs/appearance.md)             | Tab and bar layouts; floating bars and their reveal.    |
 | [Context menus](specs/context-menus.md)       | Page and interface menus; the menu component.           |
+| [Downloads](specs/downloads.md)               | Following downloads, the webviews they hold, storage.   |

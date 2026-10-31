@@ -3749,3 +3749,169 @@ fn creating_a_pair_moves_a_left_partner_to_the_selected_tabs_right() {
         [ids[2], ids[0], ids[1]]
     );
 }
+
+/// What a download in `slot` holds back, of the given profile.
+fn downloading(slot: SlotId, private: bool) -> Downloading {
+    Downloading {
+        slots: HashSet::from([slot]),
+        ordinary: usize::from(!private),
+        private: usize::from(private),
+    }
+}
+
+fn destroys(effects: &[Effect], slot: SlotId) -> bool {
+    effects.contains(&Effect::Destroy { slot })
+}
+
+#[test]
+fn a_parked_webview_running_a_download_is_kept_under_pressure() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.set_downloading(downloading(slot, false));
+    browser.set_pressure(Pressure::Tight);
+
+    let effects = browser.set_optimization(1, Policy::Always, Policy::Always);
+
+    assert!(slot_of(&browser, ids[0]).is_none(), "the tab is still discarded");
+    assert!(!destroys(&effects, slot));
+    assert!(browser.slot_ids().contains(&slot));
+}
+
+#[test]
+fn a_download_ending_lets_its_webview_go() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.set_downloading(downloading(slot, false));
+    browser.set_pressure(Pressure::Tight);
+    browser.set_optimization(1, Policy::Always, Policy::Always);
+
+    let effects = browser.set_downloading(Downloading::default());
+
+    assert!(destroys(&effects, slot));
+}
+
+#[test]
+fn a_tab_of_the_same_profile_loads_into_a_webview_running_a_download() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.set_downloading(downloading(slot, false));
+
+    let (next, effects) = browser.open_tab("https://b.test", true);
+
+    assert!(!destroys(&effects, slot));
+    assert_eq!(slot_of(&browser, next), Some(slot));
+}
+
+#[test]
+fn a_private_tab_never_replaces_an_ordinary_webview_running_a_download() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.set_downloading(downloading(slot, false));
+    browser.open_tab("https://b.test", true);
+
+    let (private, effects) = browser.open_private_window("https://secret.test");
+
+    assert!(!destroys(&effects, slot));
+    assert!(browser.slot_ids().contains(&slot));
+    assert!(slot_of(&browser, private).is_some_and(|private| private != slot));
+}
+
+#[test]
+fn lowering_capacity_keeps_a_webview_running_a_download() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test", "https://c.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.set_downloading(downloading(slot, false));
+
+    let effects = browser.set_capacity(1);
+
+    assert!(!destroys(&effects, slot));
+    assert!(browser.slot_ids().contains(&slot));
+}
+
+#[test]
+fn closing_a_window_moves_its_downloading_webview_to_another() {
+    let mut browser = Browser::new(2);
+    let (stays, _) = browser.open_tab("https://a.test", true);
+    let (closing, _) = browser.open_window("https://b.test");
+    let window = browser.window_of(closing).unwrap();
+    let slot = slot_of(&browser, closing).unwrap();
+    browser.set_downloading(downloading(slot, false));
+
+    let effects = browser.close_window(window);
+
+    let home = browser.window_of(stays).unwrap();
+    assert!(effects.contains(&Effect::Move { slot, window: home }));
+    assert!(!destroys(&effects, slot));
+    assert!(browser.slot_ids().contains(&slot));
+    assert!(effects.contains(&Effect::CloseWindow { window }));
+}
+
+#[test]
+fn quitting_with_a_download_running_asks_first_and_closes_nothing() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let window = browser.main_window();
+    browser.set_downloading(downloading(slot_of(&browser, ids[0]).unwrap(), false));
+    let held = Effect::ConfirmClose {
+        window,
+        tab: None,
+        ending: Ending::Quit,
+        downloads: 1,
+    };
+
+    assert_eq!(browser.ending(window, None), Some(Ending::Quit));
+    assert_eq!(browser.close_held(window, None), Some(held.clone()));
+    assert_eq!(browser.close_window(window), [held]);
+    assert!(browser.tab(ids[0]).is_ok(), "nothing was closed");
+    browser.set_downloading(Downloading::default());
+    assert_eq!(browser.close_held(window, None), None);
+}
+
+#[test]
+fn closing_the_last_private_tab_with_a_private_download_asks_first() {
+    let mut browser = Browser::new(2);
+    browser.open_tab("https://public.test", true);
+    let (private, _) = browser.open_private_window("https://secret.test");
+    let window = browser.window_of(private).unwrap();
+    browser.set_downloading(downloading(slot_of(&browser, private).unwrap(), true));
+
+    let effects = browser.close_tab(private, HOME).unwrap();
+
+    assert_eq!(
+        effects,
+        [Effect::ConfirmClose {
+            window,
+            tab: Some(private),
+            ending: Ending::PrivateSession,
+            downloads: 1
+        }]
+    );
+    assert!(browser.tab(private).is_ok(), "nothing was closed");
+    assert!(matches!(
+        browser.close_window(window)[..],
+        [Effect::ConfirmClose { tab: None, .. }]
+    ));
+}
+
+#[test]
+fn closes_that_cancel_no_download_are_not_held() {
+    let mut browser = Browser::new(3);
+    let (public, _) = browser.open_tab("https://public.test", true);
+    let (first, _) = browser.open_private_window("https://one.test");
+    let (second, _) = browser.open_private_window("https://two.test");
+    let public_slot = slot_of(&browser, public).unwrap();
+    browser.set_downloading(downloading(public_slot, false));
+
+    // Another private window keeps the session.
+    assert_eq!(browser.ending(browser.window_of(first).unwrap(), None), None);
+    // An ordinary download survives the private session.
+    assert_eq!(browser.close_held(browser.window_of(second).unwrap(), None), None);
+    browser.close_window(browser.window_of(first).unwrap());
+    assert_eq!(
+        browser.ending(browser.window_of(second).unwrap(), Some(second)),
+        Some(Ending::PrivateSession)
+    );
+    assert_eq!(
+        browser.close_held(browser.window_of(second).unwrap(), Some(second)),
+        None
+    );
+}

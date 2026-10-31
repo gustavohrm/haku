@@ -80,6 +80,9 @@ pub fn run() {
             if let Some(failure) = unopened {
                 app.state::<AppState>().held_failures.hold(failure);
             }
+            // Before any page exists to start one. Where it cannot be, the
+            // engine shows its own download interface instead.
+            let _ = ipc::downloads::observe(app.handle());
             if first_launch {
                 let _ = app.state::<AppState>().save_settings();
             }

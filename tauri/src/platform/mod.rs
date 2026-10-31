@@ -17,8 +17,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, MemoryStatus, PageDialog, PageMenu, Placement,
-    Shortcut, SlotId, WindowRequestId,
+    Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, DownloadId, MemoryStatus, PageDialog, PageMenu,
+    Placement, Settled, Shortcut, SlotId, WindowRequestId,
 };
 
 use memory::{Attribution, SlotMemoryTracker};
@@ -152,6 +152,49 @@ pub type FailureSink = Arc<dyn Fn(ProcessFailure) + Send + Sync>;
 /// anything that dispatches back to it.
 pub type PageSink = Arc<dyn Fn(PageSignal) + Send + Sync>;
 
+/// A download a content webview started, as the engine first describes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DownloadStart {
+    pub url: String,
+    /// Where the engine writes the file: the profile's download folder,
+    /// under a name it made unique.
+    pub path: String,
+    pub total: Option<u64>,
+}
+
+/// What the engine reports of a download after it started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DownloadSignal {
+    Progress {
+        received: u64,
+        total: Option<u64>,
+    },
+    Settled(Settled),
+    /// A failed download Haku resumed runs again into a new file, which the
+    /// engine names as it did the first.
+    Restarted {
+        path: String,
+        total: Option<u64>,
+    },
+}
+
+/// Lists a download a webview started, in the slot it ran in, and returns
+/// the id it is listed under. Called on the UI thread, so it must not block
+/// on anything that dispatches back to it.
+pub type DownloadStartSink = Arc<dyn Fn(Option<SlotId>, DownloadStart) -> DownloadId + Send + Sync>;
+
+/// Receives what the engine reports of a listed download. Called on the UI
+/// thread, like [`DownloadStartSink`].
+pub type DownloadSink = Arc<dyn Fn(DownloadId, DownloadSignal) + Send + Sync>;
+
+/// What can be done to a running download.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DownloadAction {
+    Pause,
+    Resume,
+    Cancel,
+}
+
 /// Receives the shortcuts pressed in a webview. Called on the UI thread, so it
 /// must not block on anything that dispatches back to it.
 pub type KeySink = Arc<dyn Fn(Shortcut) + Send + Sync>;
@@ -205,6 +248,55 @@ pub fn show_fatal(message: &str) {
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn observe_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, sink: PageSink) -> Result<()> {
     backend::observe_page(webview, sink)
+}
+
+/// Takes over every download content webviews start from here on, so the
+/// engine shows none of its own download interface and Haku lists them
+/// instead. Set once, before any content webview exists.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation,
+/// and when downloads are already observed.
+pub fn observe_downloads(started: DownloadStartSink, changed: DownloadSink) -> Result<()> {
+    backend::observe_downloads(started, changed)
+}
+
+/// Pauses, resumes or cancels a download Haku follows.
+///
+/// Must not be called on the UI thread, where the download is reached.
+///
+/// @returns Whether the engine still had the download to act on. It does not
+///   once the webview that ran it is gone.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation
+/// or when the engine refuses the action on a download it still has, and
+/// [`HakuError::WindowMissing`] when the UI thread does not answer.
+pub fn control_download<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: DownloadId,
+    action: DownloadAction,
+) -> Result<bool> {
+    backend::control_download(app, id, action)
+}
+
+/// Opens a downloaded file with the program the system associates with it.
+///
+/// Only for a path Haku recorded for a completed download, at the user's
+/// request: a page never names what is opened.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when it cannot be opened.
+pub fn open_file(path: &Path) -> Result<()> {
+    backend::open_file(path)
+}
+
+/// Shows a file selected in its folder, in the system's file manager.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when it cannot be shown.
+pub fn show_file(path: &Path) -> Result<()> {
+    backend::show_file(path)
 }
 
 /// Shows or hides a content surface without activating it or moving focus.
