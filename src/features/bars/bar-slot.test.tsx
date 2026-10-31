@@ -119,6 +119,17 @@ describe("BarSlot", () => {
     expect(revealed()).toBe(false);
   });
 
+  it("keeps its contents when it switches between docked and floating", async () => {
+    await render({ floating: false });
+    const input = host.querySelector("input")!;
+    input.value = "typed";
+
+    await render();
+
+    expect(host.querySelector("input")).toBe(input);
+    expect(input.value).toBe("typed");
+  });
+
   it("shows while a menu opened from it holds it", async () => {
     await render();
 
