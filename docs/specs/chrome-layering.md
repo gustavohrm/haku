@@ -80,7 +80,7 @@ useOverlay(ref, isOpen);
 
 `useOverlay` measures the element when it opens, as it resizes, and every frame while a transition or animation on it runs, then once more when it ends: a transform is not a resize, so a bar sliding in would otherwise stay registered where it started. Each measurement is one more layout report, coalesced per frame like the rest, so the region trails a moving element by the frames a report is in flight, and the part of it beyond the last measurement is hidden under the page for that long. Following stops after a second, in case an animation never reports its end.
 
-An element that animates away once it closes stays registered, followed the same way, until its animation ends, so it leaves visibly rather than vanishing under the page. One that closes without animating is released at once.
+An element that animates away once it closes stays registered, followed the same way, until its animation ends or the second runs out, so it leaves visibly rather than vanishing under the page. One that closes without animating is released at once.
 
 A cover over the whole viewport needs no overlay of its own. `useChromeLayout` measures all assigned pane surfaces together, including each pane's covered state. Internal pages, crashed-page notices and previews keep only their own pane solid. Split pane controls and the 5 CSS-pixel divider sit outside the measured page holes. The whole-interface failure screen covers every assignment. A preview over a reloading page uses the same per-pane cover ([Tab optimization § Previews](tab-optimization.md#previews)).
 

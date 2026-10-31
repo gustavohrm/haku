@@ -29,7 +29,7 @@ import { type SettingRowDefinition, type SettingSection } from "./types";
   new layout.
 */
 
-// The sidebar's settings only shape a sidebar.
+// These settings take effect only while the tabs are vertical.
 const unlessVerticalTabs = (settings: { tabLayout: string }) =>
   settings.tabLayout === "vertical" ? null : ("settings.needsVerticalTabs" as const);
 

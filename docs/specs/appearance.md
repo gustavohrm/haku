@@ -24,7 +24,7 @@ The defaults are what Haku drew before the settings existed, so an existing sett
 
 Each of the first four is an enum in Rust (`TabLayout`, `BarLayout`, `SidebarSide`, `ToolbarPlacement`) and a string union in the bindings. The width is a number that `sanitized` clamps to its bounds, as the webview capacity is. A stored value Haku does not know, such as a hand-edited `"Vertical"` or one written by a later version, reads as the default and leaves every other setting as stored. The next save writes that default over it, so the newer value is lost once anything in settings changes. `read_json` sets a whole file aside when it fails to deserialize, so a strict read would trade every setting for one unknown value. The leniency is written as the enums' own `Deserialize`, because a `deserialize_with` field attribute makes the binding generator split `Settings` into separate read and written types.
 
-Changing either goes through `set_settings` like any setting, and `SettingsChanged` reaches every window, which re-renders in the new layout at once. No command or event was added.
+Changing any of them goes through `set_settings` like any setting, and `SettingsChanged` reaches every window, which re-renders in the new layout at once. No command or event was added.
 
 Rejected:
 
@@ -53,7 +53,7 @@ Dragging does not scroll the column. A tab can be dropped on any position the co
 
 ## Spacing
 
-The chrome is compact: it is used all day, and every pixel of height it spends is taken from the page. One 3 px gap is every space in it: between the window's edge and what is inside it, the page and a bar, a bar's edge and its contents, the groups inside a bar, and the items of a group, such as the tabs and the buttons of a row. Controls are 28 px tall in the bars and 32 px in the column, so with horizontal tabs the page starts 64 px below the window's top edge, less than a compact Chromium-based browser's two rows take.
+The chrome is compact: it is used all day, and every pixel of height it spends is taken from the page. One 3 px gap is every space in it: between the window's edge and what is inside it, the page and a bar, a bar's edge and its contents, the groups inside a bar, and the items of a group, such as the tabs and the buttons of a row. Controls are 28 px tall in the bars and 32 px in the column, so with horizontal tabs the page starts 65 px below the window's top edge, less than a compact Chromium-based browser's two rows take.
 
 Controls in a bar have a 6 px radius; containers, the page and a floating card, take that plus the gap, so a control nests concentric in a card's corner. A window control is the exception to the gap: it is flush with the window's corner, as the platform draws it. The column's resizing edge is 6 px wide, wider than the gap it sits on, so it stays a target a pointer can find.
 
