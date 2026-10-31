@@ -11,7 +11,8 @@ const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 export function formatSize(bytes: number): string {
   let unit = 0;
   let value = bytes;
-  while (value >= 1024 && unit < UNITS.length - 1) {
+  // Rounded as shown, so 1023.7 kB reads as 1 MB rather than 1,024 kB.
+  while (unit < UNITS.length - 1 && Number(value.toFixed(unit < 2 ? 0 : 1)) >= 1024) {
     value /= 1024;
     unit += 1;
   }

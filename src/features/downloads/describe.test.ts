@@ -11,6 +11,7 @@ describe("download descriptions", () => {
   it("reads sizes in the unit they fill", () => {
     expect(formatSize(900)).toBe("900 byte");
     expect(formatSize(1536)).toBe("2 kB");
+    expect(formatSize(1024 * 1024 - 1)).toBe("1 MB");
     expect(formatSize(5.25 * 1024 * 1024)).toBe("5.3 MB");
   });
 
