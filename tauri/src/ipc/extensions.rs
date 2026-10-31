@@ -208,9 +208,7 @@ pub fn add(app: &tauri::AppHandle, window: &tauri::Window, source: ExtensionSour
         std::fs::create_dir_all(root)?;
         let staging = root.join(format!(".adding-{}", now_ms()));
         let unpacked = match source {
-            ExtensionSource::File => std::fs::read(&picked)
-                .map_err(HakuError::from)
-                .and_then(|bytes| package::unpack(&bytes, &staging)),
+            ExtensionSource::File => package::read(&picked).and_then(|bytes| package::unpack(&bytes, &staging)),
             ExtensionSource::Folder => package::copy_folder(&picked, &staging),
         };
         let added = unpacked.and_then(|()| place(app, &state, &staging));

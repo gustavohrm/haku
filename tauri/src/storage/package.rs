@@ -13,17 +13,41 @@ use crate::model::data_url;
 
 const MANIFEST: &str = "manifest.json";
 
+/// The most a picked file, and what it unpacks to, may hold. Extensions are a
+/// few megabytes; unpacking happens in memory, so a file that declares more
+/// is refused before it is read or inflated.
+pub const MAX_SIZE: usize = 512 * 1024 * 1024;
+
+/// Reads a picked `.crx` or `.zip`.
+///
+/// # Errors
+/// Fails when it cannot be read, or is larger than [`MAX_SIZE`].
+pub fn read(path: &Path) -> Result<Vec<u8>> {
+    let length = std::fs::metadata(path)?.len();
+    if usize::try_from(length).map_or(true, |length| length > MAX_SIZE) {
+        return Err(too_large());
+    }
+    Ok(std::fs::read(path)?)
+}
+
+fn too_large() -> HakuError {
+    HakuError::Unsupported(format!(
+        "it is larger than {} MB, far more than an extension needs",
+        MAX_SIZE / (1024 * 1024)
+    ))
+}
+
 /// Unpacks a `.crx` or `.zip` into `into`, creating it. A `.crx` signing key
 /// is written into the manifest as `key` when it has none, so the extension
 /// gets the id it has in the Chrome Web Store.
 ///
 /// # Errors
 /// Fails when `bytes` is neither, uses what an extension never needs, such
-/// as encryption or ZIP64, names a file outside the folder, or holds no
-/// `manifest.json`; and when writing fails.
+/// as encryption or ZIP64, names a file outside the folder, unpacks to more
+/// than [`MAX_SIZE`], or holds no `manifest.json`; and when writing fails.
 pub fn unpack(bytes: &[u8], into: &Path) -> Result<()> {
     let (key, archive) = split_crx(bytes)?;
-    let files = top_folder_removed(read_zip(archive)?);
+    let files = top_folder_removed(read_zip(archive, MAX_SIZE)?);
     if !files.iter().any(|(path, _)| path == MANIFEST) {
         return Err(no_manifest());
     }
@@ -198,7 +222,7 @@ fn protobuf_fields(mut message: &[u8]) -> Option<Vec<(u64, &[u8])>> {
 
 /// The files of a ZIP archive, by their path inside it with `/` between
 /// folders. Folder entries are left out; writing a file creates its folders.
-fn read_zip(archive: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
+fn read_zip(archive: &[u8], limit: usize) -> Result<Vec<(String, Vec<u8>)>> {
     const END: &[u8] = &[0x50, 0x4b, 0x05, 0x06];
     const CENTRAL: usize = 0x0201_4b50;
     const LOCAL: usize = 0x0403_4b50;
@@ -219,6 +243,7 @@ fn read_zip(archive: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
     }
 
     let mut files = Vec::with_capacity(count);
+    let mut total = 0usize;
     for _ in 0..count {
         if u32_at(archive, at) != Some(CENTRAL) {
             return Err(bad());
@@ -233,6 +258,11 @@ fn read_zip(archive: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
         let local = u32_at(archive, at + 42).ok_or_else(bad)?;
         let name = archive.get(at + 46..at + 46 + name_len).ok_or_else(bad)?;
         at += 46 + name_len + extra_len + comment_len;
+        // Counted from what each file declares, before any is inflated.
+        total = total.saturating_add(size);
+        if total > limit {
+            return Err(too_large());
+        }
 
         let name = String::from_utf8_lossy(name).replace('\\', "/");
         if name.ends_with('/') {
@@ -427,8 +457,15 @@ mod tests {
         let at = archive.len() - 2;
         archive[at..].copy_from_slice(&(comment.len() as u16).to_le_bytes());
         archive.extend(&comment);
-        let files = read_zip(&archive).unwrap();
+        let files = read_zip(&archive, MAX_SIZE).unwrap();
         assert_eq!(files[0].0, "manifest.json");
+    }
+
+    #[test]
+    fn an_archive_that_unpacks_past_the_limit_is_refused() {
+        let archive = zip(&[("manifest.json", b"{}"), ("a.js", &[0; 64])]);
+        assert!(read_zip(&archive, 66).is_ok());
+        assert!(matches!(read_zip(&archive, 65), Err(HakuError::Unsupported(_))));
     }
 
     #[test]
@@ -455,7 +492,7 @@ mod tests {
         assert_eq!(safe_path("/abs.js"), None);
         assert_eq!(safe_path("C:/x.js"), None);
         let archive = zip(&[("manifest.json", b"{}"), ("..\\evil.js", b"x")]);
-        assert!(read_zip(&archive).is_err());
+        assert!(read_zip(&archive, MAX_SIZE).is_err());
     }
 
     #[test]
