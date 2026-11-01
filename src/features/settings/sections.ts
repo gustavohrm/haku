@@ -23,6 +23,7 @@ import {
   ToolbarPlacementControl,
   VersionControl,
 } from "./controls";
+import { SHORTCUT_GROUPS } from "./shortcuts";
 import { type SettingRowDefinition, type SettingSection } from "./types";
 
 /*
@@ -229,6 +230,12 @@ export const SECTIONS: SettingSection[] = [
         ],
       },
     ],
+  },
+  {
+    id: "shortcuts",
+    icon: "ic-keyboard",
+    title: "settings.section.shortcuts",
+    groups: SHORTCUT_GROUPS,
   },
   {
     id: "about",

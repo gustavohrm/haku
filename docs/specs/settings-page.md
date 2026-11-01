@@ -20,6 +20,7 @@ Settings was one centred column of cards, each a heading over stacked form field
     Tabs & memory                 ░ Theme                   [▣][☼][☾]   ░
     Browsing                      ░ Light, dark, or the same as your     ░
     Extensions                    ░ system.                              ░
+    Shortcuts
     About                         ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
 ```
 
@@ -42,6 +43,7 @@ The current settings, regrouped by what a person comes looking for:
 | Tabs & memory | `haku://settings/tabs`       | Preset; loaded tabs; background memory; freeze; discard. **New:** kept sites, listed with a remove button.                                                        |
 | Browsing      | `haku://settings/browsing`   | Search engine; home page; site permissions, listed with a remove button ([Permissions](permissions.md)).                                                          |
 | Extensions    | `haku://settings/extensions` | Add extension; each extension with its switch, version and actions; folders that failed; the extensions folder ([Extensions § Settings](extensions.md#settings)). |
+| Shortcuts     | `haku://settings/shortcuts`  | Reset all; one row per action, grouped as Tabs, Windows, Page and Navigation ([Shortcuts](#shortcuts)).                                                           |
 | About         | `haku://settings/about`      | Version, the mark and wordmark, links to Memory (`haku://memory`) and History. **New**, read-only.                                                                |
 
 `haku://settings` shows Appearance. **Kept sites** are already stored in `Settings.keptSites` but can only be removed today by visiting each site in an ordinary window and opening its site menu; the list makes them reviewable. Private windows hide the site menu's kept-site control, and `set_settings` refuses a newly kept site from one, so a private visit cannot write a site-derived setting. Removing a kept site from settings works in any window. **About** needs the app version, which the interface reads with Tauri's `getVersion()` from `@tauri-apps/api/app`. The chrome's capability already grants it through `core:default`, so it needs no new command or permission.
@@ -68,4 +70,12 @@ Search is not part of the address. A query is a moment, not a place, and putting
 
 A disabled row used to explain itself in a tooltip on hover. Its reason now replaces its description, so it is visible without hovering and read with the control.
 
-Section icons are Lucide's `palette`, `gauge`, `globe`, `puzzle` and `info`.
+Section icons are Lucide's `palette`, `gauge`, `globe`, `puzzle`, `keyboard` and `info`.
+
+## Shortcuts
+
+Each action is a row: its name on the left; on the right its chords as chips, each with a remove button, then **Add** and, once the action differs from its defaults, **Reset**. [Shortcuts § Changing bindings](shortcuts.md#changing-bindings) owns what is stored and which chords are refused.
+
+- **Add** records: the button reads "Press a shortcut…" until a chord is pressed, Esc is pressed, or focus leaves it. A refused chord is shown with its reason and recording goes on. A chord another action uses is shown with that action's name, and **Use here** moves it, or **Cancel** drops it. A chord the action already has does nothing.
+- Rows are built from one list in `settings/shortcuts.tsx`, an action and its title per entry, so the sidebar and search find them like any other row. TypeScript requires an entry for every `Shortcut` Rust exports, so a new action cannot be left out of settings.
+- **Reset all shortcuts** clears `Settings.shortcuts`.
