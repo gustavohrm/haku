@@ -1,6 +1,7 @@
 import { type ChordRefusal, type KeyBinding, type Settings, type Shortcut } from "@bindings";
 import { commands } from "@ipc/commands";
 import { useKeymap } from "@ipc/hooks";
+import { keymapStore } from "@ipc/store";
 import { t, type TranslationKey } from "@shared/i18n";
 import { useEffect, useRef, useState } from "react";
 
@@ -123,11 +124,15 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
   // Each recording's turn, so the answer to one replaced or cancelled is not
   // taken as the current one's.
   const turn = useRef(0);
+  // Whether Rust holds a recording for this row, which leaving must cancel.
+  // A finished one must not be: another row may be recording by then.
+  const pending = useRef(false);
   const messageId = `shortcut-message-${shortcut}`;
 
   useEffect(
     () => () => {
-      if (turn.current > 0) {
+      if (pending.current) {
+        pending.current = false;
         turn.current++;
         void commands.cancelShortcutRecording();
       }
@@ -140,11 +145,13 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
     let refused: { chord: string; refusal: ChordRefusal } | null = null;
     for (;;) {
       setRecording({ kind: "waiting", refused });
+      pending.current = true;
       // oxlint-disable-next-line no-await-in-loop -- Each chord is asked for once the last was refused.
       const result = await commands.recordShortcut();
       if (mine !== turn.current) {
         return;
       }
+      pending.current = false;
       const recorded = result.status === "ok" ? result.data : null;
       if (recorded === null) {
         setRecording({ kind: "idle" });
@@ -154,14 +161,16 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
         refused = { chord: recorded.chord, refusal: recorded.refusal };
         continue;
       }
-      const owner = keymap.find((binding) => binding.shortcut !== shortcut && binding.chords.includes(recorded.chord));
+      // The keymap as it is now: another window may have changed it meanwhile.
+      const latest = keymapStore.get();
+      const owner = latest.find((binding) => binding.shortcut !== shortcut && binding.chords.includes(recorded.chord));
       if (owner) {
         setRecording({ kind: "conflict", chord: recorded.chord, owner: owner.shortcut });
         return;
       }
       setRecording({ kind: "idle" });
-      if (!chords.includes(recorded.chord)) {
-        void update((current) => withChord(current, keymap, shortcut, recorded.chord));
+      if (!chordsOf(latest, shortcut).includes(recorded.chord)) {
+        void update((current) => withChord(current, keymapStore.get(), shortcut, recorded.chord));
       }
       return;
     }
@@ -169,6 +178,7 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
 
   const stopRecording = () => {
     if (recording.kind === "waiting") {
+      pending.current = false;
       turn.current++;
       setRecording({ kind: "idle" });
       void commands.cancelShortcutRecording();
@@ -197,7 +207,7 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
                 className="btn icon ghost p-xs [--ui-radius:var(--radius-small)]"
                 aria-label={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
                 title={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
-                onClick={() => void update((current) => withoutChord(current, keymap, shortcut, chord))}
+                onClick={() => void update((current) => withoutChord(current, keymapStore.get(), shortcut, chord))}
               >
                 <i className="ic-x ic-sm" aria-hidden="true" />
               </button>
@@ -249,7 +259,7 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
                 onClick={() => {
                   const { chord } = recording;
                   setRecording({ kind: "idle" });
-                  void update((current) => withChord(current, keymap, shortcut, chord));
+                  void update((current) => withChord(current, keymapStore.get(), shortcut, chord));
                 }}
               >
                 {t("settings.shortcuts.useHere")}

@@ -200,6 +200,55 @@ describe("ShortcutControl", () => {
     expect(container.textContent).not.toContain("Press a shortcut…");
   });
 
+  it("ignores a chord that arrives after the recording was cancelled", async () => {
+    const update = vi.fn<UpdateSettings>(async () => null);
+    let answer = (_: { status: "ok"; data: RecordedChord | null }) => {};
+    recordShortcut.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    render("reload", update);
+
+    await act(async () => button("Add a shortcut").click());
+    act(() => button("Press a shortcut…").dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await act(async () => answer({ status: "ok", data: { chord: "Ctrl+Alt+R", refusal: null } }));
+
+    expect(update).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Press a shortcut…");
+  });
+
+  it("cancels a pending recording when the row goes away", async () => {
+    answers();
+    render("reload", async () => null);
+
+    await act(async () => button("Add a shortcut").click());
+    act(() => root.render(null));
+
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("leaves Rust alone when the row goes away after its recording finished", async () => {
+    answers({ chord: "Ctrl+Alt+R", refusal: null });
+    render("reload", async () => null);
+
+    await act(async () => button("Add a shortcut").click());
+    act(() => root.render(null));
+
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("checks a recorded chord against the keymap as it is when the chord arrives", async () => {
+    const update = vi.fn<UpdateSettings>(async () => null);
+    let answer = (_: { status: "ok"; data: RecordedChord | null }) => {};
+    recordShortcut.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    render("reload", update);
+
+    await act(async () => button("Add a shortcut").click());
+    // Another window binds Ctrl+Alt+R to Home while this one records.
+    act(() => keymapStore.set([...KEYMAP, { shortcut: "home", chords: ["Ctrl+Alt+R"], defaults: ["Alt+Home"] }]));
+    await act(async () => answer({ status: "ok", data: { chord: "Ctrl+Alt+R", refusal: null } }));
+
+    expect(container.textContent).toContain("Ctrl+Alt+R is used by Go to the home page.");
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it("removes a chord", () => {
     const update = vi.fn<UpdateSettings>(async () => null);
     render("reload", update);
