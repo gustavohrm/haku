@@ -35,11 +35,13 @@ The cost is that anything drawn over the page must be opaque, and must register 
 
 ### Rounded page corners
 
-The page is a native view, so CSS cannot clip it. The hole is cut with `CreateRoundRectRgn` instead: the chrome keeps painting the corners and the page shows through the curve.
+The page is a native view, so CSS cannot clip it. The hole is cut in the region instead: the chrome keeps painting the corners and the page shows through the curve.
 
-The radius comes from the interface, which reads it back from its own stylesheet with `getComputedStyle`, so `--haku-viewport-radius` stays the one place that number is written. Region edges are hard rather than antialiased; at the radius in use this is not noticeable, and softening it would mean giving up the region approach for one that depends on webview transparency.
+The radius comes from the interface, which reads it back from its own stylesheet with `getComputedStyle`, so `--haku-viewport-radius` stays the one place that number is written. Region edges are hard rather than antialiased; softening them would mean giving up the region approach for one that depends on webview transparency. What the hard edge can do is follow the curve CSS draws: a pixel is in the region when its centre lies inside the rounded box, computed from the box's exact device-pixel bounds, so the edge runs through the middle of the antialiased one on all four sides. `CreateRoundRectRgn` does not do that. Its curve steps unevenly and sits up to two pixels inside the drawn one, it leaves out the last column and row, and given bounds already rounded to whole pixels it shifts the curve by up to half a pixel a different way on each side, which showed as one smooth corner beside a jagged one. The region is built from the shape's rows instead (`RoundedRect::spans`).
 
-Overlays are rounded the same way, from the other side. Each one is reported with the corner radius its own style computes, and added back to the region with `CreateRoundRectRgn`; a square patch would paint chrome over the page at a rounded overlay's corners.
+Overlays are rounded the same way, from the other side. Each one is reported with the corner radius its own style computes, and added back to the region with the same rounded shape; a square patch would paint chrome over the page at a rounded overlay's corners.
+
+An overlay takes only the pixels it covers wholly, where a hole takes those whose centre it covers (`Edge` in `platform`). The chrome paints an overlay over its own background, not over the page, so a pixel an overlay's antialiased edge only partly covers is blended with that background. Over a light page those pixels showed as a dark, stepped fringe along a toast's corners. Left to the page, they give an edge that is hard but the right colour. A hole needs no such care: the chrome paints outside its curve and blends its corner with its own colour.
 
 ## The contract with the interface
 
