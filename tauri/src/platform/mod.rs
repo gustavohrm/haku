@@ -17,7 +17,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, DownloadId, FindDirection, MemoryStatus,
+    Chord, Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, DownloadId, FindDirection, MemoryStatus,
     PageDialog, PageMenu, PermissionRequest, PermissionRequestId, Placement, Settled, Shortcut, SlotId,
     WindowRequestId,
 };
@@ -297,15 +297,16 @@ pub enum DownloadAction {
     Cancel,
 }
 
-/// Receives the shortcuts pressed in a webview. Called on the UI thread, so it
-/// must not block on anything that dispatches back to it.
-pub type KeySink = Arc<dyn Fn(Shortcut) + Send + Sync>;
+/// Receives each chord pressed in a webview, and whether it is a held key
+/// repeating, and answers whether it is consumed. Called on the UI thread, so
+/// it must not block on anything that dispatches back to it.
+pub type KeySink = Arc<dyn Fn(Chord, bool) -> bool + Send + Sync>;
 
-/// Reports the shortcuts pressed in the chrome to `sink`.
+/// Reports the chords pressed in the chrome to `sink`.
 ///
-/// A key bound in [`crate::model::keymap`] is consumed natively, before the
-/// webview acts on it, so it never reaches the interface or the engine's own
-/// handling of the key. Content webviews report theirs as
+/// A chord the sink consumes, as it does one bound in
+/// [`crate::model::keymap`], is kept from the webview, so it never reaches
+/// the interface or the engine's own handling of the key. Content webviews report theirs as
 /// [`PageSignal::Shortcut`] instead, attached by [`observe_page`], so a
 /// shortcut works wherever focus is without the page taking part.
 ///

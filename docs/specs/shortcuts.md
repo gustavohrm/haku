@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-30
-scope: Browser keyboard shortcuts, how they are read wherever focus is, and reopening closed tabs.
+last_updated: 2026-11-01
+scope: Browser keyboard shortcuts, how they are read wherever focus is, rebinding them, and reopening closed tabs.
 ---
 
 # Shortcuts
@@ -24,7 +24,7 @@ Native content focus is observed through `ICoreWebView2Controller::GotFocus` (`F
 
 Ctrl+Shift+N opens a private browser window (`NewPrivateWindow`); Ctrl+N opens an ordinary browser window. Tabs opened from a private popup use the private browser window used last. Private tabs never enter the closed-tab stack, so Ctrl+Shift+T can only reopen ordinary tabs, in an ordinary window.
 
-Bindings follow Chrome's, because that is what users' hands already know. Modifiers match exactly: Ctrl+Shift+W is not Ctrl+W.
+The default bindings follow Chrome's, because that is what users' hands already know. Modifiers match exactly: Ctrl+Shift+W is not Ctrl+W. Every binding can be changed in settings ([Changing bindings](#changing-bindings)); the table lists the defaults.
 
 | Keys                         | Does                                                                            |
 | ---------------------------- | ------------------------------------------------------------------------------- |
@@ -35,7 +35,7 @@ Bindings follow Chrome's, because that is what users' hands already know. Modifi
 | Ctrl+Shift+T                 | Reopen the last closed tab                                                      |
 | Ctrl+Tab, Ctrl+PageDown      | Next tab, wrapping                                                              |
 | Ctrl+Shift+Tab, Ctrl+PageUp  | Previous tab, wrapping                                                          |
-| Ctrl+1 … Ctrl+8              | The tab at that position                                                        |
+| Ctrl+1 … Ctrl+8              | The tab at that position, each its own action (`tab1` … `tab8`)                 |
 | Ctrl+9                       | The last tab                                                                    |
 | Ctrl+L, Alt+D, F6            | Focus the address field                                                         |
 | Ctrl+R, F5                   | Reload                                                                          |
@@ -51,7 +51,19 @@ Bindings follow Chrome's, because that is what users' hands already know. Modifi
 | Ctrl+P                       | Print the focused tab's page                                                    |
 | Ctrl+S                       | Save the focused tab's page                                                     |
 
-The keymap is fixed. Configurable bindings are deferred to their own spec because they require a settings format.
+`model::keymap::DEFAULTS` is the table: each action with its default chords, in this order. Adding a shortcut is a `Shortcut` variant, a line in that table, its arm in `ipc/shortcuts.rs`, and its row and title in the interface ([Settings page § Shortcuts](settings-page.md#shortcuts)). Nothing else repeats a chord: the context menus read their hints from the keymap Rust reports.
+
+## Changing bindings
+
+Decided by the maintainer on 2026-11-01.
+
+- **Stored as exceptions.** `Settings.shortcuts` maps an action's id (`Shortcut`, camelCase, such as `closeTab`) to its chords, only for actions the user changed. An empty list leaves the action unbound. An action left out keeps its defaults, so a default changed in a later release reaches everyone who did not change that action. An entry equal to the defaults is dropped when stored.
+- **Chords are text**, written `Ctrl+Alt+Shift+Key` in that modifier order, such as `Ctrl+Shift+T` or `Alt+Shift+N`. Key names are the letter, the digit, `F1` … `F24`, `Tab`, `Left`, `Right`, `Up`, `Down`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete` and `Esc`. Stored chords are rewritten in that form; one that does not read, or that is refused, is dropped, as is an unknown action. A chord listed under two actions stays with the first in table order.
+- **The user's binding wins.** A chord the user gave an action is taken from any action that has it by default, for as long as the user's binding stands. Resetting the action gives it back. Recording a chord another action uses names that action and, once confirmed, moves the chord.
+- **Refused chords.** A chord must hold Ctrl or Alt, or be a function key, or be Shift+Esc. Anything else would take a key the user types or selects text with away from every page, since bound keys never reach the page. Ctrl, Ctrl+Shift or Ctrl+Alt with A, C, V, X, Y or Z, and Ctrl or Ctrl+Shift with Insert, Delete, Home, End or an arrow key, are refused too, because pages and text fields edit and move by them. So is Alt+F4, which closes the window. Every default is accepted under these rules.
+- **Recorded natively.** A bound chord never reaches the interface, so the settings page could not read a press of Ctrl+T. `record_shortcut` instead asks Rust for the next chord pressed in the caller's window: it answers with the chord and, when refused, why (`ChordRefusal`). Plain Esc, `cancel_shortcut_recording`, or another recording in the same window answers it with nothing. While a window records, its interface's chords run no shortcut; keys without Ctrl, Alt or a function key still reach the interface, so recording does not trap Tab. Pages are unaffected. A recording left pending when its window's interface reloads takes that window's next chord and ends.
+- **Read back as a keymap.** `keymap` lists every action, in table order, with its chords now and its defaults. The interface reads it at start and again after every `SettingsChanged`.
+- **Not yet bindable:** punctuation keys, such as `Ctrl+,` or `Ctrl+=`. Their virtual keys move with the keyboard layout, so a stored name would not say which key was meant.
 
 ## Focusing the address field
 

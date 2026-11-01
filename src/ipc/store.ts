@@ -6,7 +6,15 @@
  * step with the webviews it is describing.
  */
 
-import { events, type BrowserState, type Download, type Extensions, type Preset, type Settings } from "@bindings";
+import {
+  events,
+  type BrowserState,
+  type Download,
+  type Extensions,
+  type KeyBinding,
+  type Preset,
+  type Settings,
+} from "@bindings";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { commands, reportFailure } from "./commands";
@@ -64,6 +72,23 @@ export const settingsStore = createStore<Settings | null>(null);
 export const extensionsStore = createStore<Extensions | null>(null);
 /** The downloads this window lists, newest first. */
 export const downloadsStore = createStore<Download[]>([]);
+/** Every shortcut with its chords, in Rust's table order; empty until it loads. */
+export const keymapStore = createStore<KeyBinding[]>([]);
+
+/** How many keymap reads were started, so a slower, older one is not kept. */
+let keymapReads = 0;
+
+/**
+ * Reads the keymap Rust has in effect. The keymap follows the settings, so
+ * this runs again whenever they change.
+ */
+async function loadKeymap(): Promise<void> {
+  const read = ++keymapReads;
+  const keymap = await unwrap(commands.keymap());
+  if (read === keymapReads) {
+    keymapStore.set(keymap);
+  }
+}
 
 /**
  * Subscribes to Rust's state events and loads the first snapshot.
@@ -88,7 +113,12 @@ export async function connect(): Promise<() => void> {
       browserStore.set(event.payload);
     }),
     events.failureReported(getCurrentWebview()).listen((event) => reportFailure(event.payload)),
-    events.settingsChanged.listen((event) => settingsStore.set(event.payload)),
+    events.settingsChanged.listen((event) => {
+      settingsStore.set(event.payload);
+      // A failure is reported by the command wrapper; the hints keep the
+      // keymap read last.
+      loadKeymap().catch(() => {});
+    }),
     // The folder is installed after startup, possibly once this has loaded.
     events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
     // Each window lists its own profile's downloads only.
@@ -109,6 +139,7 @@ export async function connect(): Promise<() => void> {
       }
     }),
     unwrap(commands.getSettings()).then((settings) => settingsStore.set(settings)),
+    loadKeymap(),
     unwrap(commands.extensions()).then((extensions) => {
       // Installing can finish between the snapshot being read and arriving,
       // and its event is then the newer of the two.

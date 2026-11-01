@@ -1,8 +1,85 @@
 //! Shortcut ownership is captured on receipt; targets are resolved in queue order.
+//! Recording a chord for settings happens here too, since it takes the chords
+//! the interface would otherwise run.
+
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex, PoisonError};
+
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tauri::async_runtime::{channel, Receiver, Sender};
 
 use crate::browser::{Browser, Effect, Pick};
 use crate::error::Result;
-use crate::model::{Shortcut, SlotId, TabId, WindowId, WindowKind};
+use crate::model::{Chord, ChordRefusal, Key, Shortcut, SlotId, TabId, WindowId, WindowKind};
+
+/// A chord pressed for settings to bind.
+/// [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordedChord {
+    pub chord: String,
+    /// Why it cannot be bound, or `None` when it can.
+    pub refusal: Option<ChordRefusal>,
+}
+
+impl From<Chord> for RecordedChord {
+    fn from(chord: Chord) -> Self {
+        Self {
+            chord: chord.to_string(),
+            refusal: chord.refusal(),
+        }
+    }
+}
+
+/// The recording pending in each window, answered by the next chord pressed
+/// in its interface. Held only briefly: the key handler takes it on the UI
+/// thread.
+static RECORDINGS: LazyLock<Mutex<HashMap<WindowId, Sender<Option<Chord>>>>> = LazyLock::new(Mutex::default);
+
+/// Starts recording in `window`, answering any recording already pending
+/// there with nothing. The receiver gets the chord, or nothing when cancelled.
+pub(super) fn start_recording(window: WindowId) -> Receiver<Option<Chord>> {
+    let (sender, receiver) = channel(1);
+    let previous = RECORDINGS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(window, sender);
+    if let Some(previous) = previous {
+        let _ = previous.try_send(None);
+    }
+    receiver
+}
+
+/// Answers the recording pending in `window`, if any, with nothing.
+pub(super) fn cancel_recording(window: WindowId) {
+    let pending = RECORDINGS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&window);
+    if let Some(pending) = pending {
+        let _ = pending.try_send(None);
+    }
+}
+
+/// Gives `chord` to the recording pending in `window`, and answers whether
+/// one took it. Plain Esc cancels the recording. Keys without Ctrl, Alt or a
+/// function key reach the interface as usual, so Tab still moves focus.
+pub(super) fn record(window: WindowId, chord: Chord) -> bool {
+    let typed = !chord.ctrl && !chord.alt && !matches!(chord.key, Key::Function(_)) && chord.key != Key::Escape;
+    if typed {
+        return false;
+    }
+    let pending = RECORDINGS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&window);
+    let Some(pending) = pending else {
+        return false;
+    };
+    let _ = pending.try_send((chord != Chord::plain(Key::Escape)).then_some(chord));
+    true
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct Request {
@@ -85,9 +162,8 @@ impl Request {
         let pick = match shortcut {
             Shortcut::NextTab => Some(Pick::Next),
             Shortcut::PreviousTab => Some(Pick::Previous),
-            Shortcut::NthTab(index) => Some(Pick::Nth(index)),
             Shortcut::LastTab => Some(Pick::Last),
-            _ => None,
+            _ => shortcut.tab_index().map(Pick::Nth),
         };
         if let Some(pick) = pick {
             if let Some(tab) = browser.pick_in(self.window, pick) {
@@ -166,9 +242,75 @@ impl Request {
                 });
                 Vec::new()
             }
-            Shortcut::NextTab | Shortcut::PreviousTab | Shortcut::NthTab(_) | Shortcut::LastTab => unreachable!(),
+            Shortcut::NextTab
+            | Shortcut::PreviousTab
+            | Shortcut::Tab1
+            | Shortcut::Tab2
+            | Shortcut::Tab3
+            | Shortcut::Tab4
+            | Shortcut::Tab5
+            | Shortcut::Tab6
+            | Shortcut::Tab7
+            | Shortcut::Tab8
+            | Shortcut::LastTab => unreachable!(),
         };
         Ok(action)
+    }
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+
+    fn answer(receiver: &mut Receiver<Option<Chord>>) -> Option<Option<Chord>> {
+        receiver.try_recv().ok()
+    }
+
+    #[test]
+    fn a_recording_takes_the_next_chord_once() {
+        let window = WindowId(9001);
+        let mut receiver = start_recording(window);
+        assert!(!record(window, Chord::plain(Key::Tab)), "Tab still moves focus");
+        assert!(record(window, Chord::ctrl(Key::Letter('T'))));
+        assert_eq!(answer(&mut receiver), Some(Some(Chord::ctrl(Key::Letter('T')))));
+        assert!(
+            !record(window, Chord::ctrl(Key::Letter('T'))),
+            "the next press runs its shortcut"
+        );
+    }
+
+    #[test]
+    fn esc_another_recording_or_cancelling_answers_with_nothing() {
+        let window = WindowId(9002);
+        let mut first = start_recording(window);
+        assert!(record(window, Chord::plain(Key::Escape)));
+        assert_eq!(answer(&mut first), Some(None));
+
+        let mut second = start_recording(window);
+        let mut third = start_recording(window);
+        assert_eq!(answer(&mut second), Some(None));
+        cancel_recording(window);
+        assert_eq!(answer(&mut third), Some(None));
+    }
+
+    #[test]
+    fn shift_esc_and_refused_chords_are_recorded_with_their_refusal() {
+        let window = WindowId(9003);
+        let mut receiver = start_recording(window);
+        assert!(record(window, Chord::shift(Key::Escape)));
+        assert_eq!(answer(&mut receiver), Some(Some(Chord::shift(Key::Escape))));
+        assert_eq!(
+            RecordedChord::from(Chord::ctrl(Key::Letter('C'))),
+            RecordedChord {
+                chord: "Ctrl+C".into(),
+                refusal: Some(ChordRefusal::Reserved),
+            }
+        );
+    }
+
+    #[test]
+    fn a_window_not_recording_takes_nothing() {
+        assert!(!record(WindowId(9004), Chord::ctrl(Key::Letter('T'))));
     }
 }
 
@@ -202,7 +344,9 @@ mod tests {
     }
 
     fn run(browser: &mut Browser, chord: crate::model::Chord) -> Action {
-        let shortcut = crate::model::shortcut_for(chord).expect("approved shortcut");
+        let shortcut = crate::model::Keymap::default()
+            .shortcut_for(chord)
+            .expect("approved shortcut");
         Request::chrome(browser.main_window())
             .prepare(browser, shortcut, HOME, 1)
             .unwrap()

@@ -43,7 +43,7 @@ Start with [Architecture](architecture.md).
 | [Tab optimization](specs/tab-optimization.md)    | Which tabs keep a webview, and why; previews on reload.       |
 | [Chrome layering](specs/chrome-layering.md)      | How the interface renders above page content.                 |
 | [Page observation](specs/page-observation.md)    | How page URLs become tab history; page dialogs.               |
-| [Shortcuts](specs/shortcuts.md)                  | The keymap, native key handling, reopening closed tabs.       |
+| [Shortcuts](specs/shortcuts.md)                  | The keymap, rebinding, native key handling, reopened tabs.    |
 | [Extensions](specs/extensions.md)                | Installing unpacked extensions, the toolbar, popups.          |
 | [Windows and popups](specs/new-windows.md)       | Browser windows, popups, and links that open them.            |
 | [Tests](specs/tests.md)                          | Test categories, locations, tooling, and coverage.            |

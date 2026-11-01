@@ -4,13 +4,13 @@
  * [Context menus](../../../docs/specs/context-menus.md).
  */
 
-import type { BrowserState, ContextMenuRequested, NativeMenuItem, Tab, TabId } from "@bindings";
+import type { BrowserState, ContextMenuRequested, NativeMenuItem, Shortcut, Tab, TabId } from "@bindings";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { tidySeparators, type MenuItem } from "@features/overlays/menu-model";
 import { t } from "@shared/i18n";
 import { invoke } from "@tauri-apps/api/core";
 
-import { SHORTCUT_HINTS } from "./shortcut-hints";
+import { shortcutHint } from "./shortcut-hints";
 
 // Prefixed, because a separator is often named after the item it introduces
 // and the menu keys its rows by id.
@@ -76,7 +76,7 @@ export function tabMenu(
   const pair = splits.find((split) => split.tabs.includes(tab.id));
   const isPaired = pair !== undefined;
   // Chords act on the focused tab; a background tab's menu acts on that tab.
-  const hint = (shortcut: string) => (tab.id === active ? shortcut : null);
+  const hint = (shortcut: Shortcut) => (tab.id === active ? shortcutHint(shortcut) : null);
   const isSelectedPaired = active !== null && splits.some((split) => split.tabs.includes(active));
   const disabledReason = isSelectedPaired
     ? t("split.selectedPaired")
@@ -89,14 +89,14 @@ export function tabMenu(
     {
       kind: "command",
       id: "reload",
-      shortcut: hint(SHORTCUT_HINTS.reload),
+      shortcut: hint("reload"),
       label: t("menu.reload"),
       onSelect: () => actions.reload(tab.id),
     },
     {
       kind: "command",
       id: "duplicate",
-      shortcut: hint(SHORTCUT_HINTS.duplicate),
+      shortcut: hint("duplicateTab"),
       label: t("menu.duplicate"),
       disabled: url === null,
       onSelect: () => url !== null && actions.duplicate(url),
@@ -122,7 +122,7 @@ export function tabMenu(
           {
             kind: "command" as const,
             id: "separate",
-            shortcut: active !== null && pair?.tabs.includes(active) ? SHORTCUT_HINTS.separate : null,
+            shortcut: active !== null && pair?.tabs.includes(active) ? shortcutHint("toggleSplit") : null,
             label: t("split.separate"),
             onSelect: () => actions.separate(tab.id),
           },
@@ -131,7 +131,7 @@ export function tabMenu(
     {
       kind: "command",
       id: "close",
-      shortcut: hint(SHORTCUT_HINTS.close),
+      shortcut: hint("closeTab"),
       label: t("menu.close"),
       onSelect: () => actions.close([tab.id]),
     },
@@ -155,11 +155,11 @@ export function tabMenu(
 /** The tab strip's menu, away from any tab. */
 export function stripMenu(actions: { newTab: () => void; reopen: () => void }): MenuItem[] {
   return interfaceMenu([
-    { kind: "command", id: "new", shortcut: SHORTCUT_HINTS.newTab, label: t("tabs.new"), onSelect: actions.newTab },
+    { kind: "command", id: "new", shortcut: shortcutHint("newTab"), label: t("tabs.new"), onSelect: actions.newTab },
     {
       kind: "command",
       id: "reopen",
-      shortcut: SHORTCUT_HINTS.reopen,
+      shortcut: shortcutHint("reopenClosedTab"),
       label: t("menu.reopenClosed"),
       onSelect: actions.reopen,
     },
@@ -271,7 +271,7 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
       {
         kind: "command",
         id: "back",
-        shortcut: SHORTCUT_HINTS.back,
+        shortcut: shortcutHint("back"),
         label: t("toolbar.back"),
         disabled: !history || history.index <= 0,
         onSelect: actions.back,
@@ -279,7 +279,7 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
       {
         kind: "command",
         id: "forward",
-        shortcut: SHORTCUT_HINTS.forward,
+        shortcut: shortcutHint("forward"),
         label: t("toolbar.forward"),
         disabled: !history || history.index >= history.entries.length - 1,
         onSelect: actions.forward,
@@ -287,21 +287,21 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
       {
         kind: "command",
         id: "reload",
-        shortcut: SHORTCUT_HINTS.reload,
+        shortcut: shortcutHint("reload"),
         label: t("toolbar.reload"),
         onSelect: actions.reload,
       },
       {
         kind: "command",
         id: "print",
-        shortcut: SHORTCUT_HINTS.print,
+        shortcut: shortcutHint("print"),
         label: t("menu.print"),
         onSelect: actions.print,
       },
       {
         kind: "command",
         id: "savePage",
-        shortcut: SHORTCUT_HINTS.savePage,
+        shortcut: shortcutHint("savePage"),
         label: t("menu.savePage"),
         onSelect: actions.savePage,
       },
@@ -318,7 +318,7 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
   items.push({
     kind: "command",
     id: "inspect",
-    shortcut: SHORTCUT_HINTS.inspect,
+    shortcut: shortcutHint("devTools"),
     label: t("menu.inspect"),
     onSelect: actions.inspect,
   });
