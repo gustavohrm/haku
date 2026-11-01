@@ -10,7 +10,7 @@ scope: Browser keyboard shortcuts, how they are read wherever focus is, and reop
 
 [First release § Keyboard input](../first-release.md#keyboard-input-while-a-page-has-focus) settles the mechanism: keys are intercepted natively, through WebView2's `AcceleratorKeyPressed`, and there is one keymap, in Rust (`model::keymap`).
 
-The handler is attached to the chrome and to every content webview, so a shortcut does the same thing wherever focus is. A key the keymap binds is marked handled before the webview acts on it: neither the page nor the engine's own handling of the key sees it, so a page cannot override Ctrl+W. A key the keymap does not bind passes through untouched, which is what leaves copy, paste, find, print and zoom to the page and the engine.
+The handler is attached to the chrome and to every content webview, so a shortcut does the same thing wherever focus is. A key the keymap binds is marked handled before the webview acts on it: neither the page nor the engine's own handling of the key sees it, so a page cannot override Ctrl+W. A key the keymap does not bind passes through untouched, which is what leaves copy, paste and zoom to the page and the engine. Find, print and save are bound, so Haku runs them ([Find, print and save](find-print-save.md)).
 
 A held key repeats. Only the first press runs its shortcut; repeats are still kept from the page. Otherwise holding Ctrl+T would open a tab per repeat.
 
@@ -47,6 +47,9 @@ Bindings follow Chrome's, because that is what users' hands already know. Modifi
 | Shift+Esc                    | Open `haku://memory` in a foreground tab                                        |
 | Ctrl+Shift+K                 | Duplicate the focused tab's current URL in a foreground tab                     |
 | F12, Ctrl+Shift+I            | Developer tools for the tab's page                                              |
+| Ctrl+F                       | Find in the focused tab's page                                                  |
+| Ctrl+P                       | Print the focused tab's page                                                    |
+| Ctrl+S                       | Save the focused tab's page                                                     |
 
 The keymap is fixed. Configurable bindings are deferred to their own spec because they require a settings format.
 
