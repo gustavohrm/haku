@@ -57,6 +57,8 @@ function actions(): PageActions {
     back: vi.fn(),
     forward: vi.fn(),
     reload: vi.fn(),
+    print: vi.fn(),
+    savePage: vi.fn(),
     inspect: vi.fn(),
     openInTab: vi.fn(),
     openInWindow: vi.fn(),
@@ -218,11 +220,25 @@ describe("pageMenu", () => {
   });
   it("offers navigation on the page itself, from the tab's history", () => {
     const items = pageMenu(request({}), tab(1, ["a", "b"], 1), actions());
-    expect(ids(items).slice(0, 3)).toEqual(["back", "forward", "reload"]);
+    expect(ids(items).slice(0, 6)).toEqual(["back", "forward", "reload", "print", "savePage", "separator:afterPage"]);
     expect(find(items, "back")).toMatchObject({ disabled: false, shortcut: "Alt+Left" });
     expect(find(items, "forward")).toMatchObject({ disabled: true, shortcut: "Alt+Right" });
     expect(find(items, "reload")).toMatchObject({ shortcut: "Ctrl+R" });
     expect(find(items, "inspect")).toMatchObject({ shortcut: "F12" });
+  });
+
+  it("prints and saves the page itself, with their chords", () => {
+    const acts = actions();
+    const items = pageMenu(request({}), tab(1), acts);
+    expect(find(items, "print")).toMatchObject({ label: "Print\u2026", shortcut: "Ctrl+P" });
+    expect(find(items, "savePage")).toMatchObject({ label: "Save as\u2026", shortcut: "Ctrl+S" });
+    select(find(items, "print"));
+    select(find(items, "savePage"));
+    expect(acts.print).toHaveBeenCalledOnce();
+    expect(acts.savePage).toHaveBeenCalledOnce();
+    const linkItems = pageMenu(request({ linkUrl: "https://link/" }), tab(1), acts);
+    expect(find(linkItems, "print")).toBeUndefined();
+    expect(find(linkItems, "savePage")).toBeUndefined();
   });
 
   it("drops navigation over a link, and opens the link", () => {

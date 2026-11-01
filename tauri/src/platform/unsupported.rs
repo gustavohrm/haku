@@ -9,9 +9,13 @@
 use std::path::Path;
 
 use super::memory::EngineSnapshot;
-use super::{DownloadAction, DownloadSink, DownloadStartSink, FailureSink, KeySink, PageSink, RoundedRect};
+use super::{
+    DownloadAction, DownloadSink, DownloadStartSink, FailureSink, KeySink, PageSink, ReportFailure, RoundedRect,
+};
 use crate::error::{HakuError, Result};
-use crate::model::{ContextMenuRequestId, DialogAnswer, DialogId, DownloadId, MemoryStatus, SlotId, WindowRequestId};
+use crate::model::{
+    ContextMenuRequestId, DialogAnswer, DialogId, DownloadId, FindDirection, MemoryStatus, SlotId, WindowRequestId,
+};
 
 fn unsupported(operation: &str) -> HakuError {
     HakuError::Unsupported(format!("{operation} is only implemented on Windows"))
@@ -105,6 +109,22 @@ pub fn freeze<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<()> {
 
 pub fn resume<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<()> {
     Err(unsupported("resuming frozen pages"))
+}
+
+pub fn find<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _query: &str, _direction: FindDirection) -> Result<()> {
+    Err(unsupported("finding in a page"))
+}
+
+pub fn stop_find<R: tauri::Runtime>(_webview: &tauri::Webview<R>) -> Result<()> {
+    Err(unsupported("finding in a page"))
+}
+
+pub fn print<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _failed: ReportFailure) -> Result<()> {
+    Err(unsupported("printing"))
+}
+
+pub fn save_page<R: tauri::Runtime>(_webview: &tauri::Webview<R>, _failed: ReportFailure) -> Result<()> {
+    Err(unsupported("saving a page"))
 }
 
 pub fn evaluate<R: tauri::Runtime>(

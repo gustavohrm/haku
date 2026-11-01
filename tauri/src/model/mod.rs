@@ -2,6 +2,7 @@ pub mod context_menu;
 pub mod dialog;
 pub mod download;
 pub mod extension;
+pub mod find;
 pub mod history;
 pub mod keymap;
 pub mod optimization;
@@ -23,6 +24,7 @@ pub use extension::{
     popup_url, version, AddedExtension, Extension, ExtensionSource, Extensions, FailedExtension, ScreenRect,
     POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
+pub use find::{check_query, FindDirection, FIND_QUERY_MAX};
 pub use history::{Commit, History, NavigationKind, Visit};
 pub use keymap::{shortcut_for, Chord, Key, Shortcut};
 pub use optimization::{Policy, Preset};

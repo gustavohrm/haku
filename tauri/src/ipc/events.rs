@@ -33,6 +33,35 @@ pub struct MemoryChanged(pub MemoryReport);
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct AddressFocusRequested(pub TabId);
 
+/// Asks the interface to open the find bar, for the given tab.
+/// [Find, print and save § Contract](../../../docs/specs/find-print-save.md#contract).
+///
+/// Sent by Ctrl+F, to the tab's window only.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct FindRequested(pub TabId);
+
+/// A tab's page started a navigation, reload included, which ends its find.
+/// [Find, print and save § Contract](../../../docs/specs/find-print-save.md#contract).
+///
+/// Sent to the tab's window only, for every top-frame navigation: Rust keeps
+/// no find state to know whether one was open.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct FindEnded(pub TabId);
+
+/// A page's find moved or recounted.
+/// [Find, print and save § Contract](../../../docs/specs/find-print-save.md#contract).
+///
+/// Sent to the tab's window only.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct FindResult {
+    pub tab: TabId,
+    /// 0 when nothing matches.
+    pub matches: u32,
+    /// The current match, counting from 1.
+    pub active: Option<u32>,
+}
+
 /// A failure no command call is waiting on, such as a shortcut's, a page's
 /// request for a window, or one at startup.
 /// [Errors § Failures no command is waiting on](../../../docs/specs/errors.md#failures-no-command-is-waiting-on).

@@ -9,4 +9,6 @@ export const SHORTCUT_HINTS = {
   back: "Alt+Left",
   forward: "Alt+Right",
   inspect: "F12",
+  print: "Ctrl+P",
+  savePage: "Ctrl+S",
 } as const;

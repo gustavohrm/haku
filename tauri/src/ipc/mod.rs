@@ -9,7 +9,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 
 use events::{
     AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, DownloadsChanged, ExtensionsChanged,
-    FailureReported, MemoryChanged, SettingsChanged, StateChanged,
+    FailureReported, FindEnded, FindRequested, FindResult, MemoryChanged, SettingsChanged, StateChanged,
 };
 
 /// The single description of Haku's IPC surface.
@@ -44,6 +44,10 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::recent_history,
             commands::clear_history,
             commands::open_tab_devtools,
+            commands::find_in_page,
+            commands::stop_find,
+            commands::print_page,
+            commands::save_page,
             commands::answer_dialog,
             commands::answer_context_menu,
             commands::memory_report,
@@ -69,6 +73,9 @@ pub fn builder() -> Builder<tauri::Wry> {
             AddressFocusRequested,
             ExtensionsChanged,
             ContextMenuRequested,
+            FindRequested,
+            FindResult,
+            FindEnded,
             FailureReported,
             DownloadsChanged,
             CloseConfirmationRequested

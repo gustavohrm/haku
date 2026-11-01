@@ -317,6 +317,13 @@ export const en = {
   "dialog.leave.confirm": "Leave",
   "dialog.leave.cancel": "Stay",
 
+  "find.label": "Find in page",
+  "find.previous": "Previous match",
+  "find.next": "Next match",
+  "find.close": "Close find bar",
+  "find.count": "{active} of {matches}",
+  "find.none": "No results",
+
   "menu.page": "Page",
   "menu.field": "Text field",
   "menu.tab": "Tab",
@@ -336,6 +343,8 @@ export const en = {
   "menu.openLinkWindow": "Open link in new window",
   "menu.openImageTab": "Open image in new tab",
   "menu.searchFor": "Search for \u201c{text}\u201d",
+  "menu.print": "Print\u2026",
+  "menu.savePage": "Save as\u2026",
   "menu.inspect": "Inspect",
   "menu.inspectInterface": "Inspect interface",
 } as const;

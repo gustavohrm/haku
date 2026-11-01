@@ -80,7 +80,7 @@ A page can neither call these commands nor name a file: the commands are chrome-
 
 ## Context menu
 
-**Save link as** and **Save image as** are kept in the page menu ([Context menus](context-menus.md#the-menu-component)): they start a download Haku follows, after the engine's own Save As dialog. **Save as** for the page stays withheld, because the engine writes it without a `DownloadStarting` Haku could follow, and so does **Print**, which is not built.
+**Save link as** and **Save image as** are kept in the page menu ([Context menus](context-menus.md#the-menu-component)): they start a download Haku follows, after the engine's own Save As dialog. The engine's own **Save as** and **Print** stay withheld; Haku's **Save as…** and **Print…** replace them ([Find, print and save](find-print-save.md)). A page saved that way still does not appear in Downloads, because the engine writes it without a `DownloadStarting` Haku could follow.
 
 ## Interface
 
