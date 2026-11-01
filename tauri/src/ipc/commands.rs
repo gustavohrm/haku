@@ -32,14 +32,15 @@ use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, O
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    check_query, is_internal, jpeg_data_url, AddedExtension, ContextMenuRequestId, DialogAnswer, DialogId, Download,
-    DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu, PermissionDecision,
+    check_query, is_internal, jpeg_data_url, keymap, AddedExtension, ContextMenuRequestId, DialogAnswer, DialogId,
+    Download, DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu, PermissionDecision,
     PermissionRequestId, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId, WindowId,
     WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
+use crate::storage::settings::{key_bindings, KeyBinding};
 use crate::storage::{Settings, WindowBounds};
 use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
@@ -48,7 +49,7 @@ use super::events::{
     AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, FailureReported, FindEnded, FindRequested,
     FindResult, MemoryChanged, SettingsChanged, StateChanged,
 };
-use super::shortcuts::{PageAction, Request as ShortcutRequest};
+use super::shortcuts::{self, PageAction, RecordedChord, Request as ShortcutRequest};
 use super::{downloads, extensions, recovery};
 
 /// Rejects a command that only the interface may issue.
@@ -604,8 +605,22 @@ fn on_popup_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 
 /// Runs the shortcuts pressed while a window's interface has focus. Pages
 /// report theirs through [`page_observer`], so both reach [`run_shortcut`].
+///
+/// A chord pressed while the window records one for settings goes to that
+/// recording instead.
 pub fn shortcut_sink(app: tauri::AppHandle, window: WindowId) -> KeySink {
-    Arc::new(move |shortcut| queue_shortcut(&app, ShortcutRequest::chrome(window), shortcut))
+    Arc::new(move |chord, repeat| {
+        if shortcuts::record(window, chord, repeat) {
+            return true;
+        }
+        let Some(shortcut) = keymap::shortcut_for(chord) else {
+            return false;
+        };
+        if !repeat {
+            queue_shortcut(&app, ShortcutRequest::chrome(window), shortcut);
+        }
+        true
+    })
 }
 
 /// Runs shortcuts one at a time, in the order they were pressed.
@@ -665,9 +680,9 @@ fn run_shortcut_in(
                     | Shortcut::NewPrivateWindow
                     | Shortcut::NextTab
                     | Shortcut::PreviousTab
-                    | Shortcut::NthTab(_)
                     | Shortcut::LastTab
-            ) {
+            ) || shortcut.tab_index().is_some()
+            {
                 browser.set_pressure(pressure);
             }
             Ok(hold_then(state, browser, &failed, |browser| {
@@ -1252,6 +1267,7 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             }
         }
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => record_bounds(window, id, &state),
+        tauri::WindowEvent::Destroyed => shortcuts::cancel_recording(id),
         _ => {}
     }
 }
@@ -1402,6 +1418,37 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
     Ok(settings.preset())
 }
 
+/// Every shortcut with its chords now and its defaults, in table order.
+/// [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
+#[tauri::command]
+#[specta::specta]
+pub fn keymap(webview: tauri::Webview) -> Result<Vec<KeyBinding>> {
+    ensure_chrome(&webview)?;
+    Ok(key_bindings(&keymap::active()))
+}
+
+/// The next chord pressed in the caller's window, for settings to bind, or
+/// nothing when the recording is cancelled: by plain Esc, by
+/// [`cancel_shortcut_recording`], or by another recording in the window.
+///
+/// Until it answers, the window's interface runs no shortcut.
+#[tauri::command]
+#[specta::specta]
+pub async fn record_shortcut(webview: tauri::Webview) -> Result<Option<RecordedChord>> {
+    let window = ensure_chrome(&webview)?;
+    let mut answer = shortcuts::start_recording(window);
+    Ok(answer.recv().await.flatten().map(RecordedChord::from))
+}
+
+/// Ends the recording pending in the caller's window, if any.
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_shortcut_recording(webview: tauri::Webview) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    shortcuts::cancel_recording(window);
+    Ok(())
+}
+
 /// Stores the settings `update` makes from the current ones. It runs within
 /// the store's turn, so a change made from the current settings cannot undo an
 /// overlapping store.
@@ -1447,6 +1494,9 @@ fn store_settings(
     // the store's turn, so windows hear overlapping stores in the order they
     // were stored. A failed announcement is reported after applying, not
     // instead of it.
+    // In effect before it is announced, so a window reading the keymap on
+    // hearing of the change reads the new one.
+    keymap::set_active(settings.shortcuts.keymap());
     let announced = SettingsChanged(settings.clone()).emit(app);
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);

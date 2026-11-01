@@ -1,7 +1,7 @@
-import type { BrowserState, Download, Extensions, Settings, Tab } from "@bindings";
+import type { BrowserState, Download, Extensions, KeyBinding, Settings, Tab } from "@bindings";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { browserStore, downloadsStore, extensionsStore, settingsStore, type ExternalStore } from "./store";
+import { browserStore, downloadsStore, extensionsStore, keymapStore, settingsStore, type ExternalStore } from "./store";
 
 function useStore<T>(store: ExternalStore<T>): T {
   return useSyncExternalStore(
@@ -25,6 +25,11 @@ export function useExtensions(): Extensions | null {
 
 export function useDownloads(): Download[] {
   return useStore(downloadsStore);
+}
+
+/** Every shortcut with its chords now and its defaults. */
+export function useKeymap(): KeyBinding[] {
+  return useStore(keymapStore);
 }
 
 export function useActiveTab(): Tab | null {

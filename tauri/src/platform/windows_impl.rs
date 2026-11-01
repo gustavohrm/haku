@@ -114,8 +114,8 @@ use windows::Win32::System::ProcessStatus::{
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_ESCAPE, VK_F1, VK_F24, VK_HOME,
-    VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_SHIFT, VK_TAB, VK_Z,
+    GetAsyncKeyState, GetKeyState, VIRTUAL_KEY, VK_0, VK_9, VK_A, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE,
+    VK_F1, VK_F24, VK_HOME, VK_INSERT, VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP, VK_Z,
 };
 use windows::Win32::UI::Shell::{SHCreateMemStream, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -914,17 +914,13 @@ unsafe fn attach_key_handler(controller: &ICoreWebView2Controller, sink: KeySink
             shift: held(VK_SHIFT),
             alt: held(VK_MENU),
         };
-        let Some(shortcut) = shortcut_for(chord) else {
-            return Ok(());
-        };
-        // Kept from the page and from the engine's own handling of the key.
-        args.SetHandled(true)?;
         // A held key repeats. Acting on every repeat would open a tab per
         // repeat of Ctrl+T, so only the first press counts.
         let mut status = COREWEBVIEW2_PHYSICAL_KEY_STATUS::default();
         args.PhysicalKeyStatus(&mut status)?;
-        if !status.WasKeyDown.as_bool() {
-            sink(shortcut);
+        if sink(chord, status.WasKeyDown.as_bool()) {
+            // Kept from the page and from the engine's own handling of the key.
+            args.SetHandled(true)?;
         }
         Ok(())
     }));
@@ -941,8 +937,13 @@ fn key_of(code: VIRTUAL_KEY) -> Option<Key> {
         VK_TAB => Key::Tab,
         VK_ESCAPE => Key::Escape,
         VK_HOME => Key::Home,
+        VK_END => Key::End,
+        VK_INSERT => Key::Insert,
+        VK_DELETE => Key::Delete,
         VK_LEFT => Key::Left,
         VK_RIGHT => Key::Right,
+        VK_UP => Key::Up,
+        VK_DOWN => Key::Down,
         VK_PRIOR => Key::PageUp,
         VK_NEXT => Key::PageDown,
         _ => return None,
@@ -1015,7 +1016,15 @@ unsafe fn attach_observers(
     let keys = sink.clone();
     attach_key_handler(
         controller,
-        Arc::new(move |shortcut| keys(PageSignal::Shortcut(shortcut))),
+        Arc::new(move |chord, repeat| {
+            let Some(shortcut) = shortcut_for(chord) else {
+                return false;
+            };
+            if !repeat {
+                keys(PageSignal::Shortcut(shortcut));
+            }
+            true
+        }),
     )?;
     let failures = sink.clone();
     attach_failure_handler(

@@ -1,4 +1,4 @@
-import { type BrowserState, type Download, type HakuError, type Settings } from "@bindings";
+import { type BrowserState, type Download, type HakuError, type KeyBinding, type Settings } from "@bindings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { commands, reportFailure } from "./commands";
@@ -8,11 +8,15 @@ import {
   downloadsStore,
   EMPTY_STATE,
   extensionsStore,
+  keymapStore,
   reloadSettings,
   settingsStore,
 } from "./store";
 
 const listen = vi.hoisted(() => vi.fn(async () => () => {}));
+const settingsListen = vi.hoisted(() =>
+  vi.fn<(callback: (event: { payload: Settings }) => void) => Promise<() => void>>(async () => () => {}),
+);
 const stateListen = vi.hoisted(() =>
   vi.fn<(callback: (event: { payload: BrowserState }) => void) => Promise<() => void>>(async () => () => {}),
 );
@@ -31,7 +35,7 @@ vi.mock("@bindings", () => ({
       failureTarget(target);
       return { listen: failureListen };
     },
-    settingsChanged: { listen },
+    settingsChanged: { listen: settingsListen },
     extensionsChanged: { listen },
     downloadsChanged: (target: unknown) => {
       downloadsTarget(target);
@@ -42,7 +46,7 @@ vi.mock("@bindings", () => ({
 const CURRENT_WEBVIEW = vi.hoisted(() => ({ label: "window-1" }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => CURRENT_WEBVIEW }));
 vi.mock("./commands", () => ({
-  commands: { getState: vi.fn(), getSettings: vi.fn(), extensions: vi.fn(), downloads: vi.fn() },
+  commands: { getState: vi.fn(), getSettings: vi.fn(), extensions: vi.fn(), downloads: vi.fn(), keymap: vi.fn() },
   reportFailure: vi.fn(),
 }));
 
@@ -56,10 +60,12 @@ describe("connect", () => {
     settingsStore.set(null);
     extensionsStore.set(null);
     downloadsStore.set([]);
+    keymapStore.set([]);
     vi.mocked(commands.getState).mockResolvedValue({ status: "ok", data: STATE });
     vi.mocked(commands.getSettings).mockResolvedValue(failure);
     vi.mocked(commands.extensions).mockResolvedValue({ status: "ok", data: { installed: [] } } as never);
     vi.mocked(commands.downloads).mockResolvedValue({ status: "ok", data: [] });
+    vi.mocked(commands.keymap).mockResolvedValue({ status: "ok", data: [] });
   });
 
   it("keeps what loaded when another part fails to", async () => {
@@ -132,6 +138,43 @@ describe("connect", () => {
     failureListen.mock.calls.at(-1)![0]({ payload: error });
 
     expect(reportFailure).toHaveBeenCalledWith(error);
+  });
+
+  it("loads the keymap, and reads it again when the settings change", async () => {
+    const first = [{ shortcut: "newTab", chords: ["Ctrl+T"], defaults: ["Ctrl+T"] }] as KeyBinding[];
+    const rebound = [{ shortcut: "newTab", chords: ["Ctrl+Alt+T"], defaults: ["Ctrl+T"] }] as KeyBinding[];
+    vi.mocked(commands.getSettings).mockResolvedValueOnce({ status: "ok", data: SETTINGS });
+    vi.mocked(commands.keymap).mockResolvedValueOnce({ status: "ok", data: first });
+
+    const stop = await connect();
+    expect(keymapStore.get()).toBe(first);
+
+    vi.mocked(commands.keymap).mockResolvedValueOnce({ status: "ok", data: rebound });
+    settingsListen.mock.calls.at(-1)![0]({ payload: SETTINGS });
+    await vi.waitFor(() => expect(keymapStore.get()).toBe(rebound));
+    stop();
+  });
+
+  it("keeps the newest keymap read when an older one answers last", async () => {
+    const older = [{ shortcut: "newTab", chords: ["Ctrl+T"], defaults: ["Ctrl+T"] }] as KeyBinding[];
+    const newer = [{ shortcut: "newTab", chords: [], defaults: ["Ctrl+T"] }] as KeyBinding[];
+    vi.mocked(commands.getSettings).mockResolvedValueOnce({ status: "ok", data: SETTINGS });
+    const stop = await connect();
+    let answerOlder = (_: { status: "ok"; data: KeyBinding[] }) => {};
+    vi.mocked(commands.keymap)
+      .mockImplementationOnce(() => new Promise((resolve) => (answerOlder = resolve)))
+      .mockResolvedValueOnce({ status: "ok", data: newer });
+
+    const changed = settingsListen.mock.calls.at(-1)![0];
+    changed({ payload: SETTINGS });
+    changed({ payload: SETTINGS });
+    await vi.waitFor(() => expect(keymapStore.get()).toBe(newer));
+    answerOlder({ status: "ok", data: older });
+    // A macrotask, so the older read's every continuation has run.
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(keymapStore.get()).toBe(newer);
+    stop();
   });
 
   it("keeps settings that arrived while they were being read again", async () => {

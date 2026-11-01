@@ -27,7 +27,7 @@ pub use extension::{
 };
 pub use find::{check_query, FindDirection, FIND_QUERY_MAX};
 pub use history::{Commit, History, NavigationKind, Visit};
-pub use keymap::{shortcut_for, Chord, Key, Shortcut};
+pub use keymap::{shortcut_for, Chord, ChordRefusal, Key, Keymap, Shortcut};
 pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};
 pub use permission::{

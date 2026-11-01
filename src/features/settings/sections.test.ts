@@ -35,6 +35,11 @@ describe("searchSettings", () => {
     expect(ids("THEME")).toEqual(["theme"]);
   });
 
+  it("finds a shortcut by the action it runs", () => {
+    expect(ids("reopen closed")).toEqual(["shortcut-reopenClosedTab"]);
+    expect(ids("keybindings")).toEqual(["resetShortcuts"]);
+  });
+
   it("matches keywords, not only what the row shows", () => {
     expect(ids("dark mode")).toContain("theme");
     expect(ids("sidebar")).toContain("tabLayout");
@@ -50,8 +55,14 @@ describe("searchSettings", () => {
   it("groups matches under their section, in page order", () => {
     // The Tabs layout and the sidebar side are in Appearance, first; "Loaded
     // tabs" and the background-tab rows are in Tabs & memory; the home page, "Where new tabs
-    // and windows open", is in Browsing, which comes after.
-    expect(searchSettings("tabs").map((result) => result.section.id)).toEqual(["appearance", "tabs", "browsing"]);
+    // and windows open", is in Browsing, which comes after; "Split or separate
+    // tabs" is in Shortcuts, after that.
+    expect(searchSettings("tabs").map((result) => result.section.id)).toEqual([
+      "appearance",
+      "tabs",
+      "browsing",
+      "shortcuts",
+    ]);
     expect(ids("tabs")).toEqual([
       "tabLayout",
       "sidebarSide",
@@ -61,6 +72,7 @@ describe("searchSettings", () => {
       "discard",
       "keptSites",
       "homeUrl",
+      "shortcut-toggleSplit",
     ]);
   });
 });

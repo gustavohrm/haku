@@ -68,6 +68,7 @@ pub fn run() {
             if first_launch {
                 settings = settings.with_preset(Preset::Balanced);
             }
+            model::keymap::set_active(settings.shortcuts.keymap());
             let session: Session = storage::read_json(&paths.session);
             let (history, unopened) = HistoryDb::open_or_in_memory(&paths.history);
 

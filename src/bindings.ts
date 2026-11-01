@@ -37,6 +37,25 @@ export const commands = {
 "saveMemory" | "balanced" | 
 /**  More background tabs kept, and more memory for them. */
 "performance" | null, HakuError>(__TAURI_INVOKE("current_preset")),
+	/**
+	 *  Every shortcut with its chords now and its defaults, in table order.
+	 *  [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
+	 */
+	keymap: () => typedError<KeyBinding[], HakuError>(__TAURI_INVOKE("keymap")),
+	/**
+	 *  The next chord pressed in the caller's window, for settings to bind, or
+	 *  nothing when the recording is cancelled: by plain Esc, by
+	 *  [`cancel_shortcut_recording`], or by another recording in the window.
+	 * 
+	 *  Until it answers, the window's interface runs no shortcut.
+	 */
+	recordShortcut: () => typedError<{
+	chord: string,
+	/**  Why it cannot be bound, or nothing when it can. */
+	refusal: ChordRefusal | null,
+} | null, HakuError>(__TAURI_INVOKE("record_shortcut")),
+	/**  Ends the recording pending in the caller's window, if any. */
+	cancelShortcutRecording: () => typedError<null, HakuError>(__TAURI_INVOKE("cancel_shortcut_recording")),
 	openTab: (url: string | null, activate: boolean) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate })),
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
@@ -289,6 +308,16 @@ export type BrowserState = {
 	/**  Tabs holding a webview, across every window: the pool is shared. */
 	liveCount: number,
 };
+
+/**  Why a chord cannot be bound. */
+export type ChordRefusal = 
+/**  It holds neither Ctrl nor Alt, so it would take a key the user types. */
+"needsModifier" | 
+/**
+ *  Pages and text fields edit or move by it, or the system closes the
+ *  window with it.
+ */
+"reserved";
 
 /**
  *  Closing a tab or window would cancel downloads, so it was not done: the
@@ -564,6 +593,14 @@ export type HistoryEntry = {
 	visitedAt: number,
 };
 
+/**  An action's chords as the interface lists them. */
+export type KeyBinding = {
+	shortcut: Shortcut,
+	/**  What is bound now, in the order the user gave them. */
+	chords: string[],
+	defaults: string[],
+};
+
 /**  A complete measurement of the assignments at one browser revision. */
 export type Layout = {
 	revision: number,
@@ -713,6 +750,16 @@ export type Pressure = "normal" | "tight" | "critical";
 export type ProcessKind = "browser" | "renderer" | "gpu" | "utility" | "other";
 
 /**
+ *  A chord pressed for settings to bind.
+ *  [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
+ */
+export type RecordedChord = {
+	chord: string,
+	/**  Why it cannot be bound, or nothing when it can. */
+	refusal: ChordRefusal | null,
+};
+
+/**
  *  Where a page was scrolled to.
  * 
  *  Kept current for live tabs by the injected reporter so that discarding a tab
@@ -776,9 +823,22 @@ export type Settings = {
 	 *  [Permissions](../../../docs/specs/permissions.md).
 	 */
 	sitePermissions: SitePermission[],
+	/**
+	 *  The chords of the shortcuts the user changed, by action.
+	 *  [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
+	 */
+	shortcuts: Partial<{ [key in Shortcut]: string[] }>,
 };
 
 export type SettingsChanged = Settings;
+
+/**
+ *  What a shortcut asks the browser to do; dispatch validates its source tab.
+ * 
+ *  Its camelCase name is the action's id in `Settings.shortcuts`, so a
+ *  variant is never renamed.
+ */
+export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage";
 
 /**
  *  Which side of the window the tab column is on.

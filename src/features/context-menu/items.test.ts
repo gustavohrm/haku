@@ -1,8 +1,34 @@
-import type { ContextMenuRequested, ContextMenuTarget, NativeMenuItem, Tab } from "@bindings";
+import type { ContextMenuRequested, ContextMenuTarget, KeyBinding, NativeMenuItem, Shortcut, Tab } from "@bindings";
 import type { MenuItem } from "@features/overlays/menu-model";
-import { describe, expect, it, vi } from "vitest";
+import { keymapStore } from "@ipc/store";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fieldMenu, interfaceMenu, pageMenu, stripMenu, tabMenu, type PageActions } from "./items";
+
+// The defaults these menus show hints for, as Rust reports them.
+const DEFAULT_HINTS: [Shortcut, string][] = [
+  ["newTab", "Ctrl+T"],
+  ["reopenClosedTab", "Ctrl+Shift+T"],
+  ["closeTab", "Ctrl+W"],
+  ["reload", "Ctrl+R"],
+  ["duplicateTab", "Ctrl+Shift+K"],
+  ["toggleSplit", "Alt+Shift+N"],
+  ["back", "Alt+Left"],
+  ["forward", "Alt+Right"],
+  ["devTools", "F12"],
+  ["print", "Ctrl+P"],
+  ["savePage", "Ctrl+S"],
+];
+
+function keymap(changed: Partial<Record<Shortcut, string[]>> = {}): KeyBinding[] {
+  return DEFAULT_HINTS.map(([shortcut, chord]) => ({
+    shortcut,
+    chords: changed[shortcut] ?? [chord],
+    defaults: [chord],
+  }));
+}
+
+beforeEach(() => keymapStore.set(keymap()));
 
 function tab(id: number, urls: string[] = ["https://example.com/"], index = urls.length - 1): Tab {
   return {
@@ -307,5 +333,15 @@ describe("pageMenu", () => {
     const sub = native(3, "spellCheck", { kind: "submenu", children: [native(4, "spellCheck")] });
     const item = find(pageMenu(request({ editable: true }, [sub]), tab(1), actions()), "native-3-spellCheck");
     expect(item).toMatchObject({ kind: "submenu", items: [{ id: "native-4-spellCheck" }] });
+  });
+});
+
+describe("shortcut hints", () => {
+  it("show the chord bound now, and none for an unbound shortcut", () => {
+    keymapStore.set(keymap({ newTab: ["Alt+T", "Ctrl+T"], reopenClosedTab: [] }));
+    const strip = stripMenu({ newTab: vi.fn(), reopen: vi.fn() });
+
+    expect(find(strip, "new")).toMatchObject({ shortcut: "Alt+T" });
+    expect(find(strip, "reopen")).toMatchObject({ shortcut: null });
   });
 });

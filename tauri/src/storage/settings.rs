@@ -1,8 +1,11 @@
+use std::collections::{BTreeMap, HashSet};
+
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 
+use crate::model::keymap::{defaults_of, DEFAULTS};
 use crate::model::permission::{normalized, SitePermissions};
-use crate::model::{Policy, Preset, DEFAULT_CAPACITY};
+use crate::model::{Chord, Keymap, Policy, Preset, Shortcut, DEFAULT_CAPACITY};
 
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
 const DEFAULT_HOME_URL: &str = "haku://new-tab";
@@ -120,6 +123,102 @@ pub struct Settings {
     /// What the user allowed or blocked sites to use, by origin and kind.
     /// [Permissions](../../../docs/specs/permissions.md).
     pub site_permissions: SitePermissions,
+    /// The chords of the shortcuts the user changed, by action.
+    /// [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
+    pub shortcuts: Shortcuts,
+}
+
+/// The chords of the shortcuts the user changed, written as
+/// [`Chord`]'s `Display` writes them. An action left out keeps its defaults;
+/// an empty list leaves it unbound.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(transparent)]
+#[specta(inline)]
+pub struct Shortcuts(pub BTreeMap<Shortcut, Vec<String>>);
+
+/// Drops an action since removed and a value that is not a list of text, as
+/// [`SitePermissions`] does, rather than failing the whole settings file.
+impl<'de> Deserialize<'de> for Shortcuts {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let serde_json::Value::Object(entries) = serde_json::Value::deserialize(deserializer)? else {
+            return Ok(Self::default());
+        };
+        Ok(Self(
+            entries
+                .into_iter()
+                .filter_map(|(action, chords)| {
+                    let action = serde_json::from_value(serde_json::Value::String(action)).ok()?;
+                    Some((action, serde_json::from_value(chords).ok()?))
+                })
+                .collect(),
+        ))
+    }
+}
+
+impl Shortcuts {
+    /// Rewrites every chord in one form, and drops those that do not read,
+    /// are refused, or are already listed, under this action or one before it
+    /// in table order. An action left with its defaults is dropped, and so is
+    /// one whose every chord was dropped: only an empty list unbinds.
+    fn normalized(self) -> Self {
+        let mut taken = HashSet::new();
+        let mut kept = BTreeMap::new();
+        for (shortcut, defaults) in DEFAULTS {
+            let Some(stored) = self.0.get(shortcut) else {
+                continue;
+            };
+            let chords: Vec<Chord> = stored
+                .iter()
+                .filter_map(|chord| Chord::parse(chord))
+                .filter(|chord| chord.refusal().is_none() && taken.insert(*chord))
+                .collect();
+            if chords.is_empty() && !stored.is_empty() {
+                continue;
+            }
+            if chords != *defaults {
+                kept.insert(*shortcut, chords.iter().map(Chord::to_string).collect());
+            }
+        }
+        Self(kept)
+    }
+
+    /// The keymap these changes make of the defaults.
+    pub fn keymap(&self) -> Keymap {
+        let changed = self
+            .0
+            .iter()
+            .map(|(shortcut, chords)| {
+                (
+                    *shortcut,
+                    chords.iter().filter_map(|chord| Chord::parse(chord)).collect(),
+                )
+            })
+            .collect();
+        Keymap::new(&changed)
+    }
+}
+
+/// An action's chords as the interface lists them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyBinding {
+    pub shortcut: Shortcut,
+    /// What is bound now, in the order the user gave them.
+    pub chords: Vec<String>,
+    pub defaults: Vec<String>,
+}
+
+/// Every action's chords, in table order.
+pub fn key_bindings(keymap: &Keymap) -> Vec<KeyBinding> {
+    let written = |chords: &[Chord]| chords.iter().map(Chord::to_string).collect();
+    keymap
+        .bindings()
+        .map(|(shortcut, chords)| KeyBinding {
+            shortcut,
+            chords: written(chords),
+            defaults: written(defaults_of(shortcut)),
+        })
+        .collect()
 }
 
 impl Default for Settings {
@@ -142,6 +241,7 @@ impl Default for Settings {
             disabled_extensions: Vec::new(),
             pinned_extensions: Vec::new(),
             site_permissions: SitePermissions::default(),
+            shortcuts: Shortcuts::default(),
         }
     }
 }
@@ -167,6 +267,7 @@ impl Settings {
         }
         self.kept_sites = sites;
         self.site_permissions = SitePermissions(normalized(std::mem::take(&mut self.site_permissions.0)));
+        self.shortcuts = std::mem::take(&mut self.shortcuts).normalized();
         self
     }
 
@@ -311,6 +412,76 @@ fn normalized_url(typed: &str, schemes: &[&str], default: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stored_shortcuts(raw: serde_json::Value) -> BTreeMap<Shortcut, Vec<String>> {
+        let shortcuts: Shortcuts = serde_json::from_value(raw).unwrap();
+        Settings {
+            shortcuts,
+            ..Settings::default()
+        }
+        .sanitized()
+        .shortcuts
+        .0
+    }
+
+    #[test]
+    fn an_action_whose_every_chord_is_dropped_keeps_its_defaults() {
+        let stored = stored_shortcuts(serde_json::json!({
+            "home": ["Ctrl+C", "Q", "Ctrl+Meta+H"],
+            "print": [],
+        }));
+        assert_eq!(stored, BTreeMap::from([(Shortcut::Print, vec![])]));
+    }
+
+    #[test]
+    fn stored_shortcuts_are_rewritten_in_one_form_and_bad_ones_dropped() {
+        let stored = stored_shortcuts(serde_json::json!({
+            "reload": ["shift+ctrl+r", "Ctrl+C", "T", "Ctrl+Meta+R", "Ctrl+Shift+R"],
+            "print": [],
+            "noSuchAction": ["Ctrl+Q"],
+            "find": "Ctrl+F",
+        }));
+        assert_eq!(
+            stored,
+            BTreeMap::from([
+                (Shortcut::Reload, vec!["Ctrl+Shift+R".to_string()]),
+                (Shortcut::Print, vec![])
+            ])
+        );
+    }
+
+    #[test]
+    fn a_chord_listed_twice_stays_with_the_first_action_and_defaults_are_not_stored() {
+        let stored = stored_shortcuts(serde_json::json!({
+            "newTab": ["Ctrl+T"],
+            "reload": ["Ctrl+Q"],
+            "find": ["Ctrl+Q", "Ctrl+G"],
+        }));
+        assert_eq!(
+            stored,
+            BTreeMap::from([
+                (Shortcut::Reload, vec!["Ctrl+Q".to_string()]),
+                (Shortcut::Find, vec!["Ctrl+G".to_string()]),
+            ])
+        );
+    }
+
+    #[test]
+    fn shortcuts_that_are_not_a_map_read_as_none_changed() {
+        assert_eq!(stored_shortcuts(serde_json::json!(["Ctrl+T"])), BTreeMap::new());
+    }
+
+    #[test]
+    fn the_keymap_lists_every_action_with_its_chords_and_defaults() {
+        let shortcuts = Shortcuts(BTreeMap::from([(Shortcut::Reload, vec!["Ctrl+T".to_string()])]));
+        let bindings = key_bindings(&shortcuts.keymap());
+        assert_eq!(bindings.len(), DEFAULTS.len());
+        let of = |shortcut| bindings.iter().find(|binding| binding.shortcut == shortcut).unwrap();
+        assert_eq!(of(Shortcut::Reload).chords, ["Ctrl+T"]);
+        assert_eq!(of(Shortcut::Reload).defaults, ["Ctrl+R", "F5"]);
+        assert!(of(Shortcut::NewTab).chords.is_empty());
+        assert_eq!(of(Shortcut::NewTab).defaults, ["Ctrl+T"]);
+    }
 
     fn sanitized_home_url(home_url: &str) -> String {
         Settings {
