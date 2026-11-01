@@ -102,7 +102,7 @@ type FindResult = {
 
 Commands:
 
-- `find_in_page(tab: TabId, query: string, direction: "first" | "next" | "previous")`. `"first"` starts a new search for `query`. The other two move within the search `query` started, and start it first if the page has none.
+- `find_in_page(tab: TabId, query: string, direction: "first" | "next" | "previous")`. `"first"` starts a new search for `query`. The other two move within the search the page has, and start one for `query` if the page has none or it matched nothing. They do not compare terms: the bar starts a search for each edit of its field, so the page's search is the field's.
 - `stop_find(tab: TabId, refocus: boolean)`: clears the highlights. Stopping a page with no search is not an error. `refocus` gives the page the keyboard back, for a bar the user closed with Esc or its button; a bar closed because focus moved elsewhere passes `false`.
 - `print_page(tab: TabId)`.
 - `save_page(tab: TabId)`.
