@@ -99,7 +99,7 @@ impl Layout {
     }
 }
 
-/// Converts a logical rectangle and corner radius to exact device pixels.
+/// Converts an overlay's rectangle and corner radius to exact device pixels.
 ///
 /// The mask is applied with native APIs that work in device pixels, so the
 /// scale factor is resolved once here rather than inside platform code. Edges
@@ -111,6 +111,24 @@ fn to_physical(viewport: Viewport, radius: f64, scale: f64) -> RoundedRect {
         top: viewport.y * scale,
         right: (viewport.x + viewport.width) * scale,
         bottom: (viewport.y + viewport.height) * scale,
+        radius: radius.max(0.0) * scale,
+    }
+}
+
+/// Converts a pane to the device pixels its native page is placed at.
+///
+/// The page's bounds round origin and size apart, as Tauri does for
+/// `set_bounds`, so its far edge can lie a pixel from the exact one. The hole
+/// follows the page rather than the exact edge, or that pixel would show
+/// neither the page nor the chrome.
+fn to_native(viewport: Viewport, radius: f64, scale: f64) -> RoundedRect {
+    let left = (viewport.x * scale).round();
+    let top = (viewport.y * scale).round();
+    RoundedRect {
+        left,
+        top,
+        right: left + (viewport.width * scale).round(),
+        bottom: top + (viewport.height * scale).round(),
         radius: radius.max(0.0) * scale,
     }
 }
@@ -129,7 +147,7 @@ pub fn mask_rects(layout: &Layout, scale: f64) -> (Vec<RoundedRect>, Vec<Rounded
         .viewports
         .iter()
         .filter(|pane| !pane.covered && is_visible(pane.rect))
-        .map(|pane| to_physical(pane.rect, pane.radius, scale))
+        .map(|pane| to_native(pane.rect, pane.radius, scale))
         .collect();
     let overlays = layout
         .overlays
@@ -180,6 +198,26 @@ mod tests {
                 radius: 5.0
             }
         );
+    }
+
+    #[test]
+    fn a_pane_hole_lies_where_the_native_page_is_placed() {
+        // The page's bounds round origin and size apart, so 10.4 + 10.4 ends
+        // at 20 there; a hole ending at 21 would show a strip of no page.
+        let layout = Layout {
+            revision: 0,
+            viewports: vec![PaneLayout {
+                id: "1".into(),
+                rect: viewport(10.4, 10.4, 10.4, 10.4),
+                covered: false,
+                radius: 0.0,
+            }],
+            overlays: vec![square(10.4, 10.4, 10.4, 10.4)],
+        };
+        let (holes, overlays) = mask_rects(&layout, 1.0);
+
+        assert_eq!((holes[0].left, holes[0].right, holes[0].bottom), (10.0, 20.0, 20.0));
+        assert_eq!(overlays[0].right, 20.8);
     }
 
     #[test]
