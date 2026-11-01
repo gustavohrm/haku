@@ -1,6 +1,7 @@
 import { PageCrash, TabCrash } from "@app/crash";
 import { internalTitle, renderInternal } from "@app/router";
 import type { Tab } from "@bindings";
+import { FindBar, useFindBar, type OpenFind } from "@features/find/find-bar";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
@@ -21,6 +22,7 @@ function pageName(tab: Tab): string {
 export function ViewportPanes() {
   const { viewports, tabs, focusedViewport, splits, active, layoutRevision } = useBrowserState();
   const containerRef = useRef<HTMLDivElement>(null);
+  const find = useFindBar(tabs.find((tab) => tab.id === active) ?? null);
   useChromeLayout(containerRef);
   const isSplit = viewports.length === 2;
   const names = viewports
@@ -43,7 +45,15 @@ export function ViewportPanes() {
               />
             )}
             {tab && (
-              <Pane id={pane.id} tab={tab} isSplit={isSplit} isFocused={pane.id === focusedViewport} position={index} />
+              <Pane
+                id={pane.id}
+                tab={tab}
+                isSplit={isSplit}
+                isFocused={pane.id === focusedViewport}
+                position={index}
+                find={pane.id === focusedViewport && find.open?.tab === tab.id ? find.open : null}
+                onCloseFind={find.close}
+              />
             )}
           </Fragment>
         );
@@ -59,12 +69,17 @@ function Pane({
   isSplit,
   isFocused,
   position,
+  find = null,
+  onCloseFind = () => {},
 }: {
   id: string;
   tab: Tab;
   isSplit: boolean;
   isFocused: boolean;
   position: number;
+  /** The window's find bar, when it is open for this pane's tab. */
+  find?: OpenFind | null;
+  onCloseFind?: () => void;
 }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const isInternal = tab.presence.status === "internal";
@@ -123,6 +138,9 @@ function Pane({
         )}
         {crash !== null && <TabCrash tabId={tab.id} cause={crash} />}
         {cover !== null && <PreviewCover src={cover} />}
+        {find !== null && tab.presence.status === "live" && (
+          <FindBar tab={tab.id} request={find.request} onClose={onCloseFind} />
+        )}
       </div>
     </section>
   );

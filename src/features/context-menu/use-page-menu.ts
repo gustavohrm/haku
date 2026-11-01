@@ -84,6 +84,8 @@ export function usePageMenu(tab: Tab | null): void {
             back: own(() => void commands.goBack(id)),
             forward: own(() => void commands.goForward(id)),
             reload: own(() => void commands.reloadTab(id)),
+            print: own(() => void commands.printPage(id)),
+            savePage: own(() => void commands.savePage(id)),
             inspect: own(() => void commands.openTabDevtools(id)),
             openInTab: own((url: string) => void commands.openTab(url, false)),
             openInWindow: own((url: string) => void commands.openWindow(url, null)),

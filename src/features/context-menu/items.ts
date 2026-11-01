@@ -200,6 +200,8 @@ export interface PageActions {
   back: () => void;
   forward: () => void;
   reload: () => void;
+  print: () => void;
+  savePage: () => void;
   inspect: () => void;
   openInTab: (url: string) => void;
   openInWindow: (url: string) => void;
@@ -288,6 +290,20 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
         shortcut: SHORTCUT_HINTS.reload,
         label: t("toolbar.reload"),
         onSelect: actions.reload,
+      },
+      {
+        kind: "command",
+        id: "print",
+        shortcut: SHORTCUT_HINTS.print,
+        label: t("menu.print"),
+        onSelect: actions.print,
+      },
+      {
+        kind: "command",
+        id: "savePage",
+        shortcut: SHORTCUT_HINTS.savePage,
+        label: t("menu.savePage"),
+        onSelect: actions.savePage,
       },
       separator("afterPage"),
     );
