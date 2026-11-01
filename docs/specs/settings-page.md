@@ -76,6 +76,6 @@ Section icons are Lucide's `palette`, `gauge`, `globe`, `puzzle`, `keyboard` and
 
 Each action is a row: its name on the left; on the right its chords as chips, each with a remove button, then **Add** and, once the action differs from its defaults, **Reset**. [Shortcuts § Changing bindings](shortcuts.md#changing-bindings) owns what is stored and which chords are refused.
 
-- **Add** records: the button reads "Press a shortcut…" until a chord is pressed, Esc is pressed, or focus leaves it. A refused chord is shown with its reason and recording goes on. A chord another action uses is shown with that action's name, and **Use here** moves it, or **Cancel** drops it. A chord the action already has does nothing.
+- **Add** records: the button reads "Press a shortcut…" until a chord is pressed, plain Esc is pressed, or focus leaves it. A refused chord is shown with its reason and recording goes on. A chord another action uses is shown with that action's name, and **Use here** moves it, or **Cancel** drops it. A chord the action already has does nothing.
 - Rows are built from one list in `settings/shortcuts.tsx`, an action and its title per entry, so the sidebar and search find them like any other row. TypeScript requires an entry for every `Shortcut` Rust exports, so a new action cannot be left out of settings.
 - **Reset all shortcuts** clears `Settings.shortcuts`.
