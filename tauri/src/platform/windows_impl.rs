@@ -1151,8 +1151,6 @@ unsafe fn attach_observers(
                 let (mut matches, mut active) = (0i32, 0i32);
                 find.MatchCount(&mut matches)?;
                 find.ActiveMatchIndex(&mut active)?;
-                #[cfg(debug_assertions)]
-                eprintln!("[find] matches={matches} active={active}");
                 sink(PageSignal::FindChanged {
                     matches: u32::try_from(matches).unwrap_or(0),
                     active: u32::try_from(active).ok().filter(|_| matches > 0),
