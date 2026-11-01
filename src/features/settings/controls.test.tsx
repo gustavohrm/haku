@@ -9,6 +9,7 @@ const {
   BarLayoutControl,
   KeptSitesControl,
   SidebarSideControl,
+  SitePermissionsControl,
   TabLayoutControl,
   ThemeControl,
   ToolbarPlacementControl,
@@ -64,6 +65,47 @@ describe("KeptSitesControl", () => {
     expect(typeof change).toBe("function");
     const next = (change as (current: Settings) => Settings)({ keptSites: ["a.test", "b.test", "c.test"] } as Settings);
     expect(next.keptSites).toEqual(["b.test", "c.test"]);
+  });
+});
+
+describe("SitePermissionsControl", () => {
+  const decisions: Settings["sitePermissions"] = [
+    { origin: "https://b.test", kind: "camera", state: "allow" },
+    { origin: "https://a.test", kind: "location", state: "block" },
+    { origin: "https://b.test", kind: "microphone", state: "block" },
+  ];
+  const renderDecisions = (sitePermissions: Settings["sitePermissions"], update: UpdateSettings) =>
+    act(() =>
+      root.render(
+        <SitePermissionsControl
+          settings={{ sitePermissions } as Settings}
+          update={update}
+          id="c"
+          labelId="l"
+          describedBy={undefined}
+          disabled={false}
+        />,
+      ),
+    );
+
+  it("says so when nothing was decided", () => {
+    renderDecisions([], async () => null);
+    expect(container.textContent).toBe("No decisions are stored.");
+  });
+
+  it("lists decisions by origin and forgets only the one pressed", () => {
+    const update = vi.fn<UpdateSettings>(async () => null);
+    renderDecisions(decisions, update);
+
+    expect([...container.querySelectorAll("li")].map((item) => item.textContent)).toEqual([
+      "https://a.testLocation: blocked",
+      "https://b.testCamera: allowed",
+      "https://b.testMicrophone: blocked",
+    ]);
+    act(() => container.querySelectorAll("button")[1]?.click());
+
+    const change = update.mock.calls[0]?.[0] as (current: Settings) => Settings;
+    expect(change({ sitePermissions: decisions } as Settings).sitePermissions).toEqual([decisions[1], decisions[2]]);
   });
 });
 
