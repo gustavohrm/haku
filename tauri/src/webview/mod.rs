@@ -648,6 +648,14 @@ pub fn apply<R: tauri::Runtime>(
                     let _ = native.set_focus();
                 }
             }
+            Effect::SetFullscreen { window, fullscreen } => native_window(app, *window)?.set_fullscreen(*fullscreen)?,
+            // The window has already left; a page that ignores this keeps its
+            // fullscreen element inside the viewport, and nothing else.
+            Effect::ExitPageFullscreen { slot } => {
+                if let Some(webview) = app.get_webview(&slot.label()) {
+                    let _ = webview.eval(inject::EXIT_FULLSCREEN);
+                }
+            }
         }
         Ok(())
     };

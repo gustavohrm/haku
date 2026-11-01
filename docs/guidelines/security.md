@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-23
+last_updated: 2026-10-31
 scope: How the boundary between web pages and the application is kept in code, for anyone writing or reviewing a change.
 ---
 
@@ -27,7 +27,7 @@ Content webviews load arbitrary remote pages, and they are given nothing. The ru
 
 - Rust reads what a page is showing, the URL, title, icons, navigation, dialogs and memory state, through WebView2's events and `ExecuteScript`. Do not give a page a way to report these: no message handler, no host object, no request to a Haku endpoint. The page has no way to call back, and that is what keeps its claims from becoming commands.
 - What Rust reads back is the page's own claim. Parse it into a typed value and drop what does not parse, as `parse_navigation_log` and `parse_page_state` do.
-- A page's claim is applied to its own tab only: that tab's history, the text restored into it, and what discarding it would lose. The last reaches other tabs indirectly, because [Tab optimization § The rule](../specs/tab-optimization.md#the-rule) shares one budget: a page that claims unsaved work keeps its webview, which can leave less room for others. That is the price of never discarding work. Code that applies a claim must not reach past that tab in any other way.
+- A page's claim is applied to its own tab only: that tab's history, the text restored into it, and what discarding it would lose. The last reaches other tabs indirectly, because [Tab optimization § The rule](../specs/tab-optimization.md#the-rule) shares one budget: a page that claims unsaved work keeps its webview, which can leave less room for others. That is the price of never discarding work. Code that applies a claim must not reach past that tab in any other way. One permanent exception: a shown page's fullscreen report takes its whole window fullscreen, and ends the fullscreen of the other pane in that window ([Fullscreen](../specs/fullscreen.md)). It stays within one window, keeps one fullscreen tab per window, and reaches the other page only with the fixed `document.exitFullscreen()` expression, carrying nothing the page supplied.
 
 ## Injected scripts
 

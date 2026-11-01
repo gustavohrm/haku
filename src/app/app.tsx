@@ -6,6 +6,7 @@ import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
+import { useFullscreenNotice } from "@features/fullscreen/use-fullscreen-notice";
 import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
 import { SidebarActions, SidebarToolbar, Toolbar } from "@features/toolbar/toolbar";
@@ -15,12 +16,17 @@ import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 
 export function App() {
-  const { kind, private: isPrivate, tabs, active } = useBrowserState();
+  const { kind, private: isPrivate, tabs, active, fullscreen } = useBrowserState();
   const tab = useActiveTab();
   const settings = useSettings();
   usePageDialog(tab);
   usePageMenu(tab);
   useCloseConfirmation();
+  const fullscreenTab = tabs.find((candidate) => candidate.id === fullscreen);
+  useFullscreenNotice(
+    fullscreenTab?.id ?? null,
+    fullscreenTab?.history.entries[fullscreenTab.history.index]?.url ?? "",
+  );
 
   const themePreference = settings?.theme;
   useEffect(() => {
@@ -51,10 +57,14 @@ export function App() {
     <div
       className="haku-shell"
       data-density="compact"
-      data-tabs={layout.tabs}
-      data-bars={layout.bars}
-      data-side={layout.side}
-      data-toolbar={layout.toolbar}
+      // A page in fullscreen hides every bar and fills the screen; the bars
+      // stay mounted, so typed text and scroll survive. The layout attributes
+      // are dropped meanwhile, so no layout's grid or margins outrank it.
+      data-fullscreen={fullscreenTab ? "" : undefined}
+      data-tabs={fullscreenTab ? undefined : layout.tabs}
+      data-bars={fullscreenTab ? undefined : layout.bars}
+      data-side={fullscreenTab ? undefined : layout.side}
+      data-toolbar={fullscreenTab ? undefined : layout.toolbar}
       style={{ "--haku-sidebar-width": `${layout.sidebarWidth}px` } as CSSProperties}
     >
       {/* A popup shows one page, so it has no tabs and no address to edit. */}

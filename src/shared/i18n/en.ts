@@ -304,6 +304,10 @@ export const en = {
 
   "feedback.dismiss": "Dismiss notification",
 
+  "fullscreen.site": "{host} is full screen",
+  "fullscreen.page": "This page is full screen",
+  "fullscreen.exit": "Press Esc to exit.",
+
   "dialog.from": "{host} says",
   "dialog.fromPage": "This page says",
   "dialog.ok": "OK",
