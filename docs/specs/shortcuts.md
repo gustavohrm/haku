@@ -65,6 +65,13 @@ Decided by the maintainer on 2026-11-01.
 - **Read back as a keymap.** `keymap` lists every action, in table order, with its chords now and its defaults. The interface reads it at start and again after every `SettingsChanged`.
 - **Not yet bindable:** punctuation keys, such as `Ctrl+,` or `Ctrl+=`. Their virtual keys move with the keyboard layout, so a stored name would not say which key was meant.
 
+Rejected:
+
+- **A fixed keymap**, as this spec recorded until 2026-11-01. It deferred bindings until there was a settings format to hold them, not because fixed bindings were wanted. The maintainer asked for user-editable bindings, and `Settings.shortcuts` is that format.
+- **Storing the whole keymap.** Every default would be frozen in each user's settings, so a default changed in a later release would never reach them.
+- **Recording in the interface.** A bound chord never reaches it, so the page could not record Ctrl+T or any chord already in use.
+- **Refusing every Ctrl+Alt chord** for AltGr's sake. Most layouts type nothing with them, and they are the chords least likely to collide with pages.
+
 ## Focusing the address field
 
 Focusing the address field from a page first moves keyboard focus to the chrome webview of the tab's window, then emits `AddressFocusRequested` to that chrome alone, with the tab it is for. The event names the tab because Ctrl+T requests focus for a tab the interface has not rendered yet. The interface focuses the field when that tab is active, and holds the request until it is. A popup has no address field, so there it does nothing, and focus stays on the page.
