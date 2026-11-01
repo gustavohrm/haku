@@ -18,16 +18,16 @@ A page asks for a permission with an API such as `getUserMedia` or `Notification
 
 **Answering.**
 
-| Answer                   | This request | Kept                                                       |
-| ------------------------ | ------------ | ---------------------------------------------------------- |
-| Allow                    | Granted      | Stored for the origin and kind                             |
-| Block                    | Denied       | Stored for the origin and kind                             |
-| Escape, or closing it    | Denied       | Not stored. Denied without asking until Haku quits         |
-| The page goes away first | Denied       | Nothing. Closing, navigating, reloading or losing its slot |
+| Answer                   | This request | Kept                                                                                                                      |
+| ------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Allow                    | Granted      | Stored for the origin and kind                                                                                            |
+| Block                    | Denied       | Stored for the origin and kind                                                                                            |
+| Escape, or closing it    | Denied       | Not stored. Denied without asking until Haku quits, or in a private window until the private session ends                 |
+| The page goes away first | Denied       | Nothing. Closing the tab, navigating or reloading it from Haku, the page leaving the request's origin, or losing its slot |
 
 A request whose origin and kind already have a decision is answered at once, without a dialog. Two requests for the same origin and kind that wait together are answered by the first answer.
 
-**Private windows.** A stored Block applies; a stored Allow does not. Decisions made in a private window are kept in memory for the private session only and forgotten when it ends, as private visits never write a site-derived setting ([Settings page § Sections](settings-page.md#sections)).
+**Private windows.** A stored Block applies, ahead of any answer given in the private session; a stored Allow does not. Decisions made in a private window are kept in memory for the private session only and forgotten when it ends, as private visits never write a site-derived setting ([Settings page § Sections](settings-page.md#sections)).
 
 **Reviewing.** `haku://settings/browsing` lists stored decisions under **Site permissions**, by origin, and removes them one at a time. The next request from that origin asks again.
 
@@ -53,7 +53,7 @@ Autoplay is engine policy and never asks the user, so it stays the engine's. A k
 
 **The signal.** `platform/` handles WebView2's `PermissionRequested` on every content webview. For a kind in the table it sets `SavesInProfile` to false, so the engine stores nothing itself, takes a deferral, holds the event keyed by a `PermissionRequestId`, and reports a page signal. The page is not paused.
 
-**The state.** `Browser::request_permission` attaches the request to the tab owning the slot, or answers it at once from a decision it already has: stored, private, or dismissed. A request from a slot no tab owns is denied. Each tab shows one request, `Tab::permission`; further ones queue behind it in Rust. Every path that releases a tab's page dialog releases its permission requests too. A page that navigates itself releases nothing on the way, so once a commit leaves the origin a request came from, that request is denied (`withdraw_stale_permissions`).
+**The state.** `Browser::request_permission` attaches the request to the tab owning the slot, or answers it at once from a decision it already has: stored, private, or dismissed. A request from a slot no tab owns, or from an origin its tab has already left, is denied. Each tab shows one request, `Tab::permission`; further ones queue behind it in Rust. Every path that releases a tab's page dialog releases its permission requests too, and a tab waiting on one is not discarded under memory pressure, as one paused on a dialog is not. A queued request is answered from a decision made meanwhile, in another tab, when its turn comes, rather than shown. A page that navigates itself releases nothing on the way, so once a commit leaves the origin a request came from, that request is denied (`withdraw_stale_permissions`).
 
 **The contract.**
 
@@ -70,7 +70,7 @@ answerPermission(tab: TabId, request: PermissionRequestId, decision: "allow" | "
 
 An answer to a request that is no longer shown is ignored, as for dialogs. An Allow or Block from an ordinary window is stored through the same path as every other setting, and announced with `settingsChanged`. A setting that adds a decision is refused from a private window, as a kept site is. Removing one is a `setSettings` without it.
 
-**Origins.** A decision is keyed by the origin WebView2 reports for the request, `scheme://host[:port]` as `URL.origin` gives it, so `http` and `https` are separate. A frame embedded from another origin, with the permission delegated to it by `allow=`, is decided as the page that embeds it, as in Chromium: it shares the page's decision and never asks under its own name. Checked on 2026-11-01: a `127.0.0.1` frame inside a `localhost` page was granted location from `localhost`'s Allow, with no prompt. Stored origins are lowercased; a stored entry that cannot be read is dropped rather than failing the whole settings file.
+**Origins.** A decision is keyed by the origin WebView2 reports for the request, `scheme://host[:port]` as `URL.origin` gives it, so `http` and `https` are separate. A frame embedded from another origin, with the permission delegated to it by `allow=`, is decided as the page that embeds it, as in Chromium: it shares the page's decision and never asks under its own name. Checked on 2026-11-01: a `127.0.0.1` frame inside a `localhost` page was granted location from `localhost`'s Allow, with no prompt. Stored origins are written as the engine reports them, so `HTTPS://A.test:443` is kept as `https://a.test`, and one that is not an `http` or `https` origin is dropped; a stored entry that cannot be read is dropped rather than failing the whole settings file.
 
 **The interface.** `features/feedback` shows the request through `feedback().dialog.confirm`. The toaster resolves Cancel and Escape to the same `false`, so the hook tells them apart by the dialog's `cancel` event, which only Escape raises. The hook gives its dialog a class naming the request, and counts a `cancel` only on that dialog, so Escape on a dialog the toaster shows first is not read as this request's answer. `isWaiting` puts a request on the same footing as a page dialog for the strip badge and for floating bars.
 
@@ -88,4 +88,5 @@ Chosen by the maintainer on 2026-11-01.
 
 - A permission kind added by a later WebView2 runtime, unknown to the bindings, is left to the engine and shows its native prompt until it is added here.
 - A decision the engine stored before this change, from its own prompt, may still answer requests without Haku being asked.
+- A request survives a navigation or reload the page makes itself within its origin, and is answered for that origin.
 - A request from a page that is not `http` or `https`, such as a `file:` page, has no origin to key a decision by, and is left to the engine.

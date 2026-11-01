@@ -102,13 +102,15 @@ pub fn origin_of(url: &str) -> Option<String> {
 #[specta(inline)]
 pub struct SitePermissions(pub Vec<SitePermission>);
 
-/// Drops any entry that cannot be read rather than failing the whole settings
-/// file over a hand edit or a kind since removed. Written by hand rather than
-/// with `deserialize_with`, which splits `Settings` into a read and a written
-/// type in the bindings.
+/// Drops any entry that cannot be read, and reads a value that is not a list
+/// as none, rather than failing the whole settings file over a hand edit or a
+/// kind since removed. Written by hand rather than with `deserialize_with`,
+/// which splits `Settings` into a read and a written type in the bindings.
 impl<'de> Deserialize<'de> for SitePermissions {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let entries = Vec::<serde_json::Value>::deserialize(deserializer)?;
+        let serde_json::Value::Array(entries) = serde_json::Value::deserialize(deserializer)? else {
+            return Ok(Self::default());
+        };
         Ok(Self(
             entries
                 .into_iter()
@@ -132,15 +134,15 @@ impl DerefMut for SitePermissions {
     }
 }
 
-/// Lowercases stored origins and keeps one decision per origin and kind, the
-/// last one listed.
+/// Writes stored origins as [`origin_of`] gives them, drops any that is not a
+/// web origin, and keeps one decision per origin and kind, the last one listed.
 pub fn normalized(permissions: Vec<SitePermission>) -> Vec<SitePermission> {
     let mut kept: Vec<SitePermission> = Vec::new();
     for mut permission in permissions {
-        permission.origin = permission.origin.trim().to_ascii_lowercase();
-        if permission.origin.is_empty() {
+        let Some(origin) = origin_of(&permission.origin.trim().to_ascii_lowercase()) else {
             continue;
-        }
+        };
+        permission.origin = origin;
         kept.retain(|other| other.origin != permission.origin || other.kind != permission.kind);
         kept.push(permission);
     }
@@ -204,6 +206,12 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_value_that_is_not_a_list_reads_as_no_decisions() {
+        let read = SitePermissions::deserialize(serde_json::json!({ "origin": "https://a.test" })).unwrap();
+        assert_eq!(read, SitePermissions::default());
+    }
+
+    #[test]
     fn one_decision_is_kept_per_origin_and_kind_the_last_listed() {
         let entry = |origin: &str, state| SitePermission {
             origin: origin.into(),
@@ -212,8 +220,9 @@ mod tests {
         };
         let kept = normalized(vec![
             entry(" HTTPS://A.test ", PermissionState::Allow),
-            entry("https://a.test", PermissionState::Block),
+            entry("https://a.test:443/", PermissionState::Block),
             entry("  ", PermissionState::Allow),
+            entry("file:///C:/a.html", PermissionState::Allow),
         ]);
         assert_eq!(kept, vec![entry("https://a.test", PermissionState::Block)]);
     }

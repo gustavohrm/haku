@@ -429,7 +429,9 @@ export function SitePermissionsControl({ labelId, describedBy, settings, update 
           <li key={`${origin} ${kind}`} className="flex items-center gap-2">
             {/* The button is described by the decision, so it reads as "Forget, example.com, Camera: allowed". */}
             <span id={id} className="flex min-w-0 flex-1 gap-2">
-              <span className="truncate">{origin}</span>
+              <span className="truncate" title={origin}>
+                {origin}
+              </span>
               <span className="text-text-secondary shrink-0">{t(decided).replace("{kind}", permissionName(kind))}</span>
             </span>
             <button

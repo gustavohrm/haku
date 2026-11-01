@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-31
+last_updated: 2026-11-01
 scope: The layout, navigation, search and row pattern of `haku://settings`.
 ---
 

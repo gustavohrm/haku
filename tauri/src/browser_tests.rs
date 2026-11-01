@@ -1943,6 +1943,18 @@ fn a_tab_paused_on_a_dialog_is_left_alone() {
 }
 
 #[test]
+fn a_tab_waiting_on_a_permission_request_is_not_discarded() {
+    let (mut browser, ids) = smart(0);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.request_permission(slot, request(1, PermissionKind::Camera, "https://a.test"));
+
+    let effects = browser.tick(LEFT + GRACE_MS, Pressure::Critical, HashMap::new());
+
+    assert!(!discarded(&browser, ids[0]));
+    assert!(granted(&effects).is_empty());
+}
+
+#[test]
 fn a_tick_that_changes_nothing_produces_no_effects() {
     let (mut browser, _) = smart(0);
     assert!(browser.tick(LEFT + 1, Pressure::Normal, HashMap::new()).is_empty());
@@ -4126,10 +4138,12 @@ fn a_stored_decision_answers_a_request_without_asking() {
 
     let camera = browser.request_permission(slot, request(1, PermissionKind::Camera, "https://a.test"));
     let location = browser.request_permission(slot, request(2, PermissionKind::Location, "https://a.test"));
-    let other = browser.request_permission(slot, request(3, PermissionKind::Camera, "http://a.test"));
-
     assert_eq!(granted(&camera), vec![(PermissionRequestId(1), true)]);
     assert_eq!(granted(&location), vec![(PermissionRequestId(2), false)]);
+
+    browser.navigate(id, "http://a.test").unwrap();
+    browser.report_page(slot, &[commit("http://a.test", NavigationKind::Push)], None);
+    let other = browser.request_permission(slot, request(3, PermissionKind::Camera, "http://a.test"));
     assert!(granted(&other).is_empty(), "http is a different origin from https");
     assert_eq!(shown_permission(&browser, id), Some(PermissionRequestId(3)));
 }
@@ -4245,7 +4259,6 @@ fn a_private_window_honours_a_stored_block_but_not_a_stored_allow_and_stores_not
 fn a_request_from_an_origin_the_page_has_left_is_withdrawn() {
     let (mut browser, id, slot) = loaded("https://a.test");
     browser.request_permission(slot, request(1, PermissionKind::Camera, "https://a.test"));
-    browser.request_permission(slot, request(2, PermissionKind::Camera, "https://b.test"));
 
     // The page navigates itself, so nothing released the request on the way.
     browser.report_page(slot, &[commit("https://b.test/next", NavigationKind::Push)], None);
@@ -4253,6 +4266,67 @@ fn a_request_from_an_origin_the_page_has_left_is_withdrawn() {
     let effects = browser.withdraw_stale_permissions(slot);
 
     assert_eq!(granted(&effects), vec![(PermissionRequestId(1), false)]);
-    assert_eq!(shown_permission(&browser, id), Some(PermissionRequestId(2)));
+    assert_eq!(shown_permission(&browser, id), None);
     assert!(!browser.has_stale_permissions(slot));
+}
+
+#[test]
+fn a_request_arriving_after_its_page_left_the_origin_is_denied() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.report_page(slot, &[commit("https://b.test/next", NavigationKind::Push)], None);
+
+    let effects = browser.request_permission(slot, request(1, PermissionKind::Camera, "https://a.test"));
+
+    assert_eq!(granted(&effects), vec![(PermissionRequestId(1), false)]);
+    assert_eq!(shown_permission(&browser, id), None);
+}
+
+#[test]
+fn a_queued_request_decided_meanwhile_in_another_tab_is_answered_when_promoted() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://a.test"]);
+    let (first, second) = (ids[0], ids[1]);
+    let first_slot = slot_of(&browser, first).unwrap();
+    let second_slot = slot_of(&browser, second).unwrap();
+    for slot in [first_slot, second_slot] {
+        browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None);
+    }
+
+    browser.request_permission(first_slot, request(1, PermissionKind::Notifications, "https://a.test"));
+    browser.request_permission(first_slot, request(2, PermissionKind::Camera, "https://a.test"));
+    browser.request_permission(second_slot, request(3, PermissionKind::Camera, "https://a.test"));
+    browser
+        .answer_permission(second, PermissionRequestId(3), PermissionDecision::Dismiss)
+        .unwrap();
+
+    let (effects, _) = browser
+        .answer_permission(first, PermissionRequestId(1), PermissionDecision::Allow)
+        .unwrap();
+
+    assert_eq!(
+        granted(&effects),
+        vec![(PermissionRequestId(1), true), (PermissionRequestId(2), false)]
+    );
+    assert_eq!(shown_permission(&browser, first), None);
+}
+
+#[test]
+fn a_private_window_puts_a_stored_block_ahead_of_its_own_allow() {
+    let mut browser = Browser::new(2);
+    let (id, _) = browser.open_private_window("https://a.test");
+    browser.slots_created(browser.slot_ids());
+    let slot = slot_of(&browser, id).unwrap();
+    browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None);
+    browser.request_permission(slot, request(1, PermissionKind::Camera, "https://a.test"));
+    browser
+        .answer_permission(id, PermissionRequestId(1), PermissionDecision::Allow)
+        .unwrap();
+
+    browser.set_site_permissions(vec![stored(
+        "https://a.test",
+        PermissionKind::Camera,
+        PermissionState::Block,
+    )]);
+    let again = browser.request_permission(slot, request(2, PermissionKind::Camera, "https://a.test"));
+
+    assert_eq!(granted(&again), vec![(PermissionRequestId(2), false)]);
 }

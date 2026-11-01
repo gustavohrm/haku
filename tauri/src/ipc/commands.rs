@@ -1370,7 +1370,7 @@ pub async fn set_settings(
     settings: Settings,
 ) -> Result<Settings> {
     let window = ensure_chrome(&webview)?;
-    store_settings(&app, &state, window, settings)
+    store_settings(&app, &state, window, |_| settings)
 }
 
 /// Replaces the optimization settings with a preset's values.
@@ -1387,14 +1387,7 @@ pub async fn apply_preset(
     preset: Preset,
 ) -> Result<Settings> {
     let window = ensure_chrome(&webview)?;
-    let settings = {
-        let current = state
-            .settings
-            .read()
-            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        current.clone().with_preset(preset)
-    };
-    store_settings(&app, &state, window, settings)
+    store_settings(&app, &state, window, |current| current.clone().with_preset(preset))
 }
 
 /// The preset the current settings match, or nothing when they were customised.
@@ -1409,9 +1402,15 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
     Ok(settings.preset())
 }
 
-fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, settings: Settings) -> Result<Settings> {
-    let settings = settings.sanitized();
-
+/// Stores the settings `update` makes from the current ones. It runs within
+/// the store's turn, so a change made from the current settings cannot undo an
+/// overlapping store.
+fn store_settings(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    window: WindowId,
+    update: impl FnOnce(&Settings) -> Settings,
+) -> Result<Settings> {
     // One store at a time, from replacing through applying, so a failed save
     // never restores settings older than a store that overlapped, and the
     // browser runs with the settings stored last (issue #41). Held across the
@@ -1419,11 +1418,12 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, se
     // takes it and both callers are async.
     static STORING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let storing = STORING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let previous = {
+    let (previous, settings) = {
         let mut current = state
             .settings
             .write()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        let settings = update(&current).sanitized();
         if current.keeps_new_site(&settings) || current.adds_site_permission(&settings) {
             state
                 .browser
@@ -1431,7 +1431,7 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, se
                 .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
                 .allow_site_settings(window)?;
         }
-        std::mem::replace(&mut *current, settings.clone())
+        (std::mem::replace(&mut *current, settings.clone()), settings)
     };
     if let Err(error) = state.save_settings() {
         let mut current = state
@@ -2060,6 +2060,9 @@ pub async fn answer_permission(
     let window = ensure_chrome(&webview)?;
     let mut decided = None;
     let snapshot = mutate_in(&app, &state, window, |browser| {
+        if browser.window_of(tab) != Some(window) {
+            return Err(HakuError::TabNotFound(tab.0.to_string()));
+        }
         let (effects, store) = browser.answer_permission(tab, request, decision)?;
         decided = store;
         Ok(effects)
@@ -2067,16 +2070,14 @@ pub async fn answer_permission(
     let Some(decided) = decided else {
         return Ok(snapshot);
     };
-    let mut settings = state
-        .settings
-        .read()
-        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
-        .clone();
-    settings
-        .site_permissions
-        .retain(|other| other.origin != decided.origin || other.kind != decided.kind);
-    settings.site_permissions.push(decided);
-    store_settings(&app, &state, window, settings)?;
+    store_settings(&app, &state, window, |current| {
+        let mut settings = current.clone();
+        settings
+            .site_permissions
+            .retain(|other| other.origin != decided.origin || other.kind != decided.kind);
+        settings.site_permissions.push(decided);
+        settings
+    })?;
     let browser = state
         .browser
         .read()

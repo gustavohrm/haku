@@ -36,7 +36,11 @@ export function permissionName(kind: PermissionKind): string {
  * @returns The dialog's title.
  */
 export function permissionTitle(request: PermissionRequest): string {
-  return t("permission.title").replace("{origin}", request.origin).replace("{action}", permissionAction(request.kind));
+  // Replaced through functions, and the origin last, so neither value is read
+  // as a replacement pattern or a placeholder.
+  return t("permission.title")
+    .replace("{action}", () => permissionAction(request.kind))
+    .replace("{origin}", () => request.origin);
 }
 
 /**

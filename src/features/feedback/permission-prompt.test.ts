@@ -1,6 +1,22 @@
+import type { PermissionKind } from "@bindings";
 import { describe, expect, it } from "vitest";
 
-import { permissionName, permissionTitle, toDecision } from "./permission-prompt";
+import { permissionAction, permissionName, permissionTitle, toDecision } from "./permission-prompt";
+
+// A record, so a kind added to the bindings fails to compile until listed.
+const kinds = Object.keys({
+  camera: true,
+  microphone: true,
+  location: true,
+  notifications: true,
+  midiSysex: true,
+  sensors: true,
+  windowManagement: true,
+  localFonts: true,
+  fileReadWrite: true,
+  clipboardRead: true,
+  multipleDownloads: true,
+} satisfies Record<PermissionKind, true>) as PermissionKind[];
 
 describe("permissionTitle", () => {
   it("names the origin that asked and what it asked for", () => {
@@ -11,12 +27,21 @@ describe("permissionTitle", () => {
       "http://localhost:8080 wants to download multiple files",
     );
   });
+
+  it("puts the origin in as it is", () => {
+    expect(permissionTitle({ id: 3, kind: "camera", origin: "https://$&.example" })).toBe(
+      "https://$&.example wants to use your camera",
+    );
+  });
 });
 
 describe("permissionName", () => {
-  it("has a name for every kind", () => {
+  it("has a name and an action for every kind", () => {
     expect(permissionName("location")).toBe("Location");
-    expect(permissionName("clipboardRead")).toBe("Clipboard");
+    for (const kind of kinds) {
+      expect(permissionName(kind)).not.toBe(`permission.name.${kind}`);
+      expect(permissionAction(kind)).not.toBe(`permission.ask.${kind}`);
+    }
   });
 });
 
