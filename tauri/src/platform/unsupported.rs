@@ -14,7 +14,8 @@ use super::{
 };
 use crate::error::{HakuError, Result};
 use crate::model::{
-    ContextMenuRequestId, DialogAnswer, DialogId, DownloadId, FindDirection, MemoryStatus, SlotId, WindowRequestId,
+    ContextMenuRequestId, DialogAnswer, DialogId, DownloadId, FindDirection, MemoryStatus, PermissionRequestId, SlotId,
+    WindowRequestId,
 };
 
 fn unsupported(operation: &str) -> HakuError {
@@ -161,6 +162,14 @@ pub fn answer_dialog<R: tauri::Runtime>(
     _answer: DialogAnswer,
 ) -> Result<()> {
     Err(unsupported("answering page dialogs"))
+}
+
+pub fn answer_permission<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _id: PermissionRequestId,
+    _allow: bool,
+) -> Result<()> {
+    Err(unsupported("answering permission requests"))
 }
 
 pub fn answer_context_menu<R: tauri::Runtime>(

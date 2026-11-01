@@ -28,6 +28,7 @@ const SETTINGS: Settings = {
   homeUrl: "haku://new-tab",
   disabledExtensions: [],
   pinnedExtensions: [],
+  sitePermissions: [],
 };
 
 describe("createStore", () => {

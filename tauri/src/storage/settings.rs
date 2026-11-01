@@ -1,6 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 
+use crate::model::permission::{normalized, SitePermissions};
 use crate::model::{Policy, Preset, DEFAULT_CAPACITY};
 
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
@@ -116,6 +117,9 @@ pub struct Settings {
     /// order they appear there. The rest are reached from the extensions
     /// menu.
     pub pinned_extensions: Vec<String>,
+    /// What the user allowed or blocked sites to use, by origin and kind.
+    /// [Permissions](../../../docs/specs/permissions.md).
+    pub site_permissions: SitePermissions,
 }
 
 impl Default for Settings {
@@ -137,6 +141,7 @@ impl Default for Settings {
             home_url: DEFAULT_HOME_URL.into(),
             disabled_extensions: Vec::new(),
             pinned_extensions: Vec::new(),
+            site_permissions: SitePermissions::default(),
         }
     }
 }
@@ -161,6 +166,7 @@ impl Settings {
             }
         }
         self.kept_sites = sites;
+        self.site_permissions = SitePermissions(normalized(std::mem::take(&mut self.site_permissions.0)));
         self
     }
 
@@ -168,6 +174,14 @@ impl Settings {
     /// keeping one, so the settings page may still do it from a private window.
     pub fn keeps_new_site(&self, next: &Self) -> bool {
         next.kept_sites.iter().any(|site| !self.kept_sites.contains(site))
+    }
+
+    /// Whether `next` stores a permission decision these settings do not.
+    /// Removing one is not storing one, as for kept sites.
+    pub fn adds_site_permission(&self, next: &Self) -> bool {
+        next.site_permissions
+            .iter()
+            .any(|permission| !self.site_permissions.contains(permission))
     }
 
     /// The budget for kept tabs, in bytes.
@@ -321,6 +335,34 @@ mod tests {
         );
         assert!(!current.keeps_new_site(&kept(&[])));
         assert!(current.keeps_new_site(&kept(&["a.test", "c.test"])));
+    }
+
+    #[test]
+    fn only_a_decision_not_stored_before_counts_as_adding_one() {
+        use crate::model::{PermissionKind, PermissionState, SitePermission};
+        let decided = |states: &[PermissionState]| Settings {
+            site_permissions: SitePermissions(
+                states
+                    .iter()
+                    .map(|state| SitePermission {
+                        origin: "https://a.test".into(),
+                        kind: PermissionKind::Camera,
+                        state: *state,
+                    })
+                    .collect(),
+            ),
+            ..Settings::default()
+        };
+        let current = decided(&[PermissionState::Allow]);
+        assert!(!current.adds_site_permission(&decided(&[PermissionState::Allow])));
+        assert!(
+            !current.adds_site_permission(&decided(&[])),
+            "removing one is not adding one"
+        );
+        assert!(
+            current.adds_site_permission(&decided(&[PermissionState::Block])),
+            "changing one is adding one"
+        );
     }
 
     #[test]
