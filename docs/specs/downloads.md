@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-31
+last_updated: 2026-11-01
 scope: How Haku follows the downloads pages start, what keeps their webviews alive, closing with downloads running, and where downloads are stored and shown.
 ---
 
@@ -23,7 +23,7 @@ Measured on 2026-10-30 with Tauri 2.12.5, tauri-runtime-wry 2.12.3, wry 0.57.0, 
 Also measured:
 
 - Private downloads go to the same Downloads folder as ordinary ones.
-- A second download a page starts without a click is held by the engine's _multiple automatic downloads_ gate, which shows the engine's own permission prompt.
+- A second download a page starts without a click is held by the engine's _multiple automatic downloads_ gate, which Haku asks about like any other permission ([Permissions](permissions.md)). Until 2026-11-01 that prompt was left to the engine.
 - **Save link as** and **Save image as** show the engine's native Save As dialog, and the transfer starts while it is open. Once it is accepted, `DownloadStarting` fires with the chosen path, so Haku follows it like any download.
 - **Save as** on a page shows the same dialog and writes the page and its `_files` folder, but `DownloadStarting` never fires: Haku cannot follow it.
 - After a resume replaces a failed operation, releasing the old operation stops the new one's events, though its file keeps growing. Haku keeps the old one until the download ends.
@@ -106,6 +106,5 @@ A page can neither call these commands nor name a file: the commands are chrome-
 
 ## Known limits
 
-- The engine's own prompt for multiple automatic downloads still shows; Haku leaves that permission to the engine.
 - What a crashed page renderer does to a download running in its webview has not been checked. A crash blanks the webview rather than destroying it, so the download is expected to go on.
 - While a download runs, its entry is written to the database each time progress is reported, at most every 250 ms. It is one small row, but writes that only move `received` could be batched further.
