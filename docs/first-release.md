@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -183,7 +183,7 @@ There is no store. Extensions are installed from disk, at the user's own risk, i
 | Launcher                             | See [Running in the background](#running-in-the-background).                                                                                                                                                                                  |
 | New windows and popups               | **Implemented.** WebView2's new-window event. A popup opens in a window of its own, with a fresh slot handed back to the request, so `window.opener` survives — sign-in popups depend on it. See [Windows and popups](specs/new-windows.md).  |
 | Permissions                          | Camera, microphone, location, notifications and the rest, asked by a chrome-drawn prompt titled with the site, as page dialogs are. Decisions stored per site.                                                                                |
-| Fullscreen                           | A page entering fullscreen hides the bars and its viewport fills the window.                                                                                                                                                                  |
+| Fullscreen                           | **Implemented.** A page entering fullscreen takes its window fullscreen, hides the bars and fills the screen ([Fullscreen](specs/fullscreen.md)).                                                                                             |
 | Context menu                         | **Implemented.** WebView2's context-menu event, drawn by the chrome with Haku's own items. See [Context menus](specs/context-menus.md).                                                                                                       |
 | HTTP login, certificates             | Login prompts and certificate errors drawn by the chrome, never by the page.                                                                                                                                                                  |
 | Crashed pages                        | **Implemented.** A webview whose process dies leaves its tab in a crashed state with a reload, not a blank viewport. See [Crash recovery](specs/crash-recovery.md).                                                                           |

@@ -248,6 +248,8 @@ export type BrowserState = {
 	focusedViewport: string,
 	splits: TabPair[],
 	layoutRevision: number,
+	/**  The shown tab whose page is fullscreen, which takes the window with it. */
+	fullscreen: TabId | null,
 	/**
 	 *  Exported as a JavaScript number: every value here is a counter, a
 	 *  small capacity, or a millisecond timestamp, all far inside the range a

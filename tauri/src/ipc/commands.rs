@@ -195,6 +195,22 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 let app = app.clone();
                 std::thread::spawn(move || offer_context_menu(&app, slot, menu));
             }
+            PageSignal::FullscreenChanged { fullscreen } => {
+                // Numbered here, on the UI thread, in the order the engine
+                // reported them: the threads below may run in any order, and a
+                // quick enter and exit must not end with the window fullscreen.
+                let report = latest_fullscreen_reports().next(slot);
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let state = app.state::<AppState>();
+                    let _ = mutate(&app, &state, |browser| {
+                        if !latest_fullscreen_reports().is_latest(slot, report) {
+                            return Ok(Vec::new());
+                        }
+                        Ok(browser.report_fullscreen(slot, fullscreen))
+                    });
+                });
+            }
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -206,6 +222,30 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             }
         },
     )
+}
+
+/// The newest fullscreen report numbered for each slot.
+#[derive(Default)]
+struct FullscreenReports(HashMap<SlotId, u64>);
+
+impl FullscreenReports {
+    fn next(&mut self, slot: SlotId) -> u64 {
+        let number = self.0.entry(slot).or_default();
+        *number += 1;
+        *number
+    }
+
+    fn is_latest(&self, slot: SlotId, report: u64) -> bool {
+        self.0.get(&slot) == Some(&report)
+    }
+}
+
+fn latest_fullscreen_reports() -> std::sync::MutexGuard<'static, FullscreenReports> {
+    static REPORTS: OnceLock<Mutex<FullscreenReports>> = OnceLock::new();
+    REPORTS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// How long a page's context menu may go unanswered, say because its window
@@ -1739,6 +1779,20 @@ fn apply_layout_turn(
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+
+    #[test]
+    fn only_the_newest_fullscreen_report_of_a_slot_applies() {
+        let mut reports = FullscreenReports::default();
+        let (slot, other) = (SlotId(1), SlotId(2));
+        let enter = reports.next(slot);
+        let exit = reports.next(slot);
+        let elsewhere = reports.next(other);
+
+        // An enter whose thread runs after the exit's changes nothing.
+        assert!(!reports.is_latest(slot, enter));
+        assert!(reports.is_latest(slot, exit));
+        assert!(reports.is_latest(other, elsewhere));
+    }
     use std::cell::RefCell;
 
     #[test]

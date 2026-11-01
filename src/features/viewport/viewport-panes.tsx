@@ -19,10 +19,13 @@ function pageName(tab: Tab): string {
 
 /** The window's assigned panes, measured together including their solid covers. */
 export function ViewportPanes() {
-  const { viewports, tabs, focusedViewport, splits, active, layoutRevision } = useBrowserState();
+  const { viewports, tabs, focusedViewport, splits, active, layoutRevision, fullscreen } = useBrowserState();
   const containerRef = useRef<HTMLDivElement>(null);
   useChromeLayout(containerRef);
-  const isSplit = viewports.length === 2;
+  // A fullscreen page fills the window alone. Its partner stays assigned and
+  // rendered, hidden, so it measures zero and its page is hidden with it.
+  const isFullscreen = viewports.some((pane) => pane.tab === fullscreen);
+  const isSplit = viewports.length === 2 && !isFullscreen;
   const names = viewports
     .map((pane) => tabs.find((tab) => tab.id === pane.tab))
     .map((tab) => (tab ? pageName(tab) : t("tabs.untitled")));
@@ -32,7 +35,7 @@ export function ViewportPanes() {
         const tab = tabs.find((candidate) => candidate.id === pane.tab);
         return (
           <Fragment key={pane.id}>
-            {index === 1 && (
+            {index === 1 && isSplit && (
               <SplitDivider
                 containerRef={containerRef}
                 ratio={splits.find((split) => active !== null && split.tabs.includes(active))?.ratio ?? 0.5}
@@ -43,7 +46,14 @@ export function ViewportPanes() {
               />
             )}
             {tab && (
-              <Pane id={pane.id} tab={tab} isSplit={isSplit} isFocused={pane.id === focusedViewport} position={index} />
+              <Pane
+                id={pane.id}
+                tab={tab}
+                isSplit={isSplit}
+                isFocused={pane.id === focusedViewport}
+                isHidden={isFullscreen && tab.id !== fullscreen}
+                position={index}
+              />
             )}
           </Fragment>
         );
@@ -58,12 +68,14 @@ function Pane({
   tab,
   isSplit,
   isFocused,
+  isHidden,
   position,
 }: {
   id: string;
   tab: Tab;
   isSplit: boolean;
   isFocused: boolean;
+  isHidden: boolean;
   position: number;
 }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -96,6 +108,7 @@ function Pane({
     <section
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- A pane groups chrome and page content, not form controls.
       role="group"
+      hidden={isHidden}
       aria-label={`${isFocused ? t("split.current") : t(position === 0 ? "split.left" : "split.right")}: ${title}`}
       className={cx(
         "flex min-h-0 min-w-0 flex-col rounded-(--haku-viewport-radius)",

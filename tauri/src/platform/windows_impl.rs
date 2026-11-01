@@ -81,14 +81,15 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
     BrowserExtensionRemoveCompletedHandler, BytesReceivedChangedEventHandler,
-    CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, ContextMenuRequestedEventHandler,
-    DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
-    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, FocusChangedEventHandler,
-    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
-    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    PermissionRequestedEventHandler, ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler,
-    ProfileGetBrowserExtensionsCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
-    StateChangedEventHandler, TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
+    CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
+    ContainsFullScreenElementChangedEventHandler, ContextMenuRequestedEventHandler, DOMContentLoadedEventHandler,
+    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, DownloadStartingEventHandler,
+    ExecuteScriptCompletedHandler, FocusChangedEventHandler, GetProcessExtendedInfosCompletedHandler,
+    IsDocumentPlayingAudioChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler,
+    ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
+    ScriptDialogOpeningEventHandler, SourceChangedEventHandler, StateChangedEventHandler, TrySuspendCompletedHandler,
+    WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
@@ -1036,6 +1037,22 @@ unsafe fn attach_observers(
         };
         core.add_IsDocumentPlayingAudioChanged(&on_audio, &mut token)?;
     }
+
+    // A page entering fullscreen takes its window with it. The engine only
+    // makes the element fill the webview; the window is Haku's to change.
+    let on_fullscreen = {
+        let sink = sink.clone();
+        ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
+            let Some(core) = sender else { return Ok(()) };
+            let mut fullscreen = BOOL::default();
+            core.ContainsFullScreenElement(&mut fullscreen)?;
+            sink(PageSignal::FullscreenChanged {
+                fullscreen: fullscreen.as_bool(),
+            });
+            Ok(())
+        }))
+    };
+    core.add_ContainsFullScreenElementChanged(&on_fullscreen, &mut token)?;
     Ok(())
 }
 

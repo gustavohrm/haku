@@ -279,3 +279,15 @@ it("keeps the address focused when a new internal tab consumes a pending focus r
   );
   expect(document.activeElement).toBe(host.querySelector('[aria-label="Search or enter address"]'));
 });
+
+it("shows a fullscreen pane alone, keeping its partner's surface to measure as hidden", async () => {
+  browserStore.set({ ...browserStore.get(), fullscreen: 2 });
+  await act(async () => root.render(<ViewportPanes />));
+
+  expect(host.querySelector(".haku-split")).toBeNull();
+  expect(host.querySelector('[role="separator"]')).toBeNull();
+  const left = host.querySelector('[data-viewport="left"]')!.closest("section")!;
+  const right = host.querySelector('[data-viewport="right"]')!.closest("section")!;
+  expect(left.hidden).toBe(true);
+  expect(right.hidden).toBe(false);
+});

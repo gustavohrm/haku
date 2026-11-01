@@ -11,7 +11,7 @@
  * single observer keeps every toast stack and open dialog registered.
  */
 
-import type { HakuError } from "@bindings";
+import type { HakuError, Overlay } from "@bindings";
 import { createToaster, type Toaster } from "@codenhub/toaster";
 import { overlayOf, registerOverlay, unregisterOverlay } from "@features/overlays/registry";
 import { describeError, HakuFailure } from "@ipc/result";
@@ -88,12 +88,21 @@ export function reportUnexpected(error: unknown): void {
 /**
  * Keeps whatever the toaster shows registered as an overlay.
  *
- * Each direct child of the container is a toast stack or a dialog. Stacks are
- * registered while they hold a toast and dialogs while they are open; both are
- * re-measured as they change size or finish animating.
+ * Each direct child of the container is a toast stack or a dialog. A dialog is
+ * registered while it is open and re-measured as it changes size or finishes
+ * animating.
+ *
+ * A stack is not registered itself: it is square and spans the gaps between
+ * its toasts, so the chrome would show at the toasts' rounded corners and
+ * between them. Each toast is registered instead, where it is painted. Toasts
+ * slide in, out and along the stack, and the toaster starts an exit without
+ * changing the DOM, so while any toast is shown it is measured every frame. An
+ * unchanged region is not reported again, so a toast at rest costs a
+ * measurement and nothing more.
  */
 function trackAsOverlays(container: HTMLElement): void {
   const ids = new WeakMap<Element, string>();
+  const observed = new WeakSet<Element>();
   let registered = new Set<string>();
   let counter = 0;
   let frame = 0;
@@ -101,18 +110,32 @@ function trackAsOverlays(container: HTMLElement): void {
   const resize = new ResizeObserver(() => schedule());
 
   const measure = () => {
+    frame = 0;
     const shown = new Set<string>();
-    for (const element of container.children) {
+    let hasToasts = false;
+    const show = (element: Element, overlay: Overlay) => {
       let id = ids.get(element);
       if (!id) {
         id = `feedback-${counter++}`;
         ids.set(element, id);
+      }
+      registerOverlay(id, overlay);
+      shown.add(id);
+    };
+    for (const element of container.children) {
+      if (!observed.has(element)) {
+        observed.add(element);
         resize.observe(element);
       }
-      const visible = element instanceof HTMLDialogElement ? element.open : element.childElementCount > 0;
-      if (visible) {
-        registerOverlay(id, overlayOf(element));
-        shown.add(id);
+      if (element instanceof HTMLDialogElement) {
+        if (element.open) {
+          show(element, overlayOf(element));
+        }
+        continue;
+      }
+      for (const toast of element.children) {
+        hasToasts = true;
+        show(toast, toastOverlay(element, toast));
       }
     }
     for (const id of registered) {
@@ -121,15 +144,38 @@ function trackAsOverlays(container: HTMLElement): void {
       }
     }
     registered = shown;
+    if (hasToasts) {
+      schedule();
+    }
   };
 
   const schedule = () => {
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(measure);
+    if (!frame) {
+      frame = requestAnimationFrame(measure);
+    }
   };
 
   new MutationObserver(schedule).observe(container, { childList: true, subtree: true, attributes: true });
   container.addEventListener("transitionend", schedule, true);
   container.addEventListener("animationend", schedule, true);
   window.addEventListener("resize", schedule);
+}
+
+/**
+ * Reads where a toast is painted, with its own corners.
+ *
+ * Clipped to its stack, which hides a toast sliding in or out past its edge
+ * and scrolls what does not fit.
+ */
+function toastOverlay(stack: Element, toast: Element): Overlay {
+  const clip = stack.getBoundingClientRect();
+  const box = toast.getBoundingClientRect();
+  const left = Math.max(box.left, clip.left);
+  const top = Math.max(box.top, clip.top);
+  const right = Math.min(box.right, clip.right);
+  const bottom = Math.min(box.bottom, clip.bottom);
+  return {
+    rect: { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) },
+    radius: overlayOf(toast).radius,
+  };
 }
