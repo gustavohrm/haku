@@ -25,12 +25,12 @@ The engine only grants fullscreen in answer to a click or key, so a page cannot 
 
 **Leaving.** The window returns to the size, position and maximized state it had before, with its bars and layout as they were. Fullscreen ends when:
 
-| Cause                                                             | How                                                       |
-| ----------------------------------------------------------------- | --------------------------------------------------------- |
-| The page exits, such as the player's button or a navigation       | The engine reports it                                     |
-| The user presses Esc                                              | See [Esc](#esc)                                           |
-| The tab stops being shown: another tab selected, the tab closed   | Haku asks the page to exit, and the window leaves at once |
-| The page goes away: its process crashed, or its slot was given up | The window leaves; there is no page left to ask           |
+| Cause                                                                             | How                                                        |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| The page exits, such as the player's button or a navigation                       | The engine reports it                                      |
+| The user presses Esc                                                              | See [Esc](#esc)                                            |
+| Another tab is selected, including the other pane of a split                      | The window leaves at once, then Haku asks the page to exit |
+| The page goes away: the tab closed, its process crashed, or its slot was given up | The window leaves; there is no page left to ask            |
 
 Shortcuts keep working while fullscreen, so Ctrl+Tab or Ctrl+W leave it by the rule above. Haku's own dialogs, page menus and toasts draw over a fullscreen page as they do over any other, and do not end it. Losing focus, as Alt+Tab does, does not end it either.
 
@@ -44,7 +44,7 @@ The engine ends a page's fullscreen on Esc by itself and reports it like any oth
 
 **The signal.** `platform/` listens to WebView2's `ContainsFullScreenElementChanged` on every content webview and reports it as a page signal, like the others in [Page observation](page-observation.md). The page reports nothing itself.
 
-**The state.** `Browser` keeps, per window, the tab whose page is fullscreen, if any. `realize()` clears it whenever that tab is no longer shown in a live slot of that window, which covers every "the window leaves" cause above in one place instead of in each operation. Fullscreen is not saved with the session.
+**The state.** `Browser` keeps, per window, the tab whose page is fullscreen, if any. `realize()` clears it whenever that tab is no longer shown in a live slot of that window, which covers every "the window leaves" cause above in one place instead of in each operation. Selecting another tab clears it too: the other pane of a split pair stays assigned while the fullscreen pane covers it, so `realize()` alone would keep fullscreen while focus moved to a page that is not on screen. Fullscreen is not saved with the session.
 
 **The contract.** `BrowserState` gains one field:
 
