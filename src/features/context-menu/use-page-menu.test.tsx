@@ -150,12 +150,12 @@ describe("page menu targeting", () => {
 
   it("prints and saves the tab named by the page menu request", async () => {
     await act(async () => root.render(<PageMenu focused={state.tabs[0]!} />));
-    await send(7);
+    await send(9);
     await act(async () => container.querySelector<HTMLButtonElement>('[data-action="print"]')!.click());
-    expect(commands.printPage).toHaveBeenCalledWith(7);
-    await send(7);
+    expect(commands.printPage).toHaveBeenCalledWith(9);
+    await send(9);
     await act(async () => container.querySelector<HTMLButtonElement>('[data-action="savePage"]')!.click());
-    expect(commands.savePage).toHaveBeenCalledWith(7);
+    expect(commands.savePage).toHaveBeenCalledWith(9);
   });
 
   it("answers a stale request without opening a menu for the replacement tab", async () => {

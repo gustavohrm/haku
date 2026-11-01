@@ -2009,12 +2009,17 @@ pub async fn open_tab_devtools(
     Ok(())
 }
 
-/// The slot of a tab's live page, or nothing for a tab without one.
-fn slot_of(state: &AppState, id: TabId) -> Result<Option<SlotId>> {
+/// The slot of a tab's live page in the calling `window`, or nothing for a
+/// tab without one. A tab in another window is not found, as for any command
+/// that acts on a window.
+fn slot_of(state: &AppState, window: WindowId, id: TabId) -> Result<Option<SlotId>> {
     let browser = state
         .browser
         .read()
         .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    if browser.window_of(id) != Some(window) {
+        return Err(HakuError::TabNotFound(id.0.to_string()));
+    }
     Ok(browser.tab(id)?.slot())
 }
 
@@ -2049,9 +2054,9 @@ pub async fn find_in_page(
     query: String,
     direction: FindDirection,
 ) -> Result<()> {
-    ensure_chrome(&webview)?;
+    let window = ensure_chrome(&webview)?;
     check_query(&query)?;
-    match slot_of(&state, tab)?.and_then(|slot| app.get_webview(&slot.label())) {
+    match slot_of(&state, window, tab)?.and_then(|slot| app.get_webview(&slot.label())) {
         Some(page) => platform::find(&page, &query, direction),
         None => Ok(()),
     }
@@ -2069,8 +2074,8 @@ pub async fn stop_find(
     tab: TabId,
     refocus: bool,
 ) -> Result<()> {
-    ensure_chrome(&webview)?;
-    let Some(page) = slot_of(&state, tab)?.and_then(|slot| app.get_webview(&slot.label())) else {
+    let window = ensure_chrome(&webview)?;
+    let Some(page) = slot_of(&state, window, tab)?.and_then(|slot| app.get_webview(&slot.label())) else {
         return Ok(());
     };
     platform::stop_find(&page)?;
@@ -2091,7 +2096,7 @@ pub async fn print_page(
     tab: TabId,
 ) -> Result<()> {
     let window = ensure_chrome(&webview)?;
-    match slot_of(&state, tab)? {
+    match slot_of(&state, window, tab)? {
         Some(slot) => print_slot(&app, window, slot),
         None => Ok(()),
     }
@@ -2108,7 +2113,7 @@ pub async fn save_page(
     tab: TabId,
 ) -> Result<()> {
     let window = ensure_chrome(&webview)?;
-    match slot_of(&state, tab)? {
+    match slot_of(&state, window, tab)? {
         Some(slot) => save_slot(&app, window, slot),
         None => Ok(()),
     }

@@ -78,6 +78,11 @@ export function useOverlay(ref: RefObject<HTMLElement | null>, open: boolean): v
 
     const observer = new ResizeObserver(measure);
     observer.observe(element);
+    // An element placed within its parent, such as the find bar in a split
+    // pane, moves without resizing when the parent does.
+    if (element.parentElement) {
+      observer.observe(element.parentElement);
+    }
     window.addEventListener("resize", measure);
     element.addEventListener("transitionrun", restart);
     element.addEventListener("animationstart", restart);

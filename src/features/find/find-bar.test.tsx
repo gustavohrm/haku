@@ -7,14 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FIND_QUERY_MAX, FindBar, useFindBar } from "./find-bar";
 
 const { requested, results, ended, listener } = vi.hoisted(() => {
-  const listener =
-    <T,>(set: Set<(event: { payload: T }) => void>) =>
-    () => ({
+  const listener = <T,>(set: Set<(event: { payload: T }) => void>) =>
+    vi.fn((_target: unknown) => ({
       listen: async (next: (event: { payload: T }) => void) => {
         set.add(next);
         return () => set.delete(next);
       },
-    });
+    }));
   return {
     requested: new Set<(event: { payload: number }) => void>(),
     ended: new Set<(event: { payload: number }) => void>(),
@@ -25,6 +24,7 @@ const { requested, results, ended, listener } = vi.hoisted(() => {
 vi.mock("@bindings", () => ({
   events: { findRequested: listener(requested), findResult: listener(results), findEnded: listener(ended) },
 }));
+import { events } from "@bindings";
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
 vi.mock("@ipc/commands", () => ({ commands: { findInPage: vi.fn(), stopFind: vi.fn() } }));
 vi.mock("@features/overlays/use-overlay", () => ({ useOverlay: vi.fn() }));
@@ -137,6 +137,15 @@ describe("useFindBar", () => {
     expect(open()).toBe("3:1");
     await ask(3);
     expect(open()).toBe("3:2");
+  });
+
+  it("listens to its own window only", async () => {
+    await act(async () => root.render(<Harness focused={tab(3)} />));
+    await act(async () => root.render(<FindBar tab={3} request={1} onClose={() => {}} />));
+    const own = { label: "window-1" };
+    expect(events.findRequested).toHaveBeenCalledWith(own);
+    expect(events.findEnded).toHaveBeenCalledWith(own);
+    expect(events.findResult).toHaveBeenCalledWith(own);
   });
 
   it("closes when another tab takes focus, and stays closed on return", async () => {

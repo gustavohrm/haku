@@ -236,7 +236,9 @@ describe("pageMenu", () => {
     select(find(items, "savePage"));
     expect(acts.print).toHaveBeenCalledOnce();
     expect(acts.savePage).toHaveBeenCalledOnce();
-    expect(find(pageMenu(request({ linkUrl: "https://link/" }), tab(1), acts), "print")).toBeUndefined();
+    const linkItems = pageMenu(request({ linkUrl: "https://link/" }), tab(1), acts);
+    expect(find(linkItems, "print")).toBeUndefined();
+    expect(find(linkItems, "savePage")).toBeUndefined();
   });
 
   it("drops navigation over a link, and opens the link", () => {

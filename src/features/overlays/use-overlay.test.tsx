@@ -11,13 +11,22 @@ let host: HTMLDivElement;
 let root: Root;
 /** Whether the overlay's element reports a running animation. */
 let animating = false;
+/** What the last ResizeObserver watches, and how to tell it something resized. */
+let observed: Element[] = [];
+let resized: () => void = () => {};
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe() {}
+      constructor(callback: () => void) {
+        resized = callback;
+        observed = [];
+      }
+      observe(element: Element) {
+        observed.push(element);
+      }
       disconnect() {}
     },
   );
@@ -67,6 +76,16 @@ describe("useOverlay", () => {
     animating = false;
     act(() => vi.advanceTimersToNextFrame());
     expect(overlayStore.get()).toHaveLength(0);
+  });
+
+  it("follows its parent, which moves it without resizing it", () => {
+    act(() => root.render(<Floating open />));
+    const element = host.firstElementChild!;
+    expect(observed).toContain(host);
+
+    element.getBoundingClientRect = () => new DOMRect(120, 0, 200, 30);
+    act(() => resized());
+    expect(overlayStore.get()[0]?.rect.x).toBe(120);
   });
 
   it("gives up following an animation that never ends", () => {
