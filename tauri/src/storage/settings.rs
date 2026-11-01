@@ -158,19 +158,23 @@ impl<'de> Deserialize<'de> for Shortcuts {
 impl Shortcuts {
     /// Rewrites every chord in one form, and drops those that do not read,
     /// are refused, or are already listed, under this action or one before it
-    /// in table order. An action left with its defaults is dropped.
+    /// in table order. An action left with its defaults is dropped, and so is
+    /// one whose every chord was dropped: only an empty list unbinds.
     fn normalized(self) -> Self {
         let mut taken = HashSet::new();
         let mut kept = BTreeMap::new();
         for (shortcut, defaults) in DEFAULTS {
-            let Some(chords) = self.0.get(shortcut) else {
+            let Some(stored) = self.0.get(shortcut) else {
                 continue;
             };
-            let chords: Vec<Chord> = chords
+            let chords: Vec<Chord> = stored
                 .iter()
                 .filter_map(|chord| Chord::parse(chord))
                 .filter(|chord| chord.refusal().is_none() && taken.insert(*chord))
                 .collect();
+            if chords.is_empty() && !stored.is_empty() {
+                continue;
+            }
             if chords != *defaults {
                 kept.insert(*shortcut, chords.iter().map(Chord::to_string).collect());
             }
@@ -418,6 +422,15 @@ mod tests {
         .sanitized()
         .shortcuts
         .0
+    }
+
+    #[test]
+    fn an_action_whose_every_chord_is_dropped_keeps_its_defaults() {
+        let stored = stored_shortcuts(serde_json::json!({
+            "home": ["Ctrl+C", "Q", "Ctrl+Meta+H"],
+            "print": [],
+        }));
+        assert_eq!(stored, BTreeMap::from([(Shortcut::Print, vec![])]));
     }
 
     #[test]
