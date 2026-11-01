@@ -37,6 +37,13 @@ describe("the settings helpers", () => {
     });
   });
 
+  it("builds on the user's own list, which the keymap may not show yet", () => {
+    // Reload was changed to Ctrl+R alone; the keymap still shows both.
+    const changed = settings({ reload: ["Ctrl+R"] });
+    expect(withChord(changed, KEYMAP, "reload", "Ctrl+Alt+R").shortcuts.reload).toEqual(["Ctrl+R", "Ctrl+Alt+R"]);
+    expect(withoutChord(changed, KEYMAP, "reload", "Ctrl+R").shortcuts.reload).toEqual([]);
+  });
+
   it("removes one chord and leaves the action changed", () => {
     expect(withoutChord(settings(), KEYMAP, "reload", "F5").shortcuts).toEqual({ reload: ["Ctrl+R"] });
   });

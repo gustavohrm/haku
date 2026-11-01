@@ -63,6 +63,16 @@ function chordsOf(keymap: readonly KeyBinding[], shortcut: Shortcut): string[] {
 }
 
 /**
+ * The chords `shortcut` has under `settings`: the user's own list when they
+ * changed it, since the keymap is read again only after the change is
+ * announced, and two changes in quick succession would otherwise build on
+ * the older one.
+ */
+function chordsUnder(settings: Settings, keymap: readonly KeyBinding[], shortcut: Shortcut): string[] {
+  return settings.shortcuts[shortcut] ?? chordsOf(keymap, shortcut);
+}
+
+/**
  * The settings with `chord` added to `shortcut`, and taken from any other
  * action the user gave it. One that has it by default loses it in Rust.
  */
@@ -76,7 +86,7 @@ export function withChord(
   for (const [other, chords] of Object.entries(settings.shortcuts) as [Shortcut, string[]][]) {
     shortcuts[other] = chords.filter((bound) => bound !== chord);
   }
-  shortcuts[shortcut] = [...chordsOf(keymap, shortcut), chord];
+  shortcuts[shortcut] = [...chordsUnder(settings, keymap, shortcut), chord];
   return { ...settings, shortcuts };
 }
 
@@ -87,7 +97,7 @@ export function withoutChord(
   shortcut: Shortcut,
   chord: string,
 ): Settings {
-  const chords = chordsOf(keymap, shortcut).filter((bound) => bound !== chord);
+  const chords = chordsUnder(settings, keymap, shortcut).filter((bound) => bound !== chord);
   return { ...settings, shortcuts: { ...settings.shortcuts, [shortcut]: chords } };
 }
 
