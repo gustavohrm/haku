@@ -32,9 +32,9 @@ use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, O
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, jpeg_data_url, AddedExtension, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId,
-    DownloadState, ExtensionSource, Extensions, PageMenu, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut,
-    SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    check_query, is_internal, jpeg_data_url, AddedExtension, ContextMenuRequestId, DialogAnswer, DialogId, Download,
+    DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu, Placement, Preset, Pressure,
+    Profile, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -44,10 +44,10 @@ use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{
-    AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, FailureReported, MemoryChanged,
-    SettingsChanged, StateChanged,
+    AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, FailureReported, FindEnded, FindRequested,
+    FindResult, MemoryChanged, SettingsChanged, StateChanged,
 };
-use super::shortcuts::Request as ShortcutRequest;
+use super::shortcuts::{PageAction, Request as ShortcutRequest};
 use super::{downloads, extensions, recovery};
 
 /// Rejects a command that only the interface may issue.
@@ -97,8 +97,14 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             // Recorded before the page commits, on this thread, so the
             // navigation it belongs to finds it.
             PageSignal::NavigationStarted { form } => {
-                if let Ok(mut browser) = app.state::<AppState>().browser.write() {
+                let ended = app.state::<AppState>().browser.write().ok().and_then(|mut browser| {
                     browser.report_navigation(slot, form);
+                    let tab = browser.tab_in(slot)?;
+                    Some((tab, browser.window_of(tab)?))
+                });
+                // The engine ends a find on navigation; the bar closes with it.
+                if let Some((tab, window)) = ended {
+                    let _ = FindEnded(tab).emit_to(app, window.label());
                 }
             }
             // Handled by the webview module, which holds what is restored.
@@ -194,6 +200,16 @@ fn page_observer() -> PageObserver<tauri::Wry> {
             PageSignal::ContextMenuRequested(menu) => {
                 let app = app.clone();
                 std::thread::spawn(move || offer_context_menu(&app, slot, menu));
+            }
+            PageSignal::FindChanged { matches, active } => {
+                let state = app.state::<AppState>();
+                let target = state.browser.read().ok().and_then(|browser| {
+                    let tab = browser.tab_in(slot)?;
+                    Some((tab, browser.window_of(tab)?))
+                });
+                if let Some((tab, window)) = target {
+                    let _ = FindResult { tab, matches, active }.emit_to(app, window.label());
+                }
             }
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
@@ -585,7 +601,7 @@ fn run_shortcut_in(
 ) -> Result<()> {
     let home = home_url(state)?;
     let pressure = read_pressure(state);
-    let native = std::cell::Cell::new((None, None, None));
+    let native = std::cell::Cell::new((None, None, None, None));
     let failed = std::cell::Cell::new(None);
     state.changes.run(
         &state.browser,
@@ -608,7 +624,7 @@ fn run_shortcut_in(
             }
             Ok(hold_then(state, browser, &failed, |browser| {
                 let action = request.prepare(browser, shortcut, &home, now_ms())?;
-                native.set((action.address, action.devtools, action.close));
+                native.set((action.address, action.devtools, action.close, action.page));
                 Ok(action.effects)
             }))
         },
@@ -629,7 +645,7 @@ fn run_shortcut_in(
             {
                 commit(app, state, effects)?;
             }
-            let (address, devtools, close) = native.get();
+            let (address, devtools, close, page) = native.get();
             if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
                 window.close()?;
             }
@@ -638,6 +654,17 @@ fn run_shortcut_in(
             }
             if let Some(page) = devtools.and_then(|slot| app.get_webview(&slot.label())) {
                 page.open_devtools();
+            }
+            match page {
+                Some(PageAction::Find(tab)) => {
+                    // The page holds the keyboard; the bar's field can only
+                    // take it once the chrome has it, as for the address field.
+                    webview::chrome_of(app, request.window())?.set_focus()?;
+                    FindRequested(tab).emit_to(app, request.window().label())?;
+                }
+                Some(PageAction::Print(slot)) => print_slot(app, request.window(), slot)?,
+                Some(PageAction::Save(slot)) => save_slot(app, request.window(), slot)?,
+                None => {}
             }
             Ok(())
         },
@@ -1980,6 +2007,111 @@ pub async fn open_tab_devtools(
         target.open_devtools();
     }
     Ok(())
+}
+
+/// The slot of a tab's live page, or nothing for a tab without one.
+fn slot_of(state: &AppState, id: TabId) -> Result<Option<SlotId>> {
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    Ok(browser.tab(id)?.slot())
+}
+
+/// Opens the print preview for the page in `slot`, reporting a failure in `window`.
+fn print_slot(app: &tauri::AppHandle, window: WindowId, slot: SlotId) -> Result<()> {
+    let Some(page) = app.get_webview(&slot.label()) else {
+        return Ok(());
+    };
+    let report = app.clone();
+    platform::print(&page, Box::new(move |error| report_failure(&report, window, error)))
+}
+
+/// Opens the Save As dialog for the page in `slot`, reporting a failure in `window`.
+fn save_slot(app: &tauri::AppHandle, window: WindowId, slot: SlotId) -> Result<()> {
+    let Some(page) = app.get_webview(&slot.label()) else {
+        return Ok(());
+    };
+    let report = app.clone();
+    platform::save_page(&page, Box::new(move |error| report_failure(&report, window, error)))
+}
+
+/// Finds `query` in a tab's page. [Find, print and save](../../../docs/specs/find-print-save.md).
+///
+/// A tab without a live page has nothing to find in, and is not an error.
+#[tauri::command]
+#[specta::specta]
+pub async fn find_in_page(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+    query: String,
+    direction: FindDirection,
+) -> Result<()> {
+    ensure_chrome(&webview)?;
+    check_query(&query)?;
+    match slot_of(&state, tab)?.and_then(|slot| app.get_webview(&slot.label())) {
+        Some(page) => platform::find(&page, &query, direction),
+        None => Ok(()),
+    }
+}
+
+/// Ends a tab's find and clears its highlights. `refocus` gives the page the
+/// keyboard back, for a bar the user closed; a bar closed because focus moved
+/// elsewhere passes `false`.
+#[tauri::command]
+#[specta::specta]
+pub async fn stop_find(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+    refocus: bool,
+) -> Result<()> {
+    ensure_chrome(&webview)?;
+    let Some(page) = slot_of(&state, tab)?.and_then(|slot| app.get_webview(&slot.label())) else {
+        return Ok(());
+    };
+    platform::stop_find(&page)?;
+    if refocus {
+        page.set_focus()?;
+    }
+    Ok(())
+}
+
+/// Opens the print preview for a tab's page. A failure once it is open
+/// arrives as [`FailureReported`].
+#[tauri::command]
+#[specta::specta]
+pub async fn print_page(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    match slot_of(&state, tab)? {
+        Some(slot) => print_slot(&app, window, slot),
+        None => Ok(()),
+    }
+}
+
+/// Opens the engine's Save As dialog for a tab's page. A failure once it is
+/// open arrives as [`FailureReported`].
+#[tauri::command]
+#[specta::specta]
+pub async fn save_page(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<()> {
+    let window = ensure_chrome(&webview)?;
+    match slot_of(&state, tab)? {
+        Some(slot) => save_slot(&app, window, slot),
+        None => Ok(()),
+    }
 }
 
 /// The extensions the extensions folder installed.

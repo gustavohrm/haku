@@ -16,6 +16,17 @@ pub(super) struct Action {
     pub address: Option<TabId>,
     pub devtools: Option<SlotId>,
     pub close: Option<WindowId>,
+    pub page: Option<PageAction>,
+}
+
+/// What a shortcut asks of its tab's live page, done once the change commits.
+/// [Find, print and save](../../../docs/specs/find-print-save.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PageAction {
+    /// Open the find bar for the tab.
+    Find(TabId),
+    Print(SlotId),
+    Save(SlotId),
 }
 
 impl Request {
@@ -47,7 +58,10 @@ impl Request {
             | Shortcut::Back
             | Shortcut::Forward
             | Shortcut::FocusAddress
-            | Shortcut::DevTools => {
+            | Shortcut::DevTools
+            | Shortcut::Find
+            | Shortcut::Print
+            | Shortcut::SavePage => {
                 if let Some((slot, tab)) = self.source {
                     if browser.tab_in(slot) != Some(tab) || browser.visible_tab_in(self.window, tab).is_err() {
                         return Ok(Action::default());
@@ -140,6 +154,16 @@ impl Request {
             }
             Shortcut::DevTools => {
                 action.devtools = browser.tab(tab)?.slot();
+                Vec::new()
+            }
+            // Internal and crashed pages have no slot, and nothing to search,
+            // print or save.
+            Shortcut::Find | Shortcut::Print | Shortcut::SavePage => {
+                action.page = browser.tab(tab)?.slot().map(|slot| match shortcut {
+                    Shortcut::Find => PageAction::Find(tab),
+                    Shortcut::Print => PageAction::Print(slot),
+                    _ => PageAction::Save(slot),
+                });
                 Vec::new()
             }
             Shortcut::NextTab | Shortcut::PreviousTab | Shortcut::NthTab(_) | Shortcut::LastTab => unreachable!(),
@@ -399,6 +423,9 @@ mod tests {
             Shortcut::Forward,
             Shortcut::FocusAddress,
             Shortcut::DevTools,
+            Shortcut::Find,
+            Shortcut::Print,
+            Shortcut::SavePage,
         ] {
             let (mut browser, [a, b, _]) = pages(1);
             let slot = browser.tab(a).unwrap().slot().unwrap();
@@ -410,6 +437,7 @@ mod tests {
             assert!(action.effects.is_empty(), "{shortcut:?}");
             assert!(action.address.is_none(), "{shortcut:?}");
             assert!(action.devtools.is_none(), "{shortcut:?}");
+            assert!(action.page.is_none(), "{shortcut:?}");
             assert_eq!(serde_json::to_value(browser.state()).unwrap(), before);
         }
     }
@@ -463,6 +491,30 @@ mod tests {
                 .devtools,
             Some(slot)
         );
+    }
+
+    #[test]
+    fn find_print_and_save_act_on_the_source_page() {
+        let (mut browser, [a, _, _]) = pages(1);
+        let slot = browser.tab(a).unwrap().slot().unwrap();
+        let request = Request::page(&browser, slot).unwrap();
+        let page = |browser: &mut Browser, shortcut| request.prepare(browser, shortcut, HOME, 1).unwrap().page;
+        assert_eq!(page(&mut browser, Shortcut::Find), Some(PageAction::Find(a)));
+        assert_eq!(page(&mut browser, Shortcut::Print), Some(PageAction::Print(slot)));
+        assert_eq!(page(&mut browser, Shortcut::SavePage), Some(PageAction::Save(slot)));
+    }
+
+    #[test]
+    fn find_print_and_save_do_nothing_on_an_internal_page() {
+        let mut browser = Browser::new(1);
+        browser.open_tab("haku://settings", true);
+        for shortcut in [Shortcut::Find, Shortcut::Print, Shortcut::SavePage] {
+            let action = Request::chrome(browser.main_window())
+                .prepare(&mut browser, shortcut, HOME, 1)
+                .unwrap();
+            assert!(action.page.is_none(), "{shortcut:?}");
+            assert!(action.effects.is_empty(), "{shortcut:?}");
+        }
     }
 
     #[test]

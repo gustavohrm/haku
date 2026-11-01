@@ -88,6 +88,9 @@ pub enum Shortcut {
     Back,
     Forward,
     DevTools,
+    Find,
+    Print,
+    SavePage,
 }
 
 /// The shortcut a chord is bound to, if any.
@@ -122,6 +125,9 @@ pub fn shortcut_for(chord: Chord) -> Option<Shortcut> {
         (false, false, true, Left) => Shortcut::Back,
         (false, false, true, Right) => Shortcut::Forward,
         (false, false, false, Function(12)) | (true, true, false, Letter('I')) => Shortcut::DevTools,
+        (true, false, false, Letter('F')) => Shortcut::Find,
+        (true, false, false, Letter('P')) => Shortcut::Print,
+        (true, false, false, Letter('S')) => Shortcut::SavePage,
         _ => return None,
     };
     Some(shortcut)
@@ -130,6 +136,14 @@ pub fn shortcut_for(chord: Chord) -> Option<Shortcut> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ctrl_f_p_and_s_find_print_and_save_the_page() {
+        assert_eq!(shortcut_for(Chord::ctrl(Key::Letter('F'))), Some(Shortcut::Find));
+        assert_eq!(shortcut_for(Chord::ctrl(Key::Letter('P'))), Some(Shortcut::Print));
+        assert_eq!(shortcut_for(Chord::ctrl(Key::Letter('S'))), Some(Shortcut::SavePage));
+        assert_eq!(shortcut_for(Chord::ctrl_shift(Key::Letter('S'))), None);
+    }
 
     #[test]
     fn ctrl_shift_n_opens_a_private_window() {
@@ -229,7 +243,7 @@ mod tests {
 
     #[test]
     fn keys_the_page_needs_are_left_alone() {
-        for letter in ['A', 'C', 'V', 'X', 'Z', 'F', 'P'] {
+        for letter in ['A', 'C', 'V', 'X', 'Z'] {
             assert_eq!(shortcut_for(Chord::ctrl(Key::Letter(letter))), None, "Ctrl+{letter}");
         }
     }

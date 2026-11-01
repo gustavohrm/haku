@@ -66,6 +66,11 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED, COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
+    ICoreWebView2Environment15, ICoreWebView2Find, ICoreWebView2_16, ICoreWebView2_25, ICoreWebView2_28,
+    COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER, COREWEBVIEW2_SAVE_AS_UI_RESULT, COREWEBVIEW2_SAVE_AS_UI_RESULT_CANCELLED,
+    COREWEBVIEW2_SAVE_AS_UI_RESULT_SUCCESS,
+};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2ProcessFailedEventArgs2, COREWEBVIEW2_PROCESS_FAILED_KIND,
     COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED, COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_REASON, COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY,
@@ -83,12 +88,13 @@ use webview2_com::{
     BrowserExtensionRemoveCompletedHandler, BytesReceivedChangedEventHandler,
     CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, ContextMenuRequestedEventHandler,
     DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
-    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, FocusChangedEventHandler,
+    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, FindActiveMatchIndexChangedEventHandler,
+    FindMatchCountChangedEventHandler, FindStartCompletedHandler, FocusChangedEventHandler,
     GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
     NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
     PermissionRequestedEventHandler, ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler,
-    ProfileGetBrowserExtensionsCompletedHandler, ScriptDialogOpeningEventHandler, SourceChangedEventHandler,
-    StateChangedEventHandler, TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
+    ProfileGetBrowserExtensionsCompletedHandler, ScriptDialogOpeningEventHandler, ShowSaveAsUICompletedHandler,
+    SourceChangedEventHandler, StateChangedEventHandler, TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
@@ -115,7 +121,7 @@ use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
 use super::{
     DownloadAction, DownloadSignal, DownloadSink, DownloadStart, DownloadStartSink, FailureSink, KeySink, PageSignal,
-    PageSink, PhysicalRect, ProcessFailure, RoundedRect,
+    PageSink, PhysicalRect, ProcessFailure, ReportFailure, RoundedRect,
 };
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
@@ -125,7 +131,8 @@ use crate::model::{
 };
 use crate::model::{
     shortcut_for, Chord, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, DownloadFailure, DownloadId,
-    DownloadState, Key, MemoryStatus, NavigationKind, PageDialog, Placement, Settled, SlotId, WindowRequestId,
+    DownloadState, FindDirection, Key, MemoryStatus, NavigationKind, PageDialog, Placement, Settled, SlotId,
+    WindowRequestId,
 };
 use crate::webview::inject;
 
@@ -280,6 +287,103 @@ pub fn resume<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
     with_core(webview, |core| unsafe {
         set_memory_target(core, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
         core.cast::<ICoreWebView2_3>()?.Resume()
+    })
+}
+
+/// Runs `action` against a webview's `ICoreWebView2` on the UI thread and
+/// waits for its outcome, for operations that only start something.
+fn on_core<R, F>(webview: &tauri::Webview<R>, step: &'static str, action: F) -> Result<()>
+where
+    R: tauri::Runtime,
+    F: FnOnce(&ICoreWebView2) -> windows::core::Result<()> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel();
+    webview
+        .with_webview(move |platform| {
+            let outcome = unsafe { platform.controller().CoreWebView2() }.and_then(|core| action(&core));
+            let _ = sender.send(outcome);
+        })
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?;
+    receiver
+        .recv_timeout(DISPATCH_TIMEOUT)
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+        .map_err(|error| HakuError::Unsupported(format!("{step}: {error}")))
+}
+
+pub fn find<R: tauri::Runtime>(webview: &tauri::Webview<R>, query: &str, direction: FindDirection) -> Result<()> {
+    let query = HSTRING::from(query);
+    on_core(webview, "finding in the page", move |core| unsafe {
+        let find = core.cast::<ICoreWebView2_28>()?.Find()?;
+        let mut matches = 0i32;
+        find.MatchCount(&mut matches)?;
+        // A page with no search, or none that matched, starts one: there is
+        // nothing to move within.
+        match direction {
+            FindDirection::Next if matches > 0 => find.FindNext(),
+            FindDirection::Previous if matches > 0 => find.FindPrevious(),
+            _ => {
+                let options = core
+                    .cast::<ICoreWebView2_2>()?
+                    .Environment()?
+                    .cast::<ICoreWebView2Environment15>()?
+                    .CreateFindOptions()?;
+                options.SetFindTerm(&query)?;
+                options.SetSuppressDefaultFindDialog(true)?;
+                options.SetShouldHighlightAllMatches(true)?;
+                // The count arrives through the find's own events.
+                let started = FindStartCompletedHandler::create(Box::new(|_| Ok(())));
+                find.Start(&options, &started)
+            }
+        }
+    })
+}
+
+pub fn stop_find<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    on_core(webview, "stopping a find", |core| unsafe {
+        core.cast::<ICoreWebView2_28>()?.Find()?.Stop()
+    })
+}
+
+pub fn print<R: tauri::Runtime>(webview: &tauri::Webview<R>, failed: ReportFailure) -> Result<()> {
+    with_core(webview, move |core| {
+        let shown = unsafe {
+            core.cast::<ICoreWebView2_16>()
+                .and_then(|core| core.ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER))
+        };
+        if let Err(error) = shown {
+            failed(HakuError::Unsupported(format!("printing: {error}")));
+        }
+        Ok(())
+    })
+}
+
+pub fn save_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, failed: ReportFailure) -> Result<()> {
+    with_core(webview, move |core| {
+        let report = Arc::new(failed);
+        let on_closed = {
+            let report = report.clone();
+            ShowSaveAsUICompletedHandler::create(Box::new(move |status, result: COREWEBVIEW2_SAVE_AS_UI_RESULT| {
+                // Cancelling is the user's choice, not a failure.
+                let failure = match status {
+                    Err(error) => Some(error.message()),
+                    Ok(()) if result == COREWEBVIEW2_SAVE_AS_UI_RESULT_SUCCESS => None,
+                    Ok(()) if result == COREWEBVIEW2_SAVE_AS_UI_RESULT_CANCELLED => None,
+                    Ok(()) => Some(format!("the engine answered {}", result.0)),
+                };
+                if let Some(failure) = failure {
+                    report(HakuError::Unsupported(format!("saving the page: {failure}")));
+                }
+                Ok(())
+            }))
+        };
+        let shown = unsafe {
+            core.cast::<ICoreWebView2_25>()
+                .and_then(|core| core.ShowSaveAsUI(&on_closed))
+        };
+        if let Err(error) = shown {
+            report(HakuError::Unsupported(format!("saving the page: {error}")));
+        }
+        Ok(())
     })
 }
 
@@ -1035,6 +1139,30 @@ unsafe fn attach_observers(
             }))
         };
         core.add_IsDocumentPlayingAudioChanged(&on_audio, &mut token)?;
+    }
+
+    // The find bar's count. Older runtimes lack find, and the bar then finds
+    // nothing.
+    if let Ok(find) = core.cast::<ICoreWebView2_28>().and_then(|core| core.Find()) {
+        let report = |sink: PageSink| {
+            move |sender: Option<ICoreWebView2Find>, _| {
+                let Some(find) = sender else { return Ok(()) };
+                let (mut matches, mut active) = (0i32, 0i32);
+                find.MatchCount(&mut matches)?;
+                find.ActiveMatchIndex(&mut active)?;
+                #[cfg(debug_assertions)]
+                eprintln!("[find] matches={matches} active={active}");
+                sink(PageSignal::FindChanged {
+                    matches: u32::try_from(matches).unwrap_or(0),
+                    active: u32::try_from(active).ok().filter(|_| matches > 0),
+                });
+                Ok(())
+            }
+        };
+        let on_count = FindMatchCountChangedEventHandler::create(Box::new(report(sink.clone())));
+        find.add_MatchCountChanged(&on_count, &mut token)?;
+        let on_active = FindActiveMatchIndexChangedEventHandler::create(Box::new(report(sink.clone())));
+        find.add_ActiveMatchIndexChanged(&on_active, &mut token)?;
     }
     Ok(())
 }

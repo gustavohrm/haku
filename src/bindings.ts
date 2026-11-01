@@ -97,6 +97,28 @@ export const commands = {
 	recentHistory: (limit: number) => typedError<HistoryEntry[], HakuError>(__TAURI_INVOKE("recent_history", { limit })),
 	clearHistory: () => typedError<null, HakuError>(__TAURI_INVOKE("clear_history")),
 	openTabDevtools: (id: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("open_tab_devtools", { id })),
+	/**
+	 *  Finds `query` in a tab's page. [Find, print and save](../../../docs/specs/find-print-save.md).
+	 * 
+	 *  A tab without a live page has nothing to find in, and is not an error.
+	 */
+	findInPage: (tab: TabId, query: string, direction: FindDirection) => typedError<null, HakuError>(__TAURI_INVOKE("find_in_page", { tab, query, direction })),
+	/**
+	 *  Ends a tab's find and clears its highlights. `refocus` gives the page the
+	 *  keyboard back, for a bar the user closed; a bar closed because focus moved
+	 *  elsewhere passes `false`.
+	 */
+	stopFind: (tab: TabId, refocus: boolean) => typedError<null, HakuError>(__TAURI_INVOKE("stop_find", { tab, refocus })),
+	/**
+	 *  Opens the print preview for a tab's page. A failure once it is open
+	 *  arrives as [`FailureReported`].
+	 */
+	printPage: (tab: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("print_page", { tab })),
+	/**
+	 *  Opens the engine's Save As dialog for a tab's page. A failure once it is
+	 *  open arrives as [`FailureReported`].
+	 */
+	savePage: (tab: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("save_page", { tab })),
 	/**  Answers the dialog a page is paused on. */
 	answerDialog: (tab: TabId, dialog: DialogId, answer: DialogAnswer) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_dialog", { tab, dialog, answer })),
 	/**
@@ -201,6 +223,9 @@ export const events = {
 	downloadsChanged: makeEvent<DownloadsChanged>("downloads-changed"),
 	extensionsChanged: makeEvent<ExtensionsChanged>("extensions-changed"),
 	failureReported: makeEvent<FailureReported>("failure-reported"),
+	findEnded: makeEvent<FindEnded>("find-ended"),
+	findRequested: makeEvent<FindRequested>("find-requested"),
+	findResult: makeEvent<FindResult>("find-result"),
 	memoryChanged: makeEvent<MemoryChanged>("memory-changed"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	stateChanged: makeEvent<StateChanged>("state-changed"),
@@ -458,6 +483,42 @@ export type FailedExtension = {
  *  Sent to one window only, so it is shown once.
  */
 export type FailureReported = HakuError;
+
+/**  Where a find moves. */
+export type FindDirection = 
+/**  Starts a new search, at the first match. */
+"first" | "next" | "previous";
+
+/**
+ *  A tab's page started a navigation, reload included, which ends its find.
+ *  [Find, print and save § Contract](../../../docs/specs/find-print-save.md#contract).
+ * 
+ *  Sent to the tab's window only, for every top-frame navigation: Rust keeps
+ *  no find state to know whether one was open.
+ */
+export type FindEnded = TabId;
+
+/**
+ *  Asks the interface to open the find bar, for the given tab.
+ *  [Find, print and save § Contract](../../../docs/specs/find-print-save.md#contract).
+ * 
+ *  Sent by Ctrl+F, to the tab's window only.
+ */
+export type FindRequested = TabId;
+
+/**
+ *  A page's find moved or recounted.
+ *  [Find, print and save § Contract](../../../docs/specs/find-print-save.md#contract).
+ * 
+ *  Sent to the tab's window only.
+ */
+export type FindResult = {
+	tab: TabId,
+	/**  0 when nothing matches. */
+	matches: number,
+	/**  The current match, counting from 1. */
+	active: number | null,
+};
 
 /**
  *  Every failure Haku exposes across the IPC boundary.

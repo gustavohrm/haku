@@ -17,8 +17,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, DownloadId, MemoryStatus, PageDialog, PageMenu,
-    Placement, Settled, Shortcut, SlotId, WindowRequestId,
+    Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, DownloadId, FindDirection, MemoryStatus,
+    PageDialog, PageMenu, Placement, Settled, Shortcut, SlotId, WindowRequestId,
 };
 
 use memory::{Attribution, SlotMemoryTracker};
@@ -130,6 +130,9 @@ pub enum PageSignal {
     ContextMenuRequested(PageMenu),
     /// A process behind the webview exited.
     ProcessFailed(ProcessFailure),
+    /// The page's find moved or recounted. `active` counts from 1, and is
+    /// nothing while nothing matches.
+    FindChanged { matches: u32, active: Option<u32> },
 }
 
 /// A process behind a webview exited, of the kinds Haku answers.
@@ -147,6 +150,10 @@ pub enum ProcessFailure {
 /// Receives a webview's [`ProcessFailure`]s. Called on the UI thread, so it
 /// must not block on anything that dispatches back to it.
 pub type FailureSink = Arc<dyn Fn(ProcessFailure) + Send + Sync>;
+
+/// Receives a failure no caller waits on, such as a dialog's that closed
+/// after the call that opened it returned. Called on the UI thread.
+pub type ReportFailure = Box<dyn Fn(HakuError) + Send + Sync>;
 
 /// Receives [`PageSignal`]s. Called on the UI thread, so it must not block on
 /// anything that dispatches back to it.
@@ -336,6 +343,42 @@ fn parse_window_id(json: &str) -> Option<i64> {
         .ok()?
         .get("windowId")?
         .as_i64()
+}
+
+/// Finds `query` in a webview's page, highlighting every match, or moves to
+/// the next or previous one. The count arrives as [`PageSignal::FindChanged`].
+/// [Find, print and save](../../../docs/specs/find-print-save.md).
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the engine cannot find.
+pub fn find<R: tauri::Runtime>(webview: &tauri::Webview<R>, query: &str, direction: FindDirection) -> Result<()> {
+    backend::find(webview, query, direction)
+}
+
+/// Ends a webview's find and clears its highlights. Harmless with none.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the engine cannot find.
+pub fn stop_find<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()> {
+    backend::stop_find(webview)
+}
+
+/// Opens the browser's print preview for a webview's page, without waiting for
+/// it. `failed` hears of a failure; cancelling is not one.
+///
+/// # Errors
+/// Returns [`HakuError::WindowMissing`] when the webview cannot be reached.
+pub fn print<R: tauri::Runtime>(webview: &tauri::Webview<R>, failed: ReportFailure) -> Result<()> {
+    backend::print(webview, failed)
+}
+
+/// Opens the engine's Save As dialog for a webview's page, without waiting
+/// for it. `failed` hears of a failure; cancelling is not one.
+///
+/// # Errors
+/// Returns [`HakuError::WindowMissing`] when the webview cannot be reached.
+pub fn save_page<R: tauri::Runtime>(webview: &tauri::Webview<R>, failed: ReportFailure) -> Result<()> {
+    backend::save_page(webview, failed)
 }
 
 /// Evaluates `expression` in a webview's page and returns the result as JSON.
