@@ -51,7 +51,7 @@ export const commands = {
 	 */
 	recordShortcut: () => typedError<{
 	chord: string,
-	/**  Why it cannot be bound, or `None` when it can. */
+	/**  Why it cannot be bound, or nothing when it can. */
 	refusal: ChordRefusal | null,
 } | null, HakuError>(__TAURI_INVOKE("record_shortcut")),
 	/**  Ends the recording pending in the caller's window, if any. */
@@ -755,7 +755,7 @@ export type ProcessKind = "browser" | "renderer" | "gpu" | "utility" | "other";
  */
 export type RecordedChord = {
 	chord: string,
-	/**  Why it cannot be bound, or `None` when it can. */
+	/**  Why it cannot be bound, or nothing when it can. */
 	refusal: ChordRefusal | null,
 };
 

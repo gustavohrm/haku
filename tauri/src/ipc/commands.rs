@@ -610,7 +610,7 @@ fn on_popup_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 /// recording instead.
 pub fn shortcut_sink(app: tauri::AppHandle, window: WindowId) -> KeySink {
     Arc::new(move |chord, repeat| {
-        if !repeat && shortcuts::record(window, chord) {
+        if shortcuts::record(window, chord, repeat) {
             return true;
         }
         let Some(shortcut) = keymap::shortcut_for(chord) else {

@@ -19,7 +19,7 @@ use crate::model::{Chord, ChordRefusal, Key, Shortcut, SlotId, TabId, WindowId, 
 #[serde(rename_all = "camelCase")]
 pub struct RecordedChord {
     pub chord: String,
-    /// Why it cannot be bound, or `None` when it can.
+    /// Why it cannot be bound, or nothing when it can.
     pub refusal: Option<ChordRefusal>,
 }
 
@@ -37,6 +37,10 @@ impl From<Chord> for RecordedChord {
 /// thread.
 static RECORDINGS: LazyLock<Mutex<HashMap<WindowId, Sender<Option<Chord>>>>> = LazyLock::new(Mutex::default);
 
+/// The chord each window's last recording took, whose repeats are consumed
+/// while it is held: a held Alt+F4 would otherwise close the window.
+static RECORDED: LazyLock<Mutex<HashMap<WindowId, Chord>>> = LazyLock::new(Mutex::default);
+
 /// Starts recording in `window`, answering any recording already pending
 /// there with nothing. The receiver gets the chord, or nothing when cancelled.
 pub(super) fn start_recording(window: WindowId) -> Receiver<Option<Chord>> {
@@ -53,6 +57,7 @@ pub(super) fn start_recording(window: WindowId) -> Receiver<Option<Chord>> {
 
 /// Answers the recording pending in `window`, if any, with nothing.
 pub(super) fn cancel_recording(window: WindowId) {
+    RECORDED.lock().unwrap_or_else(PoisonError::into_inner).remove(&window);
     let pending = RECORDINGS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -63,9 +68,15 @@ pub(super) fn cancel_recording(window: WindowId) {
 }
 
 /// Gives `chord` to the recording pending in `window`, and answers whether
-/// one took it. Plain Esc cancels the recording. Keys without Ctrl, Alt or a
-/// function key reach the interface as usual, so Tab still moves focus.
-pub(super) fn record(window: WindowId, chord: Chord) -> bool {
+/// one took it, or took this chord before and it is held. Plain Esc cancels
+/// the recording. Keys without Ctrl, Alt or a function key reach the
+/// interface as usual, so Tab still moves focus.
+pub(super) fn record(window: WindowId, chord: Chord, repeat: bool) -> bool {
+    let mut recorded = RECORDED.lock().unwrap_or_else(PoisonError::into_inner);
+    if repeat {
+        return recorded.get(&window) == Some(&chord);
+    }
+    recorded.remove(&window);
     let typed = !chord.ctrl && !chord.alt && !matches!(chord.key, Key::Function(_)) && chord.key != Key::Escape;
     if typed {
         return false;
@@ -78,6 +89,7 @@ pub(super) fn record(window: WindowId, chord: Chord) -> bool {
         return false;
     };
     let _ = pending.try_send((chord != Chord::plain(Key::Escape)).then_some(chord));
+    recorded.insert(window, chord);
     true
 }
 
@@ -266,24 +278,44 @@ mod recording_tests {
         receiver.try_recv().ok()
     }
 
+    /// A press, not a repeat.
+    fn record_once(window: WindowId, chord: Chord) -> bool {
+        record(window, chord, false)
+    }
+
     #[test]
     fn a_recording_takes_the_next_chord_once() {
         let window = WindowId(9001);
         let mut receiver = start_recording(window);
-        assert!(!record(window, Chord::plain(Key::Tab)), "Tab still moves focus");
-        assert!(record(window, Chord::ctrl(Key::Letter('T'))));
+        assert!(!record_once(window, Chord::plain(Key::Tab)), "Tab still moves focus");
+        assert!(record_once(window, Chord::ctrl(Key::Letter('T'))));
         assert_eq!(answer(&mut receiver), Some(Some(Chord::ctrl(Key::Letter('T')))));
         assert!(
-            !record(window, Chord::ctrl(Key::Letter('T'))),
+            !record_once(window, Chord::ctrl(Key::Letter('T'))),
             "the next press runs its shortcut"
         );
+    }
+
+    #[test]
+    fn a_recorded_chord_held_down_is_consumed_until_another_press() {
+        let window = WindowId(9005);
+        let alt_f4 = Chord::alt(Key::Function(4));
+        let mut receiver = start_recording(window);
+        assert!(!record(window, alt_f4, true), "a repeat does not answer a recording");
+        assert!(record_once(window, alt_f4));
+        assert_eq!(answer(&mut receiver), Some(Some(alt_f4)));
+        assert!(record(window, alt_f4, true), "held, it must not close the window");
+        assert!(!record(window, Chord::ctrl(Key::Letter('T')), true));
+
+        assert!(!record_once(window, alt_f4), "pressed again, it is no longer recorded");
+        assert!(!record(window, alt_f4, true));
     }
 
     #[test]
     fn esc_another_recording_or_cancelling_answers_with_nothing() {
         let window = WindowId(9002);
         let mut first = start_recording(window);
-        assert!(record(window, Chord::plain(Key::Escape)));
+        assert!(record_once(window, Chord::plain(Key::Escape)));
         assert_eq!(answer(&mut first), Some(None));
 
         let mut second = start_recording(window);
@@ -297,7 +329,7 @@ mod recording_tests {
     fn shift_esc_and_refused_chords_are_recorded_with_their_refusal() {
         let window = WindowId(9003);
         let mut receiver = start_recording(window);
-        assert!(record(window, Chord::shift(Key::Escape)));
+        assert!(record_once(window, Chord::shift(Key::Escape)));
         assert_eq!(answer(&mut receiver), Some(Some(Chord::shift(Key::Escape))));
         assert_eq!(
             RecordedChord::from(Chord::ctrl(Key::Letter('C'))),
@@ -310,7 +342,7 @@ mod recording_tests {
 
     #[test]
     fn a_window_not_recording_takes_nothing() {
-        assert!(!record(WindowId(9004), Chord::ctrl(Key::Letter('T'))));
+        assert!(!record_once(WindowId(9004), Chord::ctrl(Key::Letter('T'))));
     }
 }
 
