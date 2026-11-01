@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
