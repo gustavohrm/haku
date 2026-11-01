@@ -120,7 +120,7 @@ use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
 use super::{
     DownloadAction, DownloadSignal, DownloadSink, DownloadStart, DownloadStartSink, Edge, FailureSink, KeySink,
-    PageSignal, PageSink, ProcessFailure, ReportFailure, RoundedRect,
+    PageSignal, PageSink, PhysicalRect, ProcessFailure, ReportFailure, RoundedRect,
 };
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
@@ -688,15 +688,16 @@ pub fn set_visible<R: tauri::Runtime>(webview: &tauri::Webview<R>, visible: bool
         .map_err(|error| HakuError::WindowMissing(error.to_string()))?
 }
 
-/// A region covering exactly the pixels of `shape`, taking its edge as `edge` says.
+/// A region covering exactly the pixels of `shape` within `within`, taking its
+/// edge as `edge` says.
 ///
 /// Built from the shape's own rows rather than `CreateRoundRectRgn`, whose
 /// curve steps unevenly and sits up to two pixels inside the one CSS draws.
 ///
 /// The caller owns the region and must delete it.
-unsafe fn shape_region(shape: RoundedRect, edge: Edge) -> HRGN {
+unsafe fn shape_region(shape: RoundedRect, edge: Edge, within: PhysicalRect) -> HRGN {
     let region = CreateRectRgn(0, 0, 0, 0);
-    for span in shape.spans(edge) {
+    for span in shape.spans(edge, within) {
         let row = CreateRectRgn(span.x, span.y, span.right(), span.bottom());
         CombineRgn(Some(region), Some(region), Some(row), RGN_OR);
         let _ = DeleteObject(row.into());
@@ -723,11 +724,17 @@ pub fn set_input_mask<R: tauri::Runtime>(
         let mut client = Default::default();
         GetClientRect(hwnd, &mut client).map_err(|error| HakuError::WindowMissing(error.to_string()))?;
 
+        let window = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: client.right,
+            height: client.bottom,
+        };
         let region = CreateRectRgn(0, 0, client.right, client.bottom);
         // A rounded hole is what gives the page rounded corners: the chrome
         // keeps painting the corner, and the page shows through the curve.
         for pane in &viewports {
-            let hole = shape_region(*pane, Edge::Centre);
+            let hole = shape_region(*pane, Edge::Centre, window);
             CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
             let _ = DeleteObject(hole.into());
         }
@@ -736,7 +743,7 @@ pub fn set_input_mask<R: tauri::Runtime>(
         // way round: a square patch would paint chrome over the page at its
         // corners.
         for overlay in &overlays {
-            let patch = shape_region(*overlay, Edge::Whole);
+            let patch = shape_region(*overlay, Edge::Whole, window);
             CombineRgn(Some(region), Some(region), Some(patch), RGN_OR);
             let _ = DeleteObject(patch.into());
         }
@@ -2238,7 +2245,16 @@ mod tests {
                 radius,
             };
             unsafe {
-                let region = shape_region(shape, edge);
+                let region = shape_region(
+                    shape,
+                    edge,
+                    PhysicalRect {
+                        x: 0,
+                        y: 0,
+                        width: 200,
+                        height: 100,
+                    },
+                );
                 let covered = |x, y| PtInRegion(region, x, y).as_bool();
                 assert!(covered(99, 25), "radius {radius}: last column");
                 assert!(covered(50, 49), "radius {radius}: last row");

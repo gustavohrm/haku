@@ -93,12 +93,15 @@ pub enum Edge {
 }
 
 impl RoundedRect {
-    /// The pixels it covers, as rows of rectangles.
+    /// The pixels it covers within `within`, as rows of rectangles.
+    ///
+    /// Only rows inside `within` are worked out, so a shape far larger than
+    /// the window costs no more than one that fills it.
     ///
     /// Worked out from the curve CSS draws, on every side alike. GDI's own
     /// rounded region steps unevenly along the curve and cuts up to two pixels
     /// inside it, which shows as a jagged corner.
-    pub fn spans(&self, edge: Edge) -> Vec<PhysicalRect> {
+    pub fn spans(&self, edge: Edge, within: PhysicalRect) -> Vec<PhysicalRect> {
         // CSS reduces a radius too large for the box to half its shorter side.
         let radius = self
             .radius
@@ -114,6 +117,7 @@ impl RoundedRect {
             Edge::Centre => pixel_at(self.top)..pixel_at(self.bottom),
             Edge::Whole => self.top.ceil() as i32..self.bottom.floor() as i32,
         };
+        let rows = rows.start.max(within.y)..rows.end.min(within.bottom());
         let mut spans: Vec<PhysicalRect> = Vec::new();
         for y in rows {
             let (x, right) = match edge {
@@ -128,6 +132,7 @@ impl RoundedRect {
                     ((self.left + inset).ceil() as i32, (self.right - inset).floor() as i32)
                 }
             };
+            let (x, right) = (x.max(within.x), right.min(within.right()));
             if right <= x {
                 continue;
             }
@@ -755,6 +760,13 @@ mod tests {
         assert_eq!(parse_window_id("not json"), None);
     }
 
+    const WINDOW: PhysicalRect = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 1000,
+    };
+
     fn shape(left: f64, top: f64, right: f64, bottom: f64, radius: f64) -> RoundedRect {
         RoundedRect {
             left,
@@ -800,7 +812,7 @@ mod tests {
     fn a_square_shape_is_one_rectangle_whose_edges_round_where_they_lie() {
         // 10.4 + 10.4 ends at 20.8, so the far edges take pixel 20 as well.
         assert_eq!(
-            shape(10.4, 10.4, 20.8, 20.8, 0.0).spans(Edge::Centre),
+            shape(10.4, 10.4, 20.8, 20.8, 0.0).spans(Edge::Centre, WINDOW),
             vec![PhysicalRect {
                 x: 10,
                 y: 10,
@@ -815,7 +827,7 @@ mod tests {
         // An overlay at a fractional position on a 125% display: GDI's own
         // rounded region cut this one deeper on the left than on the right.
         let shape = shape(12.875, 3.3, 263.625, 53.7, 10.0);
-        let spans = shape.spans(Edge::Centre);
+        let spans = shape.spans(Edge::Centre, WINDOW);
 
         for y in 0..60 {
             for x in 0..280 {
@@ -830,7 +842,7 @@ mod tests {
         // A toast over a light page: a pixel it only partly covers is painted
         // blended with the chrome behind it, which shows as a dark fringe.
         let shape = shape(12.875, 3.3, 263.625, 53.7, 10.0);
-        let spans = shape.spans(Edge::Whole);
+        let spans = shape.spans(Edge::Whole, WINDOW);
 
         for y in 0..60 {
             for x in 0..280 {
@@ -850,9 +862,24 @@ mod tests {
     }
 
     #[test]
+    fn a_shape_far_larger_than_the_window_gives_only_the_rows_inside_it() {
+        let window = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        for edge in [Edge::Centre, Edge::Whole] {
+            let spans = shape(-1e12, -1e12, 1e12, 1e12, 8.0).spans(edge, window);
+
+            assert_eq!(spans, vec![window]);
+        }
+    }
+
+    #[test]
     fn a_radius_beyond_half_the_shorter_side_is_reduced_as_css_does() {
         let shape = shape(0.0, 0.0, 40.0, 10.0, 20.0);
-        let spans = shape.spans(Edge::Centre);
+        let spans = shape.spans(Edge::Centre, WINDOW);
 
         assert!(covered(&spans, 20, 5));
         assert!(covered(&spans, 5, 5));
