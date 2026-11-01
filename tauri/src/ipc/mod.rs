@@ -49,6 +49,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::print_page,
             commands::save_page,
             commands::answer_dialog,
+            commands::answer_permission,
             commands::answer_context_menu,
             commands::memory_report,
             commands::tab_preview,

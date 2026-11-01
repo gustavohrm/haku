@@ -5,7 +5,9 @@ import { SidebarResizer } from "@features/bars/sidebar-resizer";
 import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
+import { isWaiting } from "@features/feedback/page-dialog";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
+import { usePermissionPrompt } from "@features/feedback/use-permission-prompt";
 import { useFullscreenNotice } from "@features/fullscreen/use-fullscreen-notice";
 import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
@@ -20,6 +22,7 @@ export function App() {
   const tab = useActiveTab();
   const settings = useSettings();
   usePageDialog(tab);
+  usePermissionPrompt(tab);
   usePageMenu(tab);
   useCloseConfirmation();
   const fullscreenTab = tabs.find((candidate) => candidate.id === fullscreen);
@@ -38,9 +41,10 @@ export function App() {
   const layout = shellLayout(settings, kind, isPrivate);
   const isFloating = layout.bars === "floating";
   // What a floating bar must show unasked: the toolbar names the page whose
-  // dialog is open, and the tabs carry the badge of a dialog waiting elsewhere.
-  const toolbarNeeded = tab !== null && tab.dialog !== null;
-  const tabsNeeded = tabs.some((other) => other.id !== active && other.dialog !== null);
+  // dialog or permission request is open, and the tabs carry the badge of one
+  // waiting elsewhere.
+  const toolbarNeeded = tab !== null && isWaiting(tab);
+  const tabsNeeded = tabs.some((other) => other.id !== active && isWaiting(other));
 
   // The column, docked or floating, and the edge that resizes it.
   const sidebar = (contents: ReactNode) => (

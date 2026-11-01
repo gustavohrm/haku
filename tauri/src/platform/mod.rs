@@ -18,7 +18,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 use crate::error::{HakuError, Result};
 use crate::model::{
     Commit, ContextMenuRequestId, CrashCause, DialogAnswer, DialogId, DownloadId, FindDirection, MemoryStatus,
-    PageDialog, PageMenu, Placement, Settled, Shortcut, SlotId, WindowRequestId,
+    PageDialog, PageMenu, PermissionRequest, PermissionRequestId, Placement, Settled, Shortcut, SlotId,
+    WindowRequestId,
 };
 
 use memory::{Attribution, SlotMemoryTracker};
@@ -175,6 +176,9 @@ pub enum PageSignal {
     /// The page opened `alert`, `confirm`, `prompt` or a "Leave site?"
     /// dialog and is paused until [`answer_dialog`] is called with its id.
     DialogRequested(PageDialog),
+    /// The page asked for a permission Haku answers, and waits until
+    /// [`answer_permission`] is called with its id. The page keeps running.
+    PermissionRequested(PermissionRequest),
     /// The page started or stopped playing audio.
     AudioChanged { playing: bool },
     /// The page gained or lost a fullscreen element.
@@ -515,6 +519,21 @@ pub fn leave_page<R: tauri::Runtime>(
 /// Returns [`HakuError::Unsupported`] on platforms without an implementation.
 pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId, answer: DialogAnswer) -> Result<()> {
     backend::answer_dialog(app, id, answer)
+}
+
+/// Grants or denies a permission a page asked for.
+///
+/// Does nothing for a request already answered or whose webview is gone.
+/// Safe to call from any thread, like [`answer_dialog`].
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn answer_permission<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: PermissionRequestId,
+    allow: bool,
+) -> Result<()> {
+    backend::answer_permission(app, id, allow)
 }
 
 /// Answers a page waiting on its context menu: runs the native item

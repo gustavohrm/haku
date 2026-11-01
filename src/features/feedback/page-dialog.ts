@@ -4,7 +4,7 @@
  * Kept free of React and of the toaster so the rules can be tested directly.
  */
 
-import type { DialogAnswer, DialogKind } from "@bindings";
+import type { DialogAnswer, DialogKind, Tab } from "@bindings";
 import { t } from "@shared/i18n";
 
 /**
@@ -24,6 +24,17 @@ export function dialogTitle(url: string): string {
     // An unparseable URL still gets a title; it just cannot name a site.
   }
   return host ? t("dialog.from").replace("{host}", host) : t("dialog.fromPage");
+}
+
+/**
+ * Whether a tab waits on the user: a page dialog, or a permission request,
+ * which is shown and badged the same way.
+ *
+ * @param tab - The tab.
+ * @returns Whether it has something to answer.
+ */
+export function isWaiting(tab: Pick<Tab, "dialog" | "permission">): boolean {
+  return tab.dialog !== null || tab.permission !== null;
 }
 
 /**

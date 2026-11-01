@@ -1,5 +1,6 @@
 import { internalTitle } from "@app/router";
 import { type Tab, type TabLayout } from "@bindings";
+import { isWaiting } from "@features/feedback/page-dialog";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
@@ -95,7 +96,7 @@ export function TabItem({ tab, active, pairPosition = -1, layout = "horizontal",
             {t("split.membership")}: {t(pairPosition === 0 ? "split.left" : "split.right")}
           </span>
         )}
-        {!active && tab.dialog !== null && (
+        {!active && isWaiting(tab) && (
           <button
             type="button"
             className="btn ghost min-w-0 shrink text-xs"

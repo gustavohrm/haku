@@ -7,6 +7,7 @@ pub mod history;
 pub mod keymap;
 pub mod optimization;
 pub mod page_state;
+pub mod permission;
 pub mod pool;
 pub mod pressure;
 pub mod preview;
@@ -29,6 +30,10 @@ pub use history::{Commit, History, NavigationKind, Visit};
 pub use keymap::{shortcut_for, Chord, Key, Shortcut};
 pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};
+pub use permission::{
+    decision_for, origin_of, PermissionDecision, PermissionKind, PermissionRequest, PermissionRequestId,
+    PermissionState, SitePermission,
+};
 pub use pool::{Acquired, Profile, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
 pub use preview::{data_url, jpeg_data_url, Previews};

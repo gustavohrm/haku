@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-31
+last_updated: 2026-11-01
 scope: Index of the project documentation.
 ---
 
@@ -55,3 +55,4 @@ Start with [Architecture](architecture.md).
 | [Fullscreen](specs/fullscreen.md)                | A page entering fullscreen; how it ends.                      |
 | [Downloads](specs/downloads.md)                  | Following downloads, the webviews they hold, storage.         |
 | [Find, print and save](specs/find-print-save.md) | The find bar; printing and saving a page.                     |
+| [Permissions](specs/permissions.md)              | Permission prompts; stored decisions, private windows.        |

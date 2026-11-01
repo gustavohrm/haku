@@ -596,6 +596,7 @@ pub fn apply<R: tauri::Runtime>(
                 }),
             ),
             Effect::AnswerDialog { id, answer } => platform::answer_dialog(app, *id, answer.clone())?,
+            Effect::AnswerPermission { id, allow } => platform::answer_permission(app, *id, *allow)?,
             Effect::Adopt {
                 slot,
                 request,

@@ -71,6 +71,16 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_SAVE_AS_UI_RESULT_SUCCESS,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
+    ICoreWebView2PermissionRequestedEventArgs, ICoreWebView2PermissionRequestedEventArgs3,
+    COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA, COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ,
+    COREWEBVIEW2_PERMISSION_KIND_FILE_READ_WRITE, COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION,
+    COREWEBVIEW2_PERMISSION_KIND_LOCAL_FONTS, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
+    COREWEBVIEW2_PERMISSION_KIND_MIDI_SYSTEM_EXCLUSIVE_MESSAGES,
+    COREWEBVIEW2_PERMISSION_KIND_MULTIPLE_AUTOMATIC_DOWNLOADS, COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+    COREWEBVIEW2_PERMISSION_KIND_OTHER_SENSORS, COREWEBVIEW2_PERMISSION_KIND_WINDOW_MANAGEMENT,
+    COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY,
+};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2ProcessFailedEventArgs2, COREWEBVIEW2_PROCESS_FAILED_KIND,
     COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED, COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_REASON, COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY,
@@ -79,9 +89,6 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
     COREWEBVIEW2_PHYSICAL_KEY_STATUS,
-};
-use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
 };
 use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
@@ -128,6 +135,7 @@ use crate::model::{
     allowed_items, offers, plain_label, ContextMenuRequestId, ContextMenuTarget, ContextMenuTargetKind, NativeMenuItem,
     NativeMenuItemKind, PageMenu,
 };
+use crate::model::{origin_of, PermissionKind, PermissionRequest, PermissionRequestId};
 use crate::model::{
     shortcut_for, Chord, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, DownloadFailure, DownloadId,
     DownloadState, FindDirection, Key, MemoryStatus, NavigationKind, PageDialog, Placement, Settled, SlotId,
@@ -141,6 +149,9 @@ const DISPATCH_TIMEOUT: Duration = Duration::from_secs(5);
 /// Source of dialog ids, unique for the life of the process.
 static NEXT_DIALOG: AtomicU64 = AtomicU64::new(1);
 
+/// Source of permission request ids, unique for the life of the process.
+static NEXT_PERMISSION: AtomicU64 = AtomicU64::new(1);
+
 /// Source of new-window request ids, unique for the life of the process.
 static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
 
@@ -149,6 +160,11 @@ static NEXT_MENU: AtomicU64 = AtomicU64::new(1);
 
 type PendingDialog = (
     ICoreWebView2ScriptDialogOpeningEventArgs,
+    ICoreWebView2Deferral,
+    Option<SlotId>,
+);
+type PendingPermission = (
+    ICoreWebView2PermissionRequestedEventArgs,
     ICoreWebView2Deferral,
     Option<SlotId>,
 );
@@ -165,6 +181,11 @@ thread_local! {
     /// thread: they are stored by the handler that runs there and taken back by
     /// the answer, which is dispatched there too.
     static PENDING_DIALOGS: RefCell<HashMap<DialogId, PendingDialog>> =
+        RefCell::new(HashMap::new());
+
+    /// Permission requests pages are waiting on, held like dialogs, and for
+    /// the same reason on this thread.
+    static PENDING_PERMISSIONS: RefCell<HashMap<PermissionRequestId, PendingPermission>> =
         RefCell::new(HashMap::new());
 
     /// Pages waiting on a new window, held like dialogs, and for the same
@@ -1126,6 +1147,35 @@ unsafe fn attach_observers(
     };
     core.add_ScriptDialogOpening(&on_dialog, &mut token)?;
 
+    // Permissions Haku knows are asked by the interface, not the engine, and
+    // the engine stores no answer of its own. Anything else is the engine's.
+    let on_permission = {
+        let sink = sink.clone();
+        PermissionRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+            args.PermissionKind(&mut kind)?;
+            let mut uri = PWSTR::null();
+            args.Uri(&mut uri)?;
+            let (Some(kind), Some(origin)) = (permission_kind(kind), origin_of(&take_pwstr(uri))) else {
+                return Ok(());
+            };
+            if let Ok(args) = args.cast::<ICoreWebView2PermissionRequestedEventArgs3>() {
+                args.SetSavesInProfile(false)?;
+            }
+            let request = PermissionRequest {
+                id: PermissionRequestId(NEXT_PERMISSION.fetch_add(1, Ordering::Relaxed)),
+                kind,
+                origin,
+            };
+            let deferral = args.GetDeferral()?;
+            PENDING_PERMISSIONS.with(|pending| pending.borrow_mut().insert(request.id, (args, deferral, slot)));
+            sink(PageSignal::PermissionRequested(request));
+            Ok(())
+        }))
+    };
+    core.add_PermissionRequested(&on_permission, &mut token)?;
+
     attach_window_requests(&core, sink, slot)?;
     attach_context_menu(&core, sink, slot)?;
     attach_downloads(&core, slot)?;
@@ -1670,6 +1720,25 @@ fn log_item_names(items: &[NativeMenuItem], depth: usize) {
     }
 }
 
+/// The kind Haku asks about, or nothing for one left to the engine.
+/// [Permissions § Kinds](../../../docs/specs/permissions.md#kinds).
+fn permission_kind(kind: COREWEBVIEW2_PERMISSION_KIND) -> Option<PermissionKind> {
+    Some(match kind {
+        COREWEBVIEW2_PERMISSION_KIND_CAMERA => PermissionKind::Camera,
+        COREWEBVIEW2_PERMISSION_KIND_MICROPHONE => PermissionKind::Microphone,
+        COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION => PermissionKind::Location,
+        COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS => PermissionKind::Notifications,
+        COREWEBVIEW2_PERMISSION_KIND_MIDI_SYSTEM_EXCLUSIVE_MESSAGES => PermissionKind::MidiSysex,
+        COREWEBVIEW2_PERMISSION_KIND_OTHER_SENSORS => PermissionKind::Sensors,
+        COREWEBVIEW2_PERMISSION_KIND_WINDOW_MANAGEMENT => PermissionKind::WindowManagement,
+        COREWEBVIEW2_PERMISSION_KIND_LOCAL_FONTS => PermissionKind::LocalFonts,
+        COREWEBVIEW2_PERMISSION_KIND_FILE_READ_WRITE => PermissionKind::FileReadWrite,
+        COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ => PermissionKind::ClipboardRead,
+        COREWEBVIEW2_PERMISSION_KIND_MULTIPLE_AUTOMATIC_DOWNLOADS => PermissionKind::MultipleDownloads,
+        _ => return None,
+    })
+}
+
 unsafe fn read_dialog(args: &ICoreWebView2ScriptDialogOpeningEventArgs) -> windows::core::Result<PageDialog> {
     let mut kind = COREWEBVIEW2_SCRIPT_DIALOG_KIND::default();
     args.Kind(&mut kind)?;
@@ -1724,6 +1793,17 @@ pub fn forget_page<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<()>
                 .collect()
         });
         for (_, deferral, _) in dialogs {
+            let _ = unsafe { deferral.Complete() };
+        }
+        let permissions: Vec<_> = PENDING_PERMISSIONS.with(|pending| {
+            pending
+                .borrow_mut()
+                .extract_if(|_, (_, _, owner)| *owner == slot)
+                .map(|(_, entry)| entry)
+                .collect()
+        });
+        for (args, deferral, _) in permissions {
+            let _ = unsafe { args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY) };
             let _ = unsafe { deferral.Complete() };
         }
         let menus: Vec<_> = PENDING_MENUS.with(|pending| {
@@ -1915,6 +1995,28 @@ pub fn answer_dialog<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: DialogId,
                 }
                 let _ = args.Accept();
             }
+            let _ = deferral.Complete();
+        }
+    })?;
+    Ok(())
+}
+
+pub fn answer_permission<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: PermissionRequestId,
+    allow: bool,
+) -> Result<()> {
+    app.run_on_main_thread(move || {
+        let Some((args, deferral, _)) = PENDING_PERMISSIONS.with(|pending| pending.borrow_mut().remove(&id)) else {
+            return;
+        };
+        let state = if allow {
+            COREWEBVIEW2_PERMISSION_STATE_ALLOW
+        } else {
+            COREWEBVIEW2_PERMISSION_STATE_DENY
+        };
+        unsafe {
+            let _ = args.SetState(state);
             let _ = deferral.Complete();
         }
     })?;

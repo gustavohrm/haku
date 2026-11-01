@@ -119,6 +119,23 @@ dialog[data-toast-instance]::backdrop {
 }
 
 /*
+  With no backdrop, a dialog is told from the page behind it only by its own
+  colour, so on a page as dark as the dialog its rounded edge disappears. The
+  toaster draws the border only under `.edged`; this draws it always.
+*/
+dialog[data-toast-instance] .toast-dialog-container {
+  border-color: var(--color-border);
+}
+
+/*
+  The toaster sets its font from `--default-font-family`, which the styles
+  package points at the system stack; Haku's Inter is `--font-default`.
+*/
+[data-toast-instance] {
+  --default-font-family: var(--font-default);
+}
+
+/*
   A toast slides in and out without fading. A region over a page shows the
   chrome, not the page, so a fading toast would blend with the chrome's grey
   instead of with the page. Important declarations outrank the toaster's

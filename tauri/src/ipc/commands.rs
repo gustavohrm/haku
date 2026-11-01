@@ -33,8 +33,9 @@ use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
     check_query, is_internal, jpeg_data_url, AddedExtension, ContextMenuRequestId, DialogAnswer, DialogId, Download,
-    DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu, Placement, Preset, Pressure,
-    Profile, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu, PermissionDecision,
+    PermissionRequestId, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId, WindowId,
+    WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -92,6 +93,13 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                 std::thread::spawn(move || {
                     let state = app.state::<AppState>();
                     let _ = mutate(&app, &state, |browser| Ok(browser.open_dialog(slot, dialog)));
+                });
+            }
+            PageSignal::PermissionRequested(request) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let state = app.state::<AppState>();
+                    let _ = mutate(&app, &state, |browser| Ok(browser.request_permission(slot, request)));
                 });
             }
             // Recorded before the page commits, on this thread, so the
@@ -947,12 +955,23 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
     // guards below can outlive it.
     let state: &AppState = handle.inner();
 
-    let recorded = {
+    let (recorded, stale) = {
         let Ok(mut browser) = state.browser.write() else {
             return;
         };
-        browser.report_page(slot, commits, title)
+        let recorded = browser.report_page(slot, commits, title);
+        (recorded, browser.has_stale_permissions(slot))
     };
+
+    // A request from an origin the page has left is answered off this thread,
+    // which answering dispatches to.
+    if stale {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let state = app.state::<AppState>();
+            let _ = mutate(&app, &state, |browser| Ok(browser.withdraw_stale_permissions(slot)));
+        });
+    }
 
     if let Some(report) = recorded {
         queue_record(app, report);
@@ -1351,7 +1370,7 @@ pub async fn set_settings(
     settings: Settings,
 ) -> Result<Settings> {
     let window = ensure_chrome(&webview)?;
-    store_settings(&app, &state, window, settings)
+    store_settings(&app, &state, window, |_| settings)
 }
 
 /// Replaces the optimization settings with a preset's values.
@@ -1368,14 +1387,7 @@ pub async fn apply_preset(
     preset: Preset,
 ) -> Result<Settings> {
     let window = ensure_chrome(&webview)?;
-    let settings = {
-        let current = state
-            .settings
-            .read()
-            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        current.clone().with_preset(preset)
-    };
-    store_settings(&app, &state, window, settings)
+    store_settings(&app, &state, window, |current| current.clone().with_preset(preset))
 }
 
 /// The preset the current settings match, or nothing when they were customised.
@@ -1390,9 +1402,15 @@ pub fn current_preset(webview: tauri::Webview, state: State<'_, AppState>) -> Re
     Ok(settings.preset())
 }
 
-fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, settings: Settings) -> Result<Settings> {
-    let settings = settings.sanitized();
-
+/// Stores the settings `update` makes from the current ones. It runs within
+/// the store's turn, so a change made from the current settings cannot undo an
+/// overlapping store.
+fn store_settings(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    window: WindowId,
+    update: impl FnOnce(&Settings) -> Settings,
+) -> Result<Settings> {
     // One store at a time, from replacing through applying, so a failed save
     // never restores settings older than a store that overlapped, and the
     // browser runs with the settings stored last (issue #41). Held across the
@@ -1400,19 +1418,20 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, se
     // takes it and both callers are async.
     static STORING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let storing = STORING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let previous = {
+    let (previous, settings) = {
         let mut current = state
             .settings
             .write()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        if current.keeps_new_site(&settings) {
+        let settings = update(&current).sanitized();
+        if current.keeps_new_site(&settings) || current.adds_site_permission(&settings) {
             state
                 .browser
                 .read()
                 .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
                 .allow_site_settings(window)?;
         }
-        std::mem::replace(&mut *current, settings.clone())
+        (std::mem::replace(&mut *current, settings.clone()), settings)
     };
     if let Err(error) = state.save_settings() {
         let mut current = state
@@ -1432,8 +1451,10 @@ fn store_settings(app: &tauri::AppHandle, state: &AppState, window: WindowId, se
 
     let (capacity, freeze, discard) = (settings.pool_capacity(), settings.freeze_tabs, settings.discard_tabs);
     let (budget, kept_sites) = (settings.kept_memory_bytes(), settings.kept_sites.clone());
+    let site_permissions = settings.site_permissions.to_vec();
     mutate(app, state, |browser| {
         browser.set_keeping(budget, kept_sites);
+        browser.set_site_permissions(site_permissions);
         Ok(browser.set_optimization(capacity, freeze, discard))
     })?;
     switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
@@ -2022,6 +2043,46 @@ pub async fn answer_context_menu(
         }
     }
     platform::answer_context_menu(&app, request, choice)
+}
+
+/// Answers the permission request a tab is showing, storing an Allow or a
+/// Block made in an ordinary window. [Permissions](../../../docs/specs/permissions.md).
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_permission(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+    request: PermissionRequestId,
+    decision: PermissionDecision,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    let mut decided = None;
+    let snapshot = mutate_in(&app, &state, window, |browser| {
+        if browser.window_of(tab) != Some(window) {
+            return Err(HakuError::TabNotFound(tab.0.to_string()));
+        }
+        let (effects, store) = browser.answer_permission(tab, request, decision)?;
+        decided = store;
+        Ok(effects)
+    })?;
+    let Some(decided) = decided else {
+        return Ok(snapshot);
+    };
+    store_settings(&app, &state, window, |current| {
+        let mut settings = current.clone();
+        settings
+            .site_permissions
+            .retain(|other| other.origin != decided.origin || other.kind != decided.kind);
+        settings.site_permissions.push(decided);
+        settings
+    })?;
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    Ok(browser.state_in(window).unwrap_or_else(|| browser.state()))
 }
 
 /// Answers the dialog a page is paused on.

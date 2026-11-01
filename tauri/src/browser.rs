@@ -7,9 +7,10 @@ use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    is_internal, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, Downloading, Loss, LossSignal,
-    NavigationKind, PageDialog, PageState, Placement, Policy, Pressure, Profile, Scroll, Slot, SlotId, Tab, TabId,
-    TabPresence, Visit, WebviewPool, WindowId, WindowKind, WindowRequestId,
+    decision_for, is_internal, origin_of, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind,
+    Downloading, Loss, LossSignal, NavigationKind, PageDialog, PageState, PermissionDecision, PermissionKind,
+    PermissionRequest, PermissionRequestId, PermissionState, Placement, Policy, Pressure, Profile, Scroll,
+    SitePermission, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool, WindowId, WindowKind, WindowRequestId,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -108,6 +109,11 @@ pub enum Effect {
     AnswerDialog {
         id: DialogId,
         answer: DialogAnswer,
+    },
+    /// Grant or deny a permission a page asked for.
+    AnswerPermission {
+        id: PermissionRequestId,
+        allow: bool,
     },
     /// Create the slot's webview, which does not exist yet, and hand it to the
     /// page that asked for a new window instead of navigating it, so the two
@@ -454,6 +460,13 @@ pub struct Browser {
     /// What active downloads hold back. Their webviews are marked in the
     /// pool too, which keeps them.
     downloading: Downloading,
+    /// Permission decisions stored in settings.
+    site_permissions: Vec<SitePermission>,
+    /// Decisions made in private windows, for the private session only.
+    private_permissions: Vec<SitePermission>,
+    /// Requests dismissed without an answer, denied without asking until
+    /// Haku quits: whether private, the origin and the kind.
+    dismissed_permissions: HashSet<(bool, String, PermissionKind)>,
 }
 
 impl Browser {
@@ -486,6 +499,9 @@ impl Browser {
             adopting: HashMap::new(),
             connected: HashSet::new(),
             downloading: Downloading::default(),
+            site_permissions: Vec::new(),
+            private_permissions: Vec::new(),
+            dismissed_permissions: HashSet::new(),
         }
     }
 
@@ -987,6 +1003,69 @@ impl Browser {
         effects
     }
 
+    /// Releases what a tab's page is waiting on, because the page is going
+    /// away: its dialog and its permission requests.
+    fn release_page(&mut self, id: TabId) -> Vec<Effect> {
+        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        effects.extend(self.withdraw_permissions(id, false, |_| true));
+        effects
+    }
+
+    /// Answers a tab's permission requests that match, shown or queued, and
+    /// shows the next one left.
+    fn withdraw_permissions(
+        &mut self,
+        id: TabId,
+        allow: bool,
+        matches: impl Fn(&PermissionRequest) -> bool,
+    ) -> Vec<Effect> {
+        let Ok(tab) = self.tab_mut(id) else {
+            return Vec::new();
+        };
+        let mut withdrawn = Vec::new();
+        if tab.permission.as_ref().is_some_and(&matches) {
+            withdrawn.extend(tab.permission.take());
+        }
+        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut tab.queued_permissions)
+            .into_iter()
+            .partition(|request| matches(request));
+        tab.queued_permissions = kept.into();
+        withdrawn.extend(gone);
+        let mut effects: Vec<Effect> = withdrawn
+            .into_iter()
+            .map(|request| Effect::AnswerPermission { id: request.id, allow })
+            .collect();
+        effects.extend(self.show_next_permission(id));
+        effects
+    }
+
+    /// Shows a tab's next queued request once none is shown. One whose origin
+    /// and kind were decided while it waited, in another tab, is answered from
+    /// that decision instead.
+    fn show_next_permission(&mut self, id: TabId) -> Vec<Effect> {
+        let private = self.profile_of(id) == Profile::Private;
+        let mut effects = Vec::new();
+        loop {
+            let Ok(tab) = self.tab_mut(id) else {
+                return effects;
+            };
+            if tab.permission.is_some() {
+                return effects;
+            }
+            let Some(next) = tab.queued_permissions.pop_front() else {
+                return effects;
+            };
+            match self.known_decision(private, &next.origin, next.kind) {
+                Some(allow) => effects.push(Effect::AnswerPermission { id: next.id, allow }),
+                None => {
+                    if let Ok(tab) = self.tab_mut(id) {
+                        tab.permission = Some(next);
+                    }
+                }
+            }
+        }
+    }
+
     /// Releases a tab's pending dialog because its page is going away.
     fn dismiss_dialog(&mut self, id: TabId) -> Option<Effect> {
         let dialog = self.tab_mut(id).ok()?.dialog.take()?;
@@ -1133,6 +1212,8 @@ impl Browser {
     fn add_tab(&mut self, index: usize, window: WindowId, url: impl Into<String>) -> TabId {
         if self.is_private(window) && !self.has_private_tabs() {
             self.private_session += 1;
+            self.private_permissions.clear();
+            self.dismissed_permissions.retain(|(private, _, _)| !private);
         }
         let id = TabId(self.next_id);
         self.next_id += 1;
@@ -1325,7 +1406,7 @@ impl Browser {
             return Ok(self.close_window_now(window));
         }
         let place = self.tabs_in(window).position(|tab| tab.id == id).unwrap_or_default();
-        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        let mut effects: Vec<Effect> = self.release_page(id);
         effects.extend(self.release_slot(id));
         let closed = self.tabs.remove(index);
         self.homes.remove(&id);
@@ -1450,7 +1531,7 @@ impl Browser {
             return Vec::new();
         }
         let closing: HashSet<TabId> = self.tabs_in(window).map(|tab| tab.id).collect();
-        let mut effects: Vec<Effect> = closing.iter().filter_map(|&id| self.dismiss_dialog(id)).collect();
+        let mut effects: Vec<Effect> = closing.iter().flat_map(|&id| self.release_page(id)).collect();
 
         let private_home = self
             .windows
@@ -1518,7 +1599,7 @@ impl Browser {
                 continue;
             };
             if let Some(occupant) = removed.occupant.filter(|occupant| !closing.contains(occupant)) {
-                effects.extend(self.dismiss_dialog(occupant));
+                effects.extend(self.release_page(occupant));
                 effects.extend(self.leave(occupant));
                 if let Ok(tab) = self.tab_mut(occupant) {
                     tab.lose_page();
@@ -1788,7 +1869,7 @@ impl Browser {
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn navigate(&mut self, id: TabId, url: impl Into<String>) -> Result<Vec<Effect>> {
-        let dismissed = self.dismiss_dialog(id);
+        let dismissed = self.release_page(id);
         let tab = self.tab_mut(id)?;
         tab.history.push(Visit::new(url));
         tab.leave_entry();
@@ -1833,7 +1914,7 @@ impl Browser {
             return Ok(Vec::new());
         }
 
-        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        let mut effects: Vec<Effect> = self.release_page(id);
         let tab = self.tab_mut(id)?;
         if backwards {
             tab.history.go_back();
@@ -1855,7 +1936,7 @@ impl Browser {
             tab.presence = TabPresence::Discarded;
         }
         let slot = tab.slot();
-        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        let mut effects: Vec<Effect> = self.release_page(id);
         match slot {
             Some(slot) => effects.push(Effect::Reload { slot }),
             None => effects.extend(self.realize()),
@@ -1964,7 +2045,7 @@ impl Browser {
                 break;
             };
             if let Some(occupant) = removed.occupant {
-                effects.extend(self.dismiss_dialog(occupant));
+                effects.extend(self.release_page(occupant));
                 effects.extend(self.leave(occupant));
                 if let Ok(tab) = self.tab_mut(occupant) {
                     tab.lose_page();
@@ -2338,6 +2419,143 @@ impl Browser {
         Ok(vec![Effect::AnswerDialog { id: dialog, answer }])
     }
 
+    /// Replaces the permission decisions stored in settings.
+    pub fn set_site_permissions(&mut self, permissions: Vec<SitePermission>) {
+        self.site_permissions = permissions;
+    }
+
+    /// Sets the stored permission decisions without touching any webview.
+    pub fn with_site_permissions(mut self, permissions: Vec<SitePermission>) -> Self {
+        self.set_site_permissions(permissions);
+        self
+    }
+
+    /// The decision already made for a request, if one was: `true` to allow.
+    ///
+    /// A private window honours a stored Block, ahead of what was decided in
+    /// the private session, but not a stored Allow.
+    fn known_decision(&self, private: bool, origin: &str, kind: PermissionKind) -> Option<bool> {
+        if self
+            .dismissed_permissions
+            .contains(&(private, origin.to_string(), kind))
+        {
+            return Some(false);
+        }
+        let stored = decision_for(&self.site_permissions, origin, kind);
+        let decided = if private {
+            stored
+                .filter(|state| *state == PermissionState::Block)
+                .or_else(|| decision_for(&self.private_permissions, origin, kind))
+        } else {
+            stored
+        };
+        decided.map(|state| state == PermissionState::Allow)
+    }
+
+    /// Attaches a permission request to the tab that owns the page, or answers
+    /// it at once from a decision already made. A request from a slot no tab
+    /// owns, or from an origin its tab has already left, is denied.
+    /// [Permissions](../../docs/specs/permissions.md).
+    pub fn request_permission(&mut self, slot: SlotId, request: PermissionRequest) -> Vec<Effect> {
+        let denied = vec![Effect::AnswerPermission {
+            id: request.id,
+            allow: false,
+        }];
+        let Some(id) = self.occupant_of(slot) else {
+            return denied;
+        };
+        // Attached off the thread that reports commits, so a commit leaving
+        // the origin can come first, and would then never withdraw it.
+        let left = self.tab(id).map_or(true, |tab| {
+            origin_of(tab.url()).as_deref() != Some(request.origin.as_str())
+        });
+        if left {
+            return denied;
+        }
+        let private = self.profile_of(id) == Profile::Private;
+        if let Some(allow) = self.known_decision(private, &request.origin, request.kind) {
+            return vec![Effect::AnswerPermission { id: request.id, allow }];
+        }
+        let Ok(tab) = self.tab_mut(id) else {
+            return denied;
+        };
+        if tab.permission.is_none() {
+            tab.permission = Some(request);
+        } else {
+            tab.queued_permissions.push_back(request);
+        }
+        Vec::new()
+    }
+
+    /// Answers the permission request a tab is showing, and every request
+    /// queued with the same origin and kind.
+    ///
+    /// An answer to a request no longer shown is ignored, so a click that
+    /// races a page going away cannot reach a newer request.
+    ///
+    /// @returns The effects, and the decision to store in settings, which is
+    /// only ever one made in an ordinary window.
+    ///
+    /// # Errors
+    /// Returns [`HakuError::TabNotFound`] when no tab has this id.
+    pub fn answer_permission(
+        &mut self,
+        id: TabId,
+        request: PermissionRequestId,
+        decision: PermissionDecision,
+    ) -> Result<(Vec<Effect>, Option<SitePermission>)> {
+        let private = self.profile_of(id) == Profile::Private;
+        let Some(shown) = self.tab(id)?.permission.clone().filter(|shown| shown.id == request) else {
+            return Ok((Vec::new(), None));
+        };
+        let allow = decision == PermissionDecision::Allow;
+        let effects = self.withdraw_permissions(id, allow, |other| {
+            other.origin == shown.origin && other.kind == shown.kind
+        });
+
+        let Some(state) = decision.state() else {
+            self.dismissed_permissions.insert((private, shown.origin, shown.kind));
+            return Ok((effects, None));
+        };
+        let decided = SitePermission {
+            origin: shown.origin,
+            kind: shown.kind,
+            state,
+        };
+        if private {
+            self.private_permissions
+                .retain(|other| other.origin != decided.origin || other.kind != decided.kind);
+            self.private_permissions.push(decided);
+            return Ok((effects, None));
+        }
+        Ok((effects, Some(decided)))
+    }
+
+    /// Whether a slot's tab waits on a permission request from an origin its
+    /// page has since left.
+    pub fn has_stale_permissions(&self, slot: SlotId) -> bool {
+        let Some(tab) = self.occupant_of(slot).and_then(|id| self.tab(id).ok()) else {
+            return false;
+        };
+        let origin = origin_of(tab.url());
+        tab.permission
+            .iter()
+            .chain(&tab.queued_permissions)
+            .any(|request| Some(&request.origin) != origin.as_ref())
+    }
+
+    /// Denies the requests a slot's tab made from an origin its page has
+    /// since left.
+    pub fn withdraw_stale_permissions(&mut self, slot: SlotId) -> Vec<Effect> {
+        let Some(id) = self.occupant_of(slot) else {
+            return Vec::new();
+        };
+        let Ok(origin) = self.tab(id).map(|tab| origin_of(tab.url())) else {
+            return Vec::new();
+        };
+        self.withdraw_permissions(id, false, |request| Some(&request.origin) != origin.as_ref())
+    }
+
     // -- reconciliation ---------------------------------------------------
 
     /// Brings webviews in line with tab state and returns the difference.
@@ -2476,8 +2694,9 @@ impl Browser {
     /// is discarded, one holding work is kept, and those that would lose state
     /// are kept most recently shown first while all kept tabs fit the budget.
     /// Tight pressure ends grace and discards state; critical pressure
-    /// discards work too. Must-run tabs and tabs paused on a dialog are never
-    /// candidates.
+    /// discards work too. Must-run tabs and tabs paused on a dialog or waiting
+    /// on a permission request are never candidates: discarding would answer
+    /// either without asking.
     fn smart_discards(&self, background: &[TabId]) -> HashSet<TabId> {
         let mut discards = HashSet::new();
         let mut spent: u64 = 0;
@@ -2485,7 +2704,7 @@ impl Browser {
 
         for &id in background {
             let Ok(tab) = self.tab(id) else { continue };
-            if self.must_run(tab) || tab.dialog.is_some() {
+            if self.must_run(tab) || tab.dialog.is_some() || tab.permission.is_some() {
                 continue;
             }
             let bytes = tab.slot().and_then(|slot| self.memory.get(&slot)).copied().unwrap_or(0);
@@ -2632,7 +2851,7 @@ impl Browser {
         let Some(id) = self.occupant_of(slot).filter(|&id| id == tab) else {
             return Vec::new();
         };
-        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        let mut effects: Vec<Effect> = self.release_page(id);
         effects.extend(self.release_slot(id));
         if let Ok(tab) = self.tab_mut(id) {
             tab.lose_page();
@@ -2644,7 +2863,7 @@ impl Browser {
     }
 
     fn discard_tab(&mut self, id: TabId) -> Vec<Effect> {
-        let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
+        let mut effects: Vec<Effect> = self.release_page(id);
         effects.extend(self.leave(id));
         effects.extend(self.release_slot(id));
         if let Ok(tab) = self.tab_mut(id) {
@@ -2734,7 +2953,7 @@ impl Browser {
         if let Some(evicted) = evicted {
             // The evicted page may be paused on a dialog; it has to be released
             // before its slot is navigated to this tab.
-            effects.extend(self.dismiss_dialog(evicted));
+            effects.extend(self.release_page(evicted));
             effects.extend(self.leave(evicted));
             if let Ok(tab) = self.tab_mut(evicted) {
                 if matches!(tab.presence, TabPresence::Frozen { .. }) {

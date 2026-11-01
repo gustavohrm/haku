@@ -12,6 +12,7 @@ import { openMenu } from "@features/context-menu/store";
 import { ExtensionIcon } from "@features/extensions/extension-icon";
 import { ADDING, addExtension, removeExtension, useExtensionChange } from "@features/extensions/manage";
 import { reportUnexpected } from "@features/feedback/feedback";
+import { permissionName } from "@features/feedback/permission-prompt";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
 import { commands } from "@ipc/commands";
 import { useExtensions } from "@ipc/hooks";
@@ -406,6 +407,53 @@ export function KeptSitesControl({ labelId, describedBy, settings, update }: Con
           </button>
         </li>
       ))}
+    </ul>
+  );
+}
+
+/**
+ * What sites were allowed or blocked to use, which is otherwise only reached
+ * by a site asking again. [Permissions](../../../docs/specs/permissions.md).
+ */
+export function SitePermissionsControl({ labelId, describedBy, settings, update }: ControlProps) {
+  const decisions = settings.sitePermissions.toSorted((a, b) => a.origin.localeCompare(b.origin));
+  if (decisions.length === 0) {
+    return <p className="text-text-secondary text-sm">{t("settings.sitePermissions.empty")}</p>;
+  }
+  return (
+    <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+      {decisions.map(({ origin, kind, state }) => {
+        const id = `site-permission-${origin}-${kind}`;
+        const decided = state === "allow" ? "settings.sitePermissions.allowed" : "settings.sitePermissions.blocked";
+        return (
+          <li key={`${origin} ${kind}`} className="flex items-center gap-2">
+            {/* The button is described by the decision, so it reads as "Forget, example.com, Camera: allowed". */}
+            <span id={id} className="flex min-w-0 flex-1 gap-2">
+              <span className="truncate" title={origin}>
+                {origin}
+              </span>
+              <span className="text-text-secondary shrink-0">{t(decided).replace("{kind}", permissionName(kind))}</span>
+            </span>
+            <button
+              type="button"
+              className="btn icon ghost"
+              aria-label={t("settings.sitePermissions.remove")}
+              aria-describedby={id}
+              title={t("settings.sitePermissions.remove")}
+              onClick={() =>
+                void update((current) => ({
+                  ...current,
+                  sitePermissions: current.sitePermissions.filter(
+                    (other) => other.origin !== origin || other.kind !== kind,
+                  ),
+                }))
+              }
+            >
+              <i className="ic-x ic-sm" aria-hidden="true" />
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

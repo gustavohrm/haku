@@ -1,9 +1,12 @@
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::dialog::PageDialog;
 use super::history::{History, Visit};
 use super::page_state::{Loss, LossSignal, PageRecord, PageState, DRAFT_LIMIT};
+use super::permission::PermissionRequest;
 use super::pool::SlotId;
 
 /// Scheme used by pages Haku renders itself, inside the chrome webview.
@@ -76,6 +79,11 @@ pub struct Tab {
     /// A dialog the page opened and is waiting on. Shown while the tab is
     /// active; a background tab's dialog waits until the tab is selected.
     pub dialog: Option<PageDialog>,
+    /// A permission the page asked for and is waiting on, shown like a dialog.
+    pub permission: Option<PermissionRequest>,
+    /// Further requests waiting behind [`Tab::permission`]. Rust's alone.
+    #[serde(skip)]
+    pub queued_permissions: VecDeque<PermissionRequest>,
     /// The page is playing audio, which a smart policy will not interrupt.
     pub audible: bool,
     /// Discarded to free memory while the system was short of it, and not
@@ -111,6 +119,8 @@ impl Tab {
             fixed: false,
             active_at: 0,
             dialog: None,
+            permission: None,
+            queued_permissions: VecDeque::new(),
             audible: false,
             relieved: false,
             restoring: false,

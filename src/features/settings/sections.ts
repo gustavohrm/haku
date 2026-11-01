@@ -17,6 +17,7 @@ import {
   PresetControl,
   SearchUrlControl,
   SidebarSideControl,
+  SitePermissionsControl,
   TabLayoutControl,
   ThemeControl,
   ToolbarPlacementControl,
@@ -177,6 +178,19 @@ export const SECTIONS: SettingSection[] = [
             keywords: "settings.home.keywords",
             wide: true,
             Control: HomeUrlControl,
+          },
+        ],
+      },
+      {
+        rows: [
+          {
+            id: "sitePermissions",
+            title: "settings.sitePermissions",
+            description: "settings.sitePermissions.help",
+            keywords: "settings.sitePermissions.keywords",
+            wide: true,
+            labelsControl: false,
+            Control: SitePermissionsControl,
           },
         ],
       },

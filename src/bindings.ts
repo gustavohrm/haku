@@ -122,6 +122,11 @@ export const commands = {
 	/**  Answers the dialog a page is paused on. */
 	answerDialog: (tab: TabId, dialog: DialogId, answer: DialogAnswer) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_dialog", { tab, dialog, answer })),
 	/**
+	 *  Answers the permission request a tab is showing, storing an Allow or a
+	 *  Block made in an ordinary window. [Permissions](../../../docs/specs/permissions.md).
+	 */
+	answerPermission: (tab: TabId, request: PermissionRequestId, decision: PermissionDecision) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_permission", { tab, request, decision })),
+	/**
 	 *  Answers the context menu a page is waiting on, with the native item
 	 *  chosen, or with nothing when the choice was one of Haku's own items or the
 	 *  menu was dismissed. An answer to an unknown or already answered request is
@@ -653,6 +658,31 @@ export type PaneLayout = {
 	radius: number,
 };
 
+/**  What the user answered a permission request with. */
+export type PermissionDecision = "allow" | "block" | 
+/**  Escape, or the dialog closing. Denied without storing anything. */
+"dismiss";
+
+/**  What a page asked to use. [Permissions § Kinds](../../../docs/specs/permissions.md#kinds). */
+export type PermissionKind = "camera" | "microphone" | "location" | "notifications" | "midiSysex" | "sensors" | "windowManagement" | "localFonts" | "fileReadWrite" | "clipboardRead" | "multipleDownloads";
+
+/**  A permission a page is waiting on. The page keeps running meanwhile. */
+export type PermissionRequest = {
+	id: PermissionRequestId,
+	kind: PermissionKind,
+	/**  The origin the request is decided for, which the dialog is titled with. */
+	origin: string,
+};
+
+/**
+ *  Identifies one permission request a page made, so a late answer cannot
+ *  reach a newer one.
+ */
+export type PermissionRequestId = number;
+
+/**  A decision kept for an origin and kind. */
+export type PermissionState = "allow" | "block";
+
 /**  How eagerly one optimization is applied to background tabs. */
 export type Policy = "never" | 
 /**  Haku decides from what it can observe of the tab and the system. */
@@ -741,6 +771,11 @@ export type Settings = {
 	 *  menu.
 	 */
 	pinnedExtensions: string[],
+	/**
+	 *  What the user allowed or blocked sites to use, by origin and kind.
+	 *  [Permissions](../../../docs/specs/permissions.md).
+	 */
+	sitePermissions: SitePermission[],
 };
 
 export type SettingsChanged = Settings;
@@ -756,6 +791,13 @@ export type SidebarSide =
 "left" | 
 /**  Down the right side of the window. */
 "right";
+
+/**  A decision stored in settings. */
+export type SitePermission = {
+	origin: string,
+	kind: PermissionKind,
+	state: PermissionState,
+};
 
 export type SlotId = number;
 
@@ -802,6 +844,8 @@ export type Tab = {
 	 *  active; a background tab's dialog waits until the tab is selected.
 	 */
 	dialog: PageDialog | null,
+	/**  A permission the page asked for and is waiting on, shown like a dialog. */
+	permission: PermissionRequest | null,
 	/**  The page is playing audio, which a smart policy will not interrupt. */
 	audible: boolean,
 	/**

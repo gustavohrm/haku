@@ -57,6 +57,7 @@ const tab = (id: number, extra: Partial<Tab> = {}): Tab => ({
   fixed: false,
   activeAt: 0,
   dialog: null,
+  permission: null,
   audible: false,
   relieved: false,
   restoring: false,

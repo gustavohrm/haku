@@ -11,6 +11,7 @@ function tab(id: number, urls: string[] = ["https://example.com/"], index = urls
     fixed: false,
     activeAt: 0,
     dialog: null,
+    permission: null,
     audible: false,
     relieved: false,
     restoring: false,
