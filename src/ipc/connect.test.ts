@@ -170,7 +170,8 @@ describe("connect", () => {
     changed({ payload: SETTINGS });
     await vi.waitFor(() => expect(keymapStore.get()).toBe(newer));
     answerOlder({ status: "ok", data: older });
-    await Promise.resolve();
+    // A macrotask, so the older read's every continuation has run.
+    await new Promise((resolve) => setTimeout(resolve));
 
     expect(keymapStore.get()).toBe(newer);
     stop();
