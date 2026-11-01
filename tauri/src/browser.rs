@@ -1772,12 +1772,13 @@ impl Browser {
         self.advance(now);
         let window = self.window_of(id).expect("validated tab");
         let focus_changed = self.active_in(window) != Some(id);
+        let mut effects = self.leave_fullscreen_for(window, id);
         self.activate(id);
         self.pool.touch(id);
         // Viewing a tab is the activity signal available without giving remote
         // pages a channel back into the application.
         self.tab_mut(id)?.active_at = now;
-        let mut effects = self.realize();
+        effects.extend(self.realize());
         if focus_changed {
             effects.push(self.pane_focus_effect(window, id));
         }
@@ -2080,13 +2081,34 @@ impl Browser {
             }
             let window = entry.id;
             self.windows[index].fullscreen = None;
-            if let Some(slot) = slot {
-                effects.push(Effect::ExitPageFullscreen { slot });
-            }
+            // The window leaves first, so a page that ignores the request
+            // cannot keep it fullscreen.
             effects.push(Effect::SetFullscreen {
                 window,
                 fullscreen: false,
             });
+            if let Some(slot) = slot {
+                effects.push(Effect::ExitPageFullscreen { slot });
+            }
+        }
+        effects
+    }
+
+    /// Ends a window's fullscreen when another of its tabs is selected. The
+    /// other pane of a split pair stays assigned while hidden behind the
+    /// fullscreen one, so [`Browser::settle_fullscreen`] alone would keep it.
+    fn leave_fullscreen_for(&mut self, window: WindowId, selected: TabId) -> Vec<Effect> {
+        let current = self.window(window).and_then(|entry| entry.fullscreen);
+        let Some(tab) = current.filter(|tab| *tab != selected) else {
+            return Vec::new();
+        };
+        self.set_fullscreen(window, None);
+        let mut effects = vec![Effect::SetFullscreen {
+            window,
+            fullscreen: false,
+        }];
+        if let Some(slot) = self.tab(tab).ok().and_then(Tab::slot) {
+            effects.push(Effect::ExitPageFullscreen { slot });
         }
         effects
     }

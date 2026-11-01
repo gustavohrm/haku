@@ -3983,6 +3983,43 @@ fn selecting_another_tab_leaves_fullscreen_and_asks_the_page_to_exit() {
 }
 
 #[test]
+fn selecting_the_other_tab_of_a_split_pair_leaves_fullscreen() {
+    let (mut browser, _) = browser_with(2, &["https://left.test"]);
+    let (window, left, right) = split_pair(&mut browser);
+    let slot = slot_of(&browser, right).unwrap();
+    browser.report_fullscreen(slot, true);
+
+    let effects = browser.select_tab(left, 0).unwrap();
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    let leave = effects.iter().position(|effect| {
+        *effect
+            == Effect::SetFullscreen {
+                window,
+                fullscreen: false,
+            }
+    });
+    let ask = effects
+        .iter()
+        .position(|effect| *effect == Effect::ExitPageFullscreen { slot });
+    assert!(
+        leave.unwrap() < ask.unwrap(),
+        "the window leaves before the page is asked"
+    );
+}
+
+#[test]
+fn selecting_the_fullscreen_tab_again_keeps_fullscreen() {
+    let (mut browser, _) = browser_with(2, &["https://left.test"]);
+    let (window, _, right) = split_pair(&mut browser);
+    browser.report_fullscreen(slot_of(&browser, right).unwrap(), true);
+
+    browser.select_tab(right, 0).unwrap();
+
+    assert_eq!(fullscreen_of(&browser, window), Some(right));
+}
+
+#[test]
 fn closing_the_fullscreen_tab_restores_its_window() {
     let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
     let window = browser.main_window();

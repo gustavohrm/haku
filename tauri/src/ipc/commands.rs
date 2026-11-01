@@ -1779,6 +1779,20 @@ fn apply_layout_turn(
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+
+    #[test]
+    fn only_the_newest_fullscreen_report_of_a_slot_applies() {
+        let mut reports = FullscreenReports::default();
+        let (slot, other) = (SlotId(1), SlotId(2));
+        let enter = reports.next(slot);
+        let exit = reports.next(slot);
+        let elsewhere = reports.next(other);
+
+        // An enter whose thread runs after the exit's changes nothing.
+        assert!(!reports.is_latest(slot, enter));
+        assert!(reports.is_latest(slot, exit));
+        assert!(reports.is_latest(other, elsewhere));
+    }
     use std::cell::RefCell;
 
     #[test]

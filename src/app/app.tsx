@@ -23,7 +23,10 @@ export function App() {
   usePageMenu(tab);
   useCloseConfirmation();
   const fullscreenTab = tabs.find((candidate) => candidate.id === fullscreen);
-  useFullscreenNotice(fullscreenTab ? (fullscreenTab.history.entries[fullscreenTab.history.index]?.url ?? "") : null);
+  useFullscreenNotice(
+    fullscreenTab?.id ?? null,
+    fullscreenTab?.history.entries[fullscreenTab.history.index]?.url ?? "",
+  );
 
   const themePreference = settings?.theme;
   useEffect(() => {

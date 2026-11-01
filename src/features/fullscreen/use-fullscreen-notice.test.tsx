@@ -12,8 +12,8 @@ import { useFullscreenNotice } from "./use-fullscreen-notice";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function Notice({ url }: { url: string | null }) {
-  useFullscreenNotice(url);
+function Notice({ tab = 1, url }: { tab?: number; url: string | null }) {
+  useFullscreenNotice(url === null ? null : tab, url ?? "");
   return null;
 }
 
@@ -41,6 +41,16 @@ describe("useFullscreenNotice", () => {
     expect(info.mock.calls[0]).toEqual([
       expect.objectContaining({ title: "www.youtube.com is full screen", description: "Press Esc to exit." }),
     ]);
+  });
+
+  it("names the other site when fullscreen passes to the other pane", async () => {
+    await act(async () => root.render(<Notice tab={1} url="https://a.test/" />));
+    await act(async () => root.render(<Notice tab={1} url="https://a.test/next" />));
+    await act(async () => root.render(<Notice tab={2} url="https://b.test/" />));
+
+    expect(info).toHaveBeenCalledTimes(2);
+    expect(info.mock.calls[1]).toEqual([expect.objectContaining({ title: "b.test is full screen" })]);
+    expect(dismiss).toHaveBeenCalledTimes(1);
   });
 
   it("takes the notice away when fullscreen ends", async () => {
