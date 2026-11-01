@@ -111,9 +111,10 @@ body {
   A dialog's backdrop cannot reach page content: the page is a native view
   beneath a hole in the chrome, so a dimmed backdrop would dim the bars and leave
   the page untouched. No backdrop at all reads as one consistent surface; the
-  dialog stays modal either way.
+  dialog stays modal either way. The selector matches the toaster's own, which
+  this follows and so outranks; without `.toast-dialog` it loses to it.
 */
-dialog[data-toast-instance]::backdrop {
+dialog[data-toast-instance].toast-dialog::backdrop {
   background: transparent;
   backdrop-filter: none;
 }
