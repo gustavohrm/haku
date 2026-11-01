@@ -133,11 +133,11 @@ fn two_disjoint_holes_preserve_a_cross_pane_overlay_and_solid_divider() {
     report.validate(&assigned).unwrap();
     let (holes, overlays) = mask_rects(&report, 1.25);
     assert_eq!(holes.len(), 2);
-    assert_eq!(holes[0].rect.x + holes[0].rect.width, 125);
-    assert_eq!(holes[1].rect.x, 130);
-    assert_eq!(overlays[0].rect.x, 100);
-    assert_eq!(overlays[0].rect.width, 56);
-    assert_eq!(overlays[0].radius, 5);
+    assert_eq!(holes[0].right, 125.0);
+    assert_eq!(holes[1].left, 130.0);
+    assert_eq!(overlays[0].left, 100.0);
+    assert_eq!(overlays[0].right - overlays[0].left, 56.25);
+    assert_eq!(overlays[0].radius, 5.0);
     report.viewports[1].covered = true;
     let (covered, _) = mask_rects(&report, 1.25);
     assert_eq!(covered, holes[..1]);

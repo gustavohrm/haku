@@ -62,10 +62,99 @@ impl PhysicalRect {
 }
 
 /// A region of the input mask, rounded when `radius` is above zero.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// Kept in exact device pixels rather than whole ones: where a fractional edge
+/// falls decides which pixels its curve covers, and rounding the bounds first
+/// moves the curve by up to half a pixel, a different way on each side.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RoundedRect {
-    pub rect: PhysicalRect,
-    pub radius: i32,
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub radius: f64,
+}
+
+/// Which pixels along its curve and edges a shape takes.
+///
+/// A region's edge is hard, while CSS antialiases the one it draws: the pixels
+/// it only partly covers are blended with what the chrome paints behind them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    /// Pixels whose centre lies inside, so the hard edge follows the middle of
+    /// the antialiased one. Right for a hole, where the chrome paints outside
+    /// the curve and blends its corner with its own colour.
+    Centre,
+    /// Only pixels lying wholly inside. Right for an overlay, which the chrome
+    /// paints over its own background, not the page: a pixel it partly covers
+    /// blends with that background, which shows as a dark fringe over a light
+    /// page. Leaving those to the page gives a clean, if hard, edge.
+    Whole,
+}
+
+impl RoundedRect {
+    /// The pixels it covers within `within`, as rows of rectangles.
+    ///
+    /// Only rows inside `within` are worked out, so a shape far larger than
+    /// the window costs no more than one that fills it.
+    ///
+    /// Worked out from the curve CSS draws, on every side alike. GDI's own
+    /// rounded region steps unevenly along the curve and cuts up to two pixels
+    /// inside it, which shows as a jagged corner.
+    pub fn spans(&self, edge: Edge, within: PhysicalRect) -> Vec<PhysicalRect> {
+        // CSS reduces a radius too large for the box to half its shorter side.
+        let radius = self
+            .radius
+            .max(0.0)
+            .min((self.right - self.left) / 2.0)
+            .min((self.bottom - self.top) / 2.0);
+        // How far in the curve is at a height, and where a row of pixels meets it.
+        let inset = |y: f64| {
+            let rise = (self.top + radius - y).max(y - (self.bottom - radius)).max(0.0);
+            radius - (radius * radius - rise * rise).max(0.0).sqrt()
+        };
+        let rows = match edge {
+            Edge::Centre => pixel_at(self.top)..pixel_at(self.bottom),
+            Edge::Whole => self.top.ceil() as i32..self.bottom.floor() as i32,
+        };
+        let rows = rows.start.max(within.y)..rows.end.min(within.bottom());
+        let mut spans: Vec<PhysicalRect> = Vec::new();
+        for y in rows {
+            let (x, right) = match edge {
+                Edge::Centre => {
+                    let inset = inset(f64::from(y) + 0.5);
+                    (pixel_at(self.left + inset), pixel_at(self.right - inset))
+                }
+                Edge::Whole => {
+                    // Of the row's top and bottom, the one nearer the curve's
+                    // end is cut deeper.
+                    let inset = inset(f64::from(y)).max(inset(f64::from(y) + 1.0));
+                    ((self.left + inset).ceil() as i32, (self.right - inset).floor() as i32)
+                }
+            };
+            let (x, right) = (x.max(within.x), right.min(within.right()));
+            if right <= x {
+                continue;
+            }
+            // Rows that match the one above join it, so the straight part of
+            // the shape is a single rectangle.
+            match spans.last_mut() {
+                Some(last) if last.x == x && last.right() == right && last.bottom() == y => last.height += 1,
+                _ => spans.push(PhysicalRect {
+                    x,
+                    y,
+                    width: right - x,
+                    height: 1,
+                }),
+            }
+        }
+        spans
+    }
+}
+
+/// The first pixel whose centre lies at or past `edge`.
+fn pixel_at(edge: f64) -> i32 {
+    (edge - 0.5).ceil() as i32
 }
 
 /// What a content webview reported about its own navigation.
@@ -669,5 +758,131 @@ mod tests {
     fn an_answer_without_a_window_id_gives_none() {
         assert_eq!(parse_window_id(r#"{"error":"no target"}"#), None);
         assert_eq!(parse_window_id("not json"), None);
+    }
+
+    const WINDOW: PhysicalRect = PhysicalRect {
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 1000,
+    };
+
+    fn shape(left: f64, top: f64, right: f64, bottom: f64, radius: f64) -> RoundedRect {
+        RoundedRect {
+            left,
+            top,
+            right,
+            bottom,
+            radius,
+        }
+    }
+
+    /// Whether the point lies inside the shape as CSS draws it, worked out
+    /// independently of `spans`.
+    fn inside(shape: RoundedRect, x: f64, y: f64) -> bool {
+        let radius = shape.radius;
+        let cx = x.clamp(shape.left + radius, shape.right - radius);
+        let cy = y.clamp(shape.top + radius, shape.bottom - radius);
+        x >= shape.left
+            && x < shape.right
+            && y >= shape.top
+            && y < shape.bottom
+            && (x - cx).powi(2) + (y - cy).powi(2) <= radius * radius
+    }
+
+    /// Like `inside`, but counting the shape's own outline as inside.
+    fn inside_or_on(shape: RoundedRect, x: f64, y: f64) -> bool {
+        let radius = shape.radius;
+        let cx = x.clamp(shape.left + radius, shape.right - radius);
+        let cy = y.clamp(shape.top + radius, shape.bottom - radius);
+        x >= shape.left
+            && x <= shape.right
+            && y >= shape.top
+            && y <= shape.bottom
+            && (x - cx).powi(2) + (y - cy).powi(2) <= radius * radius + 1e-9
+    }
+
+    fn covered(spans: &[PhysicalRect], x: i32, y: i32) -> bool {
+        spans
+            .iter()
+            .any(|span| x >= span.x && x < span.right() && y >= span.y && y < span.bottom())
+    }
+
+    #[test]
+    fn a_square_shape_is_one_rectangle_whose_edges_round_where_they_lie() {
+        // 10.4 + 10.4 ends at 20.8, so the far edges take pixel 20 as well.
+        assert_eq!(
+            shape(10.4, 10.4, 20.8, 20.8, 0.0).spans(Edge::Centre, WINDOW),
+            vec![PhysicalRect {
+                x: 10,
+                y: 10,
+                width: 11,
+                height: 11
+            }]
+        );
+    }
+
+    #[test]
+    fn a_rounded_shape_covers_exactly_the_pixels_whose_centres_lie_inside_its_curve() {
+        // An overlay at a fractional position on a 125% display: GDI's own
+        // rounded region cut this one deeper on the left than on the right.
+        let shape = shape(12.875, 3.3, 263.625, 53.7, 10.0);
+        let spans = shape.spans(Edge::Centre, WINDOW);
+
+        for y in 0..60 {
+            for x in 0..280 {
+                let centre = inside(shape, f64::from(x) + 0.5, f64::from(y) + 0.5);
+                assert_eq!(covered(&spans, x, y), centre, "pixel {x},{y}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_whole_edge_covers_exactly_the_pixels_lying_wholly_inside_the_curve() {
+        // A toast over a light page: a pixel it only partly covers is painted
+        // blended with the chrome behind it, which shows as a dark fringe.
+        let shape = shape(12.875, 3.3, 263.625, 53.7, 10.0);
+        let spans = shape.spans(Edge::Whole, WINDOW);
+
+        for y in 0..60 {
+            for x in 0..280 {
+                let (left, top) = (f64::from(x), f64::from(y));
+                // The shape is convex, so a pixel is inside when its corners are.
+                let whole = [
+                    (left, top),
+                    (left + 1.0, top),
+                    (left, top + 1.0),
+                    (left + 1.0, top + 1.0),
+                ]
+                .iter()
+                .all(|&(cx, cy)| inside_or_on(shape, cx, cy));
+                assert_eq!(covered(&spans, x, y), whole, "pixel {x},{y}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_shape_far_larger_than_the_window_gives_only_the_rows_inside_it() {
+        let window = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        for edge in [Edge::Centre, Edge::Whole] {
+            let spans = shape(-1e12, -1e12, 1e12, 1e12, 8.0).spans(edge, window);
+
+            assert_eq!(spans, vec![window]);
+        }
+    }
+
+    #[test]
+    fn a_radius_beyond_half_the_shorter_side_is_reduced_as_css_does() {
+        let shape = shape(0.0, 0.0, 40.0, 10.0, 20.0);
+        let spans = shape.spans(Edge::Centre, WINDOW);
+
+        assert!(covered(&spans, 20, 5));
+        assert!(covered(&spans, 5, 5));
+        assert!(!covered(&spans, 0, 0));
     }
 }

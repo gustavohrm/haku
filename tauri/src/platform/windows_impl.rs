@@ -99,9 +99,7 @@ use webview2_com::{
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
-use windows::Win32::Graphics::Gdi::{
-    CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR,
-};
+use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_DIFF, RGN_OR};
 use windows::Win32::System::Com::{IStream, STREAM_SEEK_END, STREAM_SEEK_SET};
 use windows::Win32::System::ProcessStatus::{
     GetPerformanceInfo, GetProcessMemoryInfo, PERFORMANCE_INFORMATION, PROCESS_MEMORY_COUNTERS,
@@ -121,8 +119,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use super::memory::{EngineSnapshot, ProcessKind, ProcessSample};
 use super::workers::{self, WorkerTracker, IDLE_GRACE};
 use super::{
-    DownloadAction, DownloadSignal, DownloadSink, DownloadStart, DownloadStartSink, FailureSink, KeySink, PageSignal,
-    PageSink, PhysicalRect, ProcessFailure, ReportFailure, RoundedRect,
+    DownloadAction, DownloadSignal, DownloadSink, DownloadStart, DownloadStartSink, Edge, FailureSink, KeySink,
+    PageSignal, PageSink, PhysicalRect, ProcessFailure, ReportFailure, RoundedRect,
 };
 use crate::browser::BLANK_URL;
 use crate::error::{HakuError, Result};
@@ -690,16 +688,21 @@ pub fn set_visible<R: tauri::Runtime>(webview: &tauri::Webview<R>, visible: bool
         .map_err(|error| HakuError::WindowMissing(error.to_string()))?
 }
 
-/// A region covering `rect`, with its corners rounded to `radius` when above zero.
+/// A region covering exactly the pixels of `shape` within `within`, taking its
+/// edge as `edge` says.
+///
+/// Built from the shape's own rows rather than `CreateRoundRectRgn`, whose
+/// curve steps unevenly and sits up to two pixels inside the one CSS draws.
 ///
 /// The caller owns the region and must delete it.
-unsafe fn rounded_region(rect: PhysicalRect, radius: i32) -> HRGN {
-    if radius > 0 {
-        // CreateRoundRectRgn takes the full width and height of the ellipse.
-        CreateRoundRectRgn(rect.x, rect.y, rect.right(), rect.bottom(), radius * 2, radius * 2)
-    } else {
-        CreateRectRgn(rect.x, rect.y, rect.right(), rect.bottom())
+unsafe fn shape_region(shape: RoundedRect, edge: Edge, within: PhysicalRect) -> HRGN {
+    let region = CreateRectRgn(0, 0, 0, 0);
+    for span in shape.spans(edge, within) {
+        let row = CreateRectRgn(span.x, span.y, span.right(), span.bottom());
+        CombineRgn(Some(region), Some(region), Some(row), RGN_OR);
+        let _ = DeleteObject(row.into());
     }
+    region
 }
 
 pub fn set_input_mask<R: tauri::Runtime>(
@@ -721,11 +724,17 @@ pub fn set_input_mask<R: tauri::Runtime>(
         let mut client = Default::default();
         GetClientRect(hwnd, &mut client).map_err(|error| HakuError::WindowMissing(error.to_string()))?;
 
+        let window = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: client.right,
+            height: client.bottom,
+        };
         let region = CreateRectRgn(0, 0, client.right, client.bottom);
         // A rounded hole is what gives the page rounded corners: the chrome
         // keeps painting the corner, and the page shows through the curve.
         for pane in &viewports {
-            let hole = rounded_region(pane.rect, pane.radius);
+            let hole = shape_region(*pane, Edge::Centre, window);
             CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
             let _ = DeleteObject(hole.into());
         }
@@ -734,7 +743,7 @@ pub fn set_input_mask<R: tauri::Runtime>(
         // way round: a square patch would paint chrome over the page at its
         // corners.
         for overlay in &overlays {
-            let patch = rounded_region(overlay.rect, overlay.radius);
+            let patch = shape_region(*overlay, Edge::Whole, window);
             CombineRgn(Some(region), Some(region), Some(patch), RGN_OR);
             let _ = DeleteObject(patch.into());
         }
@@ -2217,6 +2226,46 @@ mod tests {
 
     fn failure(reason: i32) -> Option<DownloadFailure> {
         interruption(COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON(reason)).1
+    }
+
+    #[test]
+    fn a_shape_region_covers_its_last_column_and_row() {
+        use windows::Win32::Graphics::Gdi::PtInRegion;
+        for (radius, edge) in [
+            (0.0, Edge::Centre),
+            (8.0, Edge::Centre),
+            (0.0, Edge::Whole),
+            (8.0, Edge::Whole),
+        ] {
+            let shape = RoundedRect {
+                left: 0.0,
+                top: 0.0,
+                right: 100.0,
+                bottom: 50.0,
+                radius,
+            };
+            unsafe {
+                let region = shape_region(
+                    shape,
+                    edge,
+                    PhysicalRect {
+                        x: 0,
+                        y: 0,
+                        width: 200,
+                        height: 100,
+                    },
+                );
+                let covered = |x, y| PtInRegion(region, x, y).as_bool();
+                assert!(covered(99, 25), "radius {radius}: last column");
+                assert!(covered(50, 49), "radius {radius}: last row");
+                assert!(!covered(100, 25), "radius {radius}: past the right edge");
+                assert!(!covered(50, 50), "radius {radius}: past the bottom edge");
+                if radius > 0.0 {
+                    assert!(!covered(0, 0), "radius {radius}: outside the corner");
+                }
+                let _ = DeleteObject(region.into());
+            }
+        }
     }
 
     #[test]

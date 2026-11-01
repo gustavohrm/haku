@@ -11,7 +11,7 @@ use specta::Type;
 
 use crate::browser::ViewportAssignment;
 use crate::error::{HakuError, Result};
-use crate::platform::{self, PhysicalRect, RoundedRect};
+use crate::platform::{self, RoundedRect};
 use crate::webview::Viewport;
 
 /// A region drawn above the page, in logical pixels.
@@ -99,16 +99,37 @@ impl Layout {
     }
 }
 
-/// Converts a logical rectangle to physical pixels.
+/// Converts an overlay's rectangle and corner radius to exact device pixels.
 ///
 /// The mask is applied with native APIs that work in device pixels, so the
-/// scale factor is resolved once here rather than inside platform code.
-pub fn to_physical(viewport: Viewport, scale: f64) -> PhysicalRect {
-    PhysicalRect {
-        x: (viewport.x * scale).round() as i32,
-        y: (viewport.y * scale).round() as i32,
-        width: (viewport.width * scale).round() as i32,
-        height: (viewport.height * scale).round() as i32,
+/// scale factor is resolved once here rather than inside platform code. Edges
+/// stay fractional until the shape is cut into pixels, so its curve lands
+/// where CSS draws it.
+fn to_physical(viewport: Viewport, radius: f64, scale: f64) -> RoundedRect {
+    RoundedRect {
+        left: viewport.x * scale,
+        top: viewport.y * scale,
+        right: (viewport.x + viewport.width) * scale,
+        bottom: (viewport.y + viewport.height) * scale,
+        radius: radius.max(0.0) * scale,
+    }
+}
+
+/// Converts a pane to the device pixels its native page is placed at.
+///
+/// The page's bounds round origin and size apart, as Tauri does for
+/// `set_bounds`, so its far edge can lie a pixel from the exact one. The hole
+/// follows the page rather than the exact edge, or that pixel would show
+/// neither the page nor the chrome.
+fn to_native(viewport: Viewport, radius: f64, scale: f64) -> RoundedRect {
+    let left = (viewport.x * scale).round();
+    let top = (viewport.y * scale).round();
+    RoundedRect {
+        left,
+        top,
+        right: left + (viewport.width * scale).round(),
+        bottom: top + (viewport.height * scale).round(),
+        radius: radius.max(0.0) * scale,
     }
 }
 
@@ -120,29 +141,19 @@ fn is_visible(viewport: Viewport) -> bool {
     viewport.width >= 1.0 && viewport.height >= 1.0
 }
 
-fn to_physical_radius(radius: f64, scale: f64) -> i32 {
-    (radius.max(0.0) * scale).round() as i32
-}
-
 /// The uncovered pane holes and overlays, in device pixels.
 pub fn mask_rects(layout: &Layout, scale: f64) -> (Vec<RoundedRect>, Vec<RoundedRect>) {
     let viewports = layout
         .viewports
         .iter()
         .filter(|pane| !pane.covered && is_visible(pane.rect))
-        .map(|pane| RoundedRect {
-            rect: to_physical(pane.rect, scale),
-            radius: to_physical_radius(pane.radius, scale),
-        })
+        .map(|pane| to_native(pane.rect, pane.radius, scale))
         .collect();
     let overlays = layout
         .overlays
         .iter()
         .filter(|overlay| is_visible(overlay.rect))
-        .map(|overlay| RoundedRect {
-            rect: to_physical(overlay.rect, scale),
-            radius: to_physical_radius(overlay.radius, scale),
-        })
+        .map(|overlay| to_physical(overlay.rect, overlay.radius, scale))
         .collect();
     (viewports, overlays)
 }
@@ -174,26 +185,39 @@ mod tests {
     }
 
     #[test]
-    fn logical_pixels_scale_to_device_pixels() {
-        let rect = to_physical(viewport(10.0, 20.0, 100.0, 50.0), 1.5);
+    fn logical_pixels_scale_to_exact_device_pixels() {
+        let shape = to_physical(viewport(10.0, 20.0, 33.0, 50.0), 4.0, 1.25);
 
         assert_eq!(
-            rect,
-            PhysicalRect {
-                x: 15,
-                y: 30,
-                width: 150,
-                height: 75
+            shape,
+            RoundedRect {
+                left: 12.5,
+                top: 25.0,
+                right: 53.75,
+                bottom: 87.5,
+                radius: 5.0
             }
         );
     }
 
     #[test]
-    fn fractional_device_pixels_round_rather_than_truncate() {
-        let rect = to_physical(viewport(10.0, 10.0, 33.0, 33.0), 1.25);
+    fn a_pane_hole_lies_where_the_native_page_is_placed() {
+        // The page's bounds round origin and size apart, so 10.4 + 10.4 ends
+        // at 20 there; a hole ending at 21 would show a strip of no page.
+        let layout = Layout {
+            revision: 0,
+            viewports: vec![PaneLayout {
+                id: "1".into(),
+                rect: viewport(10.4, 10.4, 10.4, 10.4),
+                covered: false,
+                radius: 0.0,
+            }],
+            overlays: vec![square(10.4, 10.4, 10.4, 10.4)],
+        };
+        let (holes, overlays) = mask_rects(&layout, 1.0);
 
-        assert_eq!(rect.width, 41);
-        assert_eq!(rect.height, 41);
+        assert_eq!((holes[0].left, holes[0].right, holes[0].bottom), (10.0, 20.0, 20.0));
+        assert_eq!(overlays[0].right, 20.8);
     }
 
     #[test]
@@ -243,13 +267,11 @@ mod tests {
         assert_eq!(
             overlays,
             vec![RoundedRect {
-                rect: PhysicalRect {
-                    x: 200,
-                    y: 200,
-                    width: 400,
-                    height: 600
-                },
-                radius: 0
+                left: 200.0,
+                top: 200.0,
+                right: 600.0,
+                bottom: 800.0,
+                radius: 0.0
             }]
         );
     }
@@ -271,7 +293,7 @@ mod tests {
         };
         let (_, overlays) = mask_rects(&layout, 1.5);
 
-        assert_eq!(overlays[0].radius, 12);
+        assert_eq!(overlays[0].radius, 12.0);
     }
 
     #[test]
@@ -290,7 +312,7 @@ mod tests {
         layout.viewports[0].radius = 14.0;
         let (viewports, _) = mask_rects(&layout, 1.5);
 
-        assert_eq!(viewports[0].radius, 21);
+        assert_eq!(viewports[0].radius, 21.0);
     }
 
     #[test]
@@ -309,7 +331,7 @@ mod tests {
         layout.viewports[0].radius = -5.0;
         let (viewports, _) = mask_rects(&layout, 1.0);
 
-        assert_eq!(viewports[0].radius, 0);
+        assert_eq!(viewports[0].radius, 0.0);
     }
 
     #[test]
