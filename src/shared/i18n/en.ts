@@ -378,6 +378,7 @@ export const en = {
 
   "permission.title": "{origin} wants to {action}",
   "permission.message": "You can change this later in Settings, under Site permissions.",
+  "permission.messagePrivate": "Haku forgets this when you close your last private window.",
   "permission.allow": "Allow",
   "permission.block": "Block",
   "permission.ask.camera": "use your camera",

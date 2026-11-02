@@ -1732,8 +1732,10 @@ impl Browser {
             tabs: [selected, tab],
             ratio: 0.5,
         });
+        // The new partner is selected, so a fullscreen page beside it gives way.
+        let mut effects = self.leave_fullscreen_for(window, tab);
         self.activate(tab);
-        let mut effects = self.realize();
+        effects.extend(self.realize());
         effects.push(self.pane_focus_effect(window, tab));
         Ok(effects)
     }
@@ -2509,9 +2511,20 @@ impl Browser {
             return Ok((Vec::new(), None));
         };
         let allow = decision == PermissionDecision::Allow;
-        let effects = self.withdraw_permissions(id, allow, |other| {
-            other.origin == shown.origin && other.kind == shown.kind
-        });
+        // The same request waiting in another tab of the profile is answered
+        // too, so it cannot ask again and overwrite this decision.
+        let others: Vec<TabId> = self
+            .tabs
+            .iter()
+            .map(|tab| tab.id)
+            .filter(|other| *other != id && (self.profile_of(*other) == Profile::Private) == private)
+            .collect();
+        let mut effects = Vec::new();
+        for tab in std::iter::once(id).chain(others) {
+            effects.extend(self.withdraw_permissions(tab, allow, |other| {
+                other.origin == shown.origin && other.kind == shown.kind
+            }));
+        }
 
         let Some(state) = decision.state() else {
             self.dismissed_permissions.insert((private, shown.origin, shown.kind));
@@ -2528,6 +2541,12 @@ impl Browser {
             self.private_permissions.push(decided);
             return Ok((effects, None));
         }
+        // In effect before it is stored, so a request arriving while settings
+        // are saved is answered by it rather than asking again and replacing
+        // it. Storing the settings sets the stored list over this one.
+        self.site_permissions
+            .retain(|other| other.origin != decided.origin || other.kind != decided.kind);
+        self.site_permissions.push(decided.clone());
         Ok((effects, Some(decided)))
     }
 

@@ -4,7 +4,7 @@ import { commands } from "@ipc/commands";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 /** The longest query the bar sends; Rust refuses longer. */
 export const FIND_QUERY_MAX = 1000;
@@ -146,6 +146,14 @@ export function FindBar({ tab, request, onClose }: FindBarProps) {
     }
   };
 
+  // On the field and every button, so Esc closes the bar wherever its focus is.
+  const closeOnEscape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  };
+
   const count =
     query === "" || result === null
       ? ""
@@ -171,9 +179,8 @@ export function FindBar({ tab, request, onClose }: FindBarProps) {
           if (event.key === "Enter") {
             event.preventDefault();
             move(event.shiftKey ? "previous" : "next");
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            close();
+          } else {
+            closeOnEscape(event);
           }
         }}
         spellCheck={false}
@@ -185,16 +192,43 @@ export function FindBar({ tab, request, onClose }: FindBarProps) {
       <span className="text-text-secondary shrink-0 text-sm tabular-nums" aria-live="polite">
         {count}
       </span>
-      <FindButton icon="ic-chevron-up" label={t("find.previous")} onClick={() => move("previous")} />
-      <FindButton icon="ic-chevron-down" label={t("find.next")} onClick={() => move("next")} />
-      <FindButton icon="ic-x" label={t("find.close")} onClick={close} />
+      <FindButton
+        icon="ic-chevron-up"
+        label={t("find.previous")}
+        onClick={() => move("previous")}
+        onKeyDown={closeOnEscape}
+      />
+      <FindButton
+        icon="ic-chevron-down"
+        label={t("find.next")}
+        onClick={() => move("next")}
+        onKeyDown={closeOnEscape}
+      />
+      <FindButton icon="ic-x" label={t("find.close")} onClick={close} onKeyDown={closeOnEscape} />
     </search>
   );
 }
 
-function FindButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+function FindButton({
+  icon,
+  label,
+  onClick,
+  onKeyDown,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  onKeyDown: (event: KeyboardEvent) => void;
+}) {
   return (
-    <button type="button" className="btn icon ghost shrink-0" aria-label={label} title={label} onClick={onClick}>
+    <button
+      type="button"
+      className="btn icon ghost shrink-0"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+    >
       <i className={cx(icon, "ic-sm")} aria-hidden="true" />
     </button>
   );

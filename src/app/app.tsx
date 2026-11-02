@@ -22,7 +22,7 @@ export function App() {
   const tab = useActiveTab();
   const settings = useSettings();
   usePageDialog(tab);
-  usePermissionPrompt(tab);
+  usePermissionPrompt(tab, isPrivate);
   usePageMenu(tab);
   useCloseConfirmation();
   const fullscreenTab = tabs.find((candidate) => candidate.id === fullscreen);

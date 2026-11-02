@@ -15,8 +15,9 @@ import { permissionTitle, toDecision } from "./permission-prompt";
  * away, the one on screen is closed without sending an answer.
  *
  * @param tab - The active tab.
+ * @param isPrivate - Whether the window is private, whose decisions are not kept in settings.
  */
-export function usePermissionPrompt(tab: Tab | null): void {
+export function usePermissionPrompt(tab: Tab | null, isPrivate: boolean): void {
   const pending = tab?.dialog ? null : (tab?.permission ?? null);
   // Read when the request changes, not a dependency: a new copy of the same
   // request must not show it again.
@@ -45,7 +46,7 @@ export function usePermissionPrompt(tab: Tab | null): void {
     };
     document.addEventListener("cancel", onCancel, true);
 
-    const handle = present(request, marker);
+    const handle = present(request, marker, isPrivate);
     const answer = async () => {
       const result = await handle;
       document.removeEventListener("cancel", onCancel, true);
@@ -60,11 +61,11 @@ export function usePermissionPrompt(tab: Tab | null): void {
       document.removeEventListener("cancel", onCancel, true);
       handle.dismiss();
     };
-  }, [tabId, requestId]);
+  }, [tabId, requestId, isPrivate]);
 }
 
-function present(request: PermissionRequest, className: string) {
-  return feedback().dialog.confirm(t("permission.message"), {
+function present(request: PermissionRequest, className: string, isPrivate: boolean) {
+  return feedback().dialog.confirm(t(isPrivate ? "permission.messagePrivate" : "permission.message"), {
     title: permissionTitle(request),
     confirmLabel: t("permission.allow"),
     cancelLabel: t("permission.block"),
