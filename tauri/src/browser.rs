@@ -2177,12 +2177,10 @@ impl Browser {
         effects
     }
 
-    /// Ends a window's fullscreen when another of its tabs is selected. The
-    /// other pane of a split pair stays assigned while hidden behind the
-    /// fullscreen one, so [`Browser::settle_fullscreen`] alone would keep it.
-    fn leave_fullscreen_for(&mut self, window: WindowId, selected: TabId) -> Vec<Effect> {
-        let current = self.window(window).and_then(|entry| entry.fullscreen);
-        let Some(tab) = current.filter(|tab| *tab != selected) else {
+    /// Ends a window's fullscreen, as when its address field is focused, and
+    /// asks the page to exit.
+    pub fn leave_fullscreen(&mut self, window: WindowId) -> Vec<Effect> {
+        let Some(tab) = self.window(window).and_then(|entry| entry.fullscreen) else {
             return Vec::new();
         };
         self.set_fullscreen(window, None);
@@ -2194,6 +2192,17 @@ impl Browser {
             effects.push(Effect::ExitPageFullscreen { slot });
         }
         effects
+    }
+
+    /// Ends a window's fullscreen when another of its tabs is selected. The
+    /// other pane of a split pair stays assigned while hidden behind the
+    /// fullscreen one, so [`Browser::settle_fullscreen`] alone would keep it.
+    fn leave_fullscreen_for(&mut self, window: WindowId, selected: TabId) -> Vec<Effect> {
+        let current = self.window(window).and_then(|entry| entry.fullscreen);
+        if current.is_none_or(|tab| tab == selected) {
+            return Vec::new();
+        }
+        self.leave_fullscreen(window)
     }
 
     /// Records whether a slot's page is playing audio.
