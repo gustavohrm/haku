@@ -1,7 +1,15 @@
-import type { BrowserState, Download, Extensions, KeyBinding, Settings, Tab } from "@bindings";
+import type { Bookmarks, BrowserState, Download, Extensions, KeyBinding, Settings, Tab } from "@bindings";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { browserStore, downloadsStore, extensionsStore, keymapStore, settingsStore, type ExternalStore } from "./store";
+import {
+  bookmarksStore,
+  browserStore,
+  downloadsStore,
+  extensionsStore,
+  keymapStore,
+  settingsStore,
+  type ExternalStore,
+} from "./store";
 
 function useStore<T>(store: ExternalStore<T>): T {
   return useSyncExternalStore(
@@ -21,6 +29,11 @@ export function useSettings(): Settings | null {
 
 export function useExtensions(): Extensions | null {
   return useStore(extensionsStore);
+}
+
+/** The bookmark tree, or null until it is known. */
+export function useBookmarks(): Bookmarks | null {
+  return useStore(bookmarksStore);
 }
 
 export function useDownloads(): Download[] {

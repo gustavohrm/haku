@@ -3,14 +3,17 @@
 //! Two stores, chosen per shape of the data. Settings and the open-tab session
 //! are small, read whole, and worth being able to inspect or hand-edit, so they
 //! are JSON files. History grows without bound and will need filtering and
-//! ranged queries, so it is SQLite.
+//! ranged queries, so it is SQLite. Bookmarks are a tree edited a node at a
+//! time, so they are SQLite too, in a file of their own.
 
+pub mod bookmarks_db;
 pub mod extensions;
 pub mod history_db;
 pub mod merge;
 pub mod package;
 pub mod session;
 pub mod settings;
+pub mod sqlite;
 
 use std::fs;
 use std::io::Write;
@@ -23,6 +26,7 @@ use serde_json::Value;
 
 use crate::error::{HakuError, Result};
 
+pub use bookmarks_db::BookmarksDb;
 pub use extensions::{InstalledExtension, InstalledExtensions};
 pub use history_db::HistoryDb;
 pub use session::{Session, SessionWindow, WindowBounds};
@@ -124,6 +128,7 @@ pub struct Paths {
     pub settings: PathBuf,
     pub session: PathBuf,
     pub history: PathBuf,
+    pub bookmarks: PathBuf,
     /// One unpacked Chrome extension per subfolder, installed at startup.
     pub extensions: PathBuf,
     /// The ids of the extensions Haku installed, so the ones whose folder
@@ -137,6 +142,7 @@ impl Paths {
             settings: root.join("settings.json"),
             session: root.join("session.json"),
             history: root.join("history.sqlite"),
+            bookmarks: root.join("bookmarks.sqlite"),
             extensions: root.join("extensions"),
             installed_extensions: root.join("extensions.json"),
         }

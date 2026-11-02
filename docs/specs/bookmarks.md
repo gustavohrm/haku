@@ -74,7 +74,9 @@ With floating bars the bookmarks bar floats with the toolbar, as part of the sam
 - The folder tree on the left, the selected folder's contents on the right, and a search field that searches every bookmark's title and URL, showing matches with their folder.
 - Create a folder, add a link, rename, edit, delete, and move, by drag and drop in either pane or by **Move to…** in an item's menu.
 - **Import…** and **Export…** in the page's header ([Import and export](#import-and-export)).
-- `haku://bookmarks?folder=<id>` opens a folder, so **More…** and the bar's folder menus can link into it.
+- `haku://bookmarks?folder=<id>` opens a folder, so **More…** and the bar's folder menus can link into it. An id that names no folder opens **Bookmarks bar**.
+- A link opens as it does on the bar: in this tab, or with middle-click or Ctrl+click in a new background tab, and with Shift+click in a new window. Its menu, on right-click or its actions button, holds **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Move to** and **Delete**.
+- A name and an address are edited in a form in place of the row; an address typed without a scheme, such as `example.com`, is taken as `https://`.
 
 Dragging is pointer-driven, as the tab strip's is, not HTML drag and drop: enabling HTML drops in the chrome lets an external drop navigate it ([`tauri/AGENTS.md`](../../tauri/AGENTS.md)). Dragging a link out of a page onto the bar is therefore not supported.
 
@@ -108,7 +110,7 @@ The chrome never names a path. Both dialogs are opened by Rust, which reads or w
 
 ## Contract
 
-Bookmarks are owned by Rust (`model/bookmark.rs`, stored by `storage/bookmarks_db.rs`, commands in `ipc/bookmarks.rs`). The interface renders them and asks for changes.
+Bookmarks are owned by Rust: the types and the URL rule in `model/bookmark.rs`, the tree and every change to it in `storage/bookmarks_db.rs`, and the commands in `ipc/commands.rs`, where every command is defined. The interface renders them and asks for changes.
 
 - **Type.** `BookmarkNode` is `{ id, title, addedAt, modifiedAt, kind }`, where `kind` is `{ link: { url } }` or `{ folder: { children: BookmarkNode[] } }`. `Bookmarks` is `{ bar: BookmarkNode, other: BookmarkNode }`, both folders. Ids are numbers, unique and stable for the bookmark's life; times are milliseconds since the epoch, as in history.
 - **Event.** `BookmarksChanged(Bookmarks)` is sent to every window, ordinary and private, whenever anything in the tree changes, with the whole tree. `bookmarks()` returns the same for a window that has just started.
@@ -124,7 +126,7 @@ Bookmarks are owned by Rust (`model/bookmark.rs`, stored by `storage/bookmarks_d
 - **Keymap.** Three new actions, with Chrome's defaults: `bookmarkTab` (Ctrl+D), `toggleBookmarksBar` (Ctrl+Shift+B), `openBookmarks` (Ctrl+Shift+O), in the Page and Windows groups of [Shortcuts](shortcuts.md#the-keymap). None is refused by its rules.
 - **Settings.** `bookmarksBar` (`always`, `newTab`, `never`; default `newTab`) and `sidebarBookmarks` (`row`, `button`; default `button`), both read leniently as the appearance enums are ([Appearance § Settings](appearance.md#settings)). The folder used last is kept in the bookmarks database, not in settings, because it names a bookmark id and is meaningless without that database. When that folder has since been deleted, the next bookmark goes to **Bookmarks bar**.
 
-The whole tree in every event was chosen because bookmarks change only when the user does something, never on a timer, so the per-progress cost that ended whole lists for downloads (issue #75) does not apply. The cost is recorded under [Measurements](#measurements) once slice 1 measures it.
+The whole tree in every event was chosen because bookmarks change only when the user does something, never on a timer, so the per-progress cost that ended whole lists for downloads (issue #75) does not apply. The cost is recorded under [Measurements](#measurements).
 
 ## Storage
 
@@ -152,7 +154,16 @@ The First release row stays as it is, and this spec APPROVED, until slice 4 land
 
 ## Measurements
 
-None yet. Slice 1 measures the size of `BookmarksChanged` and the bar's render time for the reference file and for a generated tree of 5 000 links, on Windows with a debug and a release build, and records them here.
+`BookmarksChanged`, measured in slice 1 (2026-11-02) on Windows 11, an AMD 4700S, from an in-memory database: the size of the serialized tree, and the time Rust spends reading it and serializing it for one change, averaged over 20 changes. The reference file is its 82 links and 34 folders loaded into **Bookmarks bar**; the generated tree is 5 000 links in 50 folders, with titles of about 60 characters and URLs of about 70.
+
+| Tree           | Payload  | Read, debug | Serialize, debug | Read, release | Serialize, release |
+| -------------- | -------- | ----------- | ---------------- | ------------- | ------------------ |
+| Reference file | 15.8 kB  | 0.36 ms     | 0.85 ms          | 0.10 ms       | 0.03 ms            |
+| 5 000 links    | 1 097 kB | 10.9 ms     | 54.0 ms          | 3.4 ms        | 1.9 ms             |
+
+The change itself, an add and a remove, took under 0.5 ms in both builds. Not measured: delivering the payload to each window and parsing it there, which grows with the payload and the number of windows open. At 5 000 links a change sends about 1.1 MB to every window; that is acceptable for a change the user makes by hand, and is the figure to revisit if bookmarks gain anything that changes them often.
+
+Slice 3 measures the bar's render time for the same two trees and records it here.
 
 ## Rejected alternatives
 
@@ -166,8 +177,8 @@ None yet. Slice 1 measures the size of `BookmarksChanged` and the bar's render t
 
 ## Testing
 
-- `model/bookmark.rs`: adding, moving, refusing a move into a descendant, removing a folder with its contents, the roots' refusals, the folder used last.
-- `storage/bookmarks_db.rs`: the migration, positions kept dense and in order across moves and removals, a corrupt file set aside, an import's transaction rolling back.
+- `model/bookmark.rs`: which URLs may be bookmarked, and the shape the interface receives.
+- `storage/bookmarks_db.rs`: the migration, adding, moving, refusing a move into a descendant, removing a folder with its contents, the roots' refusals, positions kept dense and in order across moves and removals, a corrupt file set aside, the in-memory fallback; later, the folder used last and an import's transaction rolling back.
 - The parser and writer: the reference file's structure (82 links, 34 folders, the bar's contents arriving in **Bookmarks bar**), Firefox's and Edge's exports, skipped schemes counted, the size refusal, flattening below 64 levels, escaping, a round trip of export then import giving the same tree, for a tree no deeper than the import's 64-level limit.
 - The interface with Vitest: the star's state and the editor, the bar's overflow menu and folder menus, `haku://bookmarks` search and editing, the delete confirmation.
 - In the app: importing the reference file, using the bar and the page, exporting and importing the export into Chrome.

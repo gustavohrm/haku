@@ -12,7 +12,7 @@ use crate::model::{
     Downloads, Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId, WindowId,
 };
 use crate::platform::memory::{Attribution, UnattributedProcess};
-use crate::storage::{HistoryDb, Paths, Session, Settings, WindowBounds};
+use crate::storage::{BookmarksDb, HistoryDb, Paths, Session, Settings, WindowBounds};
 use crate::webview::Viewports;
 
 /// Milliseconds since the Unix epoch.
@@ -192,6 +192,9 @@ pub struct AppState {
     pub changes: Changes,
     pub settings: RwLock<Settings>,
     pub history: Mutex<HistoryDb>,
+    /// Held from a change to announcing the tree it left, so windows hear
+    /// changes in the order they were made.
+    pub bookmarks: Mutex<BookmarksDb>,
     /// Every download listed, of both profiles. Reached from the UI thread,
     /// so only ever held briefly.
     pub downloads: Mutex<Downloads>,
@@ -219,7 +222,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(browser: Browser, settings: Settings, history: HistoryDb, paths: Paths) -> Self {
+    pub fn new(browser: Browser, settings: Settings, history: HistoryDb, bookmarks: BookmarksDb, paths: Paths) -> Self {
         // A download listed last time ran in a webview that is gone.
         let (downloads, unread) = match history.downloads() {
             Ok(stored) => (Downloads::restored(stored), None),
@@ -234,6 +237,7 @@ impl AppState {
             changes: Changes::default(),
             settings: RwLock::new(settings),
             history: Mutex::new(history),
+            bookmarks: Mutex::new(bookmarks),
             downloads: Mutex::new(downloads),
             viewports: Viewports::default(),
             bounds: RwLock::new(HashMap::new()),

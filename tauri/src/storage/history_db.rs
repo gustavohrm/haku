@@ -5,26 +5,17 @@
 //! history feature lands. Visits are recorded from the first release so that
 //! feature has data to show when it arrives.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, ErrorCode};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{Download, DownloadFailure, DownloadId, DownloadState};
-use crate::storage::corrupt_path;
+use crate::storage::sqlite;
 
-/// Suffixes of the SQLite files that belong to the main database file.
-const COMPANION_SUFFIXES: &[&str] = &["", "-wal", "-shm"];
-
-/// How long a statement waits for a lock another connection holds.
-const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
-
-/// Schema revisions, applied in order to whatever version a database is on.
-///
-/// Migrations are append-only: never edit a shipped entry, add a new one.
+/// Schema revisions, applied in order by [`sqlite::open`].
 const MIGRATIONS: &[&str] = &[
     "CREATE TABLE visits (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,30 +68,17 @@ impl HistoryDb {
     /// Returns [`crate::error::HakuError::Storage`] when the file cannot be
     /// opened or a migration fails.
     pub fn open(path: &Path) -> Result<Self> {
-        create_parent(path)?;
-        Ok(Self::connect(path)?)
+        Ok(Self::wrap(sqlite::open(path, MIGRATIONS)?))
     }
 
-    /// Opens the database at `path`, setting a damaged file aside first.
-    ///
-    /// A file SQLite cannot read as a database is moved to `history.sqlite.corrupt`,
-    /// with its `-wal` and `-shm` files, and a fresh database takes its place.
-    /// Any other failure, such as a locked or unreadable file, is returned
-    /// without touching the file.
+    /// Opens the database at `path`, setting a damaged file aside first, as
+    /// [`sqlite::open_or_set_aside`] does.
     ///
     /// # Errors
     /// Returns [`crate::error::HakuError::Storage`] when the file cannot be
     /// opened, moved aside, or a migration fails.
     pub fn open_or_set_aside(path: &Path) -> Result<Self> {
-        create_parent(path)?;
-        match Self::connect(path) {
-            Ok(database) => Ok(database),
-            Err(error) if is_damage(&error) => {
-                set_aside(path)?;
-                Ok(Self::connect(path)?)
-            }
-            Err(error) => Err(error.into()),
-        }
+        Ok(Self::wrap(sqlite::open_or_set_aside(path, MIGRATIONS)?))
     }
 
     /// Opens the database at `path` as [`Self::open_or_set_aside`] does, or
@@ -130,17 +108,11 @@ impl HistoryDb {
         }
     }
 
-    fn connect(path: &Path) -> rusqlite::Result<Self> {
-        let connection = Connection::open(path)?;
-        // A write by another Haku holds the file for milliseconds; waiting
-        // briefly is better than failing a visit, or startup, over it.
-        connection.busy_timeout(BUSY_TIMEOUT)?;
-        let mut database = Self {
+    fn wrap(connection: Connection) -> Self {
+        Self {
             connection,
             unopened: None,
-        };
-        database.migrate()?;
-        Ok(database)
+        }
     }
 
     /// In-memory database, for tests.
@@ -148,30 +120,7 @@ impl HistoryDb {
     /// # Errors
     /// Returns [`crate::error::HakuError::Storage`] when migration fails.
     pub fn in_memory() -> Result<Self> {
-        let mut database = Self {
-            connection: Connection::open_in_memory()?,
-            unopened: None,
-        };
-        database.migrate()?;
-        Ok(database)
-    }
-
-    /// Applies every migration the database has not seen yet.
-    ///
-    /// `user_version` is used as the revision counter because it costs no table
-    /// and SQLite maintains it as part of the file header.
-    fn migrate(&mut self) -> rusqlite::Result<()> {
-        let version: usize = self
-            .connection
-            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))? as usize;
-
-        for (index, migration) in MIGRATIONS.iter().enumerate().skip(version) {
-            let transaction = self.connection.transaction()?;
-            transaction.execute_batch(migration)?;
-            transaction.pragma_update(None, "user_version", (index + 1) as i64)?;
-            transaction.commit()?;
-        }
-        Ok(())
+        Ok(Self::wrap(sqlite::in_memory(MIGRATIONS)?))
     }
 
     /// Records a visit.
@@ -254,7 +203,7 @@ impl HistoryDb {
     pub fn clear(&self) -> Result<()> {
         self.connection.execute("DELETE FROM visits", [])?;
         if let Some(path) = &self.unopened {
-            Self::connect(path)?.clear()?;
+            Self::wrap(sqlite::connect(path, MIGRATIONS)?).clear()?;
         }
         Ok(())
     }
@@ -384,40 +333,12 @@ fn failure_from(name: &str) -> DownloadFailure {
     }
 }
 
-fn create_parent(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    Ok(())
-}
-
-/// Whether SQLite reports the file as something other than a usable database.
-/// Other failures, such as a lock held by another process, say nothing about
-/// the file's contents.
-fn is_damage(error: &rusqlite::Error) -> bool {
-    matches!(
-        error,
-        rusqlite::Error::SqliteFailure(failure, _)
-            if matches!(failure.code, ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt)
-    )
-}
-
-/// Moves the database file and its companions aside, replacing earlier copies.
-fn set_aside(path: &Path) -> Result<()> {
-    for suffix in COMPANION_SUFFIXES {
-        let mut companion = path.as_os_str().to_owned();
-        companion.push(suffix);
-        let companion = Path::new(&companion);
-        if companion.exists() {
-            fs::rename(companion, corrupt_path(companion))?;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
+    use crate::storage::corrupt_path;
 
     fn database() -> HistoryDb {
         HistoryDb::in_memory().unwrap()
@@ -525,7 +446,7 @@ mod tests {
         let mut database = database();
         database.record("https://a.test", "A", 1).unwrap();
 
-        database.migrate().unwrap();
+        sqlite::migrate(&mut database.connection, MIGRATIONS).unwrap();
 
         assert_eq!(database.recent(10).unwrap().len(), 1);
     }
@@ -720,7 +641,7 @@ mod tests {
         database.connection.pragma_update(None, "user_version", 1).unwrap();
         database.record("https://a.test", "A", 1).unwrap();
 
-        database.migrate().unwrap();
+        sqlite::migrate(&mut database.connection, MIGRATIONS).unwrap();
 
         assert_eq!(database.recent(10).unwrap().len(), 1);
         database.save_download(&download(1, false)).unwrap();

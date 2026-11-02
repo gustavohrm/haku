@@ -2,7 +2,7 @@ use super::*;
 use crate::browser::Effect;
 use crate::chrome::{Layout, PaneLayout};
 use crate::state::AppState;
-use crate::storage::{HistoryDb, Paths, Settings};
+use crate::storage::{BookmarksDb, HistoryDb, Paths, Settings};
 use crate::webview::Viewport;
 
 #[test]
@@ -30,6 +30,7 @@ fn closing_the_last_ordinary_window_before_a_private_one_keeps_its_tabs() {
         browser,
         Settings::default(),
         HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")).0,
+        BookmarksDb::in_memory().unwrap(),
         Paths::under(&dir),
     );
     state.save_session().unwrap();
@@ -49,6 +50,7 @@ fn app_state(browser: Browser) -> AppState {
         browser,
         Settings::default(),
         HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")).0,
+        BookmarksDb::in_memory().unwrap(),
         Paths::under(&std::env::temp_dir().join("haku-session-tests")),
     )
 }
