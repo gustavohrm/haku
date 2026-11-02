@@ -97,7 +97,7 @@ export function BookmarksBar({ tab, hold, standalone = false }: BookmarksBarProp
 
   const follow = useCallback((url: string, how: Follow) => {
     if (how === "background") {
-      void commands.openTab(url, false);
+      void commands.openTab(url, false, "bookmark");
     } else if (how === "window") {
       void commands.openWindow(url, null);
     } else {

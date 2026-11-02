@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const failure = { kind: "TabNotFound", message: "7" } as const;
+const invalidPattern = { kind: "InvalidPattern", message: "unclosed group" } as const;
 
 vi.mock("@bindings", () => ({
   commands: {
@@ -8,6 +9,7 @@ vi.mock("@bindings", () => ({
     getState: vi.fn(async () => ({ status: "ok", data: { tabs: [] } })),
     goBack: vi.fn(async () => ({ status: "error", error: { kind: "Unknown", detail: 1 } })),
     closeTab: vi.fn(async () => ({ status: "error", error: "invalid args `id` for command `close_tab`" })),
+    setSettings: vi.fn(async () => ({ status: "error", error: invalidPattern })),
     openTab: vi.fn(async () => {
       throw new TypeError("IPC is unavailable");
     }),
@@ -31,6 +33,13 @@ describe("commands", () => {
     expect(result).toEqual({ status: "error", error: failure });
   });
 
+  it("leaves a pattern the user wrote to be shown beside it, not reported", async () => {
+    const result = await commands.setSettings({} as never);
+
+    expect(reported).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "error", error: invalidPattern });
+  });
+
   it("reports nothing when the command succeeds", async () => {
     await commands.getState();
 
@@ -46,7 +55,7 @@ describe("commands", () => {
   });
 
   it("reports a command that throws and hands it back as a failure", async () => {
-    const result = await commands.openTab("https://a.test", false);
+    const result = await commands.openTab("https://a.test", false, "other");
 
     const error = { kind: "Tauri", message: "IPC is unavailable" };
     expect(reported).toHaveBeenCalledWith(error);

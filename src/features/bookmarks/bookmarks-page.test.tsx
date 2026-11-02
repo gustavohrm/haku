@@ -94,12 +94,12 @@ describe("BookmarksPage", () => {
   it("opens a folder in this tab's address, and a link as the click asks", async () => {
     await render();
     await click(rowButton("Docs"));
-    expect(commands.navigateTab).toHaveBeenLastCalledWith(7, "haku://bookmarks?folder=3");
+    expect(commands.navigateTab).toHaveBeenLastCalledWith(7, "haku://bookmarks?folder=3", "other");
 
     await click(rowButton("Haku"));
-    expect(commands.navigateTab).toHaveBeenLastCalledWith(7, "https://haku.test/");
+    expect(commands.navigateTab).toHaveBeenLastCalledWith(7, "https://haku.test/", "bookmark");
     await click(rowButton("Haku"), { ctrlKey: true });
-    expect(commands.openTab).toHaveBeenLastCalledWith("https://haku.test/", false);
+    expect(commands.openTab).toHaveBeenLastCalledWith("https://haku.test/", false, "bookmark");
     await click(rowButton("Haku"), { shiftKey: true });
     expect(commands.openWindow).toHaveBeenLastCalledWith("https://haku.test/", null);
   });

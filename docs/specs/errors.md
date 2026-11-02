@@ -17,15 +17,16 @@ This scope covers only actual failures. Informational and success messages are o
 
 One enum, `HakuError`, defined in `tauri/src/error.rs` and exported to TypeScript by `pnpm bindings`:
 
-| Variant           | Meaning                                                                                                                                      |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TabNotFound`     | No tab has this id.                                                                                                                          |
-| `NoSlotAvailable` | The webview pool is full and every resident is protected.                                                                                    |
-| `InvalidUrl`      | A URL could not be parsed.                                                                                                                   |
-| `Unsupported`     | The request cannot be honoured: the platform has no implementation, the caller is not permitted, or the browser rejects its input or target. |
-| `WindowMissing`   | A window or webview handle could not be resolved.                                                                                            |
-| `Storage`         | A settings, session or database operation failed.                                                                                            |
-| `Tauri`           | A Tauri operation failed.                                                                                                                    |
+| Variant           | Meaning                                                                                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TabNotFound`     | No tab has this id.                                                                                                                                                              |
+| `NoSlotAvailable` | The webview pool is full and every resident is protected.                                                                                                                        |
+| `InvalidUrl`      | A URL could not be parsed.                                                                                                                                                       |
+| `Unsupported`     | The request cannot be honoured: the platform has no implementation, the caller is not permitted, or the browser rejects its input or target.                                     |
+| `InvalidPattern`  | A URL pattern is empty, too long or not a valid regular expression; the interface shows the reason beside the field, not as a toast ([History § Contract](history.md#contract)). |
+| `WindowMissing`   | A window or webview handle could not be resolved.                                                                                                                                |
+| `Storage`         | A settings, session or database operation failed.                                                                                                                                |
+| `Tauri`           | A Tauri operation failed.                                                                                                                                                        |
 
 The set is deliberately coarse. The interface decides what to show; a small, stable set keeps the generated TypeScript union usable and means adding a failure mode rarely changes the boundary.
 
@@ -44,7 +45,7 @@ Document failure conditions with an `# Errors` section on any public function th
 Generated commands resolve to `{ status: "ok", data } | { status: "error", error }`. `unwrap` in `src/ipc/result.ts` turns the error branch into a thrown `HakuFailure`, which is an ordinary `Error` — so `catch` blocks behave normally — while keeping the typed variant on `.cause` for anything that needs to branch on it.
 
 ```ts
-const entries = await unwrap(commands.recentHistory(200));
+const keymap = await unwrap(commands.keymap());
 ```
 
 Import `commands` from `@ipc/commands`, not from `@bindings`. The wrapper reports every failed command to one handler before handing the result back unchanged, and the interface points that handler at an error toast (`notifyFailure` in `features/feedback`). `void commands.foo()` is therefore safe: a failure is shown, not lost. The same failure repeated within a few seconds is shown once, because some commands run on a timer.
@@ -61,6 +62,7 @@ It is sent to one window's interface, never to all of them, so a failure is show
 | A page's request for a new tab or window, a private window included                           | The window of the tab that asked, or the normal window used last for an extension's toolbar popup |
 | Launching Haku again while it runs, which opens a window                                      | The normal window used last before it                                                             |
 | The history file cannot be opened at startup (see [below](#failures-that-must-not-propagate)) | The first interface to load its state, once                                                       |
+| Deleting visits past the history retention, hourly while Haku runs                            | The normal window used last, once per run                                                         |
 
 A failure at startup happens before any window exists, so Rust holds it until an interface can listen. The interface attaches its listeners before it asks for its first state, so `get_state` is the point at which a window is known to be listening: the first one to call it is sent every held failure, and they are not held after that. A later window, or a reloaded interface, is not sent them again.
 

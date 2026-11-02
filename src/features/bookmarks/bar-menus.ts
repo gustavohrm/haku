@@ -25,9 +25,10 @@ export interface BarActions {
 /** What the bar's menus do, for links opening in `tab`, the focused tab, or a new one when there is none. */
 export function barActions(tab: TabId | null): BarActions {
   return {
-    open: (url) => void (tab === null ? commands.openTab(url, true) : commands.navigateTab(tab, url)),
+    open: (url) =>
+      void (tab === null ? commands.openTab(url, true, "bookmark") : commands.navigateTab(tab, url, "bookmark")),
     openAll: (urls) => void openInOrder(urls),
-    manage: () => void commands.openTab(BOOKMARKS_URL, true),
+    manage: () => void commands.openTab(BOOKMARKS_URL, true, "other"),
   };
 }
 
@@ -35,7 +36,7 @@ export function barActions(tab: TabId | null): BarActions {
 async function openInOrder(urls: readonly string[]) {
   for (const url of urls) {
     // oxlint-disable-next-line no-await-in-loop -- Each tab opens after the last, in order.
-    await commands.openTab(url, false);
+    await commands.openTab(url, false, "bookmark");
   }
 }
 

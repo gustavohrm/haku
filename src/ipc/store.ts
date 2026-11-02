@@ -65,6 +65,7 @@ export const EMPTY_STATE: BrowserState = {
   fullscreen: null,
   capacity: 1,
   liveCount: 0,
+  historyPaused: false,
 };
 
 export const browserStore = createStore<BrowserState>(EMPTY_STATE);
@@ -258,8 +259,23 @@ let settingsQueue: Promise<unknown> = Promise.resolve();
  * @param change - Returns the whole settings to store, given the current ones.
  * @returns What Rust stored, or null when the change failed or settings are not loaded.
  */
-export function updateSettings(change: (current: Settings) => Settings): Promise<Settings | null> {
-  return queueSettings((current) => commands.setSettings(change(current)));
+export async function updateSettings(change: (current: Settings) => Settings): Promise<Settings | null> {
+  const result = await tryUpdateSettings(change);
+  return result?.status === "ok" ? result.data : null;
+}
+
+/**
+ * {@link updateSettings}, handing back the failure as well, for a change whose
+ * failure the caller shows where it happened, such as an invalid pattern
+ * beside its field.
+ *
+ * @param change - Returns the whole settings to store, given the current ones.
+ * @returns What the command resolved to, or null when settings are not loaded.
+ */
+export function tryUpdateSettings(change: (current: Settings) => Settings): Promise<CommandResult<Settings> | null> {
+  const turn = sendInTurn(settingsQueue, (current) => commands.setSettings(change(current)));
+  settingsQueue = turn;
+  return turn;
 }
 
 /**
@@ -269,20 +285,17 @@ export function updateSettings(change: (current: Settings) => Settings): Promise
  * @param preset - The preset to apply.
  * @returns What Rust stored, or null when it failed or settings are not loaded.
  */
-export function applySettingsPreset(preset: Preset): Promise<Settings | null> {
-  return queueSettings(() => commands.applyPreset(preset));
-}
-
-function queueSettings(send: (current: Settings) => Promise<CommandResult<Settings>>): Promise<Settings | null> {
-  const turn = sendInTurn(settingsQueue, send);
+export async function applySettingsPreset(preset: Preset): Promise<Settings | null> {
+  const turn = sendInTurn(settingsQueue, () => commands.applyPreset(preset));
   settingsQueue = turn;
-  return turn;
+  const result = await turn;
+  return result?.status === "ok" ? result.data : null;
 }
 
 async function sendInTurn(
   previous: Promise<unknown>,
   send: (current: Settings) => Promise<CommandResult<Settings>>,
-): Promise<Settings | null> {
+): Promise<CommandResult<Settings> | null> {
   try {
     await previous;
   } catch {
@@ -293,9 +306,8 @@ async function sendInTurn(
     return null;
   }
   const result = await send(current);
-  if (result.status !== "ok") {
-    return null;
+  if (result.status === "ok") {
+    settingsStore.set(result.data);
   }
-  settingsStore.set(result.data);
-  return result.data;
+  return result;
 }

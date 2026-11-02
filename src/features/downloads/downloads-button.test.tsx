@@ -117,7 +117,7 @@ describe("DownloadsButton", () => {
       (item) => item.textContent === "Show all downloads",
     );
     await act(async () => all?.click());
-    expect(commands.openTab).toHaveBeenCalledWith("haku://downloads", true);
+    expect(commands.openTab).toHaveBeenCalledWith("haku://downloads", true, "other");
     expect(list()).toBeNull();
   });
 });

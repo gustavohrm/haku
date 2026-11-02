@@ -9,7 +9,7 @@ use crate::browser::{Browser, Effect, Position};
 use crate::chrome::Layout;
 use crate::error::{HakuError, Result};
 use crate::model::{
-    Downloads, Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId, WindowId,
+    CompiledRules, Downloads, Extensions, Loss, LossSignal, MemoryStatus, Pressure, Previews, SlotId, TabId, WindowId,
 };
 use crate::platform::memory::{Attribution, UnattributedProcess};
 use crate::storage::{BookmarksDb, HistoryDb, Paths, Session, Settings, WindowBounds};
@@ -192,6 +192,9 @@ pub struct AppState {
     pub changes: Changes,
     pub settings: RwLock<Settings>,
     pub history: Mutex<HistoryDb>,
+    /// The settings' history rules, compiled once for every visit checked
+    /// against them.
+    pub history_rules: RwLock<CompiledRules>,
     /// Held from a change to announcing the tree it left, so windows hear
     /// changes in the order they were made.
     pub bookmarks: Mutex<BookmarksDb>,
@@ -229,6 +232,9 @@ impl AppState {
             Err(error) => (Downloads::unread(now_ms()), Some(error)),
         };
         let held_failures = HeldFailures::default();
+        // Every stored rule compiles: reading the settings drops one that
+        // does not.
+        let history_rules = settings.history_rules.compile().unwrap_or_default();
         if let Some(error) = unread {
             held_failures.hold(error);
         }
@@ -237,6 +243,7 @@ impl AppState {
             changes: Changes::default(),
             settings: RwLock::new(settings),
             history: Mutex::new(history),
+            history_rules: RwLock::new(history_rules),
             bookmarks: Mutex::new(bookmarks),
             downloads: Mutex::new(downloads),
             viewports: Viewports::default(),
@@ -305,6 +312,27 @@ impl AppState {
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         crate::storage::write_json(&self.paths.settings, &*settings)
+    }
+
+    /// Deletes the visits older than the retention setting keeps.
+    /// [History § Retention](../../../docs/specs/history.md#retention).
+    ///
+    /// # Errors
+    /// Returns [`HakuError::Storage`] when history cannot be written.
+    pub fn prune_history(&self) -> Result<()> {
+        let retention = self
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
+            .history_retention;
+        let Some(before) = retention.cutoff(now_ms() as i64) else {
+            return Ok(());
+        };
+        self.history
+            .lock()
+            .map_err(|_| HakuError::Storage("history lock poisoned".into()))?
+            .prune(before)?;
+        Ok(())
     }
 }
 

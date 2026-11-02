@@ -20,6 +20,11 @@ pub enum HakuError {
     #[error("the platform does not support this operation: {0}")]
     Unsupported(String),
 
+    /// A URL pattern that cannot be used, with the reason, which the
+    /// interface shows beside the field it was typed in.
+    #[error("invalid pattern: {0}")]
+    InvalidPattern(String),
+
     #[error("window or webview is missing: {0}")]
     WindowMissing(String),
 

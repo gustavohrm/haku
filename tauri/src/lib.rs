@@ -84,6 +84,9 @@ pub fn run() {
             for failure in [unopened, bookmarks_unopened].into_iter().flatten() {
                 app.state::<AppState>().held_failures.hold(failure);
             }
+            if let Err(failure) = app.state::<AppState>().prune_history() {
+                app.state::<AppState>().held_failures.hold(failure);
+            }
             // Before any page exists to start one. Where it cannot be, the
             // engine shows its own download interface instead.
             let _ = ipc::downloads::observe(app.handle());
@@ -104,6 +107,7 @@ pub fn run() {
                 webview::build_window(app.handle(), *window, WindowKind::Normal, frame)?;
             }
             ipc::commands::tick_periodically(app.handle().clone());
+            ipc::commands::prune_history_periodically(app.handle().clone());
 
             // Each chrome starts underneath any content webview created later,
             // so it is lifted once here and again after every slot is created,

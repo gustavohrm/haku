@@ -132,7 +132,7 @@ function ToolbarActions({ tab }: { tab: Tab | null }) {
       <ToolbarButton
         icon="ic-settings"
         label={t("toolbar.settings")}
-        onClick={() => void commands.openTab(SETTINGS_URL, true)}
+        onClick={() => void commands.openTab(SETTINGS_URL, true, "other")}
       />
     </>
   );
@@ -163,7 +163,7 @@ function AddressField({ tab, className, expandable = false }: AddressFieldProps)
     if (!tab) {
       return;
     }
-    void commands.navigateTab(tab.id, draft);
+    void commands.navigateTab(tab.id, draft, "typed");
     // Leaving the field is what ends the edit, as it does in every browser.
     inputRef.current?.blur();
   };

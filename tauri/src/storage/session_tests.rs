@@ -297,24 +297,23 @@ fn restoring_pair_pages_is_not_a_visit_but_later_navigation_is() {
                 None,
             )
             .unwrap();
-        assert!(!report.visited);
+        assert!(report.visit.is_none());
     }
     let selected = browser.active().unwrap();
     browser.navigate(selected, "https://next.test").unwrap();
     let slot = browser.tab(selected).unwrap().slot().unwrap();
-    assert!(
-        browser
-            .report_page(
-                slot,
-                &[crate::model::Commit {
-                    url: "https://next.test".into(),
-                    kind: crate::model::NavigationKind::Push,
-                }],
-                None
-            )
-            .unwrap()
-            .visited
-    );
+    assert!(browser
+        .report_page(
+            slot,
+            &[crate::model::Commit {
+                url: "https://next.test".into(),
+                kind: crate::model::NavigationKind::Push,
+            }],
+            None
+        )
+        .unwrap()
+        .visit
+        .is_some());
 }
 
 #[test]

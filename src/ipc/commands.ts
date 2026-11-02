@@ -52,7 +52,14 @@ const KINDS: Record<HakuError["kind"], boolean> = {
   WindowMissing: true,
   Storage: true,
   Tauri: true,
+  InvalidPattern: true,
 };
+
+/**
+ * Failures the caller shows where the user is working, such as beside the
+ * field that caused them, rather than as a notification.
+ */
+const SHOWN_IN_PLACE: ReadonlySet<HakuError["kind"]> = new Set(["InvalidPattern"]);
 
 function isHakuError(error: unknown): error is HakuError {
   if (typeof error !== "object" || error === null || !("kind" in error) || typeof error.kind !== "string") {
@@ -93,7 +100,9 @@ export const commands = Object.fromEntries(
         return result;
       }
       const error = asHakuError(result.error);
-      handler?.(error);
+      if (!SHOWN_IN_PLACE.has(error.kind)) {
+        handler?.(error);
+      }
       return { status: "error", error };
     },
   ]),

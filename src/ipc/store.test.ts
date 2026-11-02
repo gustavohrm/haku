@@ -33,6 +33,9 @@ const SETTINGS: Settings = {
   sitePermissions: [],
   siteZoom: [],
   shortcuts: {},
+  historyEnabled: true,
+  historyRetention: "forever",
+  historyRules: [],
 };
 
 describe("createStore", () => {

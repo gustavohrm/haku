@@ -7,11 +7,11 @@ import { useSettings } from "@ipc/hooks";
 import { reloadSettings, updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import logoUrl from "../../../assets/logo/logo-light.svg?url";
 import { GroupPlate, SettingRow, SettingsGroup } from "./rows";
-import { searchSettings, SECTIONS, sectionOf, sectionUrl } from "./sections";
+import { rowOf, searchSettings, SECTIONS, sectionOf, sectionUrl } from "./sections";
 import { type SettingContext, type UpdateSettings } from "./types";
 
 /**
@@ -31,6 +31,22 @@ import { type SettingContext, type UpdateSettings } from "./types";
 export function SettingsPage({ tabId, url }: InternalPageProps) {
   const settings = useSettings();
   const [query, setQuery] = useState("");
+  const ready = settings !== null;
+
+  // A URL naming a row, as the history page links to its settings, opens the
+  // section scrolled to that row. Read when the URL changes, not on every
+  // render, so editing a row never scrolls the page back to it.
+  useEffect(() => {
+    const id = rowOf(url);
+    if (!ready || id === null) {
+      return;
+    }
+    const row = [...document.querySelectorAll<HTMLElement>("[data-setting]")].find(
+      (element) => element.dataset.setting === id,
+    );
+    row?.scrollIntoView({ block: "start" });
+  }, [url, ready]);
+
   if (!settings) {
     return <SettingsUnavailable />;
   }
@@ -79,7 +95,7 @@ export function SettingsPage({ tabId, url }: InternalPageProps) {
                   onClick={() => {
                     setQuery("");
                     if (section !== current) {
-                      void commands.navigateTab(tabId, sectionUrl(section));
+                      void commands.navigateTab(tabId, sectionUrl(section), "other");
                     }
                   }}
                 >

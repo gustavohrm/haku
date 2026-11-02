@@ -54,6 +54,7 @@ The default bindings follow Chrome's, because that is what users' hands already 
 | Ctrl+D                       | Bookmark the focused tab's page, or edit its bookmark ([Bookmarks](bookmarks.md#bookmarking-a-page))                                                          |
 | Ctrl+Shift+O                 | Open `haku://bookmarks` in a foreground tab                                                                                                                   |
 | Ctrl+Shift+B                 | Show or hide the bookmarks bar, in every window; while bookmarks are the column's button, open its menu instead ([Bookmarks](bookmarks.md#the-bookmarks-bar)) |
+| Ctrl+H                       | Open `haku://history` in a foreground tab ([History](history.md#elsewhere))                                                                                   |
 
 `model::keymap::DEFAULTS` is the table: each action with its default chords, in this order. Adding a shortcut is a `Shortcut` variant, a line in that table, its arm in `ipc/shortcuts.rs`, and its row and title in the interface ([Settings page § Shortcuts](settings-page.md#shortcuts)). Nothing else repeats a chord: the context menus read their hints from the keymap Rust reports.
 

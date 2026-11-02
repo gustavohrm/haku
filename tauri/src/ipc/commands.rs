@@ -28,20 +28,21 @@ use tauri::{Manager, State};
 use tauri_specta::Event;
 
 use crate::browser::Ending;
-use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport};
+use crate::browser::{resolve_input, resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    check_query, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
-    ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState, ExportedBookmarks,
-    ExtensionSource, Extensions, FindDirection, ImportedBookmarks, PageMenu, PermissionDecision, PermissionRequestId,
-    Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
+    CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
+    ExportedBookmarks, ExtensionSource, Extensions, FindDirection, HistoryRule, ImportedBookmarks, NavigationSource,
+    PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, Recording, ScreenRect,
+    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
-use crate::storage::history_db::HistoryEntry;
+use crate::storage::history_db::{HistoryCursor, HistoryFilter, HistoryPage, HistorySite, NewVisit};
 use crate::storage::settings::{key_bindings, KeyBinding};
-use crate::storage::{bookmarks_html, BookmarksDb, Settings, WindowBounds};
+use crate::storage::{bookmarks_html, BookmarksDb, HistoryDb, Settings, WindowBounds};
 use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
@@ -762,6 +763,7 @@ fn run_shortcut_in(
                     | Shortcut::DuplicateTab
                     | Shortcut::Memory
                     | Shortcut::OpenBookmarks
+                    | Shortcut::OpenHistory
                     | Shortcut::Home
                     | Shortcut::NewTab
                     | Shortcut::NewWindow
@@ -971,6 +973,31 @@ const TICK: Duration = Duration::from_secs(5);
 /// a slower timer would notice.
 const TICK_PRESSED: Duration = Duration::from_secs(1);
 
+/// How often visits past the retention setting are deleted while Haku runs.
+const PRUNE_EVERY: Duration = Duration::from_secs(60 * 60);
+
+/// Deletes visits past the retention setting every hour, so history kept
+/// for 30 days never holds older ones for long, however long Haku stays
+/// open. Startup prunes before any window opens; see `lib.rs`. A failure is
+/// reported once, not every hour, to the normal window used last.
+/// [Errors § Failures no command is waiting on](../../../docs/specs/errors.md#failures-no-command-is-waiting-on).
+pub fn prune_history_periodically(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let mut reported = false;
+        loop {
+            std::thread::sleep(PRUNE_EVERY);
+            let state = app.state::<AppState>();
+            if let Err(error) = state.prune_history() {
+                let window = state.browser.read().map(|browser| browser.main_window());
+                if let (false, Ok(window)) = (reported, window) {
+                    report_failure(&app, window, error);
+                    reported = true;
+                }
+            }
+        }
+    });
+}
+
 /// Measures memory, reads running pages and applies the rule for as long as
 /// the application does.
 ///
@@ -1077,12 +1104,16 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
     // guards below can outlive it.
     let state: &AppState = handle.inner();
 
-    let (recorded, stale) = {
+    let (recorded, session_only, stale) = {
         let Ok(mut browser) = state.browser.write() else {
             return;
         };
         let recorded = browser.report_page(slot, commits, title);
-        (recorded, browser.has_stale_permissions(slot))
+        (
+            recorded,
+            browser.saves_session_only(slot),
+            browser.has_stale_permissions(slot),
+        )
     };
 
     // A request from an origin the page has left is answered off this thread,
@@ -1095,8 +1126,10 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
         });
     }
 
-    if let Some(report) = recorded {
-        queue_record(app, report);
+    // A pause stops history, not the session: the tab still moved, and should
+    // reopen where it is now.
+    if recorded.is_some() || session_only {
+        queue_record(app, recorded);
     }
 
     let states = state.browser.read().map(|browser| window_states(&browser));
@@ -1593,10 +1626,15 @@ fn store_settings(
             .settings
             .write()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        let settings = update(&current).sanitized();
+        let requested = update(&current);
+        // Checked before sanitizing, which would quietly drop a rule the user
+        // just wrote; the page shows the reason beside it instead.
+        requested.history_rules.compile()?;
+        let settings = requested.sanitized();
         if current.keeps_new_site(&settings)
             || current.adds_site_permission(&settings)
             || current.adds_site_zoom(&settings)
+            || current.history_rules.adds_rule(&settings.history_rules)
         {
             state
                 .browser
@@ -1614,6 +1652,19 @@ fn store_settings(
         *current = previous;
         return Err(error);
     }
+    // Reported after announcing and applying, as a failed announcement is,
+    // so a history failure never leaves the stored settings unapplied.
+    let history = (|| {
+        *state
+            .history_rules
+            .write()
+            .map_err(|_| HakuError::Storage("history rules lock poisoned".into()))? =
+            settings.history_rules.compile()?;
+        if settings.history_retention != previous.history_retention {
+            state.prune_history()?;
+        }
+        Ok::<_, HakuError>(())
+    })();
     // Announced once stored, before applying, so every window shows the stored
     // settings even when applying them fails. Those stand and are applied again
     // at the next start; only the caller hears of the failure. Announced within
@@ -1636,6 +1687,7 @@ fn store_settings(
     switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
     drop(storing);
     announced.map_err(HakuError::from)?;
+    history?;
     Ok(settings)
 }
 
@@ -1647,29 +1699,25 @@ pub async fn open_tab(
     state: State<'_, AppState>,
     url: Option<String>,
     activate: bool,
+    source: NavigationSource,
 ) -> Result<BrowserState> {
     let window = ensure_chrome(&webview)?;
-    let target = match url {
-        Some(url) => {
-            let settings = state
-                .settings
-                .read()
-                .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-            resolve_target(&url, &settings.search_url)
-        }
-        None => {
-            let settings = state
-                .settings
-                .read()
-                .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-            settings.home_url.clone()
+    let (target, searched) = {
+        let settings = state
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        match url {
+            Some(url) => resolve_input(&url, &settings.search_url),
+            None => (settings.home_url.clone(), false),
         }
     };
 
     let pressure = read_pressure(&state);
     mutate_in(&app, &state, window, |browser| {
         browser.set_pressure(pressure);
-        let (_, effects) = browser.open_tab_in(window, target, activate);
+        let (id, effects) = browser.open_tab_in(window, target, activate);
+        browser.set_transition(id, source.transition(searched));
         Ok(effects)
     })
 }
@@ -1798,19 +1846,24 @@ pub async fn navigate_tab(
     state: State<'_, AppState>,
     id: TabId,
     input: String,
+    source: NavigationSource,
 ) -> Result<BrowserState> {
     let window = ensure_chrome(&webview)?;
-    let target = {
+    let (target, searched) = {
         let settings = state
             .settings
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        resolve_target(&input, &settings.search_url)
+        resolve_input(&input, &settings.search_url)
     };
     if target.is_empty() {
         return get_state(webview, state);
     }
-    mutate_in(&app, &state, window, |browser| browser.navigate(id, target))
+    mutate_in(&app, &state, window, |browser| {
+        let effects = browser.navigate(id, target)?;
+        browser.set_transition(id, source.transition(searched));
+        Ok(effects)
+    })
 }
 
 #[tauri::command]
@@ -2108,16 +2161,19 @@ mod hold_tests {
 /// The session is written once for every report that queued up meanwhile, so
 /// a page pushing routes quickly costs one write, not one per route; it
 /// should reopen where the page actually is, not where it was opened.
-fn queue_record(app: &tauri::AppHandle, report: PageReport) {
-    static QUEUE: OnceLock<mpsc::Sender<PageReport>> = OnceLock::new();
+///
+/// @param report - The visit to record, or `None` for a page change that
+/// enters no history, such as one while history is paused, which only the
+/// session keeps.
+fn queue_record(app: &tauri::AppHandle, report: Option<PageReport>) {
+    static QUEUE: OnceLock<mpsc::Sender<Option<PageReport>>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
-        let (sender, receiver) = mpsc::channel::<PageReport>();
+        let (sender, receiver) = mpsc::channel::<Option<PageReport>>();
         let app = app.clone();
         std::thread::spawn(move || {
             let state = app.state::<AppState>();
             while let Ok(report) = receiver.recv() {
-                record_visit(&state, &report);
-                for report in receiver.try_iter() {
+                for report in std::iter::once(report).chain(receiver.try_iter()).flatten() {
                     record_visit(&state, &report);
                 }
                 let _ = state.save_session();
@@ -2128,13 +2184,51 @@ fn queue_record(app: &tauri::AppHandle, report: PageReport) {
     let _ = queue.send(report);
 }
 
+/// Records a page report as the switch, the scheme and the rules allow.
+/// [History § What is recorded](../../../docs/specs/history.md#what-is-recorded).
 fn record_visit(state: &AppState, report: &PageReport) {
-    let Ok(history) = state.history.lock() else { return };
-    let _ = if report.visited {
-        history.record(&report.url, &report.title, now_ms() as i64)
-    } else {
-        history.retitle(&report.url, &report.title)
+    let Ok(enabled) = state.settings.read().map(|settings| settings.history_enabled) else {
+        return;
     };
+    let recording = {
+        let Ok(rules) = state.history_rules.read() else { return };
+        recording_for(enabled, &rules, &report.url)
+    };
+    let Some(recording) = recording else { return };
+    let Ok(history) = state.history.lock() else { return };
+    let title = if recording == Recording::AddressOnly {
+        ""
+    } else {
+        report.title.as_str()
+    };
+    let _ = match report.visit {
+        Some(transition) => history.record(NewVisit {
+            url: &report.url,
+            title,
+            visited_at: now_ms() as i64,
+            transition,
+        }),
+        None if recording == Recording::Full => history.retitle(&report.url, title),
+        None => Ok(()),
+    };
+}
+
+/// Schemes whose pages history records. An internal page never reaches it;
+/// a `data:` URL can be megabytes, and an extension's own page is not
+/// somewhere a person browses to.
+const RECORDED_SCHEMES: &[&str] = &["http:", "https:", "file:"];
+
+/// How a page at `url` is recorded, or nothing when it is not.
+fn recording_for(enabled: bool, rules: &CompiledRules, url: &str) -> Option<Recording> {
+    let scheme_recorded = RECORDED_SCHEMES.iter().any(|scheme| {
+        url.get(..scheme.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(scheme))
+    });
+    if !enabled || !scheme_recorded {
+        return None;
+    }
+    let host = host_of(url).unwrap_or_default();
+    Some(rules.decide(url, &host)).filter(|recording| *recording != Recording::Skip)
 }
 
 /// What `haku://memory` shows: the last tick's reading against the slots as
@@ -2162,26 +2256,136 @@ pub fn tab_preview(webview: tauri::Webview, state: State<'_, AppState>, id: TabI
     Ok(previews.get(id).map(jpeg_data_url))
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn recent_history(webview: tauri::Webview, state: State<'_, AppState>, limit: u32) -> Result<Vec<HistoryEntry>> {
-    ensure_chrome(&webview)?;
-    let history = state
+fn lock_history(state: &AppState) -> Result<std::sync::MutexGuard<'_, HistoryDb>> {
+    state
         .history
         .lock()
-        .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
-    history.recent(limit as usize)
+        .map_err(|_| HakuError::Storage("history lock poisoned".into()))
 }
 
+/// A count or a visit id across IPC, exported as a JavaScript number: each is
+/// far inside the range a double represents exactly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(transparent)]
+#[specta(inline)]
+pub struct HistoryNumber(#[specta(type = specta_typescript::Number)] pub i64);
+
+/// Visits the filter covers, newest first, after `after`.
+/// [History § Contract](../../../docs/specs/history.md#contract).
+/// # Errors
+/// Rejects non-chrome callers and invalid patterns; propagates storage failures.
 #[tauri::command]
 #[specta::specta]
-pub fn clear_history(webview: tauri::Webview, state: State<'_, AppState>) -> Result<()> {
+pub fn query_history(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    filter: HistoryFilter,
+    after: Option<HistoryCursor>,
+    limit: u32,
+) -> Result<HistoryPage> {
     ensure_chrome(&webview)?;
-    let history = state
-        .history
-        .lock()
-        .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
-    history.clear()
+    lock_history(&state)?.query(&filter, after, limit)
+}
+
+/// The history rule that decides whether `url` is recorded: the first that
+/// matches it, using the same matcher recording does, or nothing when none
+/// does. Lets the site menu say why a site is not recorded, and offer to undo
+/// a rule only when it is the site's own.
+/// [History § Elsewhere](../../../docs/specs/history.md#elsewhere).
+/// # Errors
+/// Rejects non-chrome callers.
+#[tauri::command]
+#[specta::specta]
+pub fn history_rule_for(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<Option<HistoryRule>> {
+    ensure_chrome(&webview)?;
+    let rules = state
+        .history_rules
+        .read()
+        .map_err(|_| HakuError::Storage("history rules lock poisoned".into()))?;
+    let host = host_of(&url).unwrap_or_default();
+    Ok(rules.first_match(&url, &host).cloned())
+}
+
+/// How many visits the filter covers.
+/// # Errors
+/// Rejects non-chrome callers and invalid patterns; propagates storage failures.
+#[tauri::command]
+#[specta::specta]
+pub fn count_history(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    filter: HistoryFilter,
+) -> Result<HistoryNumber> {
+    ensure_chrome(&webview)?;
+    Ok(HistoryNumber(lock_history(&state)?.count(&filter)?))
+}
+
+/// The hosts of the visits the filter covers, most visited first.
+/// # Errors
+/// Rejects non-chrome callers and invalid patterns; propagates storage failures.
+#[tauri::command]
+#[specta::specta]
+pub fn history_sites(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    filter: HistoryFilter,
+    limit: u32,
+) -> Result<Vec<HistorySite>> {
+    ensure_chrome(&webview)?;
+    lock_history(&state)?.sites(&filter, limit)
+}
+
+/// Deletes the visits the filter covers; an empty filter deletes every one.
+/// Returns how many were deleted.
+/// # Errors
+/// Rejects non-chrome callers and invalid patterns; propagates storage failures.
+#[tauri::command]
+#[specta::specta]
+pub fn delete_history(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    filter: HistoryFilter,
+) -> Result<HistoryNumber> {
+    ensure_chrome(&webview)?;
+    Ok(HistoryNumber(lock_history(&state)?.delete(&filter)?))
+}
+
+/// Deletes these visits; ids not stored are ignored.
+/// # Errors
+/// Rejects non-chrome callers; propagates storage failures.
+#[tauri::command]
+#[specta::specta]
+pub fn delete_history_visits(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    ids: Vec<HistoryNumber>,
+) -> Result<()> {
+    ensure_chrome(&webview)?;
+    let ids: Vec<i64> = ids.into_iter().map(|id| id.0).collect();
+    lock_history(&state)?.delete_visits(&ids)
+}
+
+/// Pauses recording history until Haku restarts, or resumes it, in every
+/// window.
+/// # Errors
+/// Rejects non-chrome callers.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_history_paused(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    paused: bool,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    mutate_in(&app, &state, window, |browser| {
+        browser.set_history_paused(paused);
+        Ok(Vec::new())
+    })
 }
 
 /// Answers the context menu a page is waiting on, with the native item
@@ -3042,5 +3246,52 @@ mod popup_tests {
         assert!(popup_source_is_current(&browser.state_in(window).unwrap(), &source));
         browser.open_tab("haku://memory", true);
         assert!(!popup_source_is_current(&browser.state_in(window).unwrap(), &source));
+    }
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+    use crate::model::{HistoryRule, HistoryRuleAction, HistoryRules, UrlPattern, UrlPatternKind};
+
+    fn rules(action: HistoryRuleAction) -> CompiledRules {
+        HistoryRules(vec![HistoryRule {
+            pattern: UrlPattern::new(UrlPatternKind::Site, "a.test"),
+            action,
+        }])
+        .compile()
+        .unwrap()
+    }
+
+    #[test]
+    fn nothing_is_recorded_while_history_is_off() {
+        assert_eq!(recording_for(false, &CompiledRules::default(), "https://b.test/"), None);
+    }
+
+    #[test]
+    fn only_web_and_file_pages_are_recorded() {
+        let none = CompiledRules::default();
+        for url in ["https://b.test/", "HTTP://b.test/", "file:///C:/notes.txt"] {
+            assert_eq!(recording_for(true, &none, url), Some(Recording::Full), "{url}");
+        }
+        for url in [
+            "data:text/html,hi",
+            "chrome-extension://abc/page.html",
+            "haku://history",
+            "about:blank",
+        ] {
+            assert_eq!(recording_for(true, &none, url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn the_rules_decide_what_is_recorded() {
+        let url = "https://www.a.test/";
+        assert_eq!(recording_for(true, &rules(HistoryRuleAction::Never), url), None);
+        assert_eq!(
+            recording_for(true, &rules(HistoryRuleAction::AddressOnly), url),
+            Some(Recording::AddressOnly)
+        );
+        assert_eq!(recording_for(false, &rules(HistoryRuleAction::Always), url), None);
     }
 }

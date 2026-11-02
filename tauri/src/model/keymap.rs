@@ -250,6 +250,7 @@ pub enum Shortcut {
     BookmarkTab,
     OpenBookmarks,
     ToggleBookmarksBar,
+    OpenHistory,
 }
 
 impl Shortcut {
@@ -323,6 +324,7 @@ pub const DEFAULTS: &[(Shortcut, &[Chord])] = {
         (Shortcut::BookmarkTab, &[Chord::ctrl(Letter('D'))]),
         (Shortcut::OpenBookmarks, &[Chord::ctrl_shift(Letter('O'))]),
         (Shortcut::ToggleBookmarksBar, &[Chord::ctrl_shift(Letter('B'))]),
+        (Shortcut::OpenHistory, &[Chord::ctrl(Letter('H'))]),
     ]
 };
 

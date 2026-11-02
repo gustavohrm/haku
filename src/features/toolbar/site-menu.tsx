@@ -1,12 +1,20 @@
-import { type Tab } from "@bindings";
+import { type HistoryRule, type Tab } from "@bindings";
 import { useBarHold } from "@features/bars/holds";
+import {
+  HISTORY_SETTINGS_URL,
+  neverRecordSite,
+  recordSiteAgain,
+  ruleNote,
+  siteRuleFor,
+  type SiteRule,
+} from "@features/history/history-actions";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
 import { useBrowserState, useSettings } from "@ipc/hooks";
 import { updateSettings } from "@ipc/store";
 import { t } from "@shared/i18n";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 interface SiteMenuProps {
@@ -39,10 +47,11 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
   const switchId = useId();
   const siteSwitchId = useId();
   const siteHelpId = useId();
-  const { private: isPrivate } = useBrowserState();
+  const { private: isPrivate, historyPaused } = useBrowserState();
   const settings = useSettings();
   const host = hostnameOf(url);
   const siteKept = host !== null && (settings?.keptSites.includes(host) ?? false);
+  const siteRule = useSiteRule(open && !isPrivate ? url : null, host, settings?.historyRules);
 
   const setSiteKept = (kept: boolean) => {
     if (isPrivate || host === null) {
@@ -145,9 +154,126 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
                 </span>
               </div>
             )}
+
+            {/* Hidden in a private window, which records nothing, and where a
+                rule naming the host would write the private visit to disk. */}
+            {!isPrivate && host !== null && (
+              <div className="border-text/10 flex flex-col gap-1 border-t pt-3">
+                {settings?.historyEnabled === false ? (
+                  <span className="text-text-secondary text-sm">{t("site.history.off")}</span>
+                ) : historyPaused ? (
+                  <span className="text-text-secondary text-sm">{t("site.history.paused")}</span>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn ghost justify-start"
+                  onClick={() => {
+                    close();
+                    void commands.openTab(`haku://history?site=${encodeURIComponent(host)}`, true, "other");
+                  }}
+                >
+                  <i className="ic-history ic-sm" aria-hidden="true" />
+                  {t("site.history.show")}
+                </button>
+                {siteRule !== undefined && (
+                  <RuleActions
+                    host={host}
+                    url={url}
+                    siteRule={siteRule}
+                    run={(action) => {
+                      close();
+                      action();
+                    }}
+                  />
+                )}
+              </div>
+            )}
           </section>,
           document.body,
         )}
+    </>
+  );
+}
+
+/**
+ * Which rule decides `url`, asked while the menu is open and again when the
+ * rules change, so the menu names the rule as it is now. `undefined` until
+ * the answer for this page and these rules arrives; `null` when it could not
+ * be read.
+ *
+ * @param url - The page, or `null` while nothing should be asked.
+ */
+function useSiteRule(
+  url: string | null,
+  host: string | null,
+  rules: readonly HistoryRule[] | undefined,
+): SiteRule | null | undefined {
+  const key = url === null || host === null ? null : `${url} ${JSON.stringify(rules ?? [])}`;
+  const [answer, setAnswer] = useState<{ key: string; rule: SiteRule | null } | null>(null);
+  useEffect(() => {
+    if (key === null || url === null || host === null) {
+      return;
+    }
+    let current = true;
+    void (async () => {
+      const rule = await siteRuleFor(url, host);
+      if (current) {
+        setAnswer({ key, rule });
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [key, url, host]);
+  return answer !== null && answer.key === key ? answer.rule : undefined;
+}
+
+interface RuleActionsProps {
+  host: string;
+  url: string;
+  siteRule: SiteRule | null;
+  /** Closes the menu, then does the action. */
+  run: (action: () => void) => void;
+}
+
+/**
+ * Never record this site, or its undo while the site's own rule decides it.
+ * Another rule is named, and when it already stops the site, the way to it in
+ * settings takes the place of adding a rule that would change nothing.
+ * [History § Elsewhere](../../../docs/specs/history.md#elsewhere).
+ */
+function RuleActions({ host, url, siteRule, run }: RuleActionsProps) {
+  if (siteRule?.kind === "own") {
+    return (
+      <button
+        type="button"
+        className="btn ghost justify-start"
+        onClick={() => run(() => void recordSiteAgain(host, url))}
+      >
+        <i className="ic-history ic-sm" aria-hidden="true" />
+        {t("site.history.recordAgain")}
+      </button>
+    );
+  }
+  const other = siteRule?.kind === "other" ? siteRule.rule : null;
+  return (
+    <>
+      {other && <span className="text-text-secondary px-1 text-sm">{ruleNote(other)}</span>}
+      {other?.action === "never" ? (
+        <button
+          type="button"
+          className="btn ghost justify-start"
+          onClick={() => run(() => void commands.openTab(HISTORY_SETTINGS_URL, true, "other"))}
+        >
+          <i className="ic-settings ic-sm" aria-hidden="true" />
+          {t("site.history.editRules")}
+        </button>
+      ) : (
+        <button type="button" className="btn ghost justify-start" onClick={() => run(() => void neverRecordSite(host))}>
+          <i className="ic-circle-off ic-sm" aria-hidden="true" />
+          {t("site.history.neverRecord")}
+        </button>
+      )}
     </>
   );
 }

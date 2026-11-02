@@ -1,23 +1,27 @@
-//! Durable browsing history.
+//! Durable browsing history, and the downloads list stored beside it.
+//! [History § Storage](../../../docs/specs/history.md#storage).
 //!
 //! SQLite rather than a JSON file because history is the one store that grows
-//! without limit and will be queried by range, host and text once the advanced
-//! history feature lands. Visits are recorded from the first release so that
-//! feature has data to show when it arrives.
+//! without limit and is queried by range, host and text.
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection};
+use rusqlite::functions::FunctionFlags;
+use rusqlite::types::Value;
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{HakuError, Result};
-use crate::model::{Download, DownloadFailure, DownloadId, DownloadState};
-use crate::storage::sqlite;
+use crate::model::{
+    any_matches, host_of, CompiledPattern, Download, DownloadFailure, DownloadId, DownloadState, Transition, UrlPattern,
+};
+use crate::storage::sqlite::{self, Migration};
 
 /// Schema revisions, applied in order by [`sqlite::open`].
-const MIGRATIONS: &[&str] = &[
-    "CREATE TABLE visits (
+const MIGRATIONS: &[Migration] = &[
+    Migration::Sql(
+        "CREATE TABLE visits (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         url        TEXT    NOT NULL,
         title      TEXT    NOT NULL,
@@ -25,9 +29,11 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_visits_visited_at ON visits (visited_at DESC);
     CREATE INDEX idx_visits_url ON visits (url);",
+    ),
     // Downloads share the file with history, as in Chrome: both are records
     // of what was fetched, they grow without limit, and they are kept as long.
-    "CREATE TABLE downloads (
+    Migration::Sql(
+        "CREATE TABLE downloads (
         id         INTEGER PRIMARY KEY,
         url        TEXT    NOT NULL,
         path       TEXT    NOT NULL,
@@ -37,22 +43,187 @@ const MIGRATIONS: &[&str] = &[
         failure    TEXT,
         started_at INTEGER NOT NULL
     );",
+    ),
+    Migration::Rust(pages_and_transitions),
 ];
+
+/// Pages, with the counts the address bar ranks by, and visits that point at
+/// them with how they were reached. Every earlier visit is kept, as `other`.
+const PAGES: &str = "
+    CREATE TABLE pages (
+        id              INTEGER PRIMARY KEY,
+        url             TEXT    NOT NULL UNIQUE,
+        host            TEXT    NOT NULL,
+        title           TEXT    NOT NULL,
+        visit_count     INTEGER NOT NULL,
+        typed_count     INTEGER NOT NULL,
+        last_visited_at INTEGER NOT NULL
+    );
+    INSERT INTO pages (url, host, title, visit_count, typed_count, last_visited_at)
+        SELECT url, '',
+               (SELECT latest.title FROM visits latest WHERE latest.url = visits.url
+                ORDER BY latest.visited_at DESC, latest.id DESC LIMIT 1),
+               COUNT(*), 0, MAX(visited_at)
+        FROM visits GROUP BY url;
+    CREATE TABLE page_visits (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_id    INTEGER NOT NULL REFERENCES pages (id),
+        visited_at INTEGER NOT NULL,
+        transition TEXT    NOT NULL
+    );
+    INSERT INTO page_visits (id, page_id, visited_at, transition)
+        SELECT visits.id, pages.id, visits.visited_at, 'other'
+        FROM visits JOIN pages ON pages.url = visits.url;
+    DROP TABLE visits;
+    ALTER TABLE page_visits RENAME TO visits;
+    CREATE INDEX idx_visits_visited_at ON visits (visited_at DESC, id DESC);
+    CREATE INDEX idx_visits_page ON visits (page_id);
+    CREATE INDEX idx_pages_host ON pages (host);";
+
+/// Text search over titles and addresses. Trigrams, because addresses are
+/// searched by fragments that word tokenizers miss.
+const PAGES_SEARCH: &str = "
+    CREATE VIRTUAL TABLE pages_fts USING fts5 (
+        title, url, content = 'pages', content_rowid = 'id', tokenize = 'trigram'
+    );
+    CREATE TRIGGER pages_fts_insert AFTER INSERT ON pages BEGIN
+        INSERT INTO pages_fts (rowid, title, url) VALUES (new.id, new.title, new.url);
+    END;
+    CREATE TRIGGER pages_fts_delete AFTER DELETE ON pages BEGIN
+        INSERT INTO pages_fts (pages_fts, rowid, title, url) VALUES ('delete', old.id, old.title, old.url);
+    END;
+    CREATE TRIGGER pages_fts_update AFTER UPDATE OF title, url ON pages BEGIN
+        INSERT INTO pages_fts (pages_fts, rowid, title, url) VALUES ('delete', old.id, old.title, old.url);
+        INSERT INTO pages_fts (rowid, title, url) VALUES (new.id, new.title, new.url);
+    END;
+    INSERT INTO pages_fts (pages_fts) VALUES ('rebuild');";
+
+/// The third revision. Rust, because each page's host is parsed from its URL
+/// as [`host_of`] parses it everywhere else, which SQL cannot do reliably.
+fn pages_and_transitions(transaction: &Transaction) -> rusqlite::Result<()> {
+    transaction.execute_batch(PAGES)?;
+    let pages: Vec<(i64, String)> = transaction
+        .prepare("SELECT id, url FROM pages")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut update = transaction.prepare("UPDATE pages SET host = ?1 WHERE id = ?2")?;
+    for (id, url) in pages {
+        update.execute(params![host_of(&url).unwrap_or_default(), id])?;
+    }
+    transaction.execute_batch(PAGES_SEARCH)
+}
+
+/// The shortest search term the trigram index can find; shorter ones are
+/// matched by scanning.
+const TRIGRAM: usize = 3;
+
+/// The most visits one query returns.
+pub const QUERY_LIMIT_MAX: u32 = 500;
+
+/// Which visits a query, count or delete covers. Every field narrows it; the
+/// default covers everything.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryFilter {
+    /// Words found in the title or address, each anywhere, ignoring case.
+    pub text: Option<String>,
+    /// Milliseconds since the epoch, inclusive.
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub from: Option<i64>,
+    /// Milliseconds since the epoch, exclusive.
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub to: Option<i64>,
+    /// Visits whose URL any of these picks out; none means every URL.
+    pub include: Vec<UrlPattern>,
+    /// Visits whose URL any of these picks out are left out.
+    pub exclude: Vec<UrlPattern>,
+    /// Visits reached in any of these ways; none means every way.
+    pub transitions: Vec<Transition>,
+}
+
+impl HistoryFilter {
+    /// Whether the filter covers every visit.
+    pub fn is_everything(&self) -> bool {
+        self.terms().is_empty()
+            && self.from.is_none()
+            && self.to.is_none()
+            && self.include.is_empty()
+            && self.exclude.is_empty()
+            && self.transitions.is_empty()
+    }
+
+    fn terms(&self) -> Vec<&str> {
+        self.text
+            .as_deref()
+            .map(|text| text.split_whitespace().collect())
+            .unwrap_or_default()
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct HistoryEntry {
-    /// Exported as a JavaScript number: every value here is a counter, a
-    /// small capacity, or a millisecond timestamp, all far inside the range a
-    /// double represents exactly.
+pub struct HistoryVisit {
+    /// Exported as a JavaScript number: every value here is a counter or a
+    /// millisecond timestamp, far inside the range a double represents
+    /// exactly.
     #[specta(type = specta_typescript::Number)]
     pub id: i64,
     pub url: String,
+    /// Empty for a URL with no host, such as a local file.
+    pub host: String,
+    /// The page's latest title; empty when a rule keeps only its address.
     pub title: String,
     /// Milliseconds since the Unix epoch.
     #[specta(type = specta_typescript::Number)]
     pub visited_at: i64,
+    pub transition: Transition,
 }
+
+/// Where the next page of a query starts: after the visit it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryCursor {
+    #[specta(type = specta_typescript::Number)]
+    pub visited_at: i64,
+    #[specta(type = specta_typescript::Number)]
+    pub id: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryPage {
+    pub visits: Vec<HistoryVisit>,
+    /// Nothing when no visit is left.
+    pub next: Option<HistoryCursor>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistorySite {
+    pub host: String,
+    #[specta(type = specta_typescript::Number)]
+    pub visits: i64,
+    #[specta(type = specta_typescript::Number)]
+    pub last_visited_at: i64,
+}
+
+/// A visit to record.
+#[derive(Clone, Copy, Debug)]
+pub struct NewVisit<'a> {
+    pub url: &'a str,
+    pub title: &'a str,
+    /// Milliseconds since the Unix epoch.
+    pub visited_at: i64,
+    pub transition: Transition,
+}
+
+/// A filter as SQL over `visits v JOIN pages p`, with its parameters.
+struct Clause {
+    sql: String,
+    values: Vec<Value>,
+}
+
+const FROM_VISITS: &str = "FROM visits v JOIN pages p ON p.id = v.page_id";
 
 pub struct HistoryDb {
     connection: Connection,
@@ -87,7 +258,7 @@ impl HistoryDb {
     /// The browser is still usable without its history file, and Haku has no
     /// window yet to say why it would not start. A file another Haku holds
     /// locked, or one that cannot be read, is left untouched for the next run,
-    /// except by [`Self::clear`]. The failure is returned alongside, for the
+    /// except by [`Self::delete`]. The failure is returned alongside, for the
     /// user to be told once a window can show it.
     ///
     /// # Panics
@@ -126,87 +297,316 @@ impl HistoryDb {
     /// Records a visit.
     ///
     /// Pages report themselves repeatedly as they load, so an immediate repeat
-    /// of the same URL updates the existing row instead of adding a duplicate.
+    /// of the same URL updates the existing visit instead of adding another.
     ///
     /// # Errors
     /// Returns [`crate::error::HakuError::Storage`] when the write fails.
-    pub fn record(&self, url: &str, title: &str, visited_at: i64) -> Result<()> {
-        let previous: Option<(i64, String)> = self
-            .connection
-            .query_row("SELECT id, url FROM visits ORDER BY id DESC LIMIT 1", [], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
-            .ok();
+    pub fn record(&self, visit: NewVisit<'_>) -> Result<()> {
+        let transaction = self.connection.unchecked_transaction()?;
+        let latest: Option<(i64, i64, String)> = transaction
+            .query_row(
+                "SELECT v.id, p.id, p.url FROM visits v JOIN pages p ON p.id = v.page_id ORDER BY v.id DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
 
-        if let Some((id, previous_url)) = previous {
-            if previous_url == url {
-                self.connection.execute(
-                    "UPDATE visits SET title = ?1, visited_at = ?2 WHERE id = ?3",
-                    params![title, visited_at, id],
+        match latest {
+            Some((visit_id, page_id, url)) if url == visit.url => {
+                transaction.execute(
+                    "UPDATE visits SET visited_at = ?1 WHERE id = ?2",
+                    params![visit.visited_at, visit_id],
                 )?;
-                return Ok(());
+                transaction.execute(
+                    "UPDATE pages SET title = ?1, last_visited_at = MAX(last_visited_at, ?2) WHERE id = ?3",
+                    params![visit.title, visit.visited_at, page_id],
+                )?;
+            }
+            _ => {
+                let typed = i64::from(visit.transition == Transition::Typed);
+                transaction.execute(
+                    "INSERT INTO pages (url, host, title, visit_count, typed_count, last_visited_at)
+                     VALUES (?1, ?2, ?3, 1, ?4, ?5)
+                     ON CONFLICT (url) DO UPDATE SET
+                         title = excluded.title,
+                         visit_count = visit_count + 1,
+                         typed_count = typed_count + excluded.typed_count,
+                         last_visited_at = MAX(last_visited_at, excluded.last_visited_at)",
+                    params![
+                        visit.url,
+                        host_of(visit.url).unwrap_or_default(),
+                        visit.title,
+                        typed,
+                        visit.visited_at
+                    ],
+                )?;
+                transaction.execute(
+                    "INSERT INTO visits (page_id, visited_at, transition)
+                     VALUES ((SELECT id FROM pages WHERE url = ?1), ?2, ?3)",
+                    params![visit.url, visit.visited_at, visit.transition.name()],
+                )?;
             }
         }
-
-        self.connection.execute(
-            "INSERT INTO visits (url, title, visited_at) VALUES (?1, ?2, ?3)",
-            params![url, title, visited_at],
-        )?;
+        transaction.commit()?;
         Ok(())
     }
 
-    /// Updates the title of the most recent visit to `url`.
+    /// Updates the title of a visited page.
     ///
     /// Pages set or change their title after they arrive, and keep changing it
-    /// while open. The visit should carry the latest title without each change
+    /// while open. The page should carry the latest title without each change
     /// counting as another visit. A URL never visited is left alone.
     ///
     /// # Errors
     /// Returns [`crate::error::HakuError::Storage`] when the write fails.
     pub fn retitle(&self, url: &str, title: &str) -> Result<()> {
         self.connection.execute(
-            "UPDATE visits SET title = ?1 WHERE id = (SELECT MAX(id) FROM visits WHERE url = ?2)",
+            "UPDATE pages SET title = ?1 WHERE url = ?2 AND title <> ?1",
             params![title, url],
         )?;
         Ok(())
     }
 
-    /// Most recent visits first.
+    /// Visits the filter covers, newest first, starting after `after`.
     ///
     /// # Errors
-    /// Returns [`crate::error::HakuError::Storage`] when the query fails.
-    pub fn recent(&self, limit: usize) -> Result<Vec<HistoryEntry>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT id, url, title, visited_at FROM visits ORDER BY visited_at DESC, id DESC LIMIT ?1")?;
+    /// Returns [`crate::error::HakuError::InvalidPattern`] for a pattern that
+    /// cannot be used, or [`crate::error::HakuError::Storage`] when the query
+    /// fails.
+    pub fn query(&self, filter: &HistoryFilter, after: Option<HistoryCursor>, limit: u32) -> Result<HistoryPage> {
+        let limit = limit.clamp(1, QUERY_LIMIT_MAX);
+        let Clause { mut sql, mut values } = self.clause(filter)?;
+        if let Some(cursor) = after {
+            sql.push_str(" AND (v.visited_at < ? OR (v.visited_at = ? AND v.id < ?))");
+            values.extend([cursor.visited_at, cursor.visited_at, cursor.id].map(Value::Integer));
+        }
+        values.push(Value::Integer(i64::from(limit) + 1));
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT v.id, p.url, p.host, p.title, v.visited_at, v.transition {FROM_VISITS} WHERE {sql}
+             ORDER BY v.visited_at DESC, v.id DESC LIMIT ?"
+        ))?;
+        let mut visits = statement
+            .query_map(params_from_iter(values), |row| {
+                Ok(HistoryVisit {
+                    id: row.get(0)?,
+                    url: row.get(1)?,
+                    host: row.get(2)?,
+                    title: row.get(3)?,
+                    visited_at: row.get(4)?,
+                    transition: Transition::from_name(&row.get::<_, String>(5)?),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        let rows = statement.query_map([limit as i64], |row| {
-            Ok(HistoryEntry {
-                id: row.get(0)?,
-                url: row.get(1)?,
-                title: row.get(2)?,
-                visited_at: row.get(3)?,
-            })
-        })?;
-
-        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+        let more = visits.len() > limit as usize;
+        visits.truncate(limit as usize);
+        let next = more.then(|| visits.last()).flatten().map(|last| HistoryCursor {
+            visited_at: last.visited_at,
+            id: last.id,
+        });
+        Ok(HistoryPage { visits, next })
     }
 
-    /// Removes every visit.
-    ///
-    /// While history is kept in memory, the file it could not be opened from
-    /// is cleared too, or the visits in it would come back on the next run.
+    /// How many visits the filter covers.
     ///
     /// # Errors
-    /// Returns [`crate::error::HakuError::Storage`] when the delete fails, or
-    /// when the file history could not be opened from still cannot be.
-    pub fn clear(&self) -> Result<()> {
-        self.connection.execute("DELETE FROM visits", [])?;
+    /// As [`Self::query`].
+    pub fn count(&self, filter: &HistoryFilter) -> Result<i64> {
+        let Clause { sql, values } = self.clause(filter)?;
+        Ok(self.connection.query_row(
+            &format!("SELECT COUNT(*) {FROM_VISITS} WHERE {sql}"),
+            params_from_iter(values),
+            |row| row.get(0),
+        )?)
+    }
+
+    /// The hosts of the visits the filter covers, most visited first.
+    ///
+    /// # Errors
+    /// As [`Self::query`].
+    pub fn sites(&self, filter: &HistoryFilter, limit: u32) -> Result<Vec<HistorySite>> {
+        let Clause { sql, mut values } = self.clause(filter)?;
+        values.push(Value::Integer(i64::from(limit.max(1))));
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT p.host, COUNT(*), MAX(v.visited_at) {FROM_VISITS} WHERE {sql} AND p.host <> ''
+             GROUP BY p.host ORDER BY COUNT(*) DESC, MAX(v.visited_at) DESC, p.host LIMIT ?"
+        ))?;
+        let sites = statement
+            .query_map(params_from_iter(values), |row| {
+                Ok(HistorySite {
+                    host: row.get(0)?,
+                    visits: row.get(1)?,
+                    last_visited_at: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(sites)
+    }
+
+    /// Deletes the visits the filter covers.
+    ///
+    /// While history is kept in memory, the same visits are deleted from the
+    /// file it could not be opened from, or they would come back on the next
+    /// run.
+    ///
+    /// @returns How many visits were deleted here.
+    ///
+    /// # Errors
+    /// As [`Self::query`], and [`crate::error::HakuError::Storage`] when the
+    /// file history could not be opened from still cannot be.
+    pub fn delete(&self, filter: &HistoryFilter) -> Result<i64> {
+        let deleted = self.delete_here(filter)?;
         if let Some(path) = &self.unopened {
-            Self::wrap(sqlite::connect(path, MIGRATIONS)?).clear()?;
+            Self::wrap(sqlite::connect(path, MIGRATIONS)?).delete_here(filter)?;
         }
+        Ok(deleted)
+    }
+
+    /// Deletes visits older than `before`, here only: the file a run in
+    /// memory could not open is pruned when a run opens it.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the delete fails.
+    pub fn prune(&self, before: i64) -> Result<i64> {
+        self.delete_here(&HistoryFilter {
+            to: Some(before),
+            ..HistoryFilter::default()
+        })
+    }
+
+    /// Deletes these visits; ids not stored are ignored.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the delete fails.
+    pub fn delete_visits(&self, ids: &[i64]) -> Result<()> {
+        let transaction = self.connection.unchecked_transaction()?;
+        let mut pages = Vec::new();
+        {
+            let mut page_of = transaction.prepare("SELECT page_id FROM visits WHERE id = ?1")?;
+            let mut delete = transaction.prepare("DELETE FROM visits WHERE id = ?1")?;
+            for id in ids {
+                if let Some(page) = page_of.query_row([id], |row| row.get::<_, i64>(0)).optional()? {
+                    pages.push(page);
+                    delete.execute([id])?;
+                }
+            }
+        }
+        refresh_pages(&transaction, &pages)?;
+        transaction.commit()?;
         Ok(())
     }
+
+    fn delete_here(&self, filter: &HistoryFilter) -> Result<i64> {
+        let transaction = self.connection.unchecked_transaction()?;
+        let deleted = if filter.is_everything() {
+            let deleted = transaction.execute("DELETE FROM visits", [])?;
+            transaction.execute("DELETE FROM pages", [])?;
+            deleted
+        } else {
+            let Clause { sql, values } = self.clause(filter)?;
+            let pages: Vec<i64> = transaction
+                .prepare(&format!("SELECT DISTINCT v.page_id {FROM_VISITS} WHERE {sql}"))?
+                .query_map(params_from_iter(values.clone()), |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            let deleted = transaction.execute(
+                &format!("DELETE FROM visits WHERE id IN (SELECT v.id {FROM_VISITS} WHERE {sql})"),
+                params_from_iter(values),
+            )?;
+            refresh_pages(&transaction, &pages)?;
+            deleted
+        };
+        transaction.commit()?;
+        Ok(deleted as i64)
+    }
+
+    /// The filter as SQL, with its patterns registered as the functions it
+    /// calls. Registered per call: the connection is used by one caller at a
+    /// time, and the patterns change with every filter.
+    fn clause(&self, filter: &HistoryFilter) -> Result<Clause> {
+        let mut sql = String::from("1");
+        let mut values = Vec::new();
+
+        if let Some(from) = filter.from {
+            sql.push_str(" AND v.visited_at >= ?");
+            values.push(Value::Integer(from));
+        }
+        if let Some(to) = filter.to {
+            sql.push_str(" AND v.visited_at < ?");
+            values.push(Value::Integer(to));
+        }
+        if !filter.transitions.is_empty() {
+            let marks = vec!["?"; filter.transitions.len()].join(", ");
+            sql.push_str(&format!(" AND v.transition IN ({marks})"));
+            values.extend(filter.transitions.iter().map(|t| Value::Text(t.name().into())));
+        }
+
+        let (long, short): (Vec<&str>, Vec<&str>) = filter
+            .terms()
+            .into_iter()
+            .partition(|term| term.chars().count() >= TRIGRAM);
+        if !long.is_empty() {
+            let phrases: Vec<String> = long
+                .iter()
+                .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+                .collect();
+            sql.push_str(" AND p.id IN (SELECT rowid FROM pages_fts WHERE pages_fts MATCH ?)");
+            values.push(Value::Text(phrases.join(" ")));
+        }
+        for term in short {
+            let like = format!(
+                "%{}%",
+                term.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+            );
+            sql.push_str(r" AND (p.title LIKE ? ESCAPE '\' OR p.url LIKE ? ESCAPE '\')");
+            values.extend([Value::Text(like.clone()), Value::Text(like)]);
+        }
+
+        for (name, patterns, negate) in [
+            ("haku_include", &filter.include, ""),
+            ("haku_exclude", &filter.exclude, "NOT "),
+        ] {
+            if patterns.is_empty() {
+                continue;
+            }
+            let compiled = patterns.iter().map(UrlPattern::compile).collect::<Result<Vec<_>>>()?;
+            self.register(name, compiled)?;
+            sql.push_str(&format!(" AND {negate}{name}(p.url, p.host)"));
+        }
+
+        Ok(Clause { sql, values })
+    }
+
+    fn register(&self, name: &str, patterns: Vec<CompiledPattern>) -> Result<()> {
+        self.connection.create_scalar_function(
+            name,
+            2,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            move |context| {
+                let url: String = context.get(0)?;
+                let host: String = context.get(1)?;
+                Ok(any_matches(&patterns, &url, &host))
+            },
+        )?;
+        Ok(())
+    }
+}
+
+/// Brings each page's counts and last visit in step with the visits left,
+/// and deletes a page left with none.
+fn refresh_pages(transaction: &Transaction, pages: &[i64]) -> rusqlite::Result<()> {
+    let mut update = transaction.prepare(
+        "UPDATE pages SET
+             visit_count = (SELECT COUNT(*) FROM visits WHERE page_id = ?1),
+             typed_count = (SELECT COUNT(*) FROM visits WHERE page_id = ?1 AND transition = 'typed'),
+             last_visited_at = COALESCE((SELECT MAX(visited_at) FROM visits WHERE page_id = ?1), last_visited_at)
+         WHERE id = ?1",
+    )?;
+    let mut delete = transaction.prepare("DELETE FROM pages WHERE id = ?1 AND visit_count = 0")?;
+    for page in pages {
+        update.execute([page])?;
+        delete.execute([page])?;
+    }
+    Ok(())
 }
 
 impl HistoryDb {
@@ -334,327 +734,5 @@ fn failure_from(name: &str) -> DownloadFailure {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-    use crate::storage::corrupt_path;
-
-    fn database() -> HistoryDb {
-        HistoryDb::in_memory().unwrap()
-    }
-
-    fn temp_path(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("haku-history-{name}"));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir.join("history.sqlite")
-    }
-
-    #[test]
-    fn a_damaged_file_is_set_aside_and_a_fresh_database_opens_in_its_place() {
-        let path = temp_path("damaged");
-        fs::write(&path, "this is not a database, just bytes\n").unwrap();
-
-        let database = HistoryDb::open_or_set_aside(&path).unwrap();
-
-        assert!(database.recent(10).unwrap().is_empty());
-    }
-
-    #[test]
-    fn the_damaged_file_is_preserved_at_the_corrupt_path() {
-        let path = temp_path("preserved");
-        fs::write(&path, "this is not a database, just bytes\n").unwrap();
-
-        HistoryDb::open_or_set_aside(&path).unwrap();
-
-        assert_eq!(
-            fs::read_to_string(corrupt_path(&path)).unwrap(),
-            "this is not a database, just bytes\n"
-        );
-    }
-
-    #[test]
-    fn a_file_that_cannot_be_opened_leaves_history_in_memory() {
-        let path = temp_path("unopenable");
-        fs::create_dir_all(&path).unwrap();
-
-        let (database, failure) = HistoryDb::open_or_in_memory(&path);
-        database.record("https://a.test", "A", 1).unwrap();
-
-        assert_eq!(database.recent(10).unwrap().len(), 1);
-        assert!(path.is_dir());
-        assert!(matches!(failure, Some(HakuError::Storage(_))));
-    }
-
-    #[test]
-    fn a_file_that_opens_reports_no_failure() {
-        let path = temp_path("opens");
-
-        let (_, failure) = HistoryDb::open_or_in_memory(&path);
-
-        assert_eq!(failure, None);
-    }
-
-    #[test]
-    fn a_file_another_connection_holds_locked_leaves_history_in_memory_and_is_cleared_once_free() {
-        let path = temp_path("locked");
-        HistoryDb::open(&path)
-            .unwrap()
-            .record("https://a.test", "A", 1)
-            .unwrap();
-        let holder = Connection::open(&path).unwrap();
-        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
-
-        let (database, _) = HistoryDb::open_or_in_memory(&path);
-        database.record("https://b.test", "B", 2).unwrap();
-        assert_eq!(database.recent(10).unwrap().len(), 1);
-        assert!(database.clear().is_err());
-
-        holder.execute_batch("ROLLBACK").unwrap();
-        database.clear().unwrap();
-        assert!(HistoryDb::open(&path).unwrap().recent(10).unwrap().is_empty());
-    }
-
-    #[test]
-    fn a_healthy_database_is_opened_as_it_is_and_not_moved() {
-        let path = temp_path("healthy");
-        HistoryDb::open(&path)
-            .unwrap()
-            .record("https://a.test", "A", 1)
-            .unwrap();
-
-        let database = HistoryDb::open_or_set_aside(&path).unwrap();
-
-        assert_eq!(database.recent(10).unwrap().len(), 1);
-        assert!(!corrupt_path(&path).exists());
-    }
-
-    #[test]
-    fn a_fresh_database_is_migrated_to_the_latest_revision() {
-        let database = database();
-        let version: i64 = database
-            .connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .unwrap();
-
-        assert_eq!(version as usize, MIGRATIONS.len());
-    }
-
-    #[test]
-    fn migrating_an_already_current_database_changes_nothing() {
-        let mut database = database();
-        database.record("https://a.test", "A", 1).unwrap();
-
-        sqlite::migrate(&mut database.connection, MIGRATIONS).unwrap();
-
-        assert_eq!(database.recent(10).unwrap().len(), 1);
-    }
-
-    #[test]
-    fn a_recorded_visit_is_read_back() {
-        let database = database();
-        database.record("https://a.test", "A", 1_700_000_000_000).unwrap();
-
-        let entries = database.recent(10).unwrap();
-
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].url, "https://a.test");
-        assert_eq!(entries[0].visited_at, 1_700_000_000_000);
-    }
-
-    #[test]
-    fn reloading_the_same_page_updates_the_visit_rather_than_duplicating_it() {
-        let database = database();
-        database.record("https://a.test", "Loading", 1).unwrap();
-        database.record("https://a.test", "Ready", 2).unwrap();
-
-        let entries = database.recent(10).unwrap();
-
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].title, "Ready");
-        assert_eq!(entries[0].visited_at, 2);
-    }
-
-    #[test]
-    fn returning_to_a_page_after_visiting_another_records_a_new_visit() {
-        let database = database();
-        database.record("https://a.test", "A", 1).unwrap();
-        database.record("https://b.test", "B", 2).unwrap();
-        database.record("https://a.test", "A", 3).unwrap();
-
-        assert_eq!(database.recent(10).unwrap().len(), 3);
-    }
-
-    #[test]
-    fn recent_returns_the_newest_visits_first() {
-        let database = database();
-        database.record("https://a.test", "A", 1).unwrap();
-        database.record("https://b.test", "B", 2).unwrap();
-
-        let entries = database.recent(10).unwrap();
-
-        assert_eq!(entries[0].url, "https://b.test");
-    }
-
-    #[test]
-    fn recent_respects_its_limit() {
-        let database = database();
-        for index in 0..5 {
-            database.record(&format!("https://{index}.test"), "T", index).unwrap();
-        }
-
-        assert_eq!(database.recent(2).unwrap().len(), 2);
-    }
-
-    #[test]
-    fn retitling_updates_the_latest_visit_to_that_url_without_adding_one() {
-        let database = database();
-        database.record("https://a.test", "Old", 1).unwrap();
-        database.record("https://b.test", "B", 2).unwrap();
-        database.record("https://a.test", "Old", 3).unwrap();
-        database.record("https://b.test", "B", 4).unwrap();
-
-        database.retitle("https://a.test", "New").unwrap();
-
-        let entries = database.recent(10).unwrap();
-        assert_eq!(entries.len(), 4);
-        let titles: Vec<&str> = entries
-            .iter()
-            .filter(|entry| entry.url == "https://a.test")
-            .map(|entry| entry.title.as_str())
-            .collect();
-        assert_eq!(titles, vec!["New", "Old"]);
-    }
-
-    #[test]
-    fn retitling_a_url_never_visited_records_nothing() {
-        let database = database();
-
-        database.retitle("https://a.test", "A").unwrap();
-
-        assert!(database.recent(10).unwrap().is_empty());
-    }
-
-    fn download(id: u64, private: bool) -> Download {
-        Download {
-            id: DownloadId(id),
-            url: "https://a.test/file.zip".into(),
-            path: r"C:\Users\me\Downloads\file.zip".into(),
-            received: 40,
-            total: Some(100),
-            state: DownloadState::InProgress,
-            failure: None,
-            can_resume: true,
-            started_at: id * 10,
-            recent: true,
-            private,
-            slot: Some(crate::model::SlotId(2)),
-        }
-    }
-
-    #[test]
-    fn a_stored_download_is_read_back_newest_first() {
-        let database = database();
-        database.save_download(&download(1, false)).unwrap();
-        database.save_download(&download(2, false)).unwrap();
-
-        let stored = database.downloads().unwrap();
-
-        assert_eq!(
-            stored.iter().map(|d| d.id).collect::<Vec<_>>(),
-            [DownloadId(2), DownloadId(1)]
-        );
-        assert_eq!(stored[1].url, "https://a.test/file.zip");
-        assert_eq!(stored[1].total, Some(100));
-        assert_eq!(stored[1].state, DownloadState::InProgress);
-        assert!(!stored[1].recent && stored[1].slot.is_none());
-    }
-
-    #[test]
-    fn a_negative_stored_download_value_is_refused_rather_than_wrapped() {
-        let database = database();
-        database.save_download(&download(1, false)).unwrap();
-        database.connection.execute("UPDATE downloads SET id = -1", []).unwrap();
-
-        assert!(database.downloads().is_err());
-    }
-
-    #[test]
-    fn saving_a_download_again_replaces_what_was_stored() {
-        let database = database();
-        let mut entry = download(1, false);
-        database.save_download(&entry).unwrap();
-        entry.state = DownloadState::Failed;
-        entry.failure = Some(DownloadFailure::Network);
-        database.save_download(&entry).unwrap();
-
-        let stored = database.downloads().unwrap();
-
-        assert_eq!(stored.len(), 1);
-        assert_eq!(stored[0].state, DownloadState::Failed);
-        assert_eq!(stored[0].failure, Some(DownloadFailure::Network));
-    }
-
-    #[test]
-    fn a_private_download_is_never_written() {
-        let database = database();
-        database.save_download(&download(1, true)).unwrap();
-
-        assert!(database.downloads().unwrap().is_empty());
-        let rows: i64 = database
-            .connection
-            .query_row("SELECT COUNT(*) FROM downloads", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(rows, 0);
-    }
-
-    #[test]
-    fn forgotten_downloads_are_removed_and_others_kept() {
-        let database = database();
-        database.save_download(&download(1, false)).unwrap();
-        database.save_download(&download(2, false)).unwrap();
-
-        database.forget_downloads(&[DownloadId(1)]).unwrap();
-
-        let stored = database.downloads().unwrap();
-        assert_eq!(stored.iter().map(|d| d.id).collect::<Vec<_>>(), [DownloadId(2)]);
-    }
-
-    #[test]
-    fn clearing_history_keeps_downloads() {
-        let database = database();
-        database.save_download(&download(1, false)).unwrap();
-
-        database.clear().unwrap();
-
-        assert_eq!(database.downloads().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn a_database_from_before_downloads_is_migrated_with_its_visits() {
-        let mut database = HistoryDb {
-            connection: Connection::open_in_memory().unwrap(),
-            unopened: None,
-        };
-        database.connection.execute_batch(MIGRATIONS[0]).unwrap();
-        database.connection.pragma_update(None, "user_version", 1).unwrap();
-        database.record("https://a.test", "A", 1).unwrap();
-
-        sqlite::migrate(&mut database.connection, MIGRATIONS).unwrap();
-
-        assert_eq!(database.recent(10).unwrap().len(), 1);
-        database.save_download(&download(1, false)).unwrap();
-        assert_eq!(database.downloads().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn clearing_removes_every_visit() {
-        let database = database();
-        database.record("https://a.test", "A", 1).unwrap();
-
-        database.clear().unwrap();
-
-        assert!(database.recent(10).unwrap().is_empty());
-    }
-}
+#[path = "history_db_tests.rs"]
+mod tests;

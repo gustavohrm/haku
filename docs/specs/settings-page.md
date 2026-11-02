@@ -37,20 +37,20 @@ The page keeps using the package's own sizing, not the compact bar density, as [
 
 The current settings, regrouped by what a person comes looking for:
 
-| Section       | Address                      | Rows                                                                                                                                                              |
-| ------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Appearance    | `haku://settings/appearance` | Theme; tabs; sidebar side; toolbar placement; bars ([Appearance](appearance.md)). Later: density, corners, surfaces, palette, presets, CSS.                       |
-| Tabs & memory | `haku://settings/tabs`       | Preset; loaded tabs; background memory; freeze; discard. **New:** kept sites, listed with a remove button.                                                        |
-| Browsing      | `haku://settings/browsing`   | Search engine; home page; site permissions ([Permissions](permissions.md)) and zoom levels ([Zoom](zoom.md)), each listed with a remove button.                   |
-| Extensions    | `haku://settings/extensions` | Add extension; each extension with its switch, version and actions; folders that failed; the extensions folder ([Extensions § Settings](extensions.md#settings)). |
-| Shortcuts     | `haku://settings/shortcuts`  | Reset all; one row per action, grouped as Tabs, Windows, Page and Navigation ([Shortcuts](#shortcuts)).                                                           |
-| About         | `haku://settings/about`      | Version, the mark and wordmark, links to Memory (`haku://memory`) and History. **New**, read-only.                                                                |
+| Section       | Address                      | Rows                                                                                                                                                                                                             |
+| ------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Appearance    | `haku://settings/appearance` | Theme; tabs; sidebar side; toolbar placement; bars ([Appearance](appearance.md)). Later: density, corners, surfaces, palette, presets, CSS.                                                                      |
+| Tabs & memory | `haku://settings/tabs`       | Preset; loaded tabs; background memory; freeze; discard. **New:** kept sites, listed with a remove button.                                                                                                       |
+| Browsing      | `haku://settings/browsing`   | Search engine; home page; site permissions ([Permissions](permissions.md)) and zoom levels ([Zoom](zoom.md)), each listed with a remove button; History: recording, retention and rules ([History](history.md)). |
+| Extensions    | `haku://settings/extensions` | Add extension; each extension with its switch, version and actions; folders that failed; the extensions folder ([Extensions § Settings](extensions.md#settings)).                                                |
+| Shortcuts     | `haku://settings/shortcuts`  | Reset all; one row per action, grouped as Tabs, Windows, Page and Navigation ([Shortcuts](#shortcuts)).                                                                                                          |
+| About         | `haku://settings/about`      | Version, the mark and wordmark, links to Memory (`haku://memory`) and History. **New**, read-only.                                                                                                               |
 
 `haku://settings` shows Appearance. **Kept sites** are already stored in `Settings.keptSites` but can only be removed today by visiting each site in an ordinary window and opening its site menu; the list makes them reviewable. Private windows hide the site menu's kept-site control, and `set_settings` refuses a newly kept site from one, so a private visit cannot write a site-derived setting. Removing a kept site from settings works in any window. **About** needs the app version, which the interface reads with Tauri's `getVersion()` from `@tauri-apps/api/app`. The chrome's capability already grants it through `core:default`, so it needs no new command or permission.
 
 ## Navigation
 
-Picking a section navigates the tab to its address with the existing `navigate_tab`, so the address field shows where you are, Back returns to the previous section, and a section can be linked to, as the extensions menu's **Manage extensions** will link to `haku://settings/extensions`. [First release § Internal pages](../first-release.md#internal-pages-are-haku-urls) already routes anything after the host to the page, so the router needs no change.
+Picking a section navigates the tab to its address with the existing `navigate_tab`, so the address field shows where you are, Back returns to the previous section, and a section can be linked to, as the extensions menu's **Manage extensions** will link to `haku://settings/extensions`. A `#` names a row by its id, and the section opens scrolled to it, as the history page's **History settings** links to `haku://settings/browsing#historyEnabled`; the row is read when the address changes, so editing a row never scrolls back to it. [First release § Internal pages](../first-release.md#internal-pages-are-haku-urls) already routes anything after the host to the page, so the router needs no change.
 
 Rejected: keeping the section in component state. It is simpler, but Back would leave settings entirely and nothing could open a section directly.
 

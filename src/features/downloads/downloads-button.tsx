@@ -83,7 +83,7 @@ export function DownloadsButton() {
               className="btn ghost mx-1 justify-start"
               onClick={() => {
                 close();
-                void commands.openTab(DOWNLOADS_URL, true);
+                void commands.openTab(DOWNLOADS_URL, true, "other");
               }}
             >
               {t("downloads.all")}

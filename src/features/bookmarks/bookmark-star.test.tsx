@@ -168,7 +168,7 @@ describe("BookmarkStar", () => {
     await act(async () => star().click());
     await act(async () => button("More…").click());
 
-    expect(commands.openTab).toHaveBeenCalledExactlyOnceWith("haku://bookmarks?folder=3", true);
+    expect(commands.openTab).toHaveBeenCalledExactlyOnceWith("haku://bookmarks?folder=3", true, "other");
     expect(editor()).toBeNull();
   });
 

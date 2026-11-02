@@ -58,3 +58,4 @@ Start with [Architecture](architecture.md).
 | [Permissions](specs/permissions.md)              | Permission prompts; stored decisions, private windows.        |
 | [Zoom](specs/zoom.md)                            | Zooming pages; levels kept per site, shown and reset.         |
 | [Bookmarks](specs/bookmarks.md)                  | Saving pages, folders, the bar, import and export.            |
+| [History](specs/history.md)                      | What is recorded, rules, filters, deleting, storage.          |

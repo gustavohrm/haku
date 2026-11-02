@@ -26,6 +26,7 @@ import {
   ToolbarPlacementControl,
   VersionControl,
 } from "./controls";
+import { HistoryEnabledControl, HistoryRetentionControl, HistoryRulesControl } from "./history-controls";
 import { SHORTCUT_GROUPS } from "./shortcuts";
 import { type SettingRowDefinition, type SettingSection } from "./types";
 
@@ -240,6 +241,34 @@ export const SECTIONS: SettingSection[] = [
           },
         ],
       },
+      {
+        title: "settings.history",
+        rows: [
+          {
+            id: "historyEnabled",
+            title: "settings.historyEnabled",
+            description: "settings.historyEnabled.help",
+            keywords: "settings.historyEnabled.keywords",
+            Control: HistoryEnabledControl,
+          },
+          {
+            id: "historyRetention",
+            title: "settings.historyRetention",
+            description: "settings.historyRetention.help",
+            keywords: "settings.historyRetention.keywords",
+            Control: HistoryRetentionControl,
+          },
+          {
+            id: "historyRules",
+            title: "settings.historyRules",
+            description: "settings.historyRules.help",
+            keywords: "settings.historyRules.keywords",
+            wide: true,
+            labelsControl: false,
+            Control: HistoryRulesControl,
+          },
+        ],
+      },
     ],
   },
   {
@@ -327,6 +356,19 @@ export function sectionOf(url: string): SettingSection {
   const rest = url.startsWith(SETTINGS_URL) ? url.slice(SETTINGS_URL.length) : "";
   const id = rest.replace(/^\//, "").split(/[/?#]/, 1)[0] ?? "";
   return SECTIONS.find((section) => section.id === id) ?? DEFAULT_SECTION;
+}
+
+/**
+ * The row a settings URL points at, by the id after its `#`, such as
+ * `haku://settings/browsing#historyEnabled`.
+ *
+ * @param url - A `haku://settings` URL.
+ * @returns The row's id, or `null` when the URL names none.
+ */
+export function rowOf(url: string): string | null {
+  const hash = url.indexOf("#");
+  const id = hash === -1 ? "" : url.slice(hash + 1);
+  return id === "" ? null : id;
 }
 
 /** Where a section lives. */
