@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-01
+last_updated: 2026-11-02
 scope: How Haku follows the downloads pages start, what keeps their webviews alive, closing with downloads running, and where downloads are stored and shown.
 ---
 
@@ -65,7 +65,7 @@ Closing an ordinary tab or a window that is not the last never asks: its downloa
 
 ## Storage
 
-Downloads are stored in `history.sqlite`, in a `downloads` table added by the database's second migration, and restored at launch. One that was active when Haku last stopped is restored as failed (`lost`): the engine aborted it. Restored downloads are not `recent`. Clearing history does not clear downloads; **Clear finished** on `haku://downloads` unlists and forgets the ended ones, and leaves their files.
+Downloads are stored in `history.sqlite`, in a `downloads` table added by the database's second migration, and restored at launch. One that was active when Haku last stopped is restored as failed (`lost`): the engine aborted it. Restored downloads are not `recent`. A download that cannot be stored, because the disk is full or another program holds the database, stays listed until Haku quits and is gone after a restart. The first such failure is reported as a notice in the browser window used last, and no other until a store succeeds again: a running download is stored up to every 250 ms, and the download itself has not failed, so its entry is not the place for it. Clearing history does not clear downloads; **Clear finished** on `haku://downloads` unlists and forgets the ended ones, and leaves their files.
 
 A private download is never written: `save_download` refuses it, whoever asks. Private downloads are listed only in private windows, and unlisted when the private session ends. Their files stay in the Downloads folder: the engine puts them there, and deleting a file the user downloaded is not Haku's to do.
 

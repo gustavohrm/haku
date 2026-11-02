@@ -12,12 +12,12 @@ use tauri::Manager;
 use tauri_specta::Event;
 
 use crate::browser::{Browser, Effect};
-use crate::error::Result;
+use crate::error::{HakuError, Result};
 use crate::model::{DownloadId, Downloading, Downloads, Profile, SlotId};
 use crate::platform::{self, DownloadSignal, DownloadStart};
 use crate::state::{now_ms, AppState};
 
-use super::commands::mutate;
+use super::commands::{mutate, report_failure};
 use super::events::DownloadsChanged;
 
 /// Takes over the downloads of every content webview created from here on.
@@ -108,11 +108,12 @@ pub fn queue(app: &tauri::AppHandle, changed: Vec<DownloadId>) {
         let app = app.clone();
         std::thread::spawn(move || {
             let mut held = Downloading::default();
+            let mut failing = false;
             while let Ok(mut changed) = receiver.recv() {
                 for more in receiver.try_iter() {
                     changed.extend(more);
                 }
-                held = settle(&app, &changed, held);
+                held = settle(&app, &changed, held, &mut failing);
             }
         });
         sender
@@ -120,8 +121,10 @@ pub fn queue(app: &tauri::AppHandle, changed: Vec<DownloadId>) {
     let _ = queue.send(changed);
 }
 
+/// @param failing - Whether the last store failed, so a failure that lasts
+/// is reported once.
 /// @returns What downloads hold back now.
-fn settle(app: &tauri::AppHandle, changed: &[DownloadId], held: Downloading) -> Downloading {
+fn settle(app: &tauri::AppHandle, changed: &[DownloadId], held: Downloading, failing: &mut bool) -> Downloading {
     let state = app.state::<AppState>();
     // Read under the store's lock, so a download cleared meanwhile is not
     // written back. The list is never waited on while storing.
@@ -131,9 +134,19 @@ fn settle(app: &tauri::AppHandle, changed: &[DownloadId], held: Downloading) -> 
         let stored: Vec<_> = changed.iter().filter_map(|id| downloads.entry(*id).cloned()).collect();
         (stored, downloads.downloading())
     };
-    if let Ok(history) = history {
-        for download in &stored {
-            let _ = history.save_download(download);
+    let outcome = match history {
+        _ if stored.is_empty() => None,
+        Ok(history) => Some(store(&history, &stored)),
+        Err(_) => Some(Err(HakuError::Storage(
+            "downloads were not kept for the next start: the history lock is poisoned".into(),
+        ))),
+    };
+    if let Some(failure) = first_failure(failing, outcome) {
+        // Not a command's failure, and no window asked: the one used last
+        // shows it, as it would a tab opened from nowhere in particular.
+        let window = state.browser.read().map(|browser| browser.main_window());
+        if let Ok(window) = window {
+            report_failure(app, window, failure);
         }
     }
     report(app, &state);
@@ -142,6 +155,41 @@ fn settle(app: &tauri::AppHandle, changed: &[DownloadId], held: Downloading) -> 
         let _ = mutate(app, &state, |browser| Ok(browser.set_downloading(summary)));
     }
     downloading
+}
+
+/// Stores each download, trying every one.
+///
+/// # Errors
+/// Returns the first failure, naming its download.
+fn store(history: &crate::storage::HistoryDb, downloads: &[crate::model::Download]) -> Result<()> {
+    let mut first = Ok(());
+    for download in downloads {
+        if let Err(error) = history.save_download(download) {
+            if first.is_ok() {
+                let reason = match error {
+                    HakuError::Storage(reason) => reason,
+                    other => other.to_string(),
+                };
+                first = Err(HakuError::Storage(format!(
+                    "{} was not kept for the next start: {reason}",
+                    download.name()
+                )));
+            }
+        }
+    }
+    first
+}
+
+/// The failure to report from storing downloads: the first of a run of
+/// failures, and none after it until a store succeeds. A running download is
+/// stored up to every 250 ms, so a full disk would otherwise report each time.
+///
+/// @param outcome - The store's outcome, or `None` when nothing was stored.
+fn first_failure(failing: &mut bool, outcome: Option<Result<()>>) -> Option<HakuError> {
+    let error = outcome?.err();
+    let report = error.is_some() && !*failing;
+    *failing = error.is_some();
+    error.filter(|_| report)
 }
 
 /// Sends each window the downloads of its profile.
@@ -161,5 +209,28 @@ pub fn report(app: &tauri::AppHandle, state: &AppState) {
     for (window, is_private) in windows {
         let list = if is_private { private.clone() } else { ordinary.clone() };
         let _ = DownloadsChanged(list).emit_to(app, window.label());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failed() -> Option<Result<()>> {
+        Some(Err(HakuError::Storage("disk full".into())))
+    }
+
+    #[test]
+    fn a_lasting_store_failure_is_reported_once_until_a_store_succeeds() {
+        let mut failing = false;
+        assert!(first_failure(&mut failing, failed()).is_some());
+        assert!(first_failure(&mut failing, failed()).is_none());
+        assert!(
+            first_failure(&mut failing, None).is_none(),
+            "nothing stored is not a success"
+        );
+        assert!(first_failure(&mut failing, failed()).is_none());
+        assert!(first_failure(&mut failing, Some(Ok(()))).is_none());
+        assert!(first_failure(&mut failing, failed()).is_some());
     }
 }
