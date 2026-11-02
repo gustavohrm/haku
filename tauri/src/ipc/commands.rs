@@ -33,15 +33,15 @@ use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
     check_query, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
-    ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState, ExtensionSource, Extensions,
-    FindDirection, PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, ScreenRect,
-    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState, ExportedBookmarks,
+    ExtensionSource, Extensions, FindDirection, ImportedBookmarks, PageMenu, PermissionDecision, PermissionRequestId,
+    Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::settings::{key_bindings, KeyBinding};
-use crate::storage::{BookmarksDb, Settings, WindowBounds};
+use crate::storage::{bookmarks_html, BookmarksDb, Settings, WindowBounds};
 use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
@@ -2901,6 +2901,52 @@ fn bookmark_tab_in(app: &tauri::AppHandle, state: &AppState, window: WindowId, t
         BookmarksChanged(bookmarks.tree()?).emit(app)?;
     }
     Ok(BookmarkedTab { id, added })
+}
+
+/// Asks the user for a bookmark file and imports it, sending the tree once
+/// when anything was added. Answers nothing when the dialog was cancelled.
+/// The interface never names a path.
+/// [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+///
+/// Async, because the dialog blocks until the user answers.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_bookmarks(app: tauri::AppHandle, webview: tauri::Webview) -> Result<Option<ImportedBookmarks>> {
+    ensure_chrome(&webview)?;
+    let Some(path) = platform::pick_bookmarks_file(&webview.window())? else {
+        return Ok(None);
+    };
+    let file = bookmarks_html::read(&path)?;
+    let folder = match platform::local_date() {
+        Ok((year, month, day)) => format!("Imported {year:04}-{month:02}-{day:02}"),
+        Err(_) => "Imported".to_owned(),
+    };
+    let state = app.state::<AppState>();
+    let mut bookmarks = lock_bookmarks(&state)?;
+    let imported = bookmarks.import(&file, &folder, now_ms() as i64)?;
+    if imported.links + imported.folders > 0 {
+        BookmarksChanged(bookmarks.tree()?).emit(&app)?;
+    }
+    Ok(Some(imported))
+}
+
+/// Asks the user where to export bookmarks and writes every one there, as
+/// Chrome writes a bookmark file. Answers nothing when the dialog was
+/// cancelled. The interface never names a path.
+/// [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+///
+/// Async, because the dialog blocks until the user answers.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_bookmarks(app: tauri::AppHandle, webview: tauri::Webview) -> Result<Option<ExportedBookmarks>> {
+    ensure_chrome(&webview)?;
+    let Some(path) = platform::choose_bookmarks_export(&webview.window())? else {
+        return Ok(None);
+    };
+    let tree = lock_bookmarks(&app.state::<AppState>())?.tree()?;
+    let (text, written) = bookmarks_html::write(&tree);
+    std::fs::write(&path, text)?;
+    Ok(Some(written))
 }
 
 fn lock_bookmarks<'a>(state: &'a AppState) -> Result<std::sync::MutexGuard<'a, BookmarksDb>> {

@@ -13,6 +13,7 @@ import { BookmarkForm, type FormTarget } from "./bookmark-form";
 import { bookmarkMenu } from "./bookmark-menu";
 import { folderOf, folderUrl } from "./bookmarks-url";
 import { Favicon } from "./favicon";
+import { exportBookmarks, importBookmarks } from "./transfer";
 import { childrenOf, displayTitle, isFolder, isRoot, locate, search, urlOf, type Folder } from "./tree";
 import { dropEdge, isDropInto, useBookmarkDrag } from "./use-bookmark-drag";
 
@@ -207,6 +208,14 @@ export function BookmarksPage({ tabId, url }: InternalPageProps) {
           >
             <i className="ic-folder-plus ic-sm" aria-hidden="true" />
             {t("bookmarks.addFolder")}
+          </button>
+          <button type="button" className="btn ghost edged gap-2" onClick={() => void importBookmarks()}>
+            <i className="ic-upload ic-sm" aria-hidden="true" />
+            {t("bookmarks.import")}
+          </button>
+          <button type="button" className="btn ghost edged gap-2" onClick={() => void exportBookmarks()}>
+            <i className="ic-download ic-sm" aria-hidden="true" />
+            {t("bookmarks.export")}
           </button>
         </div>
       }

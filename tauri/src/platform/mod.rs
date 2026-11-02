@@ -642,6 +642,40 @@ pub fn pick_extension<R: tauri::Runtime>(
     backend::pick_extension(window, source)
 }
 
+/// Asks the user for a bookmark file to import, `*.html` or `*.htm`, with
+/// the system's own open dialog, owned by `window`. Answers nothing when the
+/// dialog is cancelled.
+///
+/// Blocks until the user answers, so it must not be called on the UI thread.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the dialog cannot be shown, and on
+/// platforms without an implementation.
+pub fn pick_bookmarks_file<R: tauri::Runtime>(window: &tauri::Window<R>) -> Result<Option<std::path::PathBuf>> {
+    backend::pick_bookmarks_file(window)
+}
+
+/// Asks the user where to export bookmarks, with the system's own save
+/// dialog on `bookmarks.html`, owned by `window`, which asks before replacing
+/// a file. Answers nothing when the dialog is cancelled.
+///
+/// Blocks until the user answers, so it must not be called on the UI thread.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] when the dialog cannot be shown, and on
+/// platforms without an implementation.
+pub fn choose_bookmarks_export<R: tauri::Runtime>(window: &tauri::Window<R>) -> Result<Option<std::path::PathBuf>> {
+    backend::choose_bookmarks_export(window)
+}
+
+/// Today's date where the user is: year, month and day.
+///
+/// # Errors
+/// Returns [`HakuError::Unsupported`] on platforms without an implementation.
+pub fn local_date() -> Result<(u16, u16, u16)> {
+    backend::local_date()
+}
+
 /// Opens a folder in the system's file manager.
 ///
 /// # Errors

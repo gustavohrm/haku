@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::error::{HakuError, Result};
-use crate::model::{is_bookmarkable, BookmarkId, BookmarkKind, BookmarkNode, Bookmarks};
+use crate::model::{is_bookmarkable, BookmarkId, BookmarkKind, BookmarkNode, Bookmarks, ImportedBookmarks};
+use crate::storage::bookmarks_html::{self, BookmarkFile};
 use crate::storage::sqlite;
 
 /// Schema revisions, applied in order by [`sqlite::open`].
@@ -321,6 +322,106 @@ impl BookmarksDb {
         transaction.commit()?;
         Ok(())
     }
+
+    /// Adds a bookmark file's contents in one transaction: what its bar held
+    /// to the end of **Bookmarks bar**, and the rest to a new folder named
+    /// `folder_title` at the end of **Other bookmarks**, made only when there
+    /// is a rest. A date the file lacks is `now`. Leaves the folder used last
+    /// as it was. [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+    ///
+    /// # Errors
+    /// Returns [`HakuError::Unsupported`] for a link that may not be
+    /// bookmarked, and [`HakuError::Storage`] when a write fails. Nothing is
+    /// added then.
+    pub fn import(&mut self, file: &BookmarkFile, folder_title: &str, now: i64) -> Result<ImportedBookmarks> {
+        let bar = self.tree_root("bar")?;
+        let other = self.tree_root("other")?;
+        let transaction = self.connection.transaction()?;
+        let mut imported = ImportedBookmarks {
+            skipped: file.skipped,
+            ..ImportedBookmarks::default()
+        };
+        if !file.bar.is_empty() {
+            let start = open_place(&transaction, bar, None)?;
+            add_entries(&transaction, bar, start, &file.bar, now, &mut imported)?;
+            touch(&transaction, bar, now)?;
+        }
+        if !file.other.is_empty() {
+            let position = open_place(&transaction, other, None)?;
+            let folder = add_row(&transaction, other, position, None, folder_title, now, now)?;
+            add_entries(&transaction, folder, 0, &file.other, now, &mut imported)?;
+            touch(&transaction, other, now)?;
+        }
+        transaction.commit()?;
+        Ok(imported)
+    }
+}
+
+/// Adds `entries` to `parent` from `position` on, counting what was added.
+/// Recursive: a file's folders are at most [`bookmarks_html::MAX_DEPTH`] deep.
+fn add_entries(
+    transaction: &Transaction<'_>,
+    parent: BookmarkId,
+    position: i64,
+    entries: &[bookmarks_html::Entry],
+    now: i64,
+    imported: &mut ImportedBookmarks,
+) -> Result<()> {
+    for (offset, entry) in (0..).zip(entries) {
+        match entry {
+            bookmarks_html::Entry::Link { title, url, added_at } => {
+                check_url(url)?;
+                let added_at = added_at.unwrap_or(now);
+                add_row(
+                    transaction,
+                    parent,
+                    position + offset,
+                    Some(url),
+                    title,
+                    added_at,
+                    added_at,
+                )?;
+                imported.links += 1;
+            }
+            bookmarks_html::Entry::Folder {
+                title,
+                added_at,
+                children,
+            } => {
+                let folder = add_row(
+                    transaction,
+                    parent,
+                    position + offset,
+                    None,
+                    title,
+                    added_at.unwrap_or(now),
+                    now,
+                )?;
+                imported.folders += 1;
+                add_entries(transaction, folder, 0, children, now, imported)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Writes one row at a place already open.
+fn add_row(
+    transaction: &Transaction<'_>,
+    parent: BookmarkId,
+    position: i64,
+    url: Option<&str>,
+    title: &str,
+    added_at: i64,
+    modified_at: i64,
+) -> Result<BookmarkId> {
+    transaction
+        .prepare_cached(
+            "INSERT INTO bookmarks (parent, position, url, title, added_at, modified_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )?
+        .execute(params![parent.0, position, url, title, added_at, modified_at])?;
+    Ok(BookmarkId(transaction.last_insert_rowid()))
 }
 
 fn build(row: Row, children: &mut HashMap<i64, Vec<Row>>) -> BookmarkNode {
@@ -790,6 +891,127 @@ mod tests {
             database().bookmark_page("New tab", "haku://new-tab", 1),
             Err(HakuError::Unsupported(_))
         ));
+    }
+
+    fn imported_link(title: &str, added_at: Option<i64>) -> bookmarks_html::Entry {
+        bookmarks_html::Entry::Link {
+            title: title.into(),
+            url: format!("https://{}.test/", title.to_lowercase()),
+            added_at,
+        }
+    }
+
+    fn imported_folder(title: &str, children: Vec<bookmarks_html::Entry>) -> bookmarks_html::Entry {
+        bookmarks_html::Entry::Folder {
+            title: title.into(),
+            added_at: Some(5_000),
+            children,
+        }
+    }
+
+    #[test]
+    fn an_import_appends_the_bar_and_puts_the_rest_in_a_folder_of_its_own() {
+        let mut database = database();
+        let (bar, other) = roots(&database);
+        database.add_link(bar, None, "Kept", "https://kept.test/", 1).unwrap();
+        database
+            .add_link(other, None, "Also kept", "https://also.test/", 1)
+            .unwrap();
+        let file = BookmarkFile {
+            bar: vec![
+                imported_link("Bar", Some(2_000)),
+                imported_folder("Tools", vec![imported_link("Tool", None)]),
+            ],
+            other: vec![imported_link("Loose", Some(3_000)), imported_folder("Empty", vec![])],
+            skipped: 3,
+        };
+
+        let imported = database.import(&file, "Imported 2026-11-02", 9_000).unwrap();
+
+        assert_eq!(
+            imported,
+            ImportedBookmarks {
+                links: 3,
+                folders: 2,
+                skipped: 3
+            }
+        );
+        let tree = database.tree().unwrap();
+        assert_eq!(titles(&tree.bar), ["Kept", "Bar", "Tools"]);
+        assert_eq!(titles(&children(&tree.bar)[2]), ["Tool"]);
+        assert_eq!(titles(&tree.other), ["Also kept", "Imported 2026-11-02"]);
+        let folder = &children(&tree.other)[1];
+        assert_eq!(titles(folder), ["Loose", "Empty"]);
+        assert_eq!(folder.added_at, 9_000);
+        // Dates the file has are kept; one it lacks is the import's.
+        assert_eq!(children(&tree.bar)[1].added_at, 2_000);
+        assert_eq!(children(&tree.bar)[2].added_at, 5_000);
+        assert_eq!(children(&children(&tree.bar)[2])[0].added_at, 9_000);
+        assert_eq!(children(folder)[0].added_at, 3_000);
+        assert_eq!(tree.bar.modified_at, 9_000);
+        assert_dense(&database);
+    }
+
+    #[test]
+    fn an_import_of_the_bar_alone_adds_no_folder() {
+        let mut database = database();
+        let file = BookmarkFile {
+            bar: vec![imported_link("Bar", None)],
+            ..BookmarkFile::default()
+        };
+
+        database.import(&file, "Imported", 1).unwrap();
+
+        let tree = database.tree().unwrap();
+        assert_eq!(titles(&tree.bar), ["Bar"]);
+        assert!(children(&tree.other).is_empty());
+    }
+
+    #[test]
+    fn an_import_leaves_the_folder_used_last_alone() {
+        let mut database = database();
+        let (_, other) = roots(&database);
+        let folder = database.add_folder(other, None, "Used last", 1).unwrap();
+        database.add_link(folder, None, "A", "https://a.test/", 1).unwrap();
+        let file = BookmarkFile {
+            bar: vec![imported_link("Bar", None)],
+            other: vec![imported_link("Loose", None)],
+            skipped: 0,
+        };
+
+        database.import(&file, "Imported", 2).unwrap();
+        let (id, _) = database.bookmark_page("Page", "https://page.test/", 3).unwrap();
+
+        let tree = database.tree().unwrap();
+        assert_eq!(children(&children(&tree.other)[0])[1].id, id);
+    }
+
+    #[test]
+    fn an_import_that_fails_adds_nothing() {
+        let mut database = database();
+        let (bar, _) = roots(&database);
+        database.add_link(bar, None, "Kept", "https://kept.test/", 1).unwrap();
+        let before = database.tree().unwrap();
+        // The bar and the first of the rest are written before the bad link fails.
+        let file = BookmarkFile {
+            bar: vec![imported_link("Bar", None)],
+            other: vec![
+                imported_folder("Folder", vec![imported_link("Fine", None)]),
+                bookmarks_html::Entry::Link {
+                    title: "Script".into(),
+                    url: "javascript:alert(1)".into(),
+                    added_at: None,
+                },
+            ],
+            skipped: 0,
+        };
+
+        let result = database.import(&file, "Imported", 2);
+
+        assert!(matches!(result, Err(HakuError::Unsupported(_))));
+        assert_eq!(database.tree().unwrap(), before);
+        // The connection is usable afterwards, with no transaction left open.
+        database.add_link(bar, None, "After", "https://after.test/", 3).unwrap();
     }
 
     fn temp_path(name: &str) -> PathBuf {
