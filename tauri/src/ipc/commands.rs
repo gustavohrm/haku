@@ -2233,7 +2233,12 @@ pub async fn stop_find(
     refocus: bool,
 ) -> Result<()> {
     let window = ensure_chrome(&webview)?;
-    let Some(page) = slot_of(&state, window, tab)?.and_then(|slot| app.get_webview(&slot.label())) else {
+    // The bar closes as its tab does, so a tab already gone has no search.
+    let slot = match slot_of(&state, window, tab) {
+        Err(HakuError::TabNotFound(_)) => return Ok(()),
+        found => found?,
+    };
+    let Some(page) = slot.and_then(|slot| app.get_webview(&slot.label())) else {
         return Ok(());
     };
     platform::stop_find(&page)?;
