@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-11-01
+last_updated: 2026-11-02
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -86,7 +86,7 @@ Private browsing is a kind of browser window, not a kind of tab, as in other bro
 - Ctrl+Shift+N opens one, and a link's menu has "Open link in private window". A page in a private window opens its popups as private popups, its Shift+click windows as private windows, and a tab asked for from a private popup in the private window used last.
 - Closing its last tab closes it, as in other browsers, rather than leaving a home tab that would keep the private session alive.
 - Its tabs share one private session, across private windows. While any private tab exists, one private slot is kept, counted in capacity like any other, so discarding every private tab does not sign them out. When the last private tab closes, every private slot is destroyed, and the next private window starts empty.
-- Nothing about it is written: no history visit or title, no window in the session, no closed tab to reopen, and no setting taken from a site in it. An engine restart therefore loses it.
+- Nothing about it is written: no history visit or title, no window in the session, no closed tab to reopen, and no setting taken from a site in it. An engine restart therefore loses it. Bookmarks are the exception: one the user adds, edits or deletes in a private window is written, as in an ordinary one, because it is the user's own deliberate choice rather than a record of browsing ([Bookmarks § Private windows](specs/bookmarks.md#private-windows)).
 - Its tabs show a generic icon. The interface fetching a favicon would send the default profile's cookies to the private site.
 - It has no extension toolbar, since extensions do not run in it.
 - A slot created for it that reports private mode off is destroyed, and the window fails to open, rather than browse in the default profile. However it was opened, the failure is shown in the window it was opened from: through the command's reply, or, by Ctrl+Shift+N or by a page, through the failure event ([Errors](specs/errors.md#failures-no-command-is-waiting-on)). Only a runtime without InPrivate support fails here, and the evergreen runtime updates itself.
