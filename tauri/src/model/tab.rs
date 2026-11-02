@@ -6,7 +6,7 @@ use specta::Type;
 use super::dialog::PageDialog;
 use super::history::{History, Visit};
 use super::page_state::{Loss, LossSignal, PageRecord, PageState, DRAFT_LIMIT};
-use super::permission::PermissionRequest;
+use super::permission::{PermissionKind, PermissionRequest};
 use super::pool::SlotId;
 
 /// Scheme used by pages Haku renders itself, inside the chrome webview.
@@ -84,6 +84,10 @@ pub struct Tab {
     /// Further requests waiting behind [`Tab::permission`]. Rust's alone.
     #[serde(skip)]
     pub queued_permissions: VecDeque<PermissionRequest>,
+    /// Requests the user closed with Escape, denied without asking until the
+    /// user reloads the tab or navigates it. Rust's alone.
+    #[serde(skip)]
+    pub dismissed_permissions: Vec<(String, PermissionKind)>,
     /// The page is playing audio, which a smart policy will not interrupt.
     pub audible: bool,
     /// Discarded to free memory while the system was short of it, and not
@@ -121,6 +125,7 @@ impl Tab {
             dialog: None,
             permission: None,
             queued_permissions: VecDeque::new(),
+            dismissed_permissions: Vec::new(),
             audible: false,
             relieved: false,
             restoring: false,

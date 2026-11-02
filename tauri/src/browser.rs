@@ -464,9 +464,6 @@ pub struct Browser {
     site_permissions: Vec<SitePermission>,
     /// Decisions made in private windows, for the private session only.
     private_permissions: Vec<SitePermission>,
-    /// Requests dismissed without an answer, denied without asking until
-    /// Haku quits: whether private, the origin and the kind.
-    dismissed_permissions: HashSet<(bool, String, PermissionKind)>,
 }
 
 impl Browser {
@@ -501,7 +498,6 @@ impl Browser {
             downloading: Downloading::default(),
             site_permissions: Vec::new(),
             private_permissions: Vec::new(),
-            dismissed_permissions: HashSet::new(),
         }
     }
 
@@ -1005,6 +1001,23 @@ impl Browser {
 
     /// Releases what a tab's page is waiting on, because the page is going
     /// away: its dialog and its permission requests.
+    /// Lets the sites a tab's user dismissed ask again, as the user has
+    /// reloaded or navigated it.
+    fn forget_dismissals(&mut self, id: TabId) {
+        if let Ok(tab) = self.tab_mut(id) {
+            tab.dismissed_permissions.clear();
+        }
+    }
+
+    /// Whether the user closed this request's prompt in this tab with Escape.
+    fn is_dismissed(&self, id: TabId, request: &PermissionRequest) -> bool {
+        self.tab(id).is_ok_and(|tab| {
+            tab.dismissed_permissions
+                .iter()
+                .any(|(origin, kind)| *origin == request.origin && *kind == request.kind)
+        })
+    }
+
     fn release_page(&mut self, id: TabId) -> Vec<Effect> {
         let mut effects: Vec<Effect> = self.dismiss_dialog(id).into_iter().collect();
         effects.extend(self.withdraw_permissions(id, false, |_| true));
@@ -1055,7 +1068,12 @@ impl Browser {
             let Some(next) = tab.queued_permissions.pop_front() else {
                 return effects;
             };
-            match self.known_decision(private, &next.origin, next.kind) {
+            let known = if self.is_dismissed(id, &next) {
+                Some(false)
+            } else {
+                self.known_decision(private, &next.origin, next.kind)
+            };
+            match known {
                 Some(allow) => effects.push(Effect::AnswerPermission { id: next.id, allow }),
                 None => {
                     if let Ok(tab) = self.tab_mut(id) {
@@ -1213,7 +1231,6 @@ impl Browser {
         if self.is_private(window) && !self.has_private_tabs() {
             self.private_session += 1;
             self.private_permissions.clear();
-            self.dismissed_permissions.retain(|(private, _, _)| !private);
         }
         let id = TabId(self.next_id);
         self.next_id += 1;
@@ -1872,6 +1889,7 @@ impl Browser {
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn navigate(&mut self, id: TabId, url: impl Into<String>) -> Result<Vec<Effect>> {
         let dismissed = self.release_page(id);
+        self.forget_dismissals(id);
         let tab = self.tab_mut(id)?;
         tab.history.push(Visit::new(url));
         tab.leave_entry();
@@ -1917,6 +1935,7 @@ impl Browser {
         }
 
         let mut effects: Vec<Effect> = self.release_page(id);
+        self.forget_dismissals(id);
         let tab = self.tab_mut(id)?;
         if backwards {
             tab.history.go_back();
@@ -1939,6 +1958,7 @@ impl Browser {
         }
         let slot = tab.slot();
         let mut effects: Vec<Effect> = self.release_page(id);
+        self.forget_dismissals(id);
         match slot {
             Some(slot) => effects.push(Effect::Reload { slot }),
             None => effects.extend(self.realize()),
@@ -2437,12 +2457,6 @@ impl Browser {
     /// A private window honours a stored Block, ahead of what was decided in
     /// the private session, but not a stored Allow.
     fn known_decision(&self, private: bool, origin: &str, kind: PermissionKind) -> Option<bool> {
-        if self
-            .dismissed_permissions
-            .contains(&(private, origin.to_string(), kind))
-        {
-            return Some(false);
-        }
         let stored = decision_for(&self.site_permissions, origin, kind);
         let decided = if private {
             stored
@@ -2475,6 +2489,9 @@ impl Browser {
             return denied;
         }
         let private = self.profile_of(id) == Profile::Private;
+        if self.is_dismissed(id, &request) {
+            return denied;
+        }
         if let Some(allow) = self.known_decision(private, &request.origin, request.kind) {
             return vec![Effect::AnswerPermission { id: request.id, allow }];
         }
@@ -2512,13 +2529,17 @@ impl Browser {
         };
         let allow = decision == PermissionDecision::Allow;
         // The same request waiting in another tab of the profile is answered
-        // too, so it cannot ask again and overwrite this decision.
-        let others: Vec<TabId> = self
-            .tabs
-            .iter()
-            .map(|tab| tab.id)
-            .filter(|other| *other != id && (self.profile_of(*other) == Profile::Private) == private)
-            .collect();
+        // too, so it cannot ask again and overwrite this decision. Escape
+        // decides nothing, and holds only for this tab's page.
+        let others: Vec<TabId> = if decision.state().is_some() {
+            self.tabs
+                .iter()
+                .map(|tab| tab.id)
+                .filter(|other| *other != id && (self.profile_of(*other) == Profile::Private) == private)
+                .collect()
+        } else {
+            Vec::new()
+        };
         let mut effects = Vec::new();
         for tab in std::iter::once(id).chain(others) {
             effects.extend(self.withdraw_permissions(tab, allow, |other| {
@@ -2527,7 +2548,7 @@ impl Browser {
         }
 
         let Some(state) = decision.state() else {
-            self.dismissed_permissions.insert((private, shown.origin, shown.kind));
+            self.tab_mut(id)?.dismissed_permissions.push((shown.origin, shown.kind));
             return Ok((effects, None));
         };
         let decided = SitePermission {
