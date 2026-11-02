@@ -1404,6 +1404,32 @@ fn discarding_always_releases_a_tab_as_soon_as_it_is_left() {
 }
 
 #[test]
+fn discarding_always_spares_a_tab_waiting_on_the_user() {
+    let (mut browser, ids) = optimized(Policy::Never, Policy::Always);
+    let slot = slot_of(&browser, ids[2]).unwrap();
+    browser.open_dialog(slot, dialog(1, DialogKind::Confirm));
+
+    let effects = browser.select_tab(ids[0], 0).unwrap();
+
+    assert_eq!(presence(&browser, ids[2]), TabPresence::Live { slot });
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::AnswerDialog { .. })));
+
+    browser.select_tab(ids[2], 0).unwrap();
+    browser
+        .answer_dialog(ids[2], DialogId(1), DialogAnswer::Dismiss)
+        .unwrap();
+    let asked = browser.request_permission(slot, request(2, PermissionKind::Camera, "https://c.test"));
+    assert!(granted(&asked).is_empty());
+
+    let effects = browser.select_tab(ids[1], 0).unwrap();
+
+    assert_eq!(presence(&browser, ids[2]), TabPresence::Live { slot });
+    assert!(granted(&effects).is_empty());
+}
+
+#[test]
 fn discarding_always_still_spares_a_fixed_tab() {
     let (mut browser, ids) = optimized(Policy::Never, Policy::Always);
     browser.select_tab(ids[0], 0).unwrap();

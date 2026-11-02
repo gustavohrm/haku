@@ -2816,9 +2816,12 @@ impl Browser {
         // A page paused on a dialog is already still, and the dialog is waiting
         // on an answer the page has to be running to receive.
         let waiting = tab.dialog.is_some();
+        // Discarding would answer a dialog or permission request for the user
+        // the moment they look away from it.
+        let asks = waiting || tab.permission.is_some();
 
         match (self.discard, self.freeze) {
-            (Policy::Always, _) if !self.has_connected(id) => self.discard_tab(id),
+            (Policy::Always, _) if !self.has_connected(id) && !asks => self.discard_tab(id),
             (_, Policy::Never) => self.resume_tab(id),
             _ if keep_running => self.resume_tab(id),
             _ if waiting => Vec::new(),
