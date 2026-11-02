@@ -1101,12 +1101,12 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
     // guards below can outlive it.
     let state: &AppState = handle.inner();
 
-    let (recorded, stale) = {
+    let (recorded, paused, stale) = {
         let Ok(mut browser) = state.browser.write() else {
             return;
         };
         let recorded = browser.report_page(slot, commits, title);
-        (recorded, browser.has_stale_permissions(slot))
+        (recorded, browser.history_paused(), browser.has_stale_permissions(slot))
     };
 
     // A request from an origin the page has left is answered off this thread,
@@ -1119,8 +1119,10 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
         });
     }
 
-    if let Some(report) = recorded {
-        queue_record(app, report);
+    // A pause stops history, not the session: the tab still moved, and should
+    // reopen where it is now.
+    if recorded.is_some() || paused {
+        queue_record(app, recorded);
     }
 
     let states = state.browser.read().map(|browser| window_states(&browser));
@@ -2146,16 +2148,19 @@ mod hold_tests {
 /// The session is written once for every report that queued up meanwhile, so
 /// a page pushing routes quickly costs one write, not one per route; it
 /// should reopen where the page actually is, not where it was opened.
-fn queue_record(app: &tauri::AppHandle, report: PageReport) {
-    static QUEUE: OnceLock<mpsc::Sender<PageReport>> = OnceLock::new();
+///
+/// @param report - The visit to record, or `None` for a page change that
+/// enters no history, such as one while history is paused, which only the
+/// session keeps.
+fn queue_record(app: &tauri::AppHandle, report: Option<PageReport>) {
+    static QUEUE: OnceLock<mpsc::Sender<Option<PageReport>>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
-        let (sender, receiver) = mpsc::channel::<PageReport>();
+        let (sender, receiver) = mpsc::channel::<Option<PageReport>>();
         let app = app.clone();
         std::thread::spawn(move || {
             let state = app.state::<AppState>();
             while let Ok(report) = receiver.recv() {
-                record_visit(&state, &report);
-                for report in receiver.try_iter() {
+                for report in std::iter::once(report).chain(receiver.try_iter()).flatten() {
                     record_visit(&state, &report);
                 }
                 let _ = state.save_session();

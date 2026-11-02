@@ -645,6 +645,11 @@ impl Browser {
         self.history_paused = paused;
     }
 
+    /// Whether browsing history is paused.
+    pub fn history_paused(&self) -> bool {
+        self.history_paused
+    }
+
     /// Says how a navigation Haku just made for a tab was asked for, so its
     /// visit records that rather than [`Transition::Other`]. A tab with no
     /// navigation pending is left alone.
