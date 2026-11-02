@@ -695,19 +695,10 @@ fn run_shortcut_in(
             if let Some(failure) = failed.take() {
                 return commit_held(app, state, effects, failure);
             }
-            // Internal pages and strip moves can change state without native effects.
-            if !effects.is_empty()
-                || matches!(
-                    shortcut,
-                    Shortcut::MoveTabLeft
-                        | Shortcut::MoveTabRight
-                        | Shortcut::Home
-                        | Shortcut::Memory
-                        | Shortcut::DuplicateTab
-                )
-            {
-                commit(app, state, effects)?;
-            }
+            // Committed even without native effects, as `mutate` is: tabs on
+            // internal pages hold no webview, so opening, closing or moving
+            // between them changes state and nothing else.
+            commit(app, state, effects)?;
             let (address, devtools, close, page) = native.get();
             if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
                 window.close()?;
