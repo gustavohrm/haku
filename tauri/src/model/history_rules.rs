@@ -34,10 +34,13 @@ pub struct HistoryRule {
 #[specta(inline)]
 pub struct HistoryRules(pub Vec<HistoryRule>);
 
-/// Drops any rule that cannot be read or compiled, and reads a value that is
-/// not a list as none, rather than failing the whole settings file over a
-/// hand-edited pattern. Written by hand rather than with `deserialize_with`,
-/// which splits `Settings` into a read and a written type in the bindings.
+/// Drops any rule that cannot be read, and reads a value that is not a list as
+/// none, rather than failing the whole settings file over a hand-edited rule.
+/// A rule whose pattern does not compile is kept here: settings from the
+/// interface are refused over it with the reason, and a stored one is dropped
+/// by [`HistoryRules::normalized`] when the file is loaded. Written by hand
+/// rather than with `deserialize_with`, which splits `Settings` into a read
+/// and a written type in the bindings.
 impl<'de> Deserialize<'de> for HistoryRules {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let serde_json::Value::Array(entries) = serde_json::Value::deserialize(deserializer)? else {
@@ -47,7 +50,6 @@ impl<'de> Deserialize<'de> for HistoryRules {
             entries
                 .into_iter()
                 .filter_map(|entry| serde_json::from_value::<HistoryRule>(entry).ok())
-                .filter(|rule| rule.pattern.compile().is_ok())
                 .collect(),
         ))
     }
@@ -246,16 +248,29 @@ mod tests {
     }
 
     #[test]
-    fn a_stored_rule_that_cannot_be_read_or_compiled_is_dropped() {
+    fn a_rule_that_cannot_be_read_is_dropped_and_one_that_cannot_compile_is_left_to_refuse() {
         let json = serde_json::json!([
             { "pattern": { "kind": "site", "value": "a.test" }, "action": "never" },
-            { "pattern": { "kind": "regex", "value": "(" }, "action": "never" },
+            { "pattern": { "kind": "regex", "value": "(" }, "action": "always" },
             { "pattern": { "kind": "glob", "value": "x" }, "action": "never" },
             "nonsense",
         ]);
         let read = HistoryRules::deserialize(json).unwrap();
         assert_eq!(
             read.0,
+            vec![
+                rule(UrlPatternKind::Site, "a.test", HistoryRuleAction::Never),
+                rule(UrlPatternKind::Regex, "(", HistoryRuleAction::Always),
+            ]
+        );
+        // What `set_settings` is given is refused over it, with the reason.
+        assert!(matches!(
+            read.compile(),
+            Err(crate::error::HakuError::InvalidPattern(_))
+        ));
+        // What the settings file holds is loaded without it.
+        assert_eq!(
+            read.normalized().0,
             vec![rule(UrlPatternKind::Site, "a.test", HistoryRuleAction::Never)]
         );
     }
