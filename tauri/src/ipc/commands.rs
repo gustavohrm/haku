@@ -697,32 +697,42 @@ fn run_shortcut_in(
             }
             // Committed even without native effects, as `mutate` is: tabs on
             // internal pages hold no webview, so opening, closing or moving
-            // between them changes state and nothing else.
-            commit(app, state, effects)?;
-            let (address, devtools, close, page) = native.get();
-            if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
-                window.close()?;
-            }
-            if let Some(tab) = address {
-                focus_address(app, tab)?;
-            }
-            if let Some(page) = devtools.and_then(|slot| app.get_webview(&slot.label())) {
-                page.open_devtools();
-            }
-            match page {
-                Some(PageAction::Find(tab)) => {
-                    // The page holds the keyboard; the bar's field can only
-                    // take it once the chrome has it, as for the address field.
-                    webview::chrome_of(app, request.window())?.set_focus()?;
-                    FindRequested(tab).emit_to(app, request.window().label())?;
-                }
-                Some(PageAction::Print(slot)) => print_slot(app, request.window(), slot)?,
-                Some(PageAction::Save(slot)) => save_slot(app, request.window(), slot)?,
-                None => {}
-            }
-            Ok(())
+            // between them changes state and nothing else. Its failure is
+            // returned after the native action, so a failure to watch a
+            // private window's workers cannot stop Ctrl+F or Ctrl+L.
+            let committed = commit(app, state, effects);
+            committed.and(run_native(app, request, native.get()))
         },
     )
+}
+
+/// What a shortcut does outside the browser's state, once that is committed.
+fn run_native(
+    app: &tauri::AppHandle,
+    request: ShortcutRequest,
+    (address, devtools, close, page): (Option<TabId>, Option<SlotId>, Option<WindowId>, Option<PageAction>),
+) -> Result<()> {
+    if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
+        window.close()?;
+    }
+    if let Some(tab) = address {
+        focus_address(app, tab)?;
+    }
+    if let Some(page) = devtools.and_then(|slot| app.get_webview(&slot.label())) {
+        page.open_devtools();
+    }
+    match page {
+        Some(PageAction::Find(tab)) => {
+            // The page holds the keyboard; the bar's field can only
+            // take it once the chrome has it, as for the address field.
+            webview::chrome_of(app, request.window())?.set_focus()?;
+            FindRequested(tab).emit_to(app, request.window().label())?;
+        }
+        Some(PageAction::Print(slot)) => print_slot(app, request.window(), slot)?,
+        Some(PageAction::Save(slot)) => save_slot(app, request.window(), slot)?,
+        None => {}
+    }
+    Ok(())
 }
 
 /// Opens the home page with `open`, in the address field, as every browser
