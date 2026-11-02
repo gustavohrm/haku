@@ -6,7 +6,7 @@ use specta::Type;
 use super::dialog::PageDialog;
 use super::history::{History, Visit};
 use super::page_state::{Loss, LossSignal, PageRecord, PageState, DRAFT_LIMIT};
-use super::permission::PermissionRequest;
+use super::permission::{PermissionKind, PermissionRequest};
 use super::pool::SlotId;
 use super::zoom::DEFAULT_ZOOM;
 
@@ -85,6 +85,10 @@ pub struct Tab {
     /// Further requests waiting behind [`Tab::permission`]. Rust's alone.
     #[serde(skip)]
     pub queued_permissions: VecDeque<PermissionRequest>,
+    /// Requests the user closed with Escape, denied without asking until the
+    /// user reloads the tab or navigates it. Rust's alone.
+    #[serde(skip)]
+    pub dismissed_permissions: Vec<(String, PermissionKind)>,
     /// The page is playing audio, which a smart policy will not interrupt.
     pub audible: bool,
     /// The zoom the page is shown at, in percent: its site's level, or the
@@ -126,6 +130,7 @@ impl Tab {
             dialog: None,
             permission: None,
             queued_permissions: VecDeque::new(),
+            dismissed_permissions: Vec::new(),
             audible: false,
             zoom: DEFAULT_ZOOM,
             relieved: false,

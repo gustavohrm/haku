@@ -1404,6 +1404,32 @@ fn discarding_always_releases_a_tab_as_soon_as_it_is_left() {
 }
 
 #[test]
+fn discarding_always_spares_a_tab_waiting_on_the_user() {
+    let (mut browser, ids) = optimized(Policy::Never, Policy::Always);
+    let slot = slot_of(&browser, ids[2]).unwrap();
+    browser.open_dialog(slot, dialog(1, DialogKind::Confirm));
+
+    let effects = browser.select_tab(ids[0], 0).unwrap();
+
+    assert_eq!(presence(&browser, ids[2]), TabPresence::Live { slot });
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::AnswerDialog { .. })));
+
+    browser.select_tab(ids[2], 0).unwrap();
+    browser
+        .answer_dialog(ids[2], DialogId(1), DialogAnswer::Dismiss)
+        .unwrap();
+    let asked = browser.request_permission(slot, request(2, PermissionKind::Camera, "https://c.test"));
+    assert!(granted(&asked).is_empty());
+
+    let effects = browser.select_tab(ids[1], 0).unwrap();
+
+    assert_eq!(presence(&browser, ids[2]), TabPresence::Live { slot });
+    assert!(granted(&effects).is_empty());
+}
+
+#[test]
 fn discarding_always_still_spares_a_fixed_tab() {
     let (mut browser, ids) = optimized(Policy::Never, Policy::Always);
     browser.select_tab(ids[0], 0).unwrap();
@@ -4272,6 +4298,43 @@ fn a_dismissed_request_is_denied_unstored_and_not_asked_again() {
 }
 
 #[test]
+fn a_dismissal_holds_until_the_user_reloads_or_navigates_the_tab() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.request_permission(slot, request(1, PermissionKind::Camera, "https://a.test"));
+    browser
+        .answer_permission(id, PermissionRequestId(1), PermissionDecision::Dismiss)
+        .unwrap();
+
+    browser.reload(id).unwrap();
+    let asked = browser.request_permission(slot, request(2, PermissionKind::Camera, "https://a.test"));
+    assert!(granted(&asked).is_empty(), "asks again after a reload");
+    assert_eq!(shown_permission(&browser, id), Some(PermissionRequestId(2)));
+
+    browser
+        .answer_permission(id, PermissionRequestId(2), PermissionDecision::Dismiss)
+        .unwrap();
+    browser.navigate(id, "https://a.test/other").unwrap();
+    browser.report_page(slot, &[commit("https://a.test/other", NavigationKind::Push)], None);
+    let asked = browser.request_permission(slot, request(3, PermissionKind::Camera, "https://a.test"));
+    assert!(granted(&asked).is_empty(), "asks again after navigating");
+}
+
+#[test]
+fn a_dismissal_leaves_other_tabs_of_the_site_asking() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://a.test"]);
+    let slots: Vec<SlotId> = ids.iter().map(|id| slot_of(&browser, *id).unwrap()).collect();
+    browser.request_permission(slots[0], request(1, PermissionKind::Camera, "https://a.test"));
+    browser.request_permission(slots[1], request(2, PermissionKind::Camera, "https://a.test"));
+
+    let (effects, _) = browser
+        .answer_permission(ids[0], PermissionRequestId(1), PermissionDecision::Dismiss)
+        .unwrap();
+
+    assert_eq!(granted(&effects), vec![(PermissionRequestId(1), false)]);
+    assert_eq!(shown_permission(&browser, ids[1]), Some(PermissionRequestId(2)));
+}
+
+#[test]
 fn a_late_answer_to_a_permission_request_that_is_gone_does_nothing() {
     let (mut browser, id, slot) = loaded("https://a.test");
     browser.request_permission(slot, request(2, PermissionKind::Camera, "https://a.test"));
@@ -4375,11 +4438,11 @@ fn a_queued_request_decided_in_another_tab_is_answered_at_once() {
     browser.request_permission(first_slot, request(1, PermissionKind::Notifications, "https://a.test"));
     browser.request_permission(first_slot, request(2, PermissionKind::Camera, "https://a.test"));
     browser.request_permission(second_slot, request(3, PermissionKind::Camera, "https://a.test"));
-    let (dismissed, _) = browser
-        .answer_permission(second, PermissionRequestId(3), PermissionDecision::Dismiss)
+    let (blocked, _) = browser
+        .answer_permission(second, PermissionRequestId(3), PermissionDecision::Block)
         .unwrap();
     assert_eq!(
-        granted(&dismissed),
+        granted(&blocked),
         vec![(PermissionRequestId(3), false), (PermissionRequestId(2), false)]
     );
 
