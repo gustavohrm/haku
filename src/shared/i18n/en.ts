@@ -51,6 +51,7 @@ export const en = {
     "Tabs on this site stay in memory, paused, as if they held unsaved work. Use it for pages that lose something Haku cannot see when they reload.",
   "site.history.show": "Show history for this site",
   "site.history.neverRecord": "Never record this site…",
+  "site.history.recordAgain": "Record this site again",
   "site.history.off": "History is off",
   "site.history.paused": "History is paused",
 
@@ -396,6 +397,10 @@ export const en = {
   "history.row.deleteSite": "Delete everything from this site…",
   "history.row.deleteSite.title": "Delete everything from {site}",
   "history.row.neverRecord": "Never record this site…",
+  "history.row.recordAgain": "Record this site again",
+  "history.recordAgain.done":
+    "Haku records {site} again, unless another rule in Settings → Browsing → History rules stops it.",
+  "history.settings": "History settings",
   "history.delete": "Delete",
   "history.delete.none": "No visits to delete.",
   "history.delete.confirm.one": "1 visit will be deleted. This can't be undone.",
@@ -404,10 +409,13 @@ export const en = {
   "history.deleteSelected.many": "Delete {count} selected visits",
   "history.deleteMatching": "Delete all matching…",
   "history.deleteMatching.title": "Delete matching history",
-  "history.neverRecord.done": "Haku won't record {site} from now on.",
+  "history.neverRecord.done":
+    "Haku won't record {site} from now on. To undo it, choose Record this site again, or remove the rule in Settings → Browsing → History rules.",
   "history.neverRecord.title": "Haku won't record {site} from now on",
-  "history.neverRecord.offer.one": "1 visit to it is already recorded. Delete it too?",
-  "history.neverRecord.offer.many": "{count} visits to it are already recorded. Delete them too?",
+  "history.neverRecord.offer.one":
+    "1 visit to it is already recorded. Delete it too? To undo the rule, choose Record this site again, or remove it in Settings → Browsing → History rules.",
+  "history.neverRecord.offer.many":
+    "{count} visits to it are already recorded. Delete them too? To undo the rule, choose Record this site again, or remove it in Settings → Browsing → History rules.",
   "history.neverRecord.delete.one": "Delete 1 visit",
   "history.neverRecord.delete.many": "Delete {count} visits",
   "history.neverRecord.keep": "Keep them",

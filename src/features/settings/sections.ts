@@ -358,6 +358,19 @@ export function sectionOf(url: string): SettingSection {
   return SECTIONS.find((section) => section.id === id) ?? DEFAULT_SECTION;
 }
 
+/**
+ * The row a settings URL points at, by the id after its `#`, such as
+ * `haku://settings/browsing#historyEnabled`.
+ *
+ * @param url - A `haku://settings` URL.
+ * @returns The row's id, or `null` when the URL names none.
+ */
+export function rowOf(url: string): string | null {
+  const hash = url.indexOf("#");
+  const id = hash === -1 ? "" : url.slice(hash + 1);
+  return id === "" ? null : id;
+}
+
 /** Where a section lives. */
 export function sectionUrl(section: SettingSection): string {
   return `${SETTINGS_URL}/${section.id}`;

@@ -110,7 +110,7 @@ Limits, so a pattern cannot make every visit slow: at most 2,000 characters, and
 
 `haku://history`, drawn by the chrome as today.
 
-- **Header:** the recording switch and pause, and **Clear browsing history…**. Below it, the search field with the filters, then a view toggle, **Visits** or **Sites**, beside the delete actions. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
+- **Header:** the recording switch and pause, **Clear browsing history…**, and **History settings**, which opens `haku://settings/browsing#historyEnabled`, where the rules are kept. Below it, the search field with the filters, then a view toggle, **Visits** or **Sites**, beside the delete actions. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
 - **Filters**, beside the search field:
   - **Text**, matched against title and address.
   - **When:** today, yesterday, last 7 days, last 30 days, or a custom range.
@@ -122,7 +122,7 @@ Limits, so a pattern cannot make every visit slow: at most 2,000 characters, and
 
 - **Visits view:** grouped under day headings, newest first; repeat visits to a page within a day are one row with a count, which expands to each time. More loads as the list scrolls.
 - **Sites view:** one row per host with its visit count and last visit, under the same filter. A row opens the visits view filtered to it.
-- **Rows:** activate opens the page in this tab; middle click or Ctrl+click opens a new tab. Checkboxes select rows; with a selection, the header offers **Delete selected**. A row's menu offers Open in new tab, Copy link, **More from this site**, Delete, **Delete all visits to this page**, **Delete everything from this site…** and **Never record this site…**.
+- **Rows:** activate opens the page in this tab; middle click or Ctrl+click opens a new tab. Checkboxes select rows; with a selection, the header offers **Delete selected**. A row's menu offers Open in new tab, Copy link, **More from this site**, Delete, **Delete all visits to this page**, **Delete everything from this site…** and **Never record this site…**, or **Record this site again** when the site already has a `never` rule of its own.
 - **Clear browsing history…** offers the last hour, last day, last 7 days, last 4 weeks or all time. It deletes visits only; downloads stay, as [Downloads](downloads.md#storage) already says.
 
 The filter lives in the page, not in the address: a query is a moment, not a place, and the address would gain a back entry per keystroke, as [Settings page § Search](settings-page.md#search) decided. An address the page is opened with is read once: `haku://history?q=<text>` and `haku://history?site=<host>`.
@@ -130,7 +130,8 @@ The filter lives in the page, not in the address: a query is a moment, not a pla
 ### Elsewhere
 
 - **Ctrl+H** opens `haku://history` in a new tab: a new shortcut action, `openHistory`, in the same group as `openBookmarks`.
-- **The site menu**, for a web page in an ordinary window, gains **Show history for this site**, which opens `haku://history?site=<host>`, and **Never record this site…**, which adds a `site` rule at the top and makes the same offer to delete.
+- **The site menu**, for a web page in an ordinary window, gains **Show history for this site**, which opens `haku://history?site=<host>`, and **Never record this site…**, which adds a `site` rule at the top and makes the same offer to delete. Both say the rule can be undone, and where.
+- **Record this site again** takes the place of **Never record this site…**, in the site menu and a row's menu, when the site has a `never` rule for exactly its host. It removes that rule only; another rule, such as a wildcard, may still stop the site, and its confirmation says so. Adding a rule is a decision made where the site is, so undoing it is offered there too, rather than only in settings.
 - **About**, in settings, already links to history and is unchanged.
 
 ## Contract

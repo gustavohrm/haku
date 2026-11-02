@@ -50,7 +50,7 @@ The current settings, regrouped by what a person comes looking for:
 
 ## Navigation
 
-Picking a section navigates the tab to its address with the existing `navigate_tab`, so the address field shows where you are, Back returns to the previous section, and a section can be linked to, as the extensions menu's **Manage extensions** will link to `haku://settings/extensions`. [First release § Internal pages](../first-release.md#internal-pages-are-haku-urls) already routes anything after the host to the page, so the router needs no change.
+Picking a section navigates the tab to its address with the existing `navigate_tab`, so the address field shows where you are, Back returns to the previous section, and a section can be linked to, as the extensions menu's **Manage extensions** will link to `haku://settings/extensions`. A `#` names a row by its id, and the section opens scrolled to it, as the history page's **History settings** links to `haku://settings/browsing#historyEnabled`; the row is read when the address changes, so editing a row never scrolls back to it. [First release § Internal pages](../first-release.md#internal-pages-are-haku-urls) already routes anything after the host to the page, so the router needs no change.
 
 Rejected: keeping the section in component state. It is simpler, but Back would leave settings entirely and nothing could open a section directly.
 

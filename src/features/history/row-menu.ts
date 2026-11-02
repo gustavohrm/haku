@@ -4,10 +4,12 @@ import { t } from "@shared/i18n";
 
 import { filterOf } from "./filter";
 import { type VisitRow } from "./group";
-import { confirmDelete, copyLink, deleteNow, deleteVisits, neverRecordSite } from "./history-actions";
+import { confirmDelete, copyLink, deleteNow, deleteVisits, neverRecordSite, recordSiteAgain } from "./history-actions";
 
 interface RowMenuOptions {
   isPrivate: boolean;
+  /** Whether the row's site has a rule of its own never to record it. */
+  neverRecorded: boolean;
   /** Narrows the page to the row's site. */
   showSite: (host: string) => void;
 }
@@ -19,7 +21,7 @@ interface RowMenuOptions {
  * and Never record for a private window, which records nothing anyway.
  * [History § The history page](../../../docs/specs/history.md#the-history-page).
  */
-export function rowMenu(row: VisitRow, { isPrivate, showSite }: RowMenuOptions): MenuItem[] {
+export function rowMenu(row: VisitRow, { isPrivate, neverRecorded, showSite }: RowMenuOptions): MenuItem[] {
   const site = { kind: "site", value: row.host } as const;
   const items: MenuItem[] = [
     {
@@ -76,9 +78,13 @@ export function rowMenu(row: VisitRow, { isPrivate, showSite }: RowMenuOptions):
       items.push({
         kind: "command",
         id: "never",
-        label: t("history.row.neverRecord"),
-        icon: "ic-circle-off",
-        onSelect: () => void neverRecordSite(row.host),
+        ...(neverRecorded
+          ? { label: t("history.row.recordAgain"), onSelect: () => void recordSiteAgain(row.host) }
+          : {
+              label: t("history.row.neverRecord"),
+              icon: "ic-circle-off",
+              onSelect: () => void neverRecordSite(row.host),
+            }),
       });
     }
   }

@@ -1,6 +1,6 @@
 import { type Tab } from "@bindings";
 import { useBarHold } from "@features/bars/holds";
-import { neverRecordSite } from "@features/history/history-actions";
+import { hasNeverRule, neverRecordSite, recordSiteAgain } from "@features/history/history-actions";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
@@ -44,6 +44,7 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
   const settings = useSettings();
   const host = hostnameOf(url);
   const siteKept = host !== null && (settings?.keptSites.includes(host) ?? false);
+  const neverRecorded = host !== null && hasNeverRule(settings?.historyRules ?? [], host);
 
   const setSiteKept = (kept: boolean) => {
     if (isPrivate || host === null) {
@@ -172,11 +173,11 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
                   className="btn ghost justify-start"
                   onClick={() => {
                     close();
-                    void neverRecordSite(host);
+                    void (neverRecorded ? recordSiteAgain(host) : neverRecordSite(host));
                   }}
                 >
-                  <i className="ic-circle-off ic-sm" aria-hidden="true" />
-                  {t("site.history.neverRecord")}
+                  <i className={neverRecorded ? "ic-history ic-sm" : "ic-circle-off ic-sm"} aria-hidden="true" />
+                  {neverRecorded ? t("site.history.recordAgain") : t("site.history.neverRecord")}
                 </button>
               </div>
             )}

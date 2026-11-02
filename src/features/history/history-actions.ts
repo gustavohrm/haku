@@ -1,4 +1,4 @@
-import { type HistoryFilter, type UrlPattern } from "@bindings";
+import { type HistoryFilter, type HistoryRule, type UrlPattern } from "@bindings";
 import { feedback, reportUnexpected } from "@features/feedback/feedback";
 import { type MenuItem } from "@features/overlays/menu-model";
 import { commands } from "@ipc/commands";
@@ -132,6 +132,37 @@ export async function neverRecordSite(host: string): Promise<void> {
     }
   } catch (error) {
     reportUnexpected(error);
+  }
+}
+
+/** Where the history settings are: the Browsing section, at the History group's first row. */
+export const HISTORY_SETTINGS_URL = "haku://settings/browsing#historyEnabled";
+
+const siteRule = (host: string): UrlPattern => ({ kind: "site", value: host });
+const isNeverRuleFor = (host: string) => (rule: HistoryRule) =>
+  rule.action === "never" && samePattern(rule.pattern, siteRule(host));
+
+/**
+ * Whether `host` has a rule of its own never to record it, as "Never record
+ * this site…" adds. Another rule, such as a wildcard, may still stop it.
+ */
+export function hasNeverRule(rules: readonly HistoryRule[], host: string): boolean {
+  return rules.some(isNeverRuleFor(host));
+}
+
+/**
+ * Removes the rule never to record `host`, undoing "Never record this site…".
+ * Other rules stay, so one of them may still stop the site.
+ *
+ * @param host - The site to record again.
+ */
+export async function recordSiteAgain(host: string): Promise<void> {
+  const stored = await tryUpdateSettings((current) => ({
+    ...current,
+    historyRules: current.historyRules.filter((rule) => !isNeverRuleFor(host)(rule)),
+  }));
+  if (stored?.status === "ok") {
+    feedback().success(t("history.recordAgain.done").replace("{site}", () => host));
   }
 }
 

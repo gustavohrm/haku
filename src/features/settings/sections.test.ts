@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_SECTION, searchSettings, SECTIONS, sectionOf, sectionUrl } from "./sections";
+import { DEFAULT_SECTION, rowOf, searchSettings, SECTIONS, sectionOf, sectionUrl } from "./sections";
+
+describe("rowOf", () => {
+  it("reads the row after the #, which leaves the section as it is", () => {
+    expect(rowOf("haku://settings/browsing#historyEnabled")).toBe("historyEnabled");
+    expect(sectionOf("haku://settings/browsing#historyEnabled").id).toBe("browsing");
+  });
+
+  it("names no row without one", () => {
+    expect(rowOf("haku://settings/browsing")).toBeNull();
+    expect(rowOf("haku://settings/browsing#")).toBeNull();
+  });
+
+  it("names a row that exists, for the history page's link", () => {
+    const browsing = SECTIONS.find((section) => section.id === "browsing")!;
+    expect(browsing.groups.flatMap((group) => group.rows).some((row) => row.id === "historyEnabled")).toBe(true);
+  });
+});
 
 describe("sectionOf", () => {
   it("opens the default section at the settings page itself", () => {

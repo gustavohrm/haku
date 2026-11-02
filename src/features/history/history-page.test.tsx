@@ -24,7 +24,7 @@ const { commands, state, updateSettings, openMenu } = vi.hoisted(() => {
 vi.mock("@ipc/commands", () => ({ commands }));
 vi.mock("@ipc/hooks", () => ({
   useBrowserState: () => ({ private: state.isPrivate, historyPaused: state.paused }),
-  useSettings: () => ({ historyEnabled: state.enabled }),
+  useSettings: () => ({ historyEnabled: state.enabled, historyRules: [] }),
 }));
 vi.mock("@ipc/store", () => ({ updateSettings, tryUpdateSettings: vi.fn() }));
 vi.mock("@features/context-menu/store", () => ({ openMenu }));
@@ -157,6 +157,12 @@ describe("HistoryPage", () => {
     expect(container.querySelector("output")?.textContent).toContain("paused");
     await click(container.querySelector("output button")!);
     expect(commands.setHistoryPaused).toHaveBeenCalledWith(false);
+  });
+
+  it("links to the history settings", async () => {
+    await render();
+    await click(container.querySelector("[aria-label='History settings']")!);
+    expect(commands.navigateTab).toHaveBeenCalledWith(7, "haku://settings/browsing#historyEnabled", "other");
   });
 
   it("turns recording back on from the banner when it is off", async () => {

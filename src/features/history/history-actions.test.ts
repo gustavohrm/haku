@@ -17,7 +17,14 @@ vi.mock("@features/feedback/feedback", () => ({ feedback: () => feedback, report
 
 import { filterOf } from "./filter";
 import { type VisitRow } from "./group";
-import { clearMenu, confirmDelete, neverRecordSite, onHistoryChanged } from "./history-actions";
+import {
+  clearMenu,
+  confirmDelete,
+  hasNeverRule,
+  neverRecordSite,
+  onHistoryChanged,
+  recordSiteAgain,
+} from "./history-actions";
 import { rowMenu } from "./row-menu";
 
 const count = (data: number) => commands.countHistory.mockResolvedValue({ status: "ok", data });
@@ -103,6 +110,28 @@ describe("neverRecordSite", () => {
   });
 });
 
+describe("recordSiteAgain", () => {
+  const rule = (value: string, action: HistoryRule["action"], kind: "site" | "wildcard" = "site"): HistoryRule => ({
+    pattern: { kind, value },
+    action,
+  });
+
+  it("finds only the site's own never rule", () => {
+    expect(hasNeverRule([rule("a.com", "never")], "a.com")).toBe(true);
+    expect(hasNeverRule([rule("a.com", "addressOnly")], "a.com")).toBe(false);
+    expect(hasNeverRule([rule("*a.com*", "never", "wildcard")], "a.com")).toBe(false);
+  });
+
+  it("removes that rule and keeps every other", async () => {
+    tryUpdateSettings.mockResolvedValue({ status: "ok", data: {} });
+    await recordSiteAgain("a.com");
+    const change = tryUpdateSettings.mock.calls[0]![0] as (current: Settings) => Settings;
+    const others = [rule("a.com", "addressOnly"), rule("*a.com*", "never", "wildcard"), rule("b.com", "never")];
+    expect(change({ historyRules: [rule("a.com", "never"), ...others] } as Settings).historyRules).toEqual(others);
+    expect(feedback.success).toHaveBeenCalled();
+  });
+});
+
 describe("clearMenu", () => {
   it("deletes from how far back the range reaches, or everything", async () => {
     count(1);
@@ -133,7 +162,7 @@ describe("rowMenu", () => {
     visits: [{ id: 1, url: "", host, title: "A", visitedAt: 0, transition: "link" }],
   });
   const ids = (host: string, isPrivate: boolean) =>
-    rowMenu(row(host), { isPrivate, showSite: vi.fn() }).map((item) => item.id);
+    rowMenu(row(host), { isPrivate, neverRecorded: false, showSite: vi.fn() }).map((item) => item.id);
 
   it("offers every action for a site in an ordinary window", () => {
     expect(ids("a.com", false)).toEqual([
@@ -148,6 +177,12 @@ describe("rowMenu", () => {
     ]);
   });
 
+  it("offers Record this site again for a site with a never rule of its own", () => {
+    const items = rowMenu(row("a.com"), { isPrivate: false, neverRecorded: true, showSite: vi.fn() });
+    const item = items.find((each) => each.id === "never");
+    expect(item?.kind === "command" && item.label).toBe("Record this site again");
+  });
+
   it("leaves out Never record in a private window", () => {
     expect(ids("a.com", true)).not.toContain("never");
   });
@@ -157,7 +192,7 @@ describe("rowMenu", () => {
   });
 
   it("deletes the row's visits, and every visit to its page", () => {
-    const items = rowMenu(row("a.com"), { isPrivate: false, showSite: vi.fn() });
+    const items = rowMenu(row("a.com"), { isPrivate: false, neverRecorded: false, showSite: vi.fn() });
     const select = (id: string) => {
       const item = items.find((each) => each.id === id);
       if (item?.kind === "command") {

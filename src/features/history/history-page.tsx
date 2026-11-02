@@ -2,12 +2,13 @@ import { InternalPage } from "@app/internal-page";
 import { type InternalPageProps } from "@app/router";
 import { openMenu } from "@features/context-menu/store";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
-import { useBrowserState } from "@ipc/hooks";
+import { commands } from "@ipc/commands";
+import { useBrowserState, useSettings } from "@ipc/hooks";
 import { t } from "@shared/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { groupByDay } from "./group";
-import { clearMenu, confirmDelete, counted, deleteVisits } from "./history-actions";
+import { clearMenu, confirmDelete, counted, deleteVisits, HISTORY_SETTINGS_URL } from "./history-actions";
 import { HistoryFilters } from "./history-filters";
 import { filterFromUrl, isFiltered, toHistoryFilter, withPattern, type PageFilter } from "./page-filter";
 import { RecordingBanner, RecordingControls } from "./recording";
@@ -37,6 +38,7 @@ function useSettled(filter: PageFilter): PageFilter {
  */
 export function HistoryPage({ tabId, url }: InternalPageProps) {
   const { private: isPrivate } = useBrowserState();
+  const rules = useSettings()?.historyRules ?? [];
   // Read once: the page never writes its filter back to the address.
   const [filter, setFilter] = useState<PageFilter>(() => filterFromUrl(url));
   const [view, setView] = useState<View>("visits");
@@ -100,6 +102,15 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
           >
             {t("history.clear")}
           </button>
+          <button
+            type="button"
+            className="btn icon ghost"
+            aria-label={t("history.settings")}
+            title={t("history.settings")}
+            onClick={() => void commands.navigateTab(tabId, HISTORY_SETTINGS_URL, "other")}
+          >
+            <i className="ic-settings ic-md" aria-hidden="true" />
+          </button>
         </div>
       }
     >
@@ -160,6 +171,7 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
           groups={groups}
           now={now}
           isPrivate={isPrivate}
+          rules={rules}
           selected={selected}
           onSelect={select}
           showSite={showSite}

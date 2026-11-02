@@ -8,7 +8,7 @@ const { openExtensionPopup, openTab, resetZoom, state } = vi.hoisted(() => ({
   openExtensionPopup: vi.fn(),
   openTab: vi.fn(),
   resetZoom: vi.fn(),
-  state: { private: false, historyPaused: false },
+  state: { private: false, historyPaused: false, historyRules: [] as unknown[] },
 }));
 
 vi.mock("@bindings", () => ({
@@ -35,7 +35,13 @@ vi.mock("@ipc/hooks", () => ({
       },
     ],
   }),
-  useSettings: () => ({ pinnedExtensions: ["extension"], disabledExtensions: [], keptSites: [], historyEnabled: true }),
+  useSettings: () => ({
+    pinnedExtensions: ["extension"],
+    disabledExtensions: [],
+    keptSites: [],
+    historyEnabled: true,
+    historyRules: state.historyRules,
+  }),
   useDownloads: () => [],
 }));
 
@@ -65,6 +71,7 @@ describe("toolbar extension popups", () => {
   beforeEach(() => {
     state.private = false;
     state.historyPaused = false;
+    state.historyRules = [];
     openExtensionPopup.mockReset();
     openExtensionPopup.mockResolvedValue({ status: "ok", data: true });
     vi.stubGlobal(
@@ -150,6 +157,14 @@ describe("toolbar extension popups", () => {
     expect(document.body.textContent).toContain("Keep this tab loaded");
     expect(document.body.textContent).not.toContain("Don't unload this site");
     expect(document.body.textContent).not.toContain("Show history for this site");
+    expect(document.body.textContent).not.toContain("Never record this site");
+  });
+
+  it("offers to record a site again once it has a never rule", async () => {
+    state.historyRules = [{ pattern: { kind: "site", value: "example.com" }, action: "never" }];
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Site information"]')?.click());
+    expect(document.body.textContent).toContain("Record this site again");
     expect(document.body.textContent).not.toContain("Never record this site");
   });
 

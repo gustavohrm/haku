@@ -1,4 +1,4 @@
-import { type TabId } from "@bindings";
+import { type HistoryRule, type TabId } from "@bindings";
 import { Favicon } from "@features/bookmarks/favicon";
 import { openMenu } from "@features/context-menu/store";
 import { commands } from "@ipc/commands";
@@ -6,7 +6,7 @@ import { t } from "@shared/i18n";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { type DayGroup, type VisitRow } from "./group";
-import { counted } from "./history-actions";
+import { counted, hasNeverRule } from "./history-actions";
 import { addDays, startOfDay, TRANSITIONS } from "./page-filter";
 import { rowMenu } from "./row-menu";
 
@@ -16,6 +16,8 @@ interface VisitListProps {
   /** When the list was asked for, which day headings are named from. */
   now: number;
   isPrivate: boolean;
+  /** The history rules, so a row's menu offers to undo its site's never rule. */
+  rules: readonly HistoryRule[];
   /** Selected visit ids. */
   selected: ReadonlySet<number>;
   onSelect: (ids: number[], selected: boolean) => void;
@@ -90,7 +92,7 @@ export function VisitList({ groups, now, more, loading, loadMore, ...rowProps }:
 
 type RowProps = Omit<VisitListProps, "groups" | "now" | "more" | "loading" | "loadMore"> & { row: VisitRow };
 
-function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) {
+function Row({ row, tabId, isPrivate, rules, selected, onSelect, showSite }: RowProps) {
   const [open, setOpen] = useState(false);
   const ids = row.visits.map((visit) => visit.id);
   const checked = ids.every((id) => selected.has(id));
@@ -105,7 +107,11 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
     }
   };
   const showMenu = (at: { x: number; y: number }) =>
-    openMenu({ at, label: name, items: rowMenu(row, { isPrivate, showSite }) });
+    openMenu({
+      at,
+      label: name,
+      items: rowMenu(row, { isPrivate, neverRecorded: hasNeverRule(rules, row.host), showSite }),
+    });
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Right-click opens the row's menu; its actions button opens the same from the keyboard.
