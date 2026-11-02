@@ -76,7 +76,7 @@ impl HistoryRules {
     pub fn compile(&self) -> Result<CompiledRules> {
         Ok(CompiledRules(
             self.iter()
-                .map(|rule| Ok((rule.pattern.compile()?, rule.action)))
+                .map(|rule| Ok((rule.pattern.compile()?, rule.clone())))
                 .collect::<Result<_>>()?,
         ))
     }
@@ -114,16 +114,25 @@ pub enum Recording {
 
 /// The rules, compiled once for every visit checked against them.
 #[derive(Clone, Debug, Default)]
-pub struct CompiledRules(Vec<(CompiledPattern, HistoryRuleAction)>);
+pub struct CompiledRules(Vec<(CompiledPattern, HistoryRule)>);
 
 impl CompiledRules {
+    /// The rule that decides `url`, whose host is `host`: the first that
+    /// matches it, or nothing when none does.
+    pub fn first_match(&self, url: &str, host: &str) -> Option<&HistoryRule> {
+        self.0
+            .iter()
+            .find(|(pattern, _)| pattern.matches(url, host))
+            .map(|(_, rule)| rule)
+    }
+
     /// What the first matching rule says about `url`, whose host is `host`; a
     /// URL no rule matches is recorded.
     pub fn decide(&self, url: &str, host: &str) -> Recording {
-        match self.0.iter().find(|(pattern, _)| pattern.matches(url, host)) {
-            Some((_, HistoryRuleAction::Never)) => Recording::Skip,
-            Some((_, HistoryRuleAction::AddressOnly)) => Recording::AddressOnly,
-            Some((_, HistoryRuleAction::Always)) | None => Recording::Full,
+        match self.first_match(url, host).map(|rule| rule.action) {
+            Some(HistoryRuleAction::Never) => Recording::Skip,
+            Some(HistoryRuleAction::AddressOnly) => Recording::AddressOnly,
+            Some(HistoryRuleAction::Always) | None => Recording::Full,
         }
     }
 }
@@ -185,6 +194,21 @@ mod tests {
     fn decide(rules: Vec<HistoryRule>, url: &str) -> Recording {
         let host = crate::model::host_of(url).unwrap_or_default();
         HistoryRules(rules).compile().unwrap().decide(url, &host)
+    }
+
+    #[test]
+    fn the_first_matching_rule_is_the_one_reported() {
+        let wildcard = rule(UrlPatternKind::Wildcard, "*a.test*", HistoryRuleAction::Never);
+        let site = rule(UrlPatternKind::Site, "a.test", HistoryRuleAction::Always);
+        let compiled = HistoryRules(vec![
+            rule(UrlPatternKind::Site, "b.test", HistoryRuleAction::Never),
+            wildcard.clone(),
+            site,
+        ])
+        .compile()
+        .unwrap();
+        assert_eq!(compiled.first_match("https://a.test/x", "a.test"), Some(&wildcard));
+        assert_eq!(compiled.first_match("https://c.test/", "c.test"), None);
     }
 
     #[test]

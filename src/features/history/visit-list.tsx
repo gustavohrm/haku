@@ -1,4 +1,4 @@
-import { type HistoryRule, type TabId } from "@bindings";
+import { type TabId } from "@bindings";
 import { Favicon } from "@features/bookmarks/favicon";
 import { openMenu } from "@features/context-menu/store";
 import { commands } from "@ipc/commands";
@@ -6,7 +6,7 @@ import { t } from "@shared/i18n";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { type DayGroup, type VisitRow } from "./group";
-import { counted, hasNeverRule } from "./history-actions";
+import { counted, siteRuleFor } from "./history-actions";
 import { addDays, startOfDay, TRANSITIONS } from "./page-filter";
 import { rowMenu } from "./row-menu";
 
@@ -16,8 +16,6 @@ interface VisitListProps {
   /** When the list was asked for, which day headings are named from. */
   now: number;
   isPrivate: boolean;
-  /** The history rules, so a row's menu offers to undo its site's never rule. */
-  rules: readonly HistoryRule[];
   /** Selected visit ids. */
   selected: ReadonlySet<number>;
   onSelect: (ids: number[], selected: boolean) => void;
@@ -92,7 +90,7 @@ export function VisitList({ groups, now, more, loading, loadMore, ...rowProps }:
 
 type RowProps = Omit<VisitListProps, "groups" | "now" | "more" | "loading" | "loadMore"> & { row: VisitRow };
 
-function Row({ row, tabId, isPrivate, rules, selected, onSelect, showSite }: RowProps) {
+function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) {
   const [open, setOpen] = useState(false);
   const ids = row.visits.map((visit) => visit.id);
   const checked = ids.every((id) => selected.has(id));
@@ -106,12 +104,12 @@ function Row({ row, tabId, isPrivate, rules, selected, onSelect, showSite }: Row
       void commands.navigateTab(tabId, row.url, "other");
     }
   };
-  const showMenu = (at: { x: number; y: number }) =>
-    openMenu({
-      at,
-      label: name,
-      items: rowMenu(row, { isPrivate, neverRecorded: hasNeverRule(rules, row.host), showSite }),
-    });
+  // Asks which rule decides the page as the menu opens, so it names the rule
+  // as it is now rather than as it was when the list loaded.
+  const showMenu = async (at: { x: number; y: number }) => {
+    const siteRule = isPrivate || row.host === "" ? null : await siteRuleFor(row.url, row.host);
+    openMenu({ at, label: name, items: rowMenu(row, { isPrivate, siteRule, showSite }) });
+  };
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Right-click opens the row's menu; its actions button opens the same from the keyboard.
@@ -119,7 +117,7 @@ function Row({ row, tabId, isPrivate, rules, selected, onSelect, showSite }: Row
       className="hover:bg-text/6 rounded-(--radius-control)"
       onContextMenu={(event) => {
         event.preventDefault();
-        showMenu({ x: event.clientX, y: event.clientY });
+        void showMenu({ x: event.clientX, y: event.clientY });
       }}
     >
       <div className="flex items-center gap-3 px-3 py-1.5">
@@ -168,7 +166,7 @@ function Row({ row, tabId, isPrivate, rules, selected, onSelect, showSite }: Row
           aria-haspopup="menu"
           onClick={(event) => {
             const box = event.currentTarget.getBoundingClientRect();
-            showMenu({ x: box.left, y: box.bottom });
+            void showMenu({ x: box.left, y: box.bottom });
           }}
         >
           <i className="ic-ellipsis ic-sm" aria-hidden="true" />

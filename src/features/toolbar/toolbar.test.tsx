@@ -4,12 +4,17 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { openExtensionPopup, openTab, resetZoom, state } = vi.hoisted(() => ({
-  openExtensionPopup: vi.fn(),
-  openTab: vi.fn(),
-  resetZoom: vi.fn(),
-  state: { private: false, historyPaused: false, historyRules: [] as unknown[] },
-}));
+const { openExtensionPopup, openTab, resetZoom, historyRuleFor, state } = vi.hoisted(() => {
+  const state = { private: false, historyPaused: false, historyRules: [] as unknown[] };
+  return {
+    openExtensionPopup: vi.fn(),
+    openTab: vi.fn(),
+    resetZoom: vi.fn(),
+    // The first rule stands for the one the backend finds deciding the page.
+    historyRuleFor: vi.fn(async () => ({ status: "ok", data: state.historyRules[0] ?? null })),
+    state,
+  };
+});
 
 vi.mock("@bindings", () => ({
   events: {
@@ -18,7 +23,7 @@ vi.mock("@bindings", () => ({
   },
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
-vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup, openTab, resetZoom } }));
+vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup, openTab, resetZoom, historyRuleFor } }));
 vi.mock("@ipc/hooks", () => ({
   useBookmarks: () => null,
   useBrowserState: () => state,
@@ -73,6 +78,7 @@ describe("toolbar extension popups", () => {
     state.historyPaused = false;
     state.historyRules = [];
     openExtensionPopup.mockReset();
+    openTab.mockClear();
     openExtensionPopup.mockResolvedValue({ status: "ok", data: true });
     vi.stubGlobal(
       "ResizeObserver",
@@ -166,6 +172,21 @@ describe("toolbar extension popups", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Site information"]')?.click());
     expect(document.body.textContent).toContain("Record this site again");
     expect(document.body.textContent).not.toContain("Never record this site");
+  });
+
+  it("names another rule that stops the site, and leads to the rules in its place", async () => {
+    state.historyRules = [{ pattern: { kind: "wildcard", value: "*.example.com/*" }, action: "never" }];
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Site information"]')?.click());
+    expect(document.body.textContent).toContain("Not recorded: rule");
+    expect(document.body.textContent).toContain("*.example.com/*");
+    expect(document.body.textContent).not.toContain("Record this site again");
+    expect(document.body.textContent).not.toContain("Never record this site");
+    const edit = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Edit history rules",
+    );
+    await act(async () => edit?.click());
+    expect(openTab).toHaveBeenCalledExactlyOnceWith("haku://settings/browsing#historyEnabled", true, "other");
   });
 
   it("opens the site's history from the site menu, and says when history is paused", async () => {

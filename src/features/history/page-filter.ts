@@ -1,5 +1,5 @@
-import { type HistoryFilter, type Transition, type UrlPattern } from "@bindings";
-import { type TranslationKey } from "@shared/i18n";
+import { type HistoryFilter, type Transition, type UrlPattern, type UrlPatternKind } from "@bindings";
+import { t, type TranslationKey } from "@shared/i18n";
 
 import { EVERYTHING } from "./filter";
 
@@ -23,6 +23,19 @@ export const TRANSITIONS: Record<Transition, TranslationKey> = {
   backForward: "history.transition.backForward",
   other: "history.transition.other",
 };
+
+export const PATTERN_KINDS: Record<Exclude<UrlPatternKind, "page">, TranslationKey> = {
+  site: "history.pattern.site",
+  wildcard: "history.pattern.wildcard",
+  regex: "history.pattern.regex",
+};
+
+/** Names a pattern for a chip: a site as itself, anything else with its kind. */
+export function describePattern(pattern: UrlPattern): string {
+  return pattern.kind === "site" || pattern.kind === "page"
+    ? pattern.value
+    : `${t(PATTERN_KINDS[pattern.kind])}: ${pattern.value}`;
+}
 
 /** What the page's filter controls hold, before it becomes a {@link HistoryFilter}. */
 export interface PageFilter {

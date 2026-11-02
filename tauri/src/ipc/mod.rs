@@ -47,6 +47,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::set_layout,
             commands::query_history,
             commands::count_history,
+            commands::history_rule_for,
             commands::history_sites,
             commands::delete_history,
             commands::delete_history_visits,

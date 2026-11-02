@@ -52,6 +52,7 @@ export const en = {
   "site.history.show": "Show history for this site",
   "site.history.neverRecord": "Never record this site…",
   "site.history.recordAgain": "Record this site again",
+  "site.history.editRules": "Edit history rules",
   "site.history.off": "History is off",
   "site.history.paused": "History is paused",
 
@@ -398,8 +399,11 @@ export const en = {
   "history.row.deleteSite.title": "Delete everything from {site}",
   "history.row.neverRecord": "Never record this site…",
   "history.row.recordAgain": "Record this site again",
-  "history.recordAgain.done":
-    "Haku records {site} again, unless another rule in Settings → Browsing → History rules stops it.",
+  "history.recordAgain.done": "Haku records {site} again.",
+  "history.recordAgain.stillStopped": "{site} still isn't recorded: rule {rule} stops it.",
+  "history.rule.never": "Not recorded: rule {rule}",
+  "history.rule.addressOnly": "Only the address is recorded: rule {rule}",
+  "history.rule.always": "Always recorded: rule {rule}",
   "history.settings": "History settings",
   "history.delete": "Delete",
   "history.delete.none": "No visits to delete.",

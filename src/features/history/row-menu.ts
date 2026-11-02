@@ -4,12 +4,24 @@ import { t } from "@shared/i18n";
 
 import { filterOf } from "./filter";
 import { type VisitRow } from "./group";
-import { confirmDelete, copyLink, deleteNow, deleteVisits, neverRecordSite, recordSiteAgain } from "./history-actions";
+import {
+  confirmDelete,
+  copyLink,
+  deleteNow,
+  deleteVisits,
+  neverRecordSite,
+  recordSiteAgain,
+  ruleNote,
+  type SiteRule,
+} from "./history-actions";
 
 interface RowMenuOptions {
   isPrivate: boolean;
-  /** Whether the row's site has a rule of its own never to record it. */
-  neverRecorded: boolean;
+  /**
+   * The rule that decides the row's page, from `siteRuleFor`; `null` when it
+   * could not be read, which offers Never record as if no rule did.
+   */
+  siteRule: SiteRule | null;
   /** Narrows the page to the row's site. */
   showSite: (host: string) => void;
 }
@@ -21,7 +33,7 @@ interface RowMenuOptions {
  * and Never record for a private window, which records nothing anyway.
  * [History § The history page](../../../docs/specs/history.md#the-history-page).
  */
-export function rowMenu(row: VisitRow, { isPrivate, neverRecorded, showSite }: RowMenuOptions): MenuItem[] {
+export function rowMenu(row: VisitRow, { isPrivate, siteRule, showSite }: RowMenuOptions): MenuItem[] {
   const site = { kind: "site", value: row.host } as const;
   const items: MenuItem[] = [
     {
@@ -75,18 +87,35 @@ export function rowMenu(row: VisitRow, { isPrivate, neverRecorded, showSite }: R
         ),
     });
     if (!isPrivate) {
-      items.push({
-        kind: "command",
-        id: "never",
-        ...(neverRecorded
-          ? { label: t("history.row.recordAgain"), onSelect: () => void recordSiteAgain(row.host) }
-          : {
-              label: t("history.row.neverRecord"),
-              icon: "ic-circle-off",
-              onSelect: () => void neverRecordSite(row.host),
-            }),
-      });
+      items.push(neverItem(row, siteRule));
     }
   }
   return items;
+}
+
+/**
+ * Never record, or its undo when the site's own rule decides it. Another rule
+ * that already stops the site is named instead, disabled, since adding a rule
+ * would change nothing and only settings can change that one.
+ */
+function neverItem(row: VisitRow, siteRule: SiteRule | null): MenuItem {
+  if (siteRule?.kind === "own") {
+    return {
+      kind: "command",
+      id: "never",
+      label: t("history.row.recordAgain"),
+      icon: "ic-history",
+      onSelect: () => void recordSiteAgain(row.host, row.url),
+    };
+  }
+  if (siteRule?.kind === "other" && siteRule.rule.action === "never") {
+    return { kind: "command", id: "never", label: ruleNote(siteRule.rule), disabled: true, onSelect: () => {} };
+  }
+  return {
+    kind: "command",
+    id: "never",
+    label: t("history.row.neverRecord"),
+    icon: "ic-circle-off",
+    onSelect: () => void neverRecordSite(row.host),
+  };
 }

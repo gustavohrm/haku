@@ -131,7 +131,14 @@ The filter lives in the page, not in the address: a query is a moment, not a pla
 
 - **Ctrl+H** opens `haku://history` in a new tab: a new shortcut action, `openHistory`, in the same group as `openBookmarks`.
 - **The site menu**, for a web page in an ordinary window, gains **Show history for this site**, which opens `haku://history?site=<host>`, and **Never record this site…**, which adds a `site` rule at the top and makes the same offer to delete. Both say the rule can be undone, and where.
-- **Record this site again** takes the place of **Never record this site…**, in the site menu and a row's menu, when the site has a `never` rule for exactly its host. It removes that rule only; another rule, such as a wildcard, may still stop the site, and its confirmation says so. Adding a rule is a decision made where the site is, so undoing it is offered there too, rather than only in settings.
+- **Both menus ask `history_rule_for` which rule decides the page,** so they match it exactly as recording does, wildcards and regular expressions included, rather than repeating the matcher in the interface:
+  - The site's own `never` rule, a `site` rule for exactly its host: **Record this site again** takes the place of **Never record this site…**. It removes that rule only. When another rule still stops the site, its confirmation names that rule; otherwise it says the site is recorded again.
+  - Another `never` rule: the menu names it, as "Not recorded: rule `*.bank.com/*`". The site menu offers **Edit history rules**, which opens the rules in settings; a row's menu shows the same text, disabled. Adding a rule beneath one that already stops the site would change nothing.
+  - Another rule, `addressOnly` or `always`: the site menu names it beside **Never record this site…**, whose rule goes on top and so takes over.
+  - No rule, or the question failing: **Never record this site…**.
+
+  Adding a rule is a decision made where the site is, so undoing it is offered there too, rather than only in settings.
+
 - **About**, in settings, already links to history and is unchanged.
 
 ## Contract
@@ -166,14 +173,15 @@ type HistoryRetention = "forever" | "days30" | "days90" | "year";
 
 ### Commands
 
-| Command                               | Returns         | Does                                                                        |
-| ------------------------------------- | --------------- | --------------------------------------------------------------------------- |
-| `query_history(filter, after, limit)` | `HistoryPage`   | Visits matching, newest first, after the cursor. `limit` is at most 500.    |
-| `count_history(filter)`               | `number`        | How many visits match. Used by every confirmation.                          |
-| `history_sites(filter, limit)`        | `HistorySite[]` | Hosts of matching visits, most visited first.                               |
-| `delete_history(filter)`              | `number`        | Deletes matching visits; how many went. An empty filter deletes everything. |
-| `delete_history_visits(ids)`          | `()`            | Deletes those visits.                                                       |
-| `set_history_paused(paused)`          | `BrowserState`  | Pauses or resumes recording.                                                |
+| Command                               | Returns               | Does                                                                                                |
+| ------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------- |
+| `query_history(filter, after, limit)` | `HistoryPage`         | Visits matching, newest first, after the cursor. `limit` is at most 500.                            |
+| `count_history(filter)`               | `number`              | How many visits match. Used by every confirmation.                                                  |
+| `history_sites(filter, limit)`        | `HistorySite[]`       | Hosts of matching visits, most visited first.                                                       |
+| `delete_history(filter)`              | `number`              | Deletes matching visits; how many went. An empty filter deletes everything.                         |
+| `delete_history_visits(ids)`          | `()`                  | Deletes those visits.                                                                               |
+| `set_history_paused(paused)`          | `BrowserState`        | Pauses or resumes recording.                                                                        |
+| `history_rule_for(url)`               | `HistoryRule \| null` | The first rule matching the address, the one that decides it; none when no rule matches. Read-only. |
 
 All of them refuse a content webview, as every command does. An invalid pattern, in a filter or in a rule given to `set_settings`, is refused with a new `HakuError::InvalidPattern(reason)`, whose reason the interface shows under the field. A variant of its own, rather than reusing `InvalidUrl` or `Unsupported`, because it is the one error the interface shows inline rather than as a toast, and neither existing name describes it.
 

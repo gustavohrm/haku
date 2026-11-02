@@ -34,9 +34,9 @@ use crate::error::{HakuError, Result};
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
     CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
-    ExportedBookmarks, ExtensionSource, Extensions, FindDirection, ImportedBookmarks, NavigationSource, PageMenu,
-    PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, Recording, ScreenRect, Shortcut,
-    SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    ExportedBookmarks, ExtensionSource, Extensions, FindDirection, HistoryRule, ImportedBookmarks, NavigationSource,
+    PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, Recording, ScreenRect,
+    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -2267,6 +2267,29 @@ pub fn query_history(
 ) -> Result<HistoryPage> {
     ensure_chrome(&webview)?;
     lock_history(&state)?.query(&filter, after, limit)
+}
+
+/// The history rule that decides whether `url` is recorded: the first that
+/// matches it, using the same matcher recording does, or nothing when none
+/// does. Lets the site menu say why a site is not recorded, and offer to undo
+/// a rule only when it is the site's own.
+/// [History § Elsewhere](../../../docs/specs/history.md#elsewhere).
+/// # Errors
+/// Rejects non-chrome callers.
+#[tauri::command]
+#[specta::specta]
+pub fn history_rule_for(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<Option<HistoryRule>> {
+    ensure_chrome(&webview)?;
+    let rules = state
+        .history_rules
+        .read()
+        .map_err(|_| HakuError::Storage("history rules lock poisoned".into()))?;
+    let host = host_of(&url).unwrap_or_default();
+    Ok(rules.first_match(&url, &host).cloned())
 }
 
 /// How many visits the filter covers.

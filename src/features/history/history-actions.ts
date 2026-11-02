@@ -7,7 +7,7 @@ import { tryUpdateSettings } from "@ipc/store";
 import { t, type TranslationKey } from "@shared/i18n";
 
 import { filterOf } from "./filter";
-import { samePattern } from "./page-filter";
+import { describePattern, samePattern } from "./page-filter";
 
 const listeners = new Set<() => void>();
 
@@ -143,25 +143,66 @@ const isNeverRuleFor = (host: string) => (rule: HistoryRule) =>
   rule.action === "never" && samePattern(rule.pattern, siteRule(host));
 
 /**
- * Whether `host` has a rule of its own never to record it, as "Never record
- * this site…" adds. Another rule, such as a wildcard, may still stop it.
+ * What the rules say about a site, from the rule that decides its page:
+ * nothing, so it is recorded; its own never rule, as "Never record this
+ * site…" adds, which can be undone; or another rule, named so the menu can
+ * say why. [History § Elsewhere](../../../docs/specs/history.md#elsewhere).
  */
-export function hasNeverRule(rules: readonly HistoryRule[], host: string): boolean {
-  return rules.some(isNeverRuleFor(host));
+export type SiteRule = { kind: "none" } | { kind: "own" } | { kind: "other"; rule: HistoryRule };
+
+/**
+ * Asks Rust which rule decides `url`, whose site is `host`, with the matcher
+ * recording uses, so the menu and recording cannot disagree.
+ *
+ * @returns What decides it, or `null` when that could not be read; the
+ * command wrapper has already reported why.
+ */
+export async function siteRuleFor(url: string, host: string): Promise<SiteRule | null> {
+  const result = await commands.historyRuleFor(url);
+  if (result.status === "error") {
+    return null;
+  }
+  const rule = result.data;
+  if (rule === null) {
+    return { kind: "none" };
+  }
+  return isNeverRuleFor(host)(rule) ? { kind: "own" } : { kind: "other", rule };
+}
+
+const RULE_NOTES: Record<HistoryRule["action"], TranslationKey> = {
+  never: "history.rule.never",
+  addressOnly: "history.rule.addressOnly",
+  always: "history.rule.always",
+};
+
+/** Says what another rule does to the site, naming its pattern. */
+export function ruleNote(rule: HistoryRule): string {
+  return t(RULE_NOTES[rule.action]).replace("{rule}", () => describePattern(rule.pattern));
 }
 
 /**
- * Removes the rule never to record `host`, undoing "Never record this site…".
- * Other rules stay, so one of them may still stop the site.
+ * Removes the rule never to record `host`, undoing "Never record this site…",
+ * then says whether the site is recorded again or another rule still stops it.
  *
  * @param host - The site to record again.
+ * @param url - A page on it, to ask which rule decides it now.
  */
-export async function recordSiteAgain(host: string): Promise<void> {
+export async function recordSiteAgain(host: string, url: string): Promise<void> {
   const stored = await tryUpdateSettings((current) => ({
     ...current,
     historyRules: current.historyRules.filter((rule) => !isNeverRuleFor(host)(rule)),
   }));
-  if (stored?.status === "ok") {
+  if (stored?.status !== "ok") {
+    return;
+  }
+  const now = await siteRuleFor(url, host);
+  if (now?.kind === "other" && now.rule.action === "never") {
+    feedback().info(
+      t("history.recordAgain.stillStopped")
+        .replace("{site}", () => host)
+        .replace("{rule}", () => describePattern(now.rule.pattern)),
+    );
+  } else {
     feedback().success(t("history.recordAgain.done").replace("{site}", () => host));
   }
 }

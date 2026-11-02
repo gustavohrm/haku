@@ -130,6 +130,19 @@ export const commands = {
 	 */
 	countHistory: (filter: HistoryFilter) => typedError<number, HakuError>(__TAURI_INVOKE("count_history", { filter })),
 	/**
+	 *  The history rule that decides whether `url` is recorded: the first that
+	 *  matches it, using the same matcher recording does, or nothing when none
+	 *  does. Lets the site menu say why a site is not recorded, and offer to undo
+	 *  a rule only when it is the site's own.
+	 *  [History § Elsewhere](../../../docs/specs/history.md#elsewhere).
+	 *  # Errors
+	 *  Rejects non-chrome callers.
+	 */
+	historyRuleFor: (url: string) => typedError<{
+	pattern: UrlPattern,
+	action: HistoryRuleAction,
+} | null, HakuError>(__TAURI_INVOKE("history_rule_for", { url })),
+	/**
 	 *  The hosts of the visits the filter covers, most visited first.
 	 *  # Errors
 	 *  Rejects non-chrome callers and invalid patterns; propagates storage failures.

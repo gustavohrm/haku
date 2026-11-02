@@ -1,21 +1,24 @@
-import { type Transition, type UrlPattern, type UrlPatternKind } from "@bindings";
+import { type Transition, type UrlPattern } from "@bindings";
 import { openMenu } from "@features/context-menu/store";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
-import { t, type TranslationKey } from "@shared/i18n";
+import { t } from "@shared/i18n";
 import { useId, useState } from "react";
 
-import { chipsOf, TRANSITIONS, WHENS, withPattern, type PageFilter, type When } from "./page-filter";
+import {
+  chipsOf,
+  describePattern,
+  PATTERN_KINDS,
+  TRANSITIONS,
+  WHENS,
+  withPattern,
+  type PageFilter,
+  type When,
+} from "./page-filter";
 
 interface FiltersProps {
   filter: PageFilter;
   onChange: (next: PageFilter) => void;
 }
-
-const PATTERN_KINDS: Record<Exclude<UrlPatternKind, "page">, TranslationKey> = {
-  site: "history.pattern.site",
-  wildcard: "history.pattern.wildcard",
-  regex: "history.pattern.regex",
-};
 
 function isWhen(value: string): value is When {
   return value in WHENS;
@@ -23,13 +26,6 @@ function isWhen(value: string): value is When {
 
 function isPatternKind(value: string): value is keyof typeof PATTERN_KINDS {
   return value in PATTERN_KINDS;
-}
-
-/** Names a pattern for a chip: a site as itself, anything else with its kind. */
-export function describePattern(pattern: UrlPattern): string {
-  return pattern.kind === "site" || pattern.kind === "page"
-    ? pattern.value
-    : `${t(PATTERN_KINDS[pattern.kind])}: ${pattern.value}`;
 }
 
 function describeWhen(filter: PageFilter): string {
