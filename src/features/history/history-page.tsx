@@ -1,95 +1,174 @@
 import { InternalPage } from "@app/internal-page";
-import { type HistoryFilter, type HistoryVisit } from "@bindings";
-import { reportUnexpected } from "@features/feedback/feedback";
-import { commands } from "@ipc/commands";
-import { unwrap } from "@ipc/result";
+import { type InternalPageProps } from "@app/router";
+import { openMenu } from "@features/context-menu/store";
+import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
+import { useBrowserState } from "@ipc/hooks";
 import { t } from "@shared/i18n";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-const PAGE_SIZE = 200;
+import { groupByDay } from "./group";
+import { clearMenu, confirmDelete, counted, deleteVisits } from "./history-actions";
+import { HistoryFilters } from "./history-filters";
+import { filterFromUrl, isFiltered, toHistoryFilter, withPattern, type PageFilter } from "./page-filter";
+import { RecordingBanner, RecordingControls } from "./recording";
+import { SiteList } from "./site-list";
+import { useSites, useVisits } from "./use-history";
+import { VisitList } from "./visit-list";
 
-const EVERYTHING: HistoryFilter = { text: null, from: null, to: null, include: [], exclude: [], transitions: [] };
+/** How long typing rests before the text is searched. */
+export const SEARCH_DELAY_MS = 200;
 
-const recentHistory = async () => (await unwrap(commands.queryHistory(EVERYTHING, null, PAGE_SIZE))).visits;
+type View = "visits" | "sites";
+
+/** The filter, with its text applied once typing rests and the rest at once. */
+function useSettled(filter: PageFilter): PageFilter {
+  const [text, setText] = useState(filter.text);
+  useEffect(() => {
+    const timer = setTimeout(() => setText(filter.text), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [filter.text]);
+  return useMemo(() => ({ ...filter, text }), [filter, text]);
+}
 
 /**
- * Recent history.
- *
- * A deliberately plain list for now. Rust has recorded visits since the first
- * release, so the filtering and grouping the full history feature calls for can
- * be built on top of real data rather than starting from an empty table.
+ * Every recorded visit, filtered, grouped by day or by site, and deleted by
+ * the row, the selection, the filter or a range of time.
+ * [History § The history page](../../../docs/specs/history.md#the-history-page).
  */
-export function HistoryPage() {
-  const [entries, setEntries] = useState<HistoryVisit[]>([]);
+export function HistoryPage({ tabId, url }: InternalPageProps) {
+  const { private: isPrivate } = useBrowserState();
+  // Read once: the page never writes its filter back to the address.
+  const [filter, setFilter] = useState<PageFilter>(() => filterFromUrl(url));
+  const [view, setView] = useState<View>("visits");
+  // Read when the filter changes, not on every render, so "today" does not
+  // become a new query each time the page draws.
+  const [now, setNow] = useState(Date.now);
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
 
-  const load = async () => {
-    try {
-      setEntries(await recentHistory());
-    } catch (error) {
-      reportUnexpected(error);
-    }
+  const settled = useSettled(filter);
+  const query = useMemo(() => toHistoryFilter(settled, now), [settled, now]);
+  const visits = useVisits(query);
+  const sites = useSites(query);
+  const groups = useMemo(() => groupByDay(visits.items), [visits.items]);
+
+  const changeFilter = (next: PageFilter) => {
+    setFilter(next);
+    setNow(Date.now());
+    setSelected(new Set());
   };
-
-  useEffect(() => {
-    let current = true;
-    const loadFirst = async () => {
-      try {
-        const entries = await recentHistory();
-        if (current) {
-          setEntries(entries);
-        }
-      } catch (error) {
-        reportUnexpected(error);
-      }
-    };
-    void loadFirst();
-    return () => {
-      current = false;
-    };
+  const showSite = useCallback((host: string) => {
+    setFilter((current) => withPattern(current, "include", { kind: "site", value: host }));
+    setNow(Date.now());
+    setSelected(new Set());
+    setView("visits");
   }, []);
+  const select = (ids: number[], on: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const id of ids) {
+        if (on) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+      }
+      return next;
+    });
+
+  const invalid = view === "visits" ? visits.invalid : sites.invalid;
+  const empty = view === "visits" ? visits.items.length === 0 : sites.items.length === 0;
+  const loading = view === "visits" ? visits.loading : sites.loading;
 
   return (
     <InternalPage
       title={t("history.title")}
       actions={
-        <button
-          type="button"
-          className="btn destructive ghost edged"
-          disabled={entries.length === 0}
-          onClick={async () => {
-            try {
-              await unwrap(commands.deleteHistory(EVERYTHING));
-            } catch (error) {
-              reportUnexpected(error);
-              return;
-            }
-            await load();
-          }}
-        >
-          {t("history.clear")}
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <RecordingControls />
+          <button
+            type="button"
+            className="btn destructive ghost edged"
+            aria-haspopup="menu"
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              openMenu({
+                at: { x: box.left, y: box.bottom + MENU_GAP },
+                label: t("history.clear.title"),
+                items: clearMenu(),
+              });
+            }}
+          >
+            {t("history.clear")}
+          </button>
+        </div>
       }
     >
-      {entries.length === 0 ? (
-        <p className="text-text-secondary">{t("history.empty")}</p>
-      ) : (
-        <ul className="flex flex-col">
-          {entries.map((entry) => (
-            <li key={entry.id}>
-              <button
-                type="button"
-                className="hover:bg-text/6 grid w-full grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-baseline gap-4 rounded-(--radius-control) px-3 py-2 text-left"
-                onClick={() => void commands.openTab(entry.url, true, "other")}
-              >
-                <span className="truncate font-medium">{entry.title || entry.url}</span>
-                <span className="text-text-secondary truncate">{entry.url}</span>
-                <time className="text-text-secondary" dateTime={new Date(entry.visitedAt).toISOString()}>
-                  {new Date(entry.visitedAt).toLocaleString()}
-                </time>
-              </button>
-            </li>
+      <RecordingBanner />
+      <HistoryFilters filter={filter} onChange={changeFilter} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-1">
+          {(["visits", "sites"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={view === option}
+              className={view === option ? "btn soft" : "btn ghost"}
+              onClick={() => setView(option)}
+            >
+              {t(option === "visits" ? "history.view.visits" : "history.view.sites")}
+            </button>
           ))}
-        </ul>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {selected.size > 0 && (
+            <button
+              type="button"
+              className="btn destructive soft"
+              onClick={() => {
+                const ids = [...selected];
+                setSelected(new Set());
+                void deleteVisits(ids);
+              }}
+            >
+              {counted(selected.size, "history.deleteSelected.one", "history.deleteSelected.many")}
+            </button>
+          )}
+          {isFiltered(settled) && (
+            <button
+              type="button"
+              className="btn destructive ghost"
+              onClick={() => void confirmDelete(query, t("history.deleteMatching.title"))}
+            >
+              {t("history.deleteMatching")}
+            </button>
+          )}
+        </div>
+      </div>
+      {invalid !== null ? (
+        <p role="alert" className="text-destructive">
+          {invalid}
+        </p>
+      ) : empty ? (
+        loading ? null : (
+          <p className="text-text-secondary">
+            {isFiltered(settled) ? t("history.empty.filtered") : t("history.empty")}
+          </p>
+        )
+      ) : view === "visits" ? (
+        <VisitList
+          tabId={tabId}
+          groups={groups}
+          now={now}
+          isPrivate={isPrivate}
+          selected={selected}
+          onSelect={select}
+          showSite={showSite}
+          more={visits.more}
+          loading={visits.loading}
+          loadMore={visits.loadMore}
+        />
+      ) : (
+        <SiteList sites={sites.items} isPrivate={isPrivate} showSite={showSite} />
       )}
     </InternalPage>
   );
