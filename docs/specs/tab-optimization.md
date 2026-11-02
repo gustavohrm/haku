@@ -93,7 +93,7 @@ Tabs kept by steps 1 and 3 count against the budget before step 4 spends what is
 
 A kept tab is then frozen, or left running under _Freeze: never_.
 
-With _Discard: never_ nothing is discarded by this rule, pressure included; only eviction reloads a tab. With _Discard: always_ every background tab is discarded as it is left.
+With _Discard: never_ nothing is discarded by this rule, pressure included; only eviction reloads a tab. With _Discard: always_ every background tab is discarded as it is left, except one waiting on a dialog or a permission request: discarding it would answer for the user the moment they looked away (decided by the maintainer on 2026-11-01). It is discarded when next left after the answer.
 
 ### Effective capacity
 
