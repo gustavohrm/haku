@@ -242,7 +242,12 @@ impl Request {
             Shortcut::Forward => browser.go_forward(tab)?,
             Shortcut::FocusAddress => {
                 action.address = Some(tab);
-                Vec::new()
+                // The field is in the bars fullscreen hides. A popup has none.
+                if browser.kind(self.window) == Some(WindowKind::Normal) {
+                    browser.leave_fullscreen(self.window)
+                } else {
+                    Vec::new()
+                }
             }
             Shortcut::DevTools => {
                 action.devtools = browser.tab(tab)?.slot();
@@ -657,6 +662,27 @@ mod tests {
         request.prepare(&mut browser, Shortcut::NextTab, HOME, 1).unwrap();
         let action = request.prepare(&mut browser, Shortcut::FocusAddress, HOME, 2).unwrap();
         assert_eq!(action.address, Some(b));
+    }
+
+    #[test]
+    fn focusing_the_address_field_leaves_fullscreen() {
+        let (mut browser, [a, ..]) = pages(2);
+        let window = browser.main_window();
+        let slot = browser.tab(a).unwrap().slot().unwrap();
+        browser.report_fullscreen(slot, true);
+
+        let action = Request::page(&browser, slot)
+            .unwrap()
+            .prepare(&mut browser, Shortcut::FocusAddress, HOME, 1)
+            .unwrap();
+
+        assert_eq!(action.address, Some(a));
+        assert_eq!(browser.state_in(window).unwrap().fullscreen, None);
+        assert!(action.effects.contains(&Effect::SetFullscreen {
+            window,
+            fullscreen: false
+        }));
+        assert!(action.effects.contains(&Effect::ExitPageFullscreen { slot }));
     }
 
     #[test]

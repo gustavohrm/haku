@@ -30,9 +30,10 @@ The engine only grants fullscreen in answer to a click or key, so a page cannot 
 | The page exits, such as the player's button or a navigation                       | The engine reports it                                      |
 | The user presses Esc                                                              | See [Esc](#esc)                                            |
 | Another tab is selected, including the other pane of a split                      | The window leaves at once, then Haku asks the page to exit |
+| The address field is focused, by Ctrl+L, Alt+D or F6                              | The same: the field is in the hidden bars                  |
 | The page goes away: the tab closed, its process crashed, or its slot was given up | The window leaves; there is no page left to ask            |
 
-Shortcuts keep working while fullscreen, so Ctrl+Tab or Ctrl+W leave it by the rule above. Haku's own dialogs, page menus and toasts draw over a fullscreen page as they do over any other, and do not end it. Losing focus, as Alt+Tab does, does not end it either.
+Shortcuts keep working while fullscreen, so Ctrl+Tab or Ctrl+W leave it by the rule above. Focusing the address field leaves it too: the field is in the bars fullscreen hides, so focus would move to a field nobody can see, and Esc, which the engine reads only while the page has focus, would no longer end it (decided by the maintainer on 2026-11-01). Haku's own dialogs, page menus and toasts draw over a fullscreen page as they do over any other, and do not end it. Losing focus, as Alt+Tab does, does not end it either.
 
 Popup windows and private windows behave the same. Each window is fullscreen on its own.
 
