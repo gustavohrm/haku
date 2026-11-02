@@ -2511,9 +2511,20 @@ impl Browser {
             return Ok((Vec::new(), None));
         };
         let allow = decision == PermissionDecision::Allow;
-        let effects = self.withdraw_permissions(id, allow, |other| {
-            other.origin == shown.origin && other.kind == shown.kind
-        });
+        // The same request waiting in another tab of the profile is answered
+        // too, so it cannot ask again and overwrite this decision.
+        let others: Vec<TabId> = self
+            .tabs
+            .iter()
+            .map(|tab| tab.id)
+            .filter(|other| *other != id && (self.profile_of(*other) == Profile::Private) == private)
+            .collect();
+        let mut effects = Vec::new();
+        for tab in std::iter::once(id).chain(others) {
+            effects.extend(self.withdraw_permissions(tab, allow, |other| {
+                other.origin == shown.origin && other.kind == shown.kind
+            }));
+        }
 
         let Some(state) = decision.state() else {
             self.dismissed_permissions.insert((private, shown.origin, shown.kind));
