@@ -123,6 +123,9 @@ async function loadKeymap(): Promise<void> {
 export async function connect(): Promise<() => void> {
   let hasStateEvent = false;
   let hasDownloadsEvent = false;
+  // Progress for downloads not listed yet, until the startup list arrives:
+  // reported before that list resolves, it would otherwise be lost to it.
+  let early: Map<number, Download> | null = new Map();
   const [stopState, stopFailures, stopSettings, stopExtensions, stopDownloads, stopProgress] = await Promise.all([
     events.stateChanged(getCurrentWebview()).listen((event) => {
       hasStateEvent = true;
@@ -140,10 +143,13 @@ export async function connect(): Promise<() => void> {
     // Each window lists its own profile's downloads only.
     events.downloadsChanged(getCurrentWebview()).listen((event) => {
       hasDownloadsEvent = true;
+      // Sent after any progress held, so it already carries it.
+      early = null;
       downloadsStore.set(event.payload);
     }),
     // Progress alone arrives on its own, for one listed download.
     events.downloadProgressed(getCurrentWebview()).listen((event) => {
+      early?.set(event.payload.id, event.payload);
       downloadsStore.set(withProgress(downloadsStore.get(), event.payload));
     }),
   ]);
@@ -169,8 +175,21 @@ export async function connect(): Promise<() => void> {
     }),
     unwrap(commands.downloads()).then((downloads) => {
       if (!hasDownloadsEvent) {
-        downloadsStore.set(downloads);
+        // Progress is held only while a download runs, when its bytes only
+        // grow (a restart sends the whole list), so the larger figure is the
+        // newer one.
+        const held = [...(early?.values() ?? [])];
+        downloadsStore.set(
+          held.reduce(
+            (list, progress) =>
+              list.some((entry) => entry.id === progress.id && entry.received <= progress.received)
+                ? withProgress(list, progress)
+                : list,
+            downloads,
+          ),
+        );
       }
+      early = null;
     }),
   ]);
   const failed = loaded.find((part) => part.status === "rejected");

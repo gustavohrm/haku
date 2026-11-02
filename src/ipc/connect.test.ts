@@ -113,6 +113,25 @@ describe("connect", () => {
     expect(progressTarget).toHaveBeenLastCalledWith(CURRENT_WEBVIEW);
   });
 
+  it("keeps progress reported before the startup list, unless the list is newer", async () => {
+    const [a, b] = [
+      { id: 1, received: 10 },
+      { id: 2, received: 50 },
+    ] as Download[];
+    vi.mocked(commands.getSettings).mockResolvedValueOnce({ status: "ok", data: SETTINGS });
+    vi.mocked(commands.downloads).mockImplementationOnce(async () => {
+      const progressed = progressListen.mock.calls.at(-1)![0];
+      progressed({ payload: { ...a!, received: 20 } });
+      progressed({ payload: { ...b!, received: 40 } });
+      return { status: "ok", data: [a!, b!] };
+    });
+
+    const stop = await connect();
+
+    expect(downloadsStore.get()).toEqual([{ ...a, received: 20 }, b]);
+    stop();
+  });
+
   it("takes in one download's progress and keeps the other entries as they were", async () => {
     const [a, b] = [
       { id: 1, received: 10 },
