@@ -101,11 +101,37 @@ export function withoutChord(
   return { ...settings, shortcuts: { ...settings.shortcuts, [shortcut]: chords } };
 }
 
-/** The settings with `shortcut` back on its defaults. */
-export function withDefaults(settings: Settings, shortcut: Shortcut): Settings {
-  const shortcuts = { ...settings.shortcuts };
-  delete shortcuts[shortcut];
+/**
+ * The settings with `shortcut` back on its defaults, taking them from any
+ * other action the user gave one, since the user's binding would otherwise
+ * keep it.
+ */
+export function withDefaults(settings: Settings, keymap: readonly KeyBinding[], shortcut: Shortcut): Settings {
+  const defaults = defaultsOf(keymap, shortcut);
+  const shortcuts: Settings["shortcuts"] = {};
+  for (const [other, chords] of Object.entries(settings.shortcuts) as [Shortcut, string[]][]) {
+    if (other !== shortcut) {
+      shortcuts[other] = chords.filter((bound) => !defaults.includes(bound));
+    }
+  }
   return { ...settings, shortcuts };
+}
+
+function defaultsOf(keymap: readonly KeyBinding[], shortcut: Shortcut): string[] {
+  return keymap.find((binding) => binding.shortcut === shortcut)?.defaults ?? [];
+}
+
+/**
+ * Whether `shortcut` differs from its defaults: changed by the user, or
+ * having lost a default to another action the user gave it.
+ */
+function isChanged(settings: Settings, keymap: readonly KeyBinding[], shortcut: Shortcut): boolean {
+  if (settings.shortcuts[shortcut] !== undefined) {
+    return true;
+  }
+  const chords = chordsOf(keymap, shortcut);
+  const defaults = defaultsOf(keymap, shortcut);
+  return chords.length !== defaults.length || chords.some((chord) => !defaults.includes(chord));
 }
 
 /** What the recorder shows besides the action's chords. */
@@ -120,8 +146,8 @@ const REFUSALS: Record<ChordRefusal, TranslationKey> = {
 };
 
 /**
- * An action's chords, each with a remove button, then Add and, once the user
- * changed the action, Reset.
+ * An action's chords, each with a remove button, then Add and, once the
+ * action differs from its defaults, Reset.
  *
  * Add asks Rust for the next chord pressed, since a bound chord never reaches
  * the interface. A refused chord is shown and recording goes on; a chord
@@ -244,13 +270,13 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
             </>
           )}
         </button>
-        {settings.shortcuts[shortcut] !== undefined && (
+        {isChanged(settings, keymap, shortcut) && (
           <button
             type="button"
             className="btn icon ghost"
             aria-label={t("settings.shortcuts.resetLabel")}
             title={t("settings.shortcuts.resetLabel")}
-            onClick={() => void update((current) => withDefaults(current, shortcut))}
+            onClick={() => void update((current) => withDefaults(current, keymapStore.get(), shortcut))}
           >
             <i className="ic-rotate-ccw ic-sm" aria-hidden="true" />
           </button>
