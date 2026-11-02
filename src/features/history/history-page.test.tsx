@@ -138,6 +138,12 @@ describe("HistoryPage", () => {
     expect(container.querySelector("[role=alert]")?.textContent).toBe("Unclosed group");
   });
 
+  it("stops loading when the first page fails, which the command wrapper reports", async () => {
+    commands.queryHistory.mockResolvedValue({ status: "error", error: { kind: "Storage", message: "locked" } });
+    await render();
+    expect(container.textContent).toContain("Nothing here yet.");
+  });
+
   it("lists sites, and a site opens its visits", async () => {
     commands.historySites.mockResolvedValue({
       status: "ok",

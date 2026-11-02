@@ -39,7 +39,9 @@ interface VisitsState {
  *
  * @param request - The filter and deletions it is asked under.
  * @param after - Where the page starts; `null` for the first.
- * @returns The update, or `null` when the query failed for a reason the command wrapper reports.
+ * @returns The update, or `null` when a later page failed for a reason the
+ * command wrapper reports, which keeps what is loaded. A first page that
+ * fails settles empty, so the list stops loading.
  */
 async function fetchPage(
   request: string,
@@ -47,10 +49,10 @@ async function fetchPage(
 ): Promise<((current: VisitsState) => VisitsState) | null> {
   const result = await commands.queryHistory(filterIn(request), after, PAGE_SIZE);
   if (result.status === "error") {
-    if (result.error.kind !== "InvalidPattern") {
+    const invalid = result.error.kind === "InvalidPattern" ? result.error.message : null;
+    if (invalid === null && after !== null) {
       return null;
     }
-    const invalid = result.error.message;
     return () => ({ request, items: [], next: null, invalid });
   }
   const { visits, next } = result.data;
