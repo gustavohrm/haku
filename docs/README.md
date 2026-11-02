@@ -57,3 +57,4 @@ Start with [Architecture](architecture.md).
 | [Find, print and save](specs/find-print-save.md) | The find bar; printing and saving a page.                     |
 | [Permissions](specs/permissions.md)              | Permission prompts; stored decisions, private windows.        |
 | [Zoom](specs/zoom.md)                            | Zooming pages; levels kept per site, shown and reset.         |
+| [Bookmarks](specs/bookmarks.md)                  | Saving pages, folders, the bar, import and export.            |
