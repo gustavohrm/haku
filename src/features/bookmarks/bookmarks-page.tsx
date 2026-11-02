@@ -39,7 +39,7 @@ export function BookmarksPage({ tabId, url }: InternalPageProps) {
     setQuery("");
     setForm(null);
     if (folder !== open.id) {
-      void commands.navigateTab(tabId, folderUrl(folder));
+      void commands.navigateTab(tabId, folderUrl(folder), "other");
     }
   };
   const showMenu = (node: BookmarkNode, at: { x: number; y: number }) =>
@@ -54,11 +54,11 @@ export function BookmarksPage({ tabId, url }: InternalPageProps) {
   };
   const follow = (link: string, event: MouseEvent) => {
     if (event.button === 1 || event.ctrlKey || event.metaKey) {
-      void commands.openTab(link, false);
+      void commands.openTab(link, false, "bookmark");
     } else if (event.shiftKey) {
       void commands.openWindow(link, null);
     } else {
-      void commands.navigateTab(tabId, link);
+      void commands.navigateTab(tabId, link, "bookmark");
     }
   };
 

@@ -90,15 +90,15 @@ describe("BookmarksBar", () => {
   it("opens a link in the focused tab, a background tab, or a new window", async () => {
     await render();
     await press(item("Haku"));
-    expect(commands.navigateTab).toHaveBeenCalledExactlyOnceWith(7, "https://haku.test/");
+    expect(commands.navigateTab).toHaveBeenCalledExactlyOnceWith(7, "https://haku.test/", "bookmark");
 
     await press(item("Haku"), { ctrlKey: true });
     await act(async () => {
       item("Haku").dispatchEvent(new MouseEvent("auxclick", { bubbles: true, button: 1 }));
     });
     expect(commands.openTab.mock.calls).toEqual([
-      ["https://haku.test/", false],
-      ["https://haku.test/", false],
+      ["https://haku.test/", false, "bookmark"],
+      ["https://haku.test/", false, "bookmark"],
     ]);
 
     await press(item("Haku"), { shiftKey: true });

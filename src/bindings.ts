@@ -56,7 +56,7 @@ export const commands = {
 } | null, HakuError>(__TAURI_INVOKE("record_shortcut")),
 	/**  Ends the recording pending in the caller's window, if any. */
 	cancelShortcutRecording: () => typedError<null, HakuError>(__TAURI_INVOKE("cancel_shortcut_recording")),
-	openTab: (url: string | null, activate: boolean) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate })),
+	openTab: (url: string | null, activate: boolean, source: NavigationSource) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate, source })),
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
 	/**
@@ -89,7 +89,7 @@ export const commands = {
 	 *  The input is resolved here rather than in the interface so that the same
 	 *  rules apply to every entry point, including future ones like shortcuts.
 	 */
-	navigateTab: (id: TabId, input: string) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("navigate_tab", { id, input })),
+	navigateTab: (id: TabId, input: string, source: NavigationSource) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("navigate_tab", { id, input, source })),
 	goBack: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("go_back", { id })),
 	goForward: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("go_forward", { id })),
 	reloadTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("reload_tab", { id })),
@@ -113,8 +113,48 @@ export const commands = {
 	 *  which is what would otherwise show as a flicker at the edge of the page.
 	 */
 	setLayout: (layout: Layout) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("set_layout", { layout })),
-	recentHistory: (limit: number) => typedError<HistoryEntry[], HakuError>(__TAURI_INVOKE("recent_history", { limit })),
-	clearHistory: () => typedError<null, HakuError>(__TAURI_INVOKE("clear_history")),
+	/**
+	 *  Visits the filter covers, newest first, after `after`.
+	 *  [History § Contract](../../../docs/specs/history.md#contract).
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid patterns; propagates storage failures.
+	 */
+	queryHistory: (filter: HistoryFilter, after: {
+	visitedAt: number,
+	id: number,
+} | null, limit: number) => typedError<HistoryPage, HakuError>(__TAURI_INVOKE("query_history", { filter, after, limit })),
+	/**
+	 *  How many visits the filter covers.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid patterns; propagates storage failures.
+	 */
+	countHistory: (filter: HistoryFilter) => typedError<number, HakuError>(__TAURI_INVOKE("count_history", { filter })),
+	/**
+	 *  The hosts of the visits the filter covers, most visited first.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid patterns; propagates storage failures.
+	 */
+	historySites: (filter: HistoryFilter, limit: number) => typedError<HistorySite[], HakuError>(__TAURI_INVOKE("history_sites", { filter, limit })),
+	/**
+	 *  Deletes the visits the filter covers; an empty filter deletes every one.
+	 *  Returns how many were deleted.
+	 *  # Errors
+	 *  Rejects non-chrome callers and invalid patterns; propagates storage failures.
+	 */
+	deleteHistory: (filter: HistoryFilter) => typedError<number, HakuError>(__TAURI_INVOKE("delete_history", { filter })),
+	/**
+	 *  Deletes these visits; ids not stored are ignored.
+	 *  # Errors
+	 *  Rejects non-chrome callers; propagates storage failures.
+	 */
+	deleteHistoryVisits: (ids: number[]) => typedError<null, HakuError>(__TAURI_INVOKE("delete_history_visits", { ids })),
+	/**
+	 *  Pauses recording history until Haku restarts, or resumes it, in every
+	 *  window.
+	 *  # Errors
+	 *  Rejects non-chrome callers.
+	 */
+	setHistoryPaused: (paused: boolean) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("set_history_paused", { paused })),
 	openTabDevtools: (id: TabId) => typedError<null, HakuError>(__TAURI_INVOKE("open_tab_devtools", { id })),
 	/**
 	 *  Finds `query` in a tab's page. [Find, print and save](../../../docs/specs/find-print-save.md).
@@ -450,6 +490,11 @@ export type BrowserState = {
 	capacity: number,
 	/**  Tabs holding a webview, across every window: the pool is shared. */
 	liveCount: number,
+	/**
+	 *  Whether browsing history is paused until Haku restarts.
+	 *  [History § Recording on, off and paused](../../docs/specs/history.md#recording-on-off-and-paused).
+	 */
+	historyPaused: boolean,
 };
 
 /**  Why a chord cannot be bound. */
@@ -722,7 +767,12 @@ export type FindResult = {
  *  The variants are deliberately coarse: the frontend decides what to show the
  *  user, and a stable, small set keeps the generated TypeScript union usable.
  */
-export type HakuError = { kind: "TabNotFound"; message: string } | { kind: "NoSlotAvailable" } | { kind: "InvalidUrl"; message: string } | { kind: "Unsupported"; message: string } | { kind: "WindowMissing"; message: string } | { kind: "Storage"; message: string } | { kind: "Tauri"; message: string };
+export type HakuError = { kind: "TabNotFound"; message: string } | { kind: "NoSlotAvailable" } | { kind: "InvalidUrl"; message: string } | { kind: "Unsupported"; message: string } | 
+/**
+ *  A URL pattern that cannot be used, with the reason, which the
+ *  interface shows beside the field it was typed in.
+ */
+{ kind: "InvalidPattern"; message: string } | { kind: "WindowMissing"; message: string } | { kind: "Storage"; message: string } | { kind: "Tauri"; message: string };
 
 /**
  *  A tab's navigation stack.
@@ -740,17 +790,74 @@ export type History = {
 	index: number,
 };
 
-export type HistoryEntry = {
+/**  Where the next page of a query starts: after the visit it names. */
+export type HistoryCursor = {
+	visitedAt: number,
+	id: number,
+};
+
+/**
+ *  Which visits a query, count or delete covers. Every field narrows it; the
+ *  default covers everything.
+ */
+export type HistoryFilter = {
+	/**  Words found in the title or address, each anywhere, ignoring case. */
+	text: string | null,
+	/**  Milliseconds since the epoch, inclusive. */
+	from: number | null,
+	/**  Milliseconds since the epoch, exclusive. */
+	to: number | null,
+	/**  Visits whose URL any of these picks out; none means every URL. */
+	include: UrlPattern[],
+	/**  Visits whose URL any of these picks out are left out. */
+	exclude: UrlPattern[],
+	/**  Visits reached in any of these ways; none means every way. */
+	transitions: Transition[],
+};
+
+export type HistoryPage = {
+	visits: HistoryVisit[],
+	/**  Nothing when no visit is left. */
+	next: HistoryCursor | null,
+};
+
+/**  How long visits are kept. */
+export type HistoryRetention = "forever" | "days30" | "days90" | "year";
+
+export type HistoryRule = {
+	pattern: UrlPattern,
+	action: HistoryRuleAction,
+};
+
+export type HistoryRuleAction = 
+/**  The visit is not recorded. */
+"never" | 
+/**  The visit is recorded with an empty title, and never retitled. */
+"addressOnly" | 
+/**  The visit is recorded, whatever later rules say. */
+"always";
+
+export type HistorySite = {
+	host: string,
+	visits: number,
+	lastVisitedAt: number,
+};
+
+export type HistoryVisit = {
 	/**
-	 *  Exported as a JavaScript number: every value here is a counter, a
-	 *  small capacity, or a millisecond timestamp, all far inside the range a
-	 *  double represents exactly.
+	 *  Exported as a JavaScript number: every value here is a counter or a
+	 *  millisecond timestamp, far inside the range a double represents
+	 *  exactly.
 	 */
 	id: number,
 	url: string,
+	/**  Empty for a URL with no host, such as a local file. */
+	host: string,
+	/**  The page's latest title; empty when a rule keeps only its address. */
 	title: string,
 	/**  Milliseconds since the Unix epoch. */
 	visitedAt: number,
+	transition: Transition,
 };
 
 /**
@@ -830,6 +937,12 @@ export type NativeMenuItem = {
 };
 
 export type NativeMenuItemKind = "command" | "checkbox" | "radio" | "separator" | "submenu";
+
+/**
+ *  Where the interface says a navigation it asks for came from. Whether it
+ *  was a search is Rust's to decide, from what the input resolved to.
+ */
+export type NavigationSource = "typed" | "bookmark" | "link" | "other";
 
 /**  A region drawn above the page, in logical pixels. */
 export type Overlay = {
@@ -1006,6 +1119,18 @@ export type Settings = {
 	 *  [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
 	 */
 	shortcuts: Partial<{ [key in Shortcut]: string[] }>,
+	/**
+	 *  Whether browsing history is recorded at all.
+	 *  [History § Turning recording off](../../../docs/specs/history.md#turning-recording-off-and-pausing).
+	 */
+	historyEnabled: boolean,
+	/**  How long visits are kept. */
+	historyRetention: HistoryRetention,
+	/**
+	 *  What is recorded for which URLs, checked in order.
+	 *  [History § Rules](../../../docs/specs/history.md#rules).
+	 */
+	historyRules: HistoryRule[],
 };
 
 export type SettingsChanged = Settings;
@@ -1179,6 +1304,25 @@ export type ToolbarPlacement =
 "sidebar";
 
 /**
+ *  How a visit to a page was reached, which browsing history keeps for the
+ *  address bar to rank by.
+ *  [History § Transitions](../../../docs/specs/history.md#transitions).
+ */
+export type Transition = 
+/**  The address field, when the input resolved to an address. */
+"typed" | 
+/**
+ *  The address field, or a context menu, when the input resolved to a
+ *  search.
+ */
+"search" | "bookmark" | 
+/**
+ *  A link or pushed route in the page, a link opened elsewhere, or a
+ *  page's popup.
+ */
+"link" | "backForward" | "other";
+
+/**
  *  A process no slot accounts for: the browser, GPU and utility processes, and
  *  the interface's own renderer.
  */
@@ -1187,6 +1331,21 @@ export type UnattributedProcess = {
 	kind: ProcessKind,
 	bytes: number,
 };
+
+export type UrlPattern = {
+	kind: UrlPatternKind,
+	value: string,
+};
+
+export type UrlPatternKind = 
+/**  That exact URL. */
+"page" | 
+/**  A host and every subdomain of it. */
+"site" | 
+/**  The whole URL, where `*` stands for any run of characters. */
+"wildcard" | 
+/**  A regular expression found anywhere in the URL. */
+"regex";
 
 /**  Where content webviews sit inside the window, in logical pixels. */
 export type Viewport = {

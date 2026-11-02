@@ -26,6 +26,7 @@ import {
   ToolbarPlacementControl,
   VersionControl,
 } from "./controls";
+import { HistoryEnabledControl, HistoryRetentionControl, HistoryRulesControl } from "./history-controls";
 import { SHORTCUT_GROUPS } from "./shortcuts";
 import { type SettingRowDefinition, type SettingSection } from "./types";
 
@@ -237,6 +238,34 @@ export const SECTIONS: SettingSection[] = [
             wide: true,
             labelsControl: false,
             Control: SiteZoomControl,
+          },
+        ],
+      },
+      {
+        title: "settings.history",
+        rows: [
+          {
+            id: "historyEnabled",
+            title: "settings.historyEnabled",
+            description: "settings.historyEnabled.help",
+            keywords: "settings.historyEnabled.keywords",
+            Control: HistoryEnabledControl,
+          },
+          {
+            id: "historyRetention",
+            title: "settings.historyRetention",
+            description: "settings.historyRetention.help",
+            keywords: "settings.historyRetention.keywords",
+            Control: HistoryRetentionControl,
+          },
+          {
+            id: "historyRules",
+            title: "settings.historyRules",
+            description: "settings.historyRules.help",
+            keywords: "settings.historyRules.keywords",
+            wide: true,
+            labelsControl: false,
+            Control: HistoryRulesControl,
           },
         ],
       },

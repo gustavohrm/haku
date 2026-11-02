@@ -5,8 +5,8 @@ use specta::Type;
 
 use crate::model::keymap::{defaults_of, DEFAULTS};
 use crate::model::permission::{normalized, SitePermissions};
-use crate::model::SiteZooms;
 use crate::model::{Chord, Keymap, Policy, Preset, Shortcut, DEFAULT_CAPACITY};
+use crate::model::{HistoryRetention, HistoryRules, SiteZooms};
 
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
 const DEFAULT_HOME_URL: &str = "haku://new-tab";
@@ -162,6 +162,14 @@ pub struct Settings {
     /// The chords of the shortcuts the user changed, by action.
     /// [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
     pub shortcuts: Shortcuts,
+    /// Whether browsing history is recorded at all.
+    /// [History § Turning recording off](../../../docs/specs/history.md#turning-recording-off-and-pausing).
+    pub history_enabled: bool,
+    /// How long visits are kept.
+    pub history_retention: HistoryRetention,
+    /// What is recorded for which URLs, checked in order.
+    /// [History § Rules](../../../docs/specs/history.md#rules).
+    pub history_rules: HistoryRules,
 }
 
 /// The chords of the shortcuts the user changed, written as
@@ -281,6 +289,9 @@ impl Default for Settings {
             site_permissions: SitePermissions::default(),
             site_zoom: SiteZooms::default(),
             shortcuts: Shortcuts::default(),
+            history_enabled: true,
+            history_retention: HistoryRetention::default(),
+            history_rules: HistoryRules::default(),
         }
     }
 }
@@ -308,6 +319,7 @@ impl Settings {
         self.site_permissions = SitePermissions(normalized(std::mem::take(&mut self.site_permissions.0)));
         self.site_zoom = std::mem::take(&mut self.site_zoom).normalized();
         self.shortcuts = std::mem::take(&mut self.shortcuts).normalized();
+        self.history_rules = std::mem::take(&mut self.history_rules).normalized();
         self
     }
 
@@ -500,6 +512,34 @@ mod tests {
         .sanitized()
         .shortcuts
         .0
+    }
+
+    #[test]
+    fn history_is_recorded_and_kept_forever_with_no_rules_by_default() {
+        let settings = Settings::default();
+        assert!(settings.history_enabled);
+        assert_eq!(settings.history_retention, HistoryRetention::Forever);
+        assert!(settings.history_rules.is_empty());
+    }
+
+    #[test]
+    fn stored_history_rules_are_normalized() {
+        let history_rules: HistoryRules = serde_json::from_value(serde_json::json!([
+            { "pattern": { "kind": "site", "value": "https://Bank.test/login" }, "action": "never" },
+            { "pattern": { "kind": "site", "value": "bank.test" }, "action": "always" },
+        ]))
+        .unwrap();
+        let settings = Settings {
+            history_rules,
+            ..Settings::default()
+        }
+        .sanitized();
+        let rules: Vec<_> = settings
+            .history_rules
+            .iter()
+            .map(|rule| (rule.pattern.value.as_str(), rule.action))
+            .collect();
+        assert_eq!(rules, vec![("bank.test", crate::model::HistoryRuleAction::Never)]);
     }
 
     #[test]

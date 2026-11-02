@@ -43,6 +43,8 @@ export function describeError(error: HakuError): string {
       return `${t("error.storage")}: ${error.message}`;
     case "Tauri":
       return `${t("error.tauri")}: ${error.message}`;
+    case "InvalidPattern":
+      return `${t("error.invalidPattern")}: ${error.message}`;
   }
 }
 

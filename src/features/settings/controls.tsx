@@ -655,7 +655,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
                 icon: "ic-settings-2",
                 disabled: !isOn,
                 disabledReason: isOn ? undefined : t("settings.extensions.options.off"),
-                onSelect: () => void commands.openTab(extension.options, true),
+                onSelect: () => void commands.openTab(extension.options, true, "other"),
               },
             ]),
         {
@@ -848,7 +848,7 @@ function OpenPage({ id, describedBy, url }: { id: string; describedBy: string | 
       type="button"
       className="btn"
       aria-describedby={describedBy}
-      onClick={() => void commands.openTab(url, true)}
+      onClick={() => void commands.openTab(url, true, "other")}
     >
       {t("settings.open")}
     </button>

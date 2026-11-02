@@ -184,7 +184,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
               className="text-text-secondary hover:bg-text/8 hover:text-text flex h-8 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px]"
               onClick={() => {
                 setMenuAt(null);
-                void commands.openTab(`${SETTINGS_URL}/extensions`, true);
+                void commands.openTab(`${SETTINGS_URL}/extensions`, true, "other");
               }}
             >
               <i className="ic-settings ic-sm shrink-0" aria-hidden="true" />
@@ -319,7 +319,7 @@ function PinnedExtensions({ pinned, refs, canOpen, onOpen }: PinnedExtensionsPro
           id: "manage",
           label: t("extensions.manage"),
           icon: "ic-settings",
-          onSelect: () => void commands.openTab(`${SETTINGS_URL}/extensions`, true),
+          onSelect: () => void commands.openTab(`${SETTINGS_URL}/extensions`, true, "other"),
         },
       ],
     });

@@ -48,6 +48,86 @@ impl NavigationKind {
     }
 }
 
+/// How a visit to a page was reached, which browsing history keeps for the
+/// address bar to rank by.
+/// [History § Transitions](../../../docs/specs/history.md#transitions).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Transition {
+    /// The address field, when the input resolved to an address.
+    Typed,
+    /// The address field, or a context menu, when the input resolved to a
+    /// search.
+    Search,
+    Bookmark,
+    /// A link or pushed route in the page, a link opened elsewhere, or a
+    /// page's popup.
+    Link,
+    BackForward,
+    #[default]
+    Other,
+}
+
+impl Transition {
+    /// Every transition, in a fixed order.
+    pub const ALL: [Self; 6] = [
+        Self::Typed,
+        Self::Search,
+        Self::Bookmark,
+        Self::Link,
+        Self::BackForward,
+        Self::Other,
+    ];
+
+    /// The name stored in the history database.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Typed => "typed",
+            Self::Search => "search",
+            Self::Bookmark => "bookmark",
+            Self::Link => "link",
+            Self::BackForward => "backForward",
+            Self::Other => "other",
+        }
+    }
+
+    /// Reads a stored name; an unknown one, written by a later Haku, reads as
+    /// [`Self::Other`].
+    pub fn from_name(name: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|transition| transition.name() == name)
+            .unwrap_or_default()
+    }
+}
+
+/// Where the interface says a navigation it asks for came from. Whether it
+/// was a search is Rust's to decide, from what the input resolved to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NavigationSource {
+    Typed,
+    Bookmark,
+    Link,
+    #[default]
+    Other,
+}
+
+impl NavigationSource {
+    /// The transition a visit from here has.
+    ///
+    /// @param searched - Whether the input resolved to a search.
+    pub fn transition(self, searched: bool) -> Transition {
+        match self {
+            _ if searched => Transition::Search,
+            Self::Typed => Transition::Typed,
+            Self::Bookmark => Transition::Bookmark,
+            Self::Link => Transition::Link,
+            Self::Other => Transition::Other,
+        }
+    }
+}
+
 /// One URL change a webview committed, in the order it happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Commit {

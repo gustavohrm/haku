@@ -1452,6 +1452,7 @@ name = "haku"
 version = "0.1.0"
 dependencies = [
  "miniz_oxide 0.8.9",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

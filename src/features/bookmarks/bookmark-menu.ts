@@ -28,7 +28,7 @@ export function bookmarkMenu(tree: Bookmarks, node: BookmarkNode, actions: Bookm
         kind: "command",
         id: "openTab",
         label: t("bookmarks.openTab"),
-        onSelect: () => void commands.openTab(url, false),
+        onSelect: () => void commands.openTab(url, false, "bookmark"),
       },
       {
         kind: "command",

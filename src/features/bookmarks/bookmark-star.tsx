@@ -300,7 +300,7 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
             className="btn ghost edged"
             onClick={() => {
               close();
-              void commands.openTab(folderUrl(parent.id), true);
+              void commands.openTab(folderUrl(parent.id), true, "other");
             }}
           >
             {t("bookmarks.more")}

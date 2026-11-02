@@ -1,5 +1,5 @@
 import { InternalPage } from "@app/internal-page";
-import { type HistoryEntry } from "@bindings";
+import { type HistoryFilter, type HistoryVisit } from "@bindings";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { unwrap } from "@ipc/result";
@@ -8,7 +8,9 @@ import { useEffect, useState } from "react";
 
 const PAGE_SIZE = 200;
 
-const recentHistory = () => unwrap(commands.recentHistory(PAGE_SIZE));
+const EVERYTHING: HistoryFilter = { text: null, from: null, to: null, include: [], exclude: [], transitions: [] };
+
+const recentHistory = async () => (await unwrap(commands.queryHistory(EVERYTHING, null, PAGE_SIZE))).visits;
 
 /**
  * Recent history.
@@ -18,7 +20,7 @@ const recentHistory = () => unwrap(commands.recentHistory(PAGE_SIZE));
  * be built on top of real data rather than starting from an empty table.
  */
 export function HistoryPage() {
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [entries, setEntries] = useState<HistoryVisit[]>([]);
 
   const load = async () => {
     try {
@@ -56,7 +58,7 @@ export function HistoryPage() {
           disabled={entries.length === 0}
           onClick={async () => {
             try {
-              await unwrap(commands.clearHistory());
+              await unwrap(commands.deleteHistory(EVERYTHING));
             } catch (error) {
               reportUnexpected(error);
               return;
@@ -77,7 +79,7 @@ export function HistoryPage() {
               <button
                 type="button"
                 className="hover:bg-text/6 grid w-full grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-baseline gap-4 rounded-(--radius-control) px-3 py-2 text-left"
-                onClick={() => void commands.openTab(entry.url, true)}
+                onClick={() => void commands.openTab(entry.url, true, "other")}
               >
                 <span className="truncate font-medium">{entry.title || entry.url}</span>
                 <span className="text-text-secondary truncate">{entry.url}</span>

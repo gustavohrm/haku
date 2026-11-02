@@ -12,8 +12,8 @@ use crate::model::{
     decision_for, is_internal, origin_of, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind,
     Downloading, Loss, LossSignal, NavigationKind, PageDialog, PageState, PermissionDecision, PermissionKind,
     PermissionRequest, PermissionRequestId, PermissionState, Placement, Policy, Pressure, Profile, Scroll,
-    SitePermission, SiteZoom, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool, WindowId, WindowKind,
-    WindowRequestId, DEFAULT_ZOOM,
+    SitePermission, SiteZoom, Slot, SlotId, Tab, TabId, TabPresence, Transition, Visit, WebviewPool, WindowId,
+    WindowKind, WindowRequestId, DEFAULT_ZOOM,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -231,11 +231,11 @@ pub struct PageReport {
     /// The URL and title the tab now shows.
     pub url: String,
     pub title: String,
-    /// Whether the page arrived somewhere: a followed link, a pushed route, or
-    /// a navigation Haku made. A discarded tab reloading what it already
-    /// showed is not a visit, and neither is a redirect, a replaced route or a
-    /// retitle; those only refine the visit already recorded.
-    pub visited: bool,
+    /// How the page arrived somewhere, when it did: a followed link, a pushed
+    /// route, or a navigation Haku made. A discarded tab reloading what it
+    /// already showed is not a visit, and neither is a redirect, a replaced
+    /// route or a retitle; those only refine the visit already recorded.
+    pub visit: Option<Transition>,
 }
 
 /// Why a tab holding a slot holds it.
@@ -273,6 +273,9 @@ pub struct BrowserState {
     /// Tabs holding a webview, across every window: the pool is shared.
     #[specta(type = specta_typescript::Number)]
     pub live_count: usize,
+    /// Whether browsing history is paused until Haku restarts.
+    /// [History § Recording on, off and paused](../../docs/specs/history.md#recording-on-off-and-paused).
+    pub history_paused: bool,
 }
 
 /// A persistent, ordered relationship; only the selected pair owns viewports.
@@ -428,10 +431,12 @@ pub struct Browser {
     /// navigation arriving, possibly redirected, and belongs to the entry that
     /// is already current rather than a new one.
     awaiting: HashSet<SlotId>,
-    /// Tabs sent somewhere new whose page has not arrived yet. Their next
-    /// awaited commit is a visit; any other awaited commit is a discarded tab
-    /// coming back, which is not.
-    navigated: HashSet<TabId>,
+    /// Tabs sent somewhere new whose page has not arrived yet, with how they
+    /// were sent. Their next awaited commit is a visit reached that way; any
+    /// other awaited commit is a discarded tab coming back, which is not.
+    navigated: HashMap<TabId, Transition>,
+    /// Whether browsing history is paused until Haku restarts.
+    history_paused: bool,
     next_id: u64,
     freeze: Policy,
     discard: Policy,
@@ -496,7 +501,8 @@ impl Browser {
             slot_windows: HashMap::new(),
             slot_urls: HashMap::new(),
             awaiting: HashSet::new(),
-            navigated: HashSet::new(),
+            navigated: HashMap::new(),
+            history_paused: false,
             next_id: 1,
             // Nothing is frozen or discarded early until settings say so.
             freeze: Policy::Never,
@@ -630,7 +636,22 @@ impl Browser {
             fullscreen: entry.fullscreen,
             capacity: self.pool.capacity(),
             live_count: self.tabs.iter().filter(|tab| tab.slot().is_some()).count(),
+            history_paused: self.history_paused,
         })
+    }
+
+    /// Pauses browsing history until Haku restarts, or resumes it.
+    pub fn set_history_paused(&mut self, paused: bool) {
+        self.history_paused = paused;
+    }
+
+    /// Says how a navigation Haku just made for a tab was asked for, so its
+    /// visit records that rather than [`Transition::Other`]. A tab with no
+    /// navigation pending is left alone.
+    pub fn set_transition(&mut self, id: TabId, transition: Transition) {
+        if let Some(pending) = self.navigated.get_mut(&id) {
+            *pending = transition;
+        }
     }
 
     /// Every window's tabs.
@@ -1258,7 +1279,7 @@ impl Browser {
         let index = self.legal_insertion(window, index);
         self.tabs.insert(index, Tab::new(id, url));
         self.homes.insert(id, window);
-        self.navigated.insert(id);
+        self.navigated.insert(id, Transition::Other);
         id
     }
 
@@ -1358,6 +1379,7 @@ impl Browser {
         if let Some(parent) = parent.filter(|_| opening != Opening::Window) {
             self.openers.insert(id, parent);
         }
+        self.navigated.insert(id, Transition::Link);
 
         let home = self.window_of(id).expect("new tab window");
         match opening {
@@ -1915,7 +1937,7 @@ impl Browser {
         tab.history.push(Visit::new(url));
         tab.leave_entry();
         tab.reclassify();
-        self.navigated.insert(id);
+        self.navigated.insert(id, Transition::Other);
 
         // The tab may have just left the pool for an internal page.
         if self.tab(id)?.is_internal() {
@@ -1965,7 +1987,7 @@ impl Browser {
         }
         tab.leave_entry();
         tab.reclassify();
-        self.navigated.insert(id);
+        self.navigated.insert(id, Transition::BackForward);
         effects.extend(self.realize());
         Ok(effects)
     }
@@ -2353,7 +2375,8 @@ impl Browser {
     /// on the entry the page ended up on.
     ///
     /// @returns What may enter persistent history, and whether it was a visit.
-    /// Private pages update the tab but return no persistent report.
+    /// Private pages, and every page while history is paused, update the tab
+    /// but return no persistent report.
     pub fn report_page(&mut self, slot: SlotId, commits: &[Commit], title: Option<String>) -> Option<PageReport> {
         let id = self.occupant_of(slot)?;
         let commits: Vec<&Commit> = commits.iter().filter(|commit| commit.url != BLANK_URL).collect();
@@ -2361,15 +2384,16 @@ impl Browser {
             return None;
         }
 
-        let mut visited = false;
+        let mut visit = None;
         for commit in commits {
             self.slot_urls.insert(slot, commit.url.clone());
             let awaited = self.awaiting.remove(&slot);
-            visited |= if awaited {
+            let arrived = if awaited {
                 self.navigated.remove(&id)
             } else {
-                commit.kind == NavigationKind::Push
+                (commit.kind == NavigationKind::Push).then_some(Transition::Link)
             };
+            visit = arrived.or(visit);
             let favicon = (self.profile_of(id) == Profile::Default)
                 .then(|| favicon_for(&commit.url))
                 .flatten();
@@ -2400,14 +2424,14 @@ impl Browser {
             tab.history.update_current(None, Some(title), None);
         }
 
-        if self.profile_of(id) == Profile::Private {
+        if self.profile_of(id) == Profile::Private || self.history_paused {
             return None;
         }
         let current = self.tab(id).ok()?.history.current();
         Some(PageReport {
             url: current.url.clone(),
             title: current.title.clone(),
-            visited,
+            visit,
         })
     }
 
@@ -3254,9 +3278,16 @@ pub fn favicon_for(url: &str) -> Option<String> {
 }
 
 pub fn resolve_target(input: &str, search_url: &str) -> String {
+    resolve_input(input, search_url).0
+}
+
+/// What address-field input resolves to, and whether that is a search.
+///
+/// @returns The URL, empty for blank input, and whether it searches.
+pub fn resolve_input(input: &str, search_url: &str) -> (String, bool) {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return String::new();
+        return (String::new(), false);
     }
     // An extension's own pages are reached by address: the engine draws no
     // toolbar to open its popup from.
@@ -3265,20 +3296,21 @@ pub fn resolve_target(input: &str, search_url: &str) -> String {
         || trimmed.starts_with("https://")
         || trimmed.starts_with("chrome-extension://")
     {
-        return trimmed.to_string();
+        return (trimmed.to_string(), false);
     }
     // A single token with a dot and no spaces is a host, anything else is a query.
     if !trimmed.contains(' ') && trimmed.contains('.') {
-        return format!("https://{trimmed}");
+        return (format!("https://{trimmed}"), false);
     }
     let query = urlencode(trimmed);
     // `%s` marks where the search goes, each time it appears, as in other
     // browsers' search URLs; without it the search is added to the end.
-    if search_url.contains(SEARCH_MARK) {
+    let url = if search_url.contains(SEARCH_MARK) {
         search_url.replace(SEARCH_MARK, &query)
     } else {
         format!("{search_url}{query}")
-    }
+    };
+    (url, true)
 }
 
 const SEARCH_MARK: &str = "%s";

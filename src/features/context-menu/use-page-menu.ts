@@ -87,10 +87,10 @@ export function usePageMenu(tab: Tab | null): void {
             print: own(() => void commands.printPage(id)),
             savePage: own(() => void commands.savePage(id)),
             inspect: own(() => void commands.openTabDevtools(id)),
-            openInTab: own((url: string) => void commands.openTab(url, false)),
+            openInTab: own((url: string) => void commands.openTab(url, false, "link")),
             openInWindow: own((url: string) => void commands.openWindow(url, null)),
             openInPrivateWindow: own((url: string) => void commands.openWindow(url, true)),
-            search: own((text: string) => void commands.openTab(text, true)),
+            search: own((text: string) => void commands.openTab(text, true, "link")),
             choose: (native) => {
               choice = native;
             },

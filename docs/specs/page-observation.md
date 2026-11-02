@@ -41,12 +41,12 @@ Where the script never ran — an error page, the PDF viewer — the log is miss
 
 ### What counts as a visit
 
-Browsing history (the SQLite store) records visits, which is a narrower thing than commits. `report_page` says whether a report was one:
+Browsing history (the SQLite store) records visits, which is a narrower thing than commits. `report_page` says whether a report was one, and if so how it was reached (its [transition](history.md#transitions)):
 
 - **A visit:** a `push` commit, or the arrival of a page Haku sent the tab to — opening a tab, the address bar, back and forward.
 - **Not a visit:** a discarded tab, or a restored session, reloading the page it already showed; a redirect; a replaced route; a reload; a retitle.
 
-Anything that is not a visit retitles the latest visit to its URL instead, so a visit carries the title the page settled on. Without the distinction every tab switch in a one-webview pool recorded a fresh visit.
+Anything that is not a visit retitles the latest visit to its URL instead, so a visit carries the title the page settled on. Without the distinction every tab switch in a one-webview pool recorded a fresh visit. Whether a visit or retitle is then stored depends on the recording switch, pause, scheme and rules ([History § What is recorded](history.md#what-is-recorded)); while history is paused `report_page` reports none.
 
 Private reports update the tab's in-memory history and title but never enter the asynchronous persistence queue: neither visits nor retitles reach SQLite. Their state exposes no remote favicon URL, so the default-profile chrome cannot fetch one.
 

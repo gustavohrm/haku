@@ -79,7 +79,7 @@ export function SettingsPage({ tabId, url }: InternalPageProps) {
                   onClick={() => {
                     setQuery("");
                     if (section !== current) {
-                      void commands.navigateTab(tabId, sectionUrl(section));
+                      void commands.navigateTab(tabId, sectionUrl(section), "other");
                     }
                   }}
                 >

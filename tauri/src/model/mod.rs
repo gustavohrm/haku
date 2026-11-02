@@ -5,6 +5,7 @@ pub mod download;
 pub mod extension;
 pub mod find;
 pub mod history;
+pub mod history_rules;
 pub mod keymap;
 pub mod optimization;
 pub mod page_state;
@@ -13,6 +14,7 @@ pub mod pool;
 pub mod pressure;
 pub mod preview;
 pub mod tab;
+pub mod url_pattern;
 pub mod window;
 pub mod zoom;
 
@@ -32,7 +34,8 @@ pub use extension::{
     POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
 pub use find::{check_query, FindDirection, FIND_QUERY_MAX};
-pub use history::{Commit, History, NavigationKind, Visit};
+pub use history::{Commit, History, NavigationKind, NavigationSource, Transition, Visit};
+pub use history_rules::{CompiledRules, HistoryRetention, HistoryRule, HistoryRuleAction, HistoryRules, Recording};
 pub use keymap::{shortcut_for, Chord, ChordRefusal, Key, Keymap, Shortcut};
 pub use optimization::{Policy, Preset};
 pub use page_state::{Loss, LossSignal, PageRecord, PageState};
@@ -44,5 +47,6 @@ pub use pool::{Acquired, Profile, Slot, SlotId, WebviewPool, DEFAULT_CAPACITY};
 pub use pressure::{MemoryStatus, Pressure};
 pub use preview::{data_url, jpeg_data_url, Previews};
 pub use tab::{host_of, is_internal, CrashCause, Scroll, Tab, TabId, TabPresence};
+pub use url_pattern::{any_matches, CompiledPattern, UrlPattern, UrlPatternKind};
 pub use window::{Placement, WindowId, WindowKind, WindowRequestId, WINDOW_LABEL_PREFIX};
 pub use zoom::{percent_of, SiteZoom, SiteZooms, DEFAULT_ZOOM};

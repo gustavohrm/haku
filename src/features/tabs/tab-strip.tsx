@@ -127,7 +127,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
         tabs,
         {
           reload: (id) => void commands.reloadTab(id),
-          duplicate: (url) => void commands.openTab(url, true),
+          duplicate: (url) => void commands.openTab(url, true, "other"),
           setFixed: (id, fixed) => void commands.setTabFixed(id, fixed),
           close: (ids) => void closeTabs(ids),
           split: (id) => void commands.splitTab(id),
@@ -156,7 +156,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
           label: t("menu.tabs"),
           onClose: holdBar("tabs"),
           items: stripMenu({
-            newTab: () => void commands.openTab(null, true),
+            newTab: () => void commands.openTab(null, true, "other"),
             reopen: () => void commands.reopenClosedTab(),
           }),
         });
@@ -292,7 +292,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
         <button
           type="button"
           className="btn ghost text-text-secondary h-(--control-height) w-full shrink-0 justify-start gap-2 px-2 font-normal"
-          onClick={() => void commands.openTab(null, true)}
+          onClick={() => void commands.openTab(null, true, "other")}
         >
           <i className="ic-plus ic-md" aria-hidden="true" />
           {t("tabs.new")}
@@ -303,7 +303,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
           className="btn icon ghost shrink-0"
           aria-label={t("tabs.new")}
           title={t("tabs.new")}
-          onClick={() => void commands.openTab(null, true)}
+          onClick={() => void commands.openTab(null, true, "other")}
         >
           <i className="ic-plus ic-sm" aria-hidden="true" />
         </button>

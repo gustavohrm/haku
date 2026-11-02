@@ -1194,7 +1194,11 @@ fn a_dialog_from_a_slot_no_tab_owns_is_answered_at_once() {
 // -- what counts as a visit ---------------------------------------------
 
 fn visited(report: Option<PageReport>) -> bool {
-    report.expect("the slot has an occupant").visited
+    transition(report).is_some()
+}
+
+fn transition(report: Option<PageReport>) -> Option<Transition> {
+    report.expect("the slot has an occupant").visit
 }
 
 #[test]
@@ -1278,6 +1282,108 @@ fn a_replaced_route_or_a_retitle_only_refines_the_current_visit() {
         None
     )));
     assert!(!visited(browser.report_page(slot, &[], Some("Renamed".into()))));
+}
+
+#[test]
+fn a_tab_haku_opened_arrives_as_other_unless_told_how() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    assert_eq!(
+        transition(browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None)),
+        Some(Transition::Other)
+    );
+}
+
+#[test]
+fn a_navigation_arrives_as_the_way_it_was_asked_for() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.navigate(id, "https://b.test").unwrap();
+    browser.set_transition(id, Transition::Typed);
+
+    assert_eq!(
+        transition(browser.report_page(slot, &[commit("https://b.test", NavigationKind::Push)], None)),
+        Some(Transition::Typed)
+    );
+}
+
+#[test]
+fn a_transition_set_with_no_navigation_pending_changes_nothing() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.set_transition(id, Transition::Bookmark);
+
+    assert_eq!(
+        transition(browser.report_page(slot, &[commit("https://a.test/x", NavigationKind::Push)], None)),
+        Some(Transition::Link)
+    );
+}
+
+#[test]
+fn going_back_arrives_as_back_forward() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.report_page(slot, &[commit("https://a.test/next", NavigationKind::Push)], None);
+
+    browser.go_back(id).unwrap();
+
+    assert_eq!(
+        transition(browser.report_page(slot, &[commit("https://a.test", NavigationKind::Push)], None)),
+        Some(Transition::BackForward)
+    );
+}
+
+#[test]
+fn a_link_or_pushed_route_arrives_as_a_link() {
+    let (mut browser, _, slot) = loaded("https://a.test");
+
+    assert_eq!(
+        transition(browser.report_page(slot, &[commit("https://a.test/post", NavigationKind::Push)], None)),
+        Some(Transition::Link)
+    );
+}
+
+#[test]
+fn a_tab_a_page_opened_arrives_as_a_link() {
+    let (mut browser, _, slot) = loaded("https://a.test");
+
+    let (id, _) = browser.open_from(slot, "https://b.test", Opening::Foreground);
+
+    assert_eq!(browser.navigated.get(&id), Some(&Transition::Link));
+}
+
+#[test]
+fn while_history_is_paused_no_report_reaches_it_and_the_tab_still_follows_the_page() {
+    let (mut browser, id, slot) = loaded("https://a.test");
+    browser.set_history_paused(true);
+
+    let report = browser.report_page(
+        slot,
+        &[commit("https://a.test/x", NavigationKind::Push)],
+        Some("X".into()),
+    );
+
+    assert_eq!(report, None);
+    assert_eq!(browser.tab(id).unwrap().url(), "https://a.test/x");
+    assert!(browser.state().history_paused);
+
+    browser.set_history_paused(false);
+    assert!(visited(browser.report_page(
+        slot,
+        &[commit("https://a.test/y", NavigationKind::Push)],
+        None
+    )));
+}
+
+#[test]
+fn input_resolving_to_a_search_says_so() {
+    assert_eq!(
+        resolve_input("rust book", "https://s.test/?q="),
+        ("https://s.test/?q=rust+book".to_string(), true)
+    );
+    assert_eq!(
+        resolve_input("example.com", "https://s.test/?q="),
+        ("https://example.com".to_string(), false)
+    );
+    assert_eq!(resolve_input("  ", "https://s.test/?q="), (String::new(), false));
 }
 
 // -- optimization policies -------------------------------------------------

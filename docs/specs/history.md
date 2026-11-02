@@ -81,7 +81,7 @@ Both are on the history page, at the top: the switch, and **Pause until restart*
 | `addressOnly` | Recorded with an empty title, and never retitled. The list shows its address. For mail, chat and documents. |
 | `always`      | Recorded, whatever later rules say. The exception to a broader rule.                                        |
 
-The **first matching rule decides**; a visit no rule matches is recorded. A rule added from the site menu or a history row goes to the top. Rules are reordered with move up and move down in settings.
+The **first matching rule decides**; a visit no rule matches is recorded. A new rule goes to the top, from the site menu, a history row or settings, so the newest decision wins. Rules are reordered with move up and move down in settings.
 
 Rules apply to visits recorded from then on. Adding a `never` rule shows how many existing visits match it, and offers to delete them in the same step: **Never record and delete 42 visits**, or **Only from now on**. Nothing is deleted without that choice. Turning recording off or pausing it overrides `always`: the switch is the user's broadest statement.
 
@@ -223,7 +223,7 @@ On `feat/history`, each a pull request that leaves Haku working:
 
 ## Known limits
 
-- A `regex` or `wildcard` filter cannot use an index, so it reads every visit. At 200,000 visits that is a fraction of a second; it is measured in slice 1 and recorded here.
+- A `site`, `wildcard` or `regex` filter runs the matcher on every visit, so it cannot use an index. Measured on 2026-11-02 (release build, in-memory database, 200,000 visits over 2,000 hosts): about 0.1 s for a page of 100 and 0.05–0.07 s to count. A text filter through FTS took about 4 ms, and an unfiltered page 0.2 ms.
 - A rule cannot stop a page loading or the engine's own records, such as cache and cookies. It governs Haku's history only.
 - Visits before this change are all `other`, so typed counts start at zero.
 
