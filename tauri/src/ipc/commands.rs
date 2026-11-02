@@ -1104,12 +1104,16 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
     // guards below can outlive it.
     let state: &AppState = handle.inner();
 
-    let (recorded, paused, stale) = {
+    let (recorded, session_only, stale) = {
         let Ok(mut browser) = state.browser.write() else {
             return;
         };
         let recorded = browser.report_page(slot, commits, title);
-        (recorded, browser.history_paused(), browser.has_stale_permissions(slot))
+        (
+            recorded,
+            browser.saves_session_only(slot),
+            browser.has_stale_permissions(slot),
+        )
     };
 
     // A request from an origin the page has left is answered off this thread,
@@ -1124,7 +1128,7 @@ fn record_page(app: &tauri::AppHandle, slot: SlotId, commits: &[crate::model::Co
 
     // A pause stops history, not the session: the tab still moved, and should
     // reopen where it is now.
-    if recorded.is_some() || paused {
+    if recorded.is_some() || session_only {
         queue_record(app, recorded);
     }
 

@@ -645,9 +645,15 @@ impl Browser {
         self.history_paused = paused;
     }
 
-    /// Whether browsing history is paused.
-    pub fn history_paused(&self) -> bool {
+    /// Whether a page change in `slot` that history skipped is still the
+    /// session's to save: true for an ordinary tab while history is paused.
+    /// A private tab's reports never enter the persistence queue.
+    /// [Page observation § What counts as a visit](../../docs/specs/page-observation.md#what-counts-as-a-visit).
+    pub fn saves_session_only(&self, slot: SlotId) -> bool {
         self.history_paused
+            && self
+                .tab_in(slot)
+                .is_some_and(|id| self.profile_of(id) != Profile::Private)
     }
 
     /// Says how a navigation Haku just made for a tab was asked for, so its

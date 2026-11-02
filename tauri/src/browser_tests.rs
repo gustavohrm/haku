@@ -306,6 +306,9 @@ fn private_pages_never_offer_persistent_history_or_remote_favicons() {
         .is_none());
     assert_eq!(browser.tab(tab).unwrap().history.current().title, "Secret");
     assert!(browser.tab(tab).unwrap().history.current().favicon.is_none());
+    // Not even a session save while history is paused.
+    browser.set_history_paused(true);
+    assert!(!browser.saves_session_only(slot));
     browser.open_tab_in(window, HOME, true);
     browser.close_tab(tab, HOME).unwrap();
     assert!(browser.reopen_closed_tab().is_empty());
@@ -1364,6 +1367,8 @@ fn while_history_is_paused_no_report_reaches_it_and_the_tab_still_follows_the_pa
     assert_eq!(report, None);
     assert_eq!(browser.tab(id).unwrap().url(), "https://a.test/x");
     assert!(browser.state().history_paused);
+    // The session still follows the tab.
+    assert!(browser.saves_session_only(slot));
 
     browser.set_history_paused(false);
     assert!(visited(browser.report_page(
