@@ -104,7 +104,8 @@ A page can neither call these commands nor name a file: the commands are chrome-
 ## Testing
 
 - The model is unit-tested in `model/download.rs`: listing, progress throttling, settling, a resumed failure staying one entry, losing a webview, private downloads, and restoring. `storage/history_db.rs` tests the migration, that private downloads are never written, and forgetting. Pool and browser tests cover the hold, the pool growing past another profile's held webview, and the held close.
-- The interface is tested with Vitest: the toolbar button, its list and actions, and `haku://downloads`.
+- `ipc/downloads.rs` tests that a batch of progress alone is sent entry by entry and that any other change sends the list.
+- The interface is tested with Vitest: the toolbar button, its list and actions, `haku://downloads`, and progress taken into the list without replacing the other entries.
 - In the app, checked on 2026-10-30 with a debug build: starting, pausing, resuming and cancelling a download; closing its tab while it runs; quitting with one running, both answers; a private window's download, listed only there, not stored, and the close of its window; a network failure retried to completion as one entry; **Save image as**; and **Show in folder**. **Open file** was not run in the app.
 
 ## Known limits

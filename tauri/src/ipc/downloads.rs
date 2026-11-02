@@ -18,7 +18,7 @@ use crate::platform::{self, DownloadSignal, DownloadStart};
 use crate::state::{now_ms, AppState};
 
 use super::commands::{mutate, report_failure};
-use super::events::DownloadsChanged;
+use super::events::{DownloadProgressed, DownloadsChanged};
 
 /// Takes over the downloads of every content webview created from here on.
 ///
@@ -70,16 +70,20 @@ fn started(app: &tauri::AppHandle, slot: Option<SlotId>, start: DownloadStart) -
 
 fn changed(app: &tauri::AppHandle, id: DownloadId, signal: DownloadSignal) {
     let state = app.state::<AppState>();
-    let report = {
+    let change = {
         let mut downloads = lock(&state);
         match signal {
-            DownloadSignal::Progress { received, total } => downloads.progress(id, received, total, now_ms()),
-            DownloadSignal::Settled(settled) => downloads.settle(id, settled).is_some(),
-            DownloadSignal::Restarted { path, total } => downloads.restart(id, path, total).is_some(),
+            DownloadSignal::Progress { received, total } => downloads
+                .progress(id, received, total, now_ms())
+                .then_some(Change::Progressed(id)),
+            DownloadSignal::Settled(settled) => downloads.settle(id, settled).map(|_| Change::Listed(vec![id])),
+            DownloadSignal::Restarted { path, total } => {
+                downloads.restart(id, path, total).map(|_| Change::Listed(vec![id]))
+            }
         }
     };
-    if report {
-        queue(app, vec![id]);
+    if let Some(change) = change {
+        send(app, change);
     }
 }
 
@@ -98,40 +102,85 @@ pub fn end_private_session(app: &tauri::AppHandle, state: &AppState) {
     }
 }
 
+/// What changed in the list, for the queue.
+enum Change {
+    /// Downloads that started, moved on or were unlisted, which the whole
+    /// list is sent for. Empty when only which downloads are listed changed.
+    Listed(Vec<DownloadId>),
+    /// A download whose progress alone changed, sent on its own.
+    Progressed(DownloadId),
+}
+
+/// The changes the queue takes at once.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Batch {
+    /// Every download that changed, to store.
+    changed: Vec<DownloadId>,
+    /// Whether the whole list is to be sent, which carries any progress too.
+    listed: bool,
+}
+
+impl Batch {
+    fn add(&mut self, change: Change) {
+        let ids = match change {
+            Change::Listed(ids) => {
+                self.listed = true;
+                ids
+            }
+            Change::Progressed(id) => vec![id],
+        };
+        for id in ids {
+            if !self.changed.contains(&id) {
+                self.changed.push(id);
+            }
+        }
+    }
+}
+
 /// Stores the downloads that changed as they are now, tells every window,
 /// and lets the browser know which webviews downloads keep. In order, off the
 /// thread that asked.
 pub fn queue(app: &tauri::AppHandle, changed: Vec<DownloadId>) {
-    static QUEUE: OnceLock<mpsc::Sender<Vec<DownloadId>>> = OnceLock::new();
+    send(app, Change::Listed(changed));
+}
+
+fn send(app: &tauri::AppHandle, change: Change) {
+    static QUEUE: OnceLock<mpsc::Sender<Change>> = OnceLock::new();
     let queue = QUEUE.get_or_init(|| {
-        let (sender, receiver) = mpsc::channel::<Vec<DownloadId>>();
+        let (sender, receiver) = mpsc::channel::<Change>();
         let app = app.clone();
         std::thread::spawn(move || {
             let mut held = Downloading::default();
             let mut failing = false;
-            while let Ok(mut changed) = receiver.recv() {
+            while let Ok(change) = receiver.recv() {
+                let mut batch = Batch::default();
+                batch.add(change);
                 for more in receiver.try_iter() {
-                    changed.extend(more);
+                    batch.add(more);
                 }
-                held = settle(&app, &changed, held, &mut failing);
+                held = settle(&app, &batch, held, &mut failing);
             }
         });
         sender
     });
-    let _ = queue.send(changed);
+    let _ = queue.send(change);
 }
 
 /// @param failing - Whether the last store failed, so a failure that lasts
 /// is reported once.
 /// @returns What downloads hold back now.
-fn settle(app: &tauri::AppHandle, changed: &[DownloadId], held: Downloading, failing: &mut bool) -> Downloading {
+fn settle(app: &tauri::AppHandle, batch: &Batch, held: Downloading, failing: &mut bool) -> Downloading {
     let state = app.state::<AppState>();
     // Read under the store's lock, so a download cleared meanwhile is not
     // written back. The list is never waited on while storing.
     let history = state.history.lock();
     let (stored, downloading) = {
         let downloads = lock(&state);
-        let stored: Vec<_> = changed.iter().filter_map(|id| downloads.entry(*id).cloned()).collect();
+        let stored: Vec<_> = batch
+            .changed
+            .iter()
+            .filter_map(|id| downloads.entry(*id).cloned())
+            .collect();
         (stored, downloads.downloading())
     };
     let outcome = match history {
@@ -149,7 +198,13 @@ fn settle(app: &tauri::AppHandle, changed: &[DownloadId], held: Downloading, fai
             report_failure(app, window, failure);
         }
     }
-    report(app, &state);
+    if batch.listed {
+        report(app, &state);
+    } else {
+        // Only progress changed, and what was stored is each entry as it is
+        // now.
+        report_progress(app, &state, &stored);
+    }
     if downloading != held {
         let summary = downloading.clone();
         let _ = mutate(app, &state, |browser| Ok(browser.set_downloading(summary)));
@@ -192,6 +247,26 @@ fn first_failure(failing: &mut bool, outcome: Option<Result<()>>) -> Option<Haku
     error.filter(|_| report)
 }
 
+/// Sends each download's progress to the windows of its profile.
+fn report_progress(app: &tauri::AppHandle, state: &AppState, downloads: &[crate::model::Download]) {
+    let Ok(windows) = state.browser.read().map(|browser| {
+        browser
+            .window_ids()
+            .into_iter()
+            .map(|window| (window, browser.is_private(window)))
+            .collect::<Vec<_>>()
+    }) else {
+        return;
+    };
+    for download in downloads {
+        for (window, is_private) in &windows {
+            if *is_private == download.private {
+                let _ = DownloadProgressed(download.clone()).emit_to(app, window.label());
+            }
+        }
+    }
+}
+
 /// Sends each window the downloads of its profile.
 pub fn report(app: &tauri::AppHandle, state: &AppState) {
     let windows: Vec<_> = match state.browser.read() {
@@ -218,6 +293,30 @@ mod tests {
 
     fn failed() -> Option<Result<()>> {
         Some(Err(HakuError::Storage("disk full".into())))
+    }
+
+    #[test]
+    fn progress_alone_is_sent_alone_and_any_other_change_sends_the_list() {
+        let (a, b) = (DownloadId(1), DownloadId(2));
+        let mut batch = Batch::default();
+        batch.add(Change::Progressed(a));
+        batch.add(Change::Progressed(a));
+        batch.add(Change::Progressed(b));
+        assert_eq!(
+            batch,
+            Batch {
+                changed: vec![a, b],
+                listed: false,
+            }
+        );
+
+        batch.add(Change::Listed(vec![b]));
+        assert!(batch.listed, "the list carries the progress too");
+        assert_eq!(batch.changed, vec![a, b]);
+
+        let mut cleared = Batch::default();
+        cleared.add(Change::Listed(Vec::new()));
+        assert!(cleared.listed && cleared.changed.is_empty());
     }
 
     #[test]

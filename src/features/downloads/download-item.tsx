@@ -2,7 +2,7 @@ import type { Download } from "@bindings";
 import { commands } from "@ipc/commands";
 import { cx } from "@shared/class-names";
 import { t, type TranslationKey } from "@shared/i18n";
-import type { CSSProperties } from "react";
+import { memo, type CSSProperties } from "react";
 
 import { actionsFor, describeStatus, fileName, progressShare, type DownloadAction } from "./describe";
 
@@ -27,9 +27,10 @@ const ACTIONS: Record<DownloadAction, { icon: string; label: TranslationKey; run
  * One download: its name, where it stands, and what can be done to it.
  *
  * Opening the file, or its folder, is asked of Rust, which only opens a path
- * it recorded for this download.
+ * it recorded for this download. Re-rendered only when its own download
+ * changed, so a running download redraws one entry of a long list.
  */
-export function DownloadItem({ download }: { download: Download }) {
+export const DownloadItem = memo(function DownloadItem({ download }: { download: Download }) {
   const share = progressShare(download);
   const name = fileName(download);
   const failed = download.state === "failed";
@@ -81,4 +82,4 @@ export function DownloadItem({ download }: { download: Download }) {
       </div>
     </li>
   );
-}
+});

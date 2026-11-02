@@ -72,6 +72,22 @@ export const settingsStore = createStore<Settings | null>(null);
 export const extensionsStore = createStore<Extensions | null>(null);
 /** The downloads this window lists, newest first. */
 export const downloadsStore = createStore<Download[]>([]);
+
+/**
+ * The list with one download's progress taken in. Every other entry is kept as
+ * it was, so only that one re-renders.
+ * [Downloads § Contract](../../docs/specs/downloads.md#contract).
+ *
+ * @param list - The downloads listed now.
+ * @param download - The download as Rust has it now.
+ * @returns The list itself when it does not hold that download: the next
+ *   whole list brings it.
+ */
+export function withProgress(list: Download[], download: Download): Download[] {
+  return list.some((entry) => entry.id === download.id)
+    ? list.map((entry) => (entry.id === download.id ? download : entry))
+    : list;
+}
 /** Every shortcut with its chords, in Rust's table order; empty until it loads. */
 export const keymapStore = createStore<KeyBinding[]>([]);
 
@@ -107,7 +123,7 @@ async function loadKeymap(): Promise<void> {
 export async function connect(): Promise<() => void> {
   let hasStateEvent = false;
   let hasDownloadsEvent = false;
-  const [stopState, stopFailures, stopSettings, stopExtensions, stopDownloads] = await Promise.all([
+  const [stopState, stopFailures, stopSettings, stopExtensions, stopDownloads, stopProgress] = await Promise.all([
     events.stateChanged(getCurrentWebview()).listen((event) => {
       hasStateEvent = true;
       browserStore.set(event.payload);
@@ -125,6 +141,10 @@ export async function connect(): Promise<() => void> {
     events.downloadsChanged(getCurrentWebview()).listen((event) => {
       hasDownloadsEvent = true;
       downloadsStore.set(event.payload);
+    }),
+    // Progress alone arrives on its own, for one listed download.
+    events.downloadProgressed(getCurrentWebview()).listen((event) => {
+      downloadsStore.set(withProgress(downloadsStore.get(), event.payload));
     }),
   ]);
 
@@ -164,6 +184,7 @@ export async function connect(): Promise<() => void> {
     stopSettings();
     stopExtensions();
     stopDownloads();
+    stopProgress();
   };
 }
 

@@ -26,7 +26,11 @@ const failureListen = vi.hoisted(() =>
 const downloadsListen = vi.hoisted(() =>
   vi.fn<(callback: (event: { payload: Download[] }) => void) => Promise<() => void>>(async () => () => {}),
 );
+const progressListen = vi.hoisted(() =>
+  vi.fn<(callback: (event: { payload: Download }) => void) => Promise<() => void>>(async () => () => {}),
+);
 const failureTarget = vi.hoisted(() => vi.fn());
+const progressTarget = vi.hoisted(() => vi.fn());
 const downloadsTarget = vi.hoisted(() => vi.fn());
 vi.mock("@bindings", () => ({
   events: {
@@ -40,6 +44,10 @@ vi.mock("@bindings", () => ({
     downloadsChanged: (target: unknown) => {
       downloadsTarget(target);
       return { listen: downloadsListen };
+    },
+    downloadProgressed: (target: unknown) => {
+      progressTarget(target);
+      return { listen: progressListen };
     },
   },
 }));
@@ -102,6 +110,28 @@ describe("connect", () => {
     await connect().catch(() => {});
 
     expect(downloadsTarget).toHaveBeenLastCalledWith(CURRENT_WEBVIEW);
+    expect(progressTarget).toHaveBeenLastCalledWith(CURRENT_WEBVIEW);
+  });
+
+  it("takes in one download's progress and keeps the other entries as they were", async () => {
+    const [a, b] = [
+      { id: 1, received: 10 },
+      { id: 2, received: 20 },
+    ] as Download[];
+    vi.mocked(commands.getSettings).mockResolvedValueOnce({ status: "ok", data: SETTINGS });
+    vi.mocked(commands.downloads).mockResolvedValueOnce({ status: "ok", data: [a!, b!] });
+    const stop = await connect();
+    const progressed = progressListen.mock.calls.at(-1)![0];
+
+    const moved = { ...b!, received: 30 };
+    progressed({ payload: moved });
+    expect(downloadsStore.get()).toEqual([a, moved]);
+    expect(downloadsStore.get()[0]).toBe(a);
+
+    const listed = downloadsStore.get();
+    progressed({ payload: { id: 3, received: 1 } as Download });
+    expect(downloadsStore.get()).toBe(listed);
+    stop();
   });
 
   it.each([1, 2])("keeps a state event at revision %s over a delayed startup snapshot", async (layoutRevision) => {
