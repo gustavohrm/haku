@@ -98,6 +98,30 @@ describe("BookmarkStar", () => {
     expect(button("Bookmarks bar")).toBeDefined();
   });
 
+  it("opens under the star, inside the window", async () => {
+    const width = vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1000);
+    try {
+      await render("https://haku.test/");
+      const at = (right: number) =>
+        vi.spyOn(star(), "getBoundingClientRect").mockReturnValue(new DOMRect(right - 24, 40, 24, 24));
+      const open = async () => {
+        await act(async () => star().click());
+        return editor()!.style;
+      };
+
+      // At the window's right, it ends where the star does.
+      at(900);
+      expect((await open()).left).toBe(`${900 - 320}px`);
+      await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+
+      // In the tab column, too near the left edge to end there, it stays in.
+      at(250);
+      expect((await open()).left).toBe("4px");
+    } finally {
+      width.mockRestore();
+    }
+  });
+
   it("keeps the edited name however it closes", async () => {
     await render("https://haku.test/");
     await act(async () => star().click());
