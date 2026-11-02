@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shellLayout } from "./shell-layout";
+import { bookmarksPlace, shellLayout } from "./shell-layout";
 
 const vertical = {
   tabLayout: "vertical",
@@ -60,5 +60,35 @@ describe("shellLayout", () => {
       tabs: "horizontal",
       bars: "docked",
     });
+  });
+});
+
+describe("bookmarksPlace", () => {
+  const top = { toolbar: "top" } as const;
+  const column = { toolbar: "sidebar" } as const;
+  const shown = (bookmarksBar: "always" | "newTab" | "never", sidebarBookmarks: "row" | "button" = "button") => ({
+    bookmarksBar,
+    sidebarBookmarks,
+  });
+
+  it("shows the bar on the new-tab page by default, and nowhere else", () => {
+    expect(bookmarksPlace(shown("newTab"), top, "normal", true)).toBe("bar");
+    expect(bookmarksPlace(shown("newTab"), top, "normal", false)).toBeNull();
+  });
+
+  it("shows it always, or never, as set", () => {
+    expect(bookmarksPlace(shown("always"), top, "normal", false)).toBe("bar");
+    expect(bookmarksPlace(shown("never"), top, "normal", true)).toBeNull();
+  });
+
+  it("is a button in the column, whatever the bar is set to, unless asked for a row", () => {
+    expect(bookmarksPlace(shown("never"), column, "normal", false)).toBe("button");
+    expect(bookmarksPlace(shown("always", "row"), column, "normal", false)).toBe("row");
+    expect(bookmarksPlace(shown("newTab", "row"), column, "normal", false)).toBeNull();
+  });
+
+  it("shows nothing before settings load or in a popup", () => {
+    expect(bookmarksPlace(null, top, "normal", true)).toBeNull();
+    expect(bookmarksPlace(shown("always"), top, "popup", false)).toBeNull();
   });
 });

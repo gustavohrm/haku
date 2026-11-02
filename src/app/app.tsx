@@ -1,7 +1,9 @@
+import { isNewTab } from "@app/router";
 import { applyTheme, isThemePreference } from "@app/theme";
 import { BarSlot } from "@features/bars/bar-slot";
-import { shellLayout } from "@features/bars/shell-layout";
+import { bookmarksPlace, shellLayout } from "@features/bars/shell-layout";
 import { SidebarResizer } from "@features/bars/sidebar-resizer";
+import { BookmarksBar } from "@features/bookmarks/bookmarks-bar";
 import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
@@ -40,6 +42,12 @@ export function App() {
 
   const layout = shellLayout(settings, kind, isPrivate);
   const isFloating = layout.bars === "floating";
+  const bookmarks = bookmarksPlace(
+    settings,
+    layout,
+    kind,
+    isNewTab(tab?.history.entries[tab.history.index]?.url ?? ""),
+  );
   // What a floating bar must show unasked: the toolbar names the page whose
   // dialog or permission request is open, and the tabs carry the badge of one
   // waiting elsewhere.
@@ -69,6 +77,8 @@ export function App() {
       data-bars={fullscreenTab ? undefined : layout.bars}
       data-side={fullscreenTab ? undefined : layout.side}
       data-toolbar={fullscreenTab ? undefined : layout.toolbar}
+      // The column then shares the window's top with a row of bookmarks.
+      data-bookmarks={fullscreenTab || bookmarks !== "row" ? undefined : "row"}
       style={{ "--haku-sidebar-width": `${layout.sidebarWidth}px` } as CSSProperties}
     >
       {/* A popup shows one page, so it has no tabs and no address to edit. */}
@@ -87,28 +97,38 @@ export function App() {
           </header>
 
           <Toolbar tab={tab} />
+          {bookmarks === "bar" && <BookmarksBar tab={tab?.id ?? null} hold="toolbar" />}
         </BarSlot>
       ) : layout.toolbar === "sidebar" ? (
         // One bar: the toolbar heads the column, which runs the window's height.
         // No window controls: its free space moves and maximizes the window.
-        <BarSlot
-          edge="side"
-          contents={["tabs", "toolbar"]}
-          floating={isFloating}
-          isNeeded={toolbarNeeded || tabsNeeded}
-        >
-          {sidebar(
-            <>
-              <SidebarToolbar tab={tab} />
-              <TabStrip layout="vertical" />
-              <SidebarActions tab={tab} />
-            </>,
+        // Bookmarks, when they are a row, are a bar of their own beside it.
+        <>
+          {bookmarks === "row" && (
+            <BarSlot edge="top" contents={["bookmarks"]} floating={isFloating} isNeeded={false}>
+              <BookmarksBar tab={tab?.id ?? null} hold="bookmarks" standalone />
+            </BarSlot>
           )}
-        </BarSlot>
+          <BarSlot
+            edge="side"
+            contents={["tabs", "toolbar"]}
+            floating={isFloating}
+            isNeeded={toolbarNeeded || tabsNeeded}
+          >
+            {sidebar(
+              <>
+                <SidebarToolbar tab={tab} />
+                <TabStrip layout="vertical" />
+                <SidebarActions tab={tab} bookmarks={bookmarks === "button"} />
+              </>,
+            )}
+          </BarSlot>
+        </>
       ) : (
         <>
           <BarSlot edge="top" contents={["toolbar"]} floating={isFloating} isNeeded={toolbarNeeded}>
             <Toolbar tab={tab} trailing={<WindowControls />} />
+            {bookmarks === "bar" && <BookmarksBar tab={tab?.id ?? null} hold="toolbar" />}
           </BarSlot>
           <BarSlot edge="side" contents={["tabs"]} floating={isFloating} isNeeded={tabsNeeded}>
             {sidebar(<TabStrip layout="vertical" />)}

@@ -1,9 +1,11 @@
 import { type ThemePreference } from "@app/theme";
 import {
   type BarLayout,
+  type BookmarksBar,
   type Extension,
   type Policy,
   type Preset,
+  type SidebarBookmarks,
   type SidebarSide,
   type TabLayout,
   type ToolbarPlacement,
@@ -162,6 +164,60 @@ export function ToolbarPlacementControl({ labelId, describedBy, disabled, settin
       value={settings.toolbarPlacement}
       onChoose={(toolbarPlacement) => void update({ toolbarPlacement })}
     />
+  );
+}
+
+const SIDEBAR_BOOKMARKS: { value: SidebarBookmarks; icon: string; label: TranslationKey }[] = [
+  { value: "button", icon: "ic-bookmark", label: "settings.sidebarBookmarks.button" },
+  { value: "row", icon: "ic-panel-top", label: "settings.sidebarBookmarks.row" },
+];
+
+/** Whether bookmarks are a button in the column or a row above the page, as the theme's icon buttons. */
+export function SidebarBookmarksControl({ labelId, describedBy, disabled, settings, update }: ControlProps) {
+  return (
+    <IconChoices
+      labelId={labelId}
+      describedBy={describedBy}
+      disabled={disabled}
+      choices={SIDEBAR_BOOKMARKS}
+      value={settings.sidebarBookmarks}
+      onChoose={(sidebarBookmarks) => void update({ sidebarBookmarks })}
+    />
+  );
+}
+
+const BOOKMARKS_BAR: Record<BookmarksBar, TranslationKey> = {
+  always: "bookmarks.bar.always",
+  newTab: "bookmarks.bar.newTab",
+  never: "bookmarks.bar.never",
+};
+
+function isBookmarksBar(value: string): value is BookmarksBar {
+  return value in BOOKMARKS_BAR;
+}
+
+/** When the bookmarks bar shows, as a select of the three choices its menu offers. */
+export function BookmarksBarControl({ id, describedBy, disabled, settings, update }: ControlProps) {
+  return (
+    <select
+      id={id}
+      className={SELECT_CLASS}
+      value={settings.bookmarksBar}
+      disabled={disabled}
+      aria-describedby={describedBy}
+      onChange={(event) => {
+        const bookmarksBar = event.target.value;
+        if (isBookmarksBar(bookmarksBar)) {
+          void update({ bookmarksBar });
+        }
+      }}
+    >
+      {Object.entries(BOOKMARKS_BAR).map(([value, label]) => (
+        <option key={value} value={value}>
+          {t(label)}
+        </option>
+      ))}
+    </select>
   );
 }
 

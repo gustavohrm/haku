@@ -4,6 +4,7 @@ import { t } from "@shared/i18n";
 import {
   AddExtensionControl,
   BarLayoutControl,
+  BookmarksBarControl,
   CapacityControl,
   DiscardControl,
   ExtensionsControl,
@@ -16,6 +17,7 @@ import {
   MemoryPageControl,
   PresetControl,
   SearchUrlControl,
+  SidebarBookmarksControl,
   SidebarSideControl,
   SitePermissionsControl,
   SiteZoomControl,
@@ -36,6 +38,22 @@ import { type SettingRowDefinition, type SettingSection } from "./types";
 // These settings take effect only while the tabs are vertical.
 const unlessVerticalTabs = (settings: { tabLayout: string }) =>
   settings.tabLayout === "vertical" ? null : ("settings.needsVerticalTabs" as const);
+
+// Where bookmarks go is a choice only while the toolbar is in the column.
+const unlessToolbarInColumn = (settings: { tabLayout: string; toolbarPlacement: string }) =>
+  settings.tabLayout === "vertical" && settings.toolbarPlacement === "sidebar"
+    ? null
+    : ("settings.needsToolbarInColumn" as const);
+
+// The bar shows nowhere while bookmarks are the column's button.
+const unlessBookmarksBarShown = (settings: {
+  tabLayout: string;
+  toolbarPlacement: string;
+  sidebarBookmarks: string;
+}) =>
+  unlessToolbarInColumn(settings) === null && settings.sidebarBookmarks === "button"
+    ? ("settings.disabledByBookmarksButton" as const)
+    : null;
 
 // Discarding every background tab leaves nothing to freeze, nothing for extra
 // slots to hold and nothing to spend a budget on.
@@ -83,6 +101,23 @@ export const SECTIONS: SettingSection[] = [
             labelsControl: false,
             disabledReason: unlessVerticalTabs,
             Control: ToolbarPlacementControl,
+          },
+          {
+            id: "sidebarBookmarks",
+            title: "settings.sidebarBookmarks",
+            description: "settings.sidebarBookmarks.help",
+            keywords: "settings.sidebarBookmarks.keywords",
+            labelsControl: false,
+            disabledReason: unlessToolbarInColumn,
+            Control: SidebarBookmarksControl,
+          },
+          {
+            id: "bookmarksBar",
+            title: "settings.bookmarksBar",
+            description: "settings.bookmarksBar.help",
+            keywords: "settings.bookmarksBar.keywords",
+            disabledReason: unlessBookmarksBarShown,
+            Control: BookmarksBarControl,
           },
           {
             id: "barLayout",

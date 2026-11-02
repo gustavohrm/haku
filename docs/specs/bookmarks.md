@@ -43,8 +43,8 @@ The editor is a popover with the title, the folder (a menu of the tree), **Remov
 A row under the toolbar showing the bar root's contents: links as an icon and title, folders as a folder icon and title. Items that do not fit go into a **»** menu at the row's end.
 
 - A link opens in the focused tab; middle-click or Ctrl+click opens it in a new background tab, Shift+click in a new window.
-- A folder opens a menu of its contents, with subfolders as submenus and, at the end, **Open all (N)**, which opens its links in new tabs.
-- A right-click opens the item's menu: **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Delete**; and, on the row itself, **Add page…**, **Add folder…**, **Show bookmarks bar**, **Manage bookmarks**.
+- A folder opens a menu of its contents, with subfolders as submenus and, at the end, **Open all (N)**, which opens its links in new tabs. N counts the folder's own links, not those in its subfolders, and the tabs open in the background in the folder's order. An empty folder's menu says so. A link chosen from a menu opens in the focused tab.
+- A right-click opens the item's menu, the one a bookmark has on `haku://bookmarks`: **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Move to**, **Delete**; and, on the row itself, **Add page…**, **Add folder…**, **Show bookmarks bar**, **Manage bookmarks**. **Show bookmarks bar** is a submenu of the setting's three choices, so the row's menu sets any of them. **Edit…**, **Add page…** and **Add folder…** open the bookmarks page's form in a popover where the menu was; **Add page…** adds to the end of the bar and starts empty.
 
 **Showing it.** A setting, `bookmarksBar`, with three values, settable from `haku://settings/appearance` and from the row's menu:
 
@@ -54,7 +54,7 @@ A row under the toolbar showing the bar root's contents: links as an icon and ti
 | `newTab` | Only while the focused tab is on the new-tab page (default) |
 | `never`  | Never                                                       |
 
-**Toggle bookmarks bar** (Ctrl+Shift+B) switches between `always` and `never`, from `newTab` to `always`. `newTab` is the default because it is Chrome's: the bar appears where the user is choosing where to go, and costs no height on every page otherwise.
+**Toggle bookmarks bar** (Ctrl+Shift+B) switches between `always` and `never`, from `newTab` to `always`. `newTab` is the default because it is Chrome's: the bar appears where the user is choosing where to go, and costs no height on every page otherwise. While bookmarks are the column's **Bookmarks** button there is no bar to toggle, so in an ordinary window it opens that button's menu instead, and changes no setting (chosen by the maintainer on 2026-11-02).
 
 With floating bars the bookmarks bar floats with the toolbar, as part of the same card, so it takes no space from pages either ([Appearance § Bars](appearance.md#bars)).
 
@@ -115,6 +115,7 @@ Bookmarks are owned by Rust: the types and the URL rule in `model/bookmark.rs`, 
 - **Type.** `BookmarkNode` is `{ id, title, addedAt, modifiedAt, kind }`, where `kind` is `{ link: { url } }` or `{ folder: { children: BookmarkNode[] } }`. `Bookmarks` is `{ bar: BookmarkNode, other: BookmarkNode }`, both folders. Ids are numbers, unique and stable for the bookmark's life; times are milliseconds since the epoch, as in history.
 - **Event.** `BookmarksChanged(Bookmarks)` is sent to every window, ordinary and private, whenever anything in the tree changes, with the whole tree. `bookmarks()` returns the same for a window that has just started.
 - **Event.** `BookmarkEditRequested { tab, id }` is sent to the chrome of the tab's window when Ctrl+D bookmarks it, after the `BookmarksChanged` that adds the link when one is added, so the editor finds the bookmark in the tree it has. A chrome whose tab has closed by then ignores it; the bookmark stays.
+- **Event.** `BookmarksMenuRequested` is sent to the chrome of the window Ctrl+Shift+B was pressed in, an ordinary one, while bookmarks are the column's button, after the chrome takes the keyboard; the interface opens the button's menu. Added on 2026-11-02, with the maintainer's approval.
 - **Commands**, all chrome-only:
   - `add_bookmark(parent, index, title, url)` and `add_bookmark_folder(parent, index, title)` return the new id. `index` is `null` for the end.
   - `update_bookmark(id, title, url)`; `url` is ignored for a folder.
@@ -163,7 +164,14 @@ The First release row stays as it is, and this spec APPROVED, until slice 4 land
 
 The change itself, an add and a remove, took under 0.5 ms in both builds. Not measured: delivering the payload to each window and parsing it there, which grows with the payload and the number of windows open. At 5 000 links a change sends about 1.1 MB to every window; that is acceptable for a change the user makes by hand, and is the figure to revisit if bookmarks gain anything that changes them often.
 
-Slice 3 measures the bar's render time for the same two trees and records it here.
+The bar, measured in slice 3 (2026-11-02) on the same machine, in Vitest 4.1 under jsdom on Node 24, averaged over 20 runs: mounting the bar, drawing it again for a change that renames one item on it (the whole tree arriving anew, as every change does), and building every menu it opens: the column's **Bookmarks** menu and each of the bar's folders. jsdom does no layout or painting, so these are React's and the DOM's work alone, and the mount includes warming up. The reference file's bar holds 6 folders, with its 82 links and 33 folders inside them; the generated tree is 5 000 links in 50 folders on the bar.
+
+| Tree           | Mount   | One item changed | Every menu |
+| -------------- | ------- | ---------------- | ---------- |
+| Reference file | 13.7 ms | 2.0 ms           | 1.7 ms     |
+| 5 000 links    | 30.4 ms | 3.3 ms           | 2.6 ms     |
+
+The bar draws only its root's own items: a folder's menu is built when it opens, so a change inside a folder draws nothing on the bar, and a change to one item draws that item alone. A menu is built whole, its submenus with it, so opening the column's **Bookmarks** menu builds both roots' trees; the last column measures that. Not measured: layout and painting in WebView2, and the cost of measuring which items fit, which reads every item's position once per change or resize.
 
 ## Rejected alternatives
 

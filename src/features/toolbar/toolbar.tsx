@@ -1,6 +1,7 @@
 import { isNewTab, SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
 import { BookmarkStar } from "@features/bookmarks/bookmark-star";
+import { BookmarksButton } from "@features/bookmarks/bookmarks-button";
 import { isBookmarkable } from "@features/bookmarks/tree";
 import { DownloadsButton } from "@features/downloads/downloads-button";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
@@ -73,10 +74,16 @@ export function SidebarToolbar({ tab }: { tab: Tab | null }) {
   );
 }
 
-/** What the toolbar's right end holds, as a row at the foot of the sidebar. */
-export function SidebarActions({ tab }: { tab: Tab | null }) {
+/**
+ * What the toolbar's right end holds, as a row at the foot of the sidebar,
+ * with the **Bookmarks** button first when bookmarks are a button.
+ */
+export function SidebarActions({ tab, bookmarks = false }: { tab: Tab | null; bookmarks?: boolean }) {
   return (
-    <div className="flex shrink-0 items-center justify-end gap-(--haku-gap)">
+    // Wrapping, so pinned extensions in a narrow column move to a second line
+    // rather than push buttons past its edge.
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-(--haku-gap)">
+      {bookmarks && <BookmarksButton tab={tab?.id ?? null} />}
       <ToolbarActions tab={tab} />
     </div>
   );
@@ -182,7 +189,9 @@ function AddressField({ tab, className, expandable = false }: AddressFieldProps)
         {/* The icon says what the page is, and stays put while typing: the
             site menu behind it is as useful mid-edit as at rest. */}
         {tab && url !== "" && tab.presence.status !== "internal" ? (
-          <SiteMenu key={tab.id} tab={tab} url={url} warnInsecure={!editing && isInsecure(url)} />
+          // Keyed apart from the star, a sibling also kept per tab: siblings
+          // sharing a key are left behind as the tab changes.
+          <SiteMenu key={`site-${tab.id}`} tab={tab} url={url} warnInsecure={!editing && isInsecure(url)} />
         ) : (
           <i
             className={cx(
@@ -224,7 +233,7 @@ function AddressField({ tab, className, expandable = false }: AddressFieldProps)
         {/* Internal pages and pages with no address have nothing durable to
             return to. [Bookmarks](../../../docs/specs/bookmarks.md#bookmarking-a-page) */}
         {tab && tab.presence.status !== "internal" && isBookmarkable(url) && (
-          <BookmarkStar key={tab.id} tab={tab.id} url={url} />
+          <BookmarkStar key={`star-${tab.id}`} tab={tab.id} url={url} />
         )}
       </label>
     </form>

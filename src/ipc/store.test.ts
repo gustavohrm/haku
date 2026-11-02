@@ -22,6 +22,8 @@ const SETTINGS: Settings = {
   barLayout: "docked",
   sidebarSide: "left",
   toolbarPlacement: "top",
+  bookmarksBar: "newTab",
+  sidebarBookmarks: "button",
   sidebarWidth: 240,
   locale: "en",
   searchUrl: "https://example.com/?q=%s",

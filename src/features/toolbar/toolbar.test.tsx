@@ -109,6 +109,20 @@ describe("toolbar extension popups", () => {
     expect(container.querySelector('[aria-label="Bookmark this tab"]')).toBeNull();
   });
 
+  it("keeps one site menu button however often the tab changes", async () => {
+    const internal: Tab = {
+      ...tab(8),
+      history: { entries: [{ url: "haku://settings", title: "Settings", favicon: null }], index: 0 },
+      presence: { status: "internal" },
+    };
+    // One render at a time, each committed before the next.
+    await [tab(7), internal, tab(9), internal, tab(7), tab(9)].reduce(
+      (done, shown) => done.then(() => act(async () => root.render(<Toolbar tab={shown} />))),
+      Promise.resolve(),
+    );
+    expect(container.querySelectorAll('label [aria-label="Site information"]')).toHaveLength(1);
+  });
+
   it("shows no zoom at 100%", async () => {
     await act(async () => root.render(<Toolbar tab={tab(7)} />));
     expect(container.querySelector('[aria-label^="Zoom"]')).toBeNull();

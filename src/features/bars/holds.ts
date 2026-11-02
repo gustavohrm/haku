@@ -2,12 +2,12 @@ import { createStore } from "@ipc/store";
 import { useEffect } from "react";
 
 /** What a floating bar holds: a group shows while any of its contents is held. */
-export type BarContent = "tabs" | "toolbar";
+export type BarContent = "tabs" | "toolbar" | "bookmarks";
 
 type Holds = Readonly<Record<BarContent, number>>;
 
 /** How many things keep each kind of bar content on screen. */
-export const barHoldStore = createStore<Holds>({ tabs: 0, toolbar: 0 });
+export const barHoldStore = createStore<Holds>({ tabs: 0, toolbar: 0, bookmarks: 0 });
 
 function adjust(content: BarContent, by: number) {
   const current = barHoldStore.get();

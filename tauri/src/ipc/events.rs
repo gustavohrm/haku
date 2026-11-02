@@ -95,6 +95,15 @@ pub struct BookmarkEditRequested {
     pub id: BookmarkId,
 }
 
+/// Asks the interface to open the column's **Bookmarks** menu, for
+/// Ctrl+Shift+B while bookmarks are that button rather than a bar.
+/// [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+///
+/// Sent to the window the shortcut was pressed in only, once its interface
+/// has the keyboard.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct BookmarksMenuRequested;
+
 /// The downloads a window lists, newest first, whenever one starts, moves
 /// on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
 ///

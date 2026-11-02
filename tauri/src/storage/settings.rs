@@ -75,6 +75,36 @@ pub enum ToolbarPlacement {
     Sidebar,
 }
 
+/// When the bookmarks bar shows.
+/// [Bookmarks § The bookmarks bar](../../../docs/specs/bookmarks.md#the-bookmarks-bar).
+///
+/// Read leniently, as [`known_or_default`] explains.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BookmarksBar {
+    /// In every tab.
+    Always,
+    /// Only while the focused tab is on the new-tab page, as in Chrome.
+    #[default]
+    NewTab,
+    /// Never.
+    Never,
+}
+
+/// Where bookmarks go while the toolbar is in the tab column.
+/// [Bookmarks § The bookmarks bar](../../../docs/specs/bookmarks.md#the-bookmarks-bar).
+///
+/// Read leniently, as [`known_or_default`] explains.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SidebarBookmarks {
+    /// The bookmarks bar, as a row of its own across the top of the page area.
+    Row,
+    /// A button in the column's foot row, opening a menu of the bar.
+    #[default]
+    Button,
+}
+
 /// The tab column's width, in CSS pixels, before the user resizes it.
 pub const DEFAULT_SIDEBAR_WIDTH: u32 = 240;
 /// The narrowest the tab column may be, in CSS pixels.
@@ -106,6 +136,8 @@ pub struct Settings {
     pub bar_layout: BarLayout,
     pub sidebar_side: SidebarSide,
     pub toolbar_placement: ToolbarPlacement,
+    pub bookmarks_bar: BookmarksBar,
+    pub sidebar_bookmarks: SidebarBookmarks,
     /// The tab column's width in CSS pixels, between [`MIN_SIDEBAR_WIDTH`]
     /// and [`MAX_SIDEBAR_WIDTH`].
     pub sidebar_width: u32,
@@ -238,6 +270,8 @@ impl Default for Settings {
             bar_layout: BarLayout::default(),
             sidebar_side: SidebarSide::default(),
             toolbar_placement: ToolbarPlacement::default(),
+            bookmarks_bar: BookmarksBar::default(),
+            sidebar_bookmarks: SidebarBookmarks::default(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             locale: "en".into(),
             search_url: DEFAULT_SEARCH_URL.into(),
@@ -382,6 +416,38 @@ impl<'de> Deserialize<'de> for SidebarSide {
 impl<'de> Deserialize<'de> for ToolbarPlacement {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         known_or_default(deserializer, &[Self::Top, Self::Sidebar])
+    }
+}
+
+impl<'de> Deserialize<'de> for BookmarksBar {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        known_or_default(deserializer, &[Self::Always, Self::NewTab, Self::Never])
+    }
+}
+
+impl<'de> Deserialize<'de> for SidebarBookmarks {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        known_or_default(deserializer, &[Self::Row, Self::Button])
+    }
+}
+
+impl Settings {
+    /// Whether bookmarks are a button in the tab column rather than a bar,
+    /// which needs the tabs in a column, the toolbar in it, and `button`.
+    pub fn bookmarks_in_button(&self) -> bool {
+        self.tab_layout == TabLayout::Vertical
+            && self.toolbar_placement == ToolbarPlacement::Sidebar
+            && self.sidebar_bookmarks == SidebarBookmarks::Button
+    }
+
+    /// What Ctrl+Shift+B leaves: `always` and `never` swap, and `newTab`
+    /// becomes `always`.
+    pub fn with_bookmarks_bar_toggled(mut self) -> Self {
+        self.bookmarks_bar = match self.bookmarks_bar {
+            BookmarksBar::Always => BookmarksBar::Never,
+            BookmarksBar::NewTab | BookmarksBar::Never => BookmarksBar::Always,
+        };
+        self
     }
 }
 
@@ -817,6 +883,78 @@ mod tests {
         let settings = stored(serde_json::json!({ "sidebarSide": "top", "toolbarPlacement": "Sidebar" }));
         assert_eq!(settings.sidebar_side, SidebarSide::Left);
         assert_eq!(settings.toolbar_placement, ToolbarPlacement::Top);
+    }
+
+    #[test]
+    fn the_bookmarks_bar_shows_on_new_tabs_and_is_a_button_in_the_column_by_default() {
+        let settings = stored(serde_json::json!({ "theme": "dark" }));
+        assert_eq!(settings.bookmarks_bar, BookmarksBar::NewTab);
+        assert_eq!(settings.sidebar_bookmarks, SidebarBookmarks::Button);
+    }
+
+    #[test]
+    fn the_bookmarks_settings_are_stored_and_read_back() {
+        let json = serde_json::to_value(Settings {
+            bookmarks_bar: BookmarksBar::Never,
+            sidebar_bookmarks: SidebarBookmarks::Row,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert_eq!(json["bookmarksBar"], "never");
+        assert_eq!(json["sidebarBookmarks"], "row");
+        assert_eq!(serde_json::to_value(BookmarksBar::NewTab).unwrap(), "newTab");
+
+        let settings = stored(json);
+        assert_eq!(settings.bookmarks_bar, BookmarksBar::Never);
+        assert_eq!(settings.sidebar_bookmarks, SidebarBookmarks::Row);
+    }
+
+    #[test]
+    fn an_unknown_bookmarks_value_falls_back_to_its_default() {
+        let settings = stored(serde_json::json!({ "bookmarksBar": "sometimes", "sidebarBookmarks": "Row" }));
+        assert_eq!(settings.bookmarks_bar, BookmarksBar::NewTab);
+        assert_eq!(settings.sidebar_bookmarks, SidebarBookmarks::Button);
+    }
+
+    #[test]
+    fn toggling_the_bookmarks_bar_swaps_always_and_never_and_shows_it_from_new_tab() {
+        let toggled = |bookmarks_bar| {
+            Settings {
+                bookmarks_bar,
+                ..Settings::default()
+            }
+            .with_bookmarks_bar_toggled()
+            .bookmarks_bar
+        };
+        assert_eq!(toggled(BookmarksBar::Always), BookmarksBar::Never);
+        assert_eq!(toggled(BookmarksBar::Never), BookmarksBar::Always);
+        assert_eq!(toggled(BookmarksBar::NewTab), BookmarksBar::Always);
+    }
+
+    #[test]
+    fn bookmarks_are_a_button_only_with_the_toolbar_in_the_column() {
+        let column = Settings {
+            tab_layout: TabLayout::Vertical,
+            toolbar_placement: ToolbarPlacement::Sidebar,
+            ..Settings::default()
+        };
+        assert!(column.bookmarks_in_button());
+        assert!(!Settings {
+            sidebar_bookmarks: SidebarBookmarks::Row,
+            ..column.clone()
+        }
+        .bookmarks_in_button());
+        // The toolbar placement applies only while the tabs are in a column.
+        assert!(!Settings {
+            tab_layout: TabLayout::Horizontal,
+            ..column.clone()
+        }
+        .bookmarks_in_button());
+        assert!(!Settings {
+            toolbar_placement: ToolbarPlacement::Top,
+            ..column
+        }
+        .bookmarks_in_button());
     }
 
     #[test]

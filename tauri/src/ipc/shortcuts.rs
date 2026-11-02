@@ -236,6 +236,8 @@ impl Request {
             Shortcut::Home => browser.navigate(tab, home)?,
             Shortcut::Memory => browser.open_tab_in(self.window, "haku://memory", true).1,
             Shortcut::OpenBookmarks => browser.open_tab_in(self.window, "haku://bookmarks", true).1,
+            // A setting, not the browser's state: `run_shortcut` stores it.
+            Shortcut::ToggleBookmarksBar => Vec::new(),
             // Internal pages and pages with no address have nothing to return to.
             Shortcut::BookmarkTab => {
                 action.page = is_bookmarkable(browser.tab(tab)?.url()).then_some(PageAction::Bookmark(tab));

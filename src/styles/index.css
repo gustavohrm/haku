@@ -158,8 +158,11 @@ dialog[data-toast-instance] .toast-dialog-container {
   Clipped rather than hidden: a hidden floating bar waits past the window's
   edge, and focusing it must not scroll the shell to it.
 */
+/* Isolated, so the layers floating bars take as they show, which only grow,
+   stay inside the shell, under the menus and popovers portalled to the body. */
 .haku-shell {
   display: grid;
+  isolation: isolate;
   height: 100%;
   overflow: clip;
   grid-template: "top" auto "page" minmax(0, 1fr) / minmax(0, 1fr);
@@ -187,6 +190,21 @@ dialog[data-toast-instance] .toast-dialog-container {
   grid-template: "page side" minmax(0, 1fr) / minmax(0, 1fr) var(--haku-sidebar-width);
 }
 
+/* A row of bookmarks across the top of the page area, beside the column. */
+.haku-shell[data-toolbar="sidebar"][data-bars="docked"][data-bookmarks="row"] {
+  grid-template:
+    "side top" auto
+    "side page" minmax(0, 1fr)
+    / var(--haku-sidebar-width) minmax(0, 1fr);
+}
+
+.haku-shell[data-toolbar="sidebar"][data-bars="docked"][data-bookmarks="row"][data-side="right"] {
+  grid-template:
+    "top side" auto
+    "page side" minmax(0, 1fr)
+    / minmax(0, 1fr) var(--haku-sidebar-width);
+}
+
 .haku-shell[data-bars="floating"] {
   position: relative;
   grid-template: "page" minmax(0, 1fr) / minmax(0, 1fr);
@@ -209,6 +227,10 @@ dialog[data-toast-instance] .toast-dialog-container {
 
 .haku-shell[data-toolbar="sidebar"][data-bars="docked"] .haku-page {
   margin-block-start: var(--haku-gap);
+}
+
+.haku-shell[data-toolbar="sidebar"][data-bars="docked"][data-bookmarks="row"] .haku-page {
+  margin-block-start: 0;
 }
 
 .haku-shell[data-bars="floating"] .haku-page {
@@ -301,7 +323,8 @@ dialog[data-toast-instance] .toast-dialog-container {
 }
 
 /* The top strip owns the corner where the two edges meet. */
-[data-toolbar="top"] > [data-edge="side"] > .haku-bar-edge {
+[data-toolbar="top"] > [data-edge="side"] > .haku-bar-edge,
+[data-bookmarks="row"] > [data-edge="side"] > .haku-bar-edge {
   inset-block-start: var(--haku-gap);
 }
 

@@ -12,7 +12,8 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 import { BookmarkForm, type FormTarget } from "./bookmark-form";
 import { bookmarkMenu } from "./bookmark-menu";
 import { folderOf, folderUrl } from "./bookmarks-url";
-import { childrenOf, displayTitle, faviconOf, isFolder, isRoot, locate, search, urlOf, type Folder } from "./tree";
+import { Favicon } from "./favicon";
+import { childrenOf, displayTitle, isFolder, isRoot, locate, search, urlOf, type Folder } from "./tree";
 import { dropEdge, isDropInto, useBookmarkDrag } from "./use-bookmark-drag";
 
 /**
@@ -306,18 +307,4 @@ function FolderTree({ tree, open, dropInto, onOpen, onContextMenu }: FolderTreeP
   return (
     <ul className="flex flex-col gap-0.5">{[tree.bar, tree.other].filter(isFolder).map((root) => branch(root, 0))}</ul>
   );
-}
-
-/**
- * A link's icon, derived as a tab's is, with the generic one in its place
- * when it fails to load or the window is private. Keyed by its URL by the
- * caller, so a changed address tries again.
- */
-function Favicon({ url }: { url: string | null }) {
-  const [broken, setBroken] = useState(false);
-  const src = url === null ? null : faviconOf(url);
-  if (!src || broken) {
-    return <i className="ic-globe ic-md text-text-secondary shrink-0" aria-hidden="true" />;
-  }
-  return <img src={src} alt="" draggable={false} className="size-4 shrink-0" onError={() => setBroken(true)} />;
 }

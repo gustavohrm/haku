@@ -21,11 +21,16 @@ interface BookmarkStarProps {
   url: string;
 }
 
-/** Where the editor opens, from the window's right edge. */
+/** Where the editor opens: its left edge, and its top. */
 interface Anchor {
-  right: number;
+  left: number;
   top: number;
 }
+
+/** The editor's width, in pixels, so it can be kept inside the window. */
+const EDITOR_WIDTH = 320;
+/** The least room left between the editor and the window's edges. */
+const EDGE = 4;
 
 /**
  * The address field's star: filled while the page is bookmarked, and the
@@ -46,10 +51,11 @@ export function BookmarkStar({ tab, url }: BookmarkStarProps) {
   const edit = useCallback((id: BookmarkId) => {
     const button = buttonRef.current?.getBoundingClientRect();
     if (button) {
-      setEditing({
-        id,
-        anchor: { right: document.documentElement.clientWidth - button.right, top: button.bottom + MENU_GAP },
-      });
+      // Under the star, ending where it ends, but inside the window: in the
+      // tab column the star is nearer the left edge than the editor is wide.
+      const widest = document.documentElement.clientWidth - EDITOR_WIDTH - EDGE;
+      const left = Math.max(EDGE, Math.min(button.right - EDITOR_WIDTH, widest));
+      setEditing({ id, anchor: { left, top: button.bottom + MENU_GAP } });
     }
   }, []);
 
@@ -244,8 +250,8 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
       ref={editorRef}
       aria-labelledby={titleId}
       tabIndex={-1}
-      className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-80 flex-col gap-3 rounded-(--radius-surface) border p-3 outline-none"
-      style={{ right: anchor.right, top: anchor.top }}
+      className="bg-chrome-raised border-text/15 text-text fixed z-10 flex flex-col gap-3 rounded-(--radius-surface) border p-3 outline-none"
+      style={{ left: anchor.left, top: anchor.top, width: EDITOR_WIDTH }}
     >
       <h2 id={titleId} className="text-sm font-semibold">
         {t("bookmarks.editor.title")}

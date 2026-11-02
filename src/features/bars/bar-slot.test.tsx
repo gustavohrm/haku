@@ -37,7 +37,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   releases.splice(0).forEach((release) => release());
-  barHoldStore.set({ tabs: 0, toolbar: 0 });
+  barHoldStore.set({ tabs: 0, toolbar: 0, bookmarks: 0 });
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });

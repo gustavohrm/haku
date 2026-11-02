@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-31
+last_updated: 2026-11-02
 scope: The layout settings of "Appearance is data" — where the tabs, the sidebar and the toolbar go, and whether the bars take space — and how the shell applies them.
 ---
 
@@ -20,6 +20,8 @@ All are fields of the Rust `Settings`, stored in `settings.json` with the rest a
 | `toolbarPlacement` | `top`, `sidebar`            | `top`        |
 | `sidebarWidth`     | CSS pixels, 224 through 480 | 240          |
 
+Two more, `bookmarksBar` and `sidebarBookmarks`, say where bookmarks show, and belong to [Bookmarks § The bookmarks bar](bookmarks.md#the-bookmarks-bar), which owns their values and defaults. They are read leniently as these are.
+
 The defaults are what Haku drew before the settings existed, so an existing settings file opens unchanged. The last three shape the tab column, and have no effect while the tabs are horizontal.
 
 Each of the first four is an enum in Rust (`TabLayout`, `BarLayout`, `SidebarSide`, `ToolbarPlacement`) and a string union in the bindings. The width is a number that `sanitized` clamps to its bounds, as the webview capacity is. A stored value Haku does not know, such as a hand-edited `"Vertical"` or one written by a later version, reads as the default and leaves every other setting as stored. The next save writes that default over it, so the newer value is lost once anything in settings changes. `read_json` sets a whole file aside when it fails to deserialize, so a strict read would trade every setting for one unknown value. The leniency is written as the enums' own `Deserialize`, because a `deserialize_with` field attribute makes the binding generator split `Settings` into separate read and written types.
@@ -34,7 +36,7 @@ Rejected:
 
 ## The shell
 
-The shell's root carries `data-tabs`, `data-bars`, `data-side` and `data-toolbar`, beside `data-density`, and the column's width as the `--haku-sidebar-width` custom property. A pure function, `shellLayout` in `features/bars`, maps the settings, the window kind and whether the window is private to them; while settings are still loading it gives the defaults, and it gives `toolbar: top` whenever the tabs are horizontal. `src/styles/index.css` places the bars and the page from those attributes with a CSS grid, so mirroring the column is a stylesheet concern. The page is measured where it lands, as [Chrome layering](chrome-layering.md#the-contract-with-the-interface) requires; nothing computes its rectangle from the settings, so a layout change reaches Rust as one more resize of the viewport.
+The shell's root carries `data-tabs`, `data-bars`, `data-side` and `data-toolbar`, beside `data-density`, `data-bookmarks="row"` while bookmarks are a row beside a column that holds the toolbar ([Bookmarks § The bookmarks bar](bookmarks.md#the-bookmarks-bar)), and the column's width as the `--haku-sidebar-width` custom property. A pure function, `shellLayout` in `features/bars`, maps the settings, the window kind and whether the window is private to them; while settings are still loading it gives the defaults, and it gives `toolbar: top` whenever the tabs are horizontal. `src/styles/index.css` places the bars and the page from those attributes with a CSS grid, so mirroring the column is a stylesheet concern. The page is measured where it lands, as [Chrome layering](chrome-layering.md#the-contract-with-the-interface) requires; nothing computes its rectangle from the settings, so a layout change reaches Rust as one more resize of the viewport.
 
 ## Tabs
 
@@ -75,9 +77,9 @@ The tab column is the sidebar. Three settings shape it, and none applies while t
 
 - The first row holds back, forward and reload. Its free space is the window's drag region, as is the column's below the tabs. There are no window controls: with no top bar, the window has no row to hold them without spending the height this placement exists to give the page. Double-clicking a drag region maximizes or restores the window, dragging it moves and snaps it, Win+Down minimizes and Alt+F4 or the taskbar closes. Every layout with a top bar keeps the controls at its end.
 - The address field is under it at the column's full width. At rest it shows the address as the top toolbar does. While it is edited it grows over the page, toward it, to `max(100%, min(40rem, 60vw))`, so a long address has room however narrow the column is; grown, it registers as an overlay ([Chrome layering](chrome-layering.md#registering-an-overlay)).
-- The tabs follow, then a foot row holding what the toolbar's right end holds: the Private marker or the extensions, downloads, developer tools and settings.
+- The tabs follow, then a foot row holding what the toolbar's right end holds: the Private marker or the extensions, downloads, developer tools and settings, after the **Bookmarks** button while bookmarks are that button. The row wraps when pinned extensions do not fit the column's width.
 
-The column is then one bar holding both tabs and toolbar, so a hold on either, or a dialog on any tab, shows it while it floats.
+The column is then one bar holding both tabs and toolbar, so a hold on either, or a dialog on any tab, shows it while it floats. Bookmarks set to a row are a second bar, across the top beside the column, with holds of their own.
 
 **Width.** `sidebarWidth` sets the column's width, docked or floating. Its inner edge is a handle: dragging it resizes the column, writing the width to the shell's style each frame so the page follows without a render or a settings write per frame, and releasing stores it once. A double click restores 240. The handle is a focusable separator; the arrow keys move it 16 pixels, Home and End to its bounds. A line shows on it once the pointer has rested on it 150 ms. The bounds are 224, below which a tab's title is cut to a few characters, and 480, past which the column takes more of a common window than the page needs to give.
 
@@ -135,6 +137,8 @@ Rejected: letting the marker float with the toolbar. A hidden marker makes a pri
 ## Settings page
 
 Appearance shows **Tabs**, **Sidebar**, **Toolbar** and **Bars** after Theme, each a group of icon buttons as Theme is ([Settings page § Layout](settings-page.md#layout)): `panel-top` and `panel-left` for the tabs, `panel-left` and `panel-right` for the sidebar's side, `panel-top` and `panel-left-dashed` for the toolbar, `app-window` and `panel-top-dashed` for the bars. Sidebar and Toolbar are disabled, still showing what is stored, while the tabs are horizontal. The width has no row: it is set where it shows, by dragging the column's edge.
+
+After Toolbar come **Bookmarks in the sidebar**, as icon buttons (`bookmark` for the button, `panel-top` for a bar above the page), disabled unless the toolbar is in the column, and **Bookmarks bar**, a select of its three choices, disabled while bookmarks are the column's button ([Bookmarks § The bookmarks bar](bookmarks.md#the-bookmarks-bar)).
 
 ## Verification
 

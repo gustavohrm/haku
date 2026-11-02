@@ -41,3 +41,32 @@ export function shellLayout(settings: LayoutSettings | null, kind: WindowKind, i
     sidebarWidth,
   };
 }
+
+/**
+ * Where bookmarks are shown: `bar` under the toolbar, `row` as a row of its own
+ * across the top of the page area, `button` in the column's foot row, or
+ * nowhere. [Bookmarks § The bookmarks bar](../../../docs/specs/bookmarks.md#the-bookmarks-bar).
+ *
+ * Nowhere until settings load, and never in a popup, which shows one page.
+ *
+ * @param onNewTab - Whether the focused tab is on the new-tab page, for `newTab`.
+ */
+export function bookmarksPlace(
+  settings: Pick<Settings, "bookmarksBar" | "sidebarBookmarks"> | null,
+  layout: Pick<ShellLayout, "toolbar">,
+  kind: WindowKind,
+  onNewTab: boolean,
+): "bar" | "row" | "button" | null {
+  if (settings === null || kind === "popup") {
+    return null;
+  }
+  const inColumn = layout.toolbar === "sidebar";
+  if (inColumn && settings.sidebarBookmarks === "button") {
+    return "button";
+  }
+  const isShown = settings.bookmarksBar === "always" || (settings.bookmarksBar === "newTab" && onNewTab);
+  if (!isShown) {
+    return null;
+  }
+  return inColumn ? "row" : "bar";
+}

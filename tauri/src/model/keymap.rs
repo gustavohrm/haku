@@ -249,6 +249,7 @@ pub enum Shortcut {
     ResetZoom,
     BookmarkTab,
     OpenBookmarks,
+    ToggleBookmarksBar,
 }
 
 impl Shortcut {
@@ -321,6 +322,7 @@ pub const DEFAULTS: &[(Shortcut, &[Chord])] = {
         (Shortcut::ResetZoom, &[Chord::ctrl(Digit(0))]),
         (Shortcut::BookmarkTab, &[Chord::ctrl(Letter('D'))]),
         (Shortcut::OpenBookmarks, &[Chord::ctrl_shift(Letter('O'))]),
+        (Shortcut::ToggleBookmarksBar, &[Chord::ctrl_shift(Letter('B'))]),
     ]
 };
 
