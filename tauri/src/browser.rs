@@ -1732,8 +1732,10 @@ impl Browser {
             tabs: [selected, tab],
             ratio: 0.5,
         });
+        // The new partner is selected, so a fullscreen page beside it gives way.
+        let mut effects = self.leave_fullscreen_for(window, tab);
         self.activate(tab);
-        let mut effects = self.realize();
+        effects.extend(self.realize());
         effects.push(self.pane_focus_effect(window, tab));
         Ok(effects)
     }

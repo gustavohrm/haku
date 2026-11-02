@@ -4021,6 +4021,23 @@ fn selecting_the_other_tab_of_a_split_pair_leaves_fullscreen() {
 }
 
 #[test]
+fn splitting_beside_the_fullscreen_tab_leaves_fullscreen() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let window = browser.main_window();
+    let slot = slot_of(&browser, ids[1]).unwrap();
+    browser.report_fullscreen(slot, true);
+
+    let effects = browser.split_tab(window, ids[0]).unwrap();
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    assert!(effects.contains(&Effect::SetFullscreen {
+        window,
+        fullscreen: false
+    }));
+    assert!(effects.contains(&Effect::ExitPageFullscreen { slot }));
+}
+
+#[test]
 fn selecting_the_fullscreen_tab_again_keeps_fullscreen() {
     let (mut browser, _) = browser_with(2, &["https://left.test"]);
     let (window, _, right) = split_pair(&mut browser);
