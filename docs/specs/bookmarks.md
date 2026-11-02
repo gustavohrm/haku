@@ -101,7 +101,7 @@ Bookmarks are shared with private windows, which can see, open, add, edit and de
 - Titles, URLs, nesting, order and `ADD_DATE` are kept. A missing or invalid date becomes the import's time. `ICON` is dropped ([Icons](#icons)).
 - A file larger than 32 MB is refused before it is read. Folders nested deeper than 64 levels are flattened: whatever is below the 64th level goes into its folder at that level, in order. Both keep a broken or hostile file from exhausting memory or the parser's stack; the reference file is 74 kB for 82 links, about 0.9 kB a link with its icon, so 32 MB holds tens of thousands of links (decided 2026-11-02).
 - Only `http:`, `https:` and `file:` links are imported. `javascript:` bookmarklets, `data:` URLs, `place:` queries (Firefox) and anything else are skipped, because a link in a bookmark is followed by a click and Haku's pages are not for running script from a file. Separators (Firefox's `<HR>`) are skipped.
-- The whole import is one database transaction: a file that fails to parse or to store adds nothing.
+- The whole import is one database transaction: a file that fails to parse or to store adds nothing. `BookmarksChanged` is sent once, after the transaction commits; an import that rolls back sends none, so no window sees part of one.
 - When it ends, a notice says how many links and folders were imported and how many were skipped. A file that is not a bookmark file says so and imports nothing.
 
 **Export…** opens the system's save dialog on `bookmarks.html` and writes every bookmark in the same format, as Chrome writes it: **Bookmarks bar** as a folder marked `PERSONAL_TOOLBAR_FOLDER`, **Other bookmarks** as a folder after it, `ADD_DATE` and `LAST_MODIFIED` in seconds, titles and URLs HTML-escaped, and no `ICON`. Exporting from Haku and importing into Chrome gives the same tree.
@@ -114,22 +114,23 @@ Bookmarks are owned by Rust: the types and the URL rule in `model/bookmark.rs`, 
 
 - **Type.** `BookmarkNode` is `{ id, title, addedAt, modifiedAt, kind }`, where `kind` is `{ link: { url } }` or `{ folder: { children: BookmarkNode[] } }`. `Bookmarks` is `{ bar: BookmarkNode, other: BookmarkNode }`, both folders. Ids are numbers, unique and stable for the bookmark's life; times are milliseconds since the epoch, as in history.
 - **Event.** `BookmarksChanged(Bookmarks)` is sent to every window, ordinary and private, whenever anything in the tree changes, with the whole tree. `bookmarks()` returns the same for a window that has just started.
+- **Event.** `BookmarkEditRequested { tab, id }` is sent to the chrome of the tab's window when Ctrl+D bookmarks it, after the `BookmarksChanged` that adds the link when one is added, so the editor finds the bookmark in the tree it has. A chrome whose tab has closed by then ignores it; the bookmark stays.
 - **Commands**, all chrome-only:
   - `add_bookmark(parent, index, title, url)` and `add_bookmark_folder(parent, index, title)` return the new id. `index` is `null` for the end.
   - `update_bookmark(id, title, url)`; `url` is ignored for a folder.
   - `move_bookmark(id, parent, index)`; moving a folder into itself or its descendants is refused.
   - `remove_bookmark(id)` removes a link, or a folder with everything in it.
-  - `bookmark_tab(tab)` adds the tab's page to the folder used last, or returns its existing bookmark, and returns the id with whether it was added. The editor opens on that id. Ctrl+D runs the same in Rust and sends the chrome of the tab's window `BookmarkEditRequested { tab, id }`, since a key pressed in a page never reaches the interface ([Shortcuts](shortcuts.md#how-keys-are-read)).
+  - `bookmark_tab(tab)` adds the tab's page to the folder used last, or returns its most recently added bookmark of the page's URL, and returns the id with whether it was added. The editor opens on that id. Ctrl+D runs the same in Rust and sends `BookmarkEditRequested`, since a key pressed in a page never reaches the interface ([Shortcuts](shortcuts.md#how-keys-are-read)).
   - `import_bookmarks()` and `export_bookmarks()` open the file dialog for the calling window. They return `null` when the dialog is cancelled; `import_bookmarks` otherwise returns `{ links, folders, skipped }`.
 - **Refusals.** A command naming an id that does not exist, a root where a root may not go, or a link URL of a scheme Haku would not import is an `Unsupported` error ([Errors](errors.md)), shown as a toast through `@ipc/commands`.
 - **Keymap.** Three new actions, with Chrome's defaults: `bookmarkTab` (Ctrl+D), `toggleBookmarksBar` (Ctrl+Shift+B), `openBookmarks` (Ctrl+Shift+O), in the Page and Windows groups of [Shortcuts](shortcuts.md#the-keymap). None is refused by its rules.
-- **Settings.** `bookmarksBar` (`always`, `newTab`, `never`; default `newTab`) and `sidebarBookmarks` (`row`, `button`; default `button`), both read leniently as the appearance enums are ([Appearance § Settings](appearance.md#settings)). The folder used last is kept in the bookmarks database, not in settings, because it names a bookmark id and is meaningless without that database.
+- **Settings.** `bookmarksBar` (`always`, `newTab`, `never`; default `newTab`) and `sidebarBookmarks` (`row`, `button`; default `button`), both read leniently as the appearance enums are ([Appearance § Settings](appearance.md#settings)). The folder used last is kept in the bookmarks database, not in settings, because it names a bookmark id and is meaningless without that database. When that folder has since been deleted, the next bookmark goes to **Bookmarks bar**.
 
 The whole tree in every event was chosen because bookmarks change only when the user does something, never on a timer, so the per-progress cost that ended whole lists for downloads (issue #75) does not apply. The cost is recorded under [Measurements](#measurements).
 
 ## Storage
 
-`bookmarks.sqlite`, beside `history.sqlite`, with its own migrations, opened, set aside when corrupt and kept in memory when it cannot be opened, as history is.
+`bookmarks.sqlite`, beside `history.sqlite`, with its own migrations, opened, set aside when corrupt and kept in memory when it cannot be opened, as history is. The user is then told once, through [`FailureReported`](errors.md#failures-no-command-is-waiting-on), that bookmarks could not be opened and changes made in this run will not be kept.
 
 A file of its own rather than a table in `history.sqlite`, which [Downloads](downloads.md#rejected-alternatives) chose for downloads because they are, like history, records of what was fetched that grow alike and are kept alike. Bookmarks are none of those: they are the user's own work, small, kept until the user deletes them, and must survive clearing history and a history database set aside as corrupt. A separate file also lets a user back it up or copy it alone.
 
@@ -149,7 +150,7 @@ One pull request each, in order, each leaving Haku working:
 3. **The bar**: the row under the toolbar and above the page, the column's **Bookmarks** button, folder menus, context menus, both settings, Ctrl+Shift+B.
 4. **Import and export**: the file dialogs in `platform/`, the parser and the writer.
 
-The First release row is marked **Implemented** and this spec moved to IMPLEMENTED when slice 4 lands.
+The First release row stays as it is, and this spec APPROVED, until slice 4 lands; that change marks the row **Implemented** and moves this spec to IMPLEMENTED.
 
 ## Measurements
 
@@ -178,6 +179,6 @@ Slice 3 measures the bar's render time for the same two trees and records it her
 
 - `model/bookmark.rs`: which URLs may be bookmarked, and the shape the interface receives.
 - `storage/bookmarks_db.rs`: the migration, adding, moving, refusing a move into a descendant, removing a folder with its contents, the roots' refusals, positions kept dense and in order across moves and removals, a corrupt file set aside, the in-memory fallback; later, the folder used last and an import's transaction rolling back.
-- The parser and writer: the reference file's structure (82 links, 34 folders, the bar's contents arriving in **Bookmarks bar**), Firefox's and Edge's exports, skipped schemes counted, the size refusal, flattening below 64 levels, escaping, a round trip of export then import giving the same tree.
+- The parser and writer: the reference file's structure (82 links, 34 folders, the bar's contents arriving in **Bookmarks bar**), Firefox's and Edge's exports, skipped schemes counted, the size refusal, flattening below 64 levels, escaping, a round trip of export then import giving the same tree, for a tree no deeper than the import's 64-level limit.
 - The interface with Vitest: the star's state and the editor, the bar's overflow menu and folder menus, `haku://bookmarks` search and editing, the delete confirmation.
 - In the app: importing the reference file, using the bar and the page, exporting and importing the export into Chrome.
