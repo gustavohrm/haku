@@ -62,6 +62,7 @@ It is sent to one window's interface, never to all of them, so a failure is show
 | A page's request for a new tab or window, a private window included                           | The window of the tab that asked, or the normal window used last for an extension's toolbar popup |
 | Launching Haku again while it runs, which opens a window                                      | The normal window used last before it                                                             |
 | The history file cannot be opened at startup (see [below](#failures-that-must-not-propagate)) | The first interface to load its state, once                                                       |
+| Deleting visits past the history retention, hourly while Haku runs                            | The normal window used last, once per run                                                         |
 
 A failure at startup happens before any window exists, so Rust holds it until an interface can listen. The interface attaches its listeners before it asks for its first state, so `get_state` is the point at which a window is known to be listening: the first one to call it is sent every held failure, and they are not held after that. A later window, or a reloaded interface, is not sent them again.
 

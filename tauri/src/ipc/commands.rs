@@ -973,26 +973,24 @@ const TICK: Duration = Duration::from_secs(5);
 /// a slower timer would notice.
 const TICK_PRESSED: Duration = Duration::from_secs(1);
 
-/// Measures memory, reads running pages and applies the rule for as long as
-/// the application does.
-///
-/// A thread of its own rather than an interface timer: low memory is a reason
-/// to act whether or not anyone is looking at the window.
 /// How often visits past the retention setting are deleted while Haku runs.
 const PRUNE_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Deletes visits past the retention setting every hour, so history kept
 /// for 30 days never holds older ones for long, however long Haku stays
 /// open. Startup prunes before any window opens; see `lib.rs`. A failure is
-/// reported to every window once, not every hour.
+/// reported once, not every hour, to the normal window used last.
+/// [Errors § Failures no command is waiting on](../../../docs/specs/errors.md#failures-no-command-is-waiting-on).
 pub fn prune_history_periodically(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let mut reported = false;
         loop {
             std::thread::sleep(PRUNE_EVERY);
-            if let Err(error) = app.state::<AppState>().prune_history() {
-                if !reported {
-                    let _ = FailureReported(error).emit(&app);
+            let state = app.state::<AppState>();
+            if let Err(error) = state.prune_history() {
+                let window = state.browser.read().map(|browser| browser.main_window());
+                if let (false, Ok(window)) = (reported, window) {
+                    report_failure(&app, window, error);
                     reported = true;
                 }
             }
@@ -1000,6 +998,11 @@ pub fn prune_history_periodically(app: tauri::AppHandle) {
     });
 }
 
+/// Measures memory, reads running pages and applies the rule for as long as
+/// the application does.
+///
+/// A thread of its own rather than an interface timer: low memory is a reason
+/// to act whether or not anyone is looking at the window.
 pub fn tick_periodically(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let mut interval = TICK;
