@@ -49,7 +49,13 @@ describe("the settings helpers", () => {
   });
 
   it("puts one action back on its defaults", () => {
-    expect(withDefaults(settings({ find: ["Ctrl+G"], reload: [] }), "find").shortcuts).toEqual({ reload: [] });
+    expect(withDefaults(settings({ find: ["Ctrl+G"], reload: [] }), KEYMAP, "find").shortcuts).toEqual({ reload: [] });
+  });
+
+  it("takes an action's defaults back from the action the user gave them", () => {
+    expect(withDefaults(settings({ reload: ["Ctrl+R", "Ctrl+T"] }), KEYMAP, "newTab").shortcuts).toEqual({
+      reload: ["Ctrl+R"],
+    });
   });
 });
 
@@ -119,6 +125,15 @@ describe("ShortcutControl", () => {
     expect(container.querySelector('[aria-label="Reset to the default keys"]')).toBeNull();
 
     render("find", async () => null, { find: ["Ctrl+G"] });
+    expect(container.querySelector('[aria-label="Reset to the default keys"]')).not.toBeNull();
+  });
+
+  it("offers Reset to an action that lost a default to another action", () => {
+    keymapStore.set([
+      { shortcut: "newTab", chords: [], defaults: ["Ctrl+T"] },
+      { shortcut: "reload", chords: ["Ctrl+R", "F5", "Ctrl+T"], defaults: ["Ctrl+R", "F5"] },
+    ]);
+    render("newTab", async () => null);
     expect(container.querySelector('[aria-label="Reset to the default keys"]')).not.toBeNull();
   });
 
