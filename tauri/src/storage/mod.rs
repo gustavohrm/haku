@@ -11,6 +11,7 @@ pub mod merge;
 pub mod package;
 pub mod session;
 pub mod settings;
+pub mod sqlite;
 
 use std::fs;
 use std::io::Write;
