@@ -2541,6 +2541,12 @@ impl Browser {
             self.private_permissions.push(decided);
             return Ok((effects, None));
         }
+        // In effect before it is stored, so a request arriving while settings
+        // are saved is answered by it rather than asking again and replacing
+        // it. Storing the settings sets the stored list over this one.
+        self.site_permissions
+            .retain(|other| other.origin != decided.origin || other.kind != decided.kind);
+        self.site_permissions.push(decided.clone());
         Ok((effects, Some(decided)))
     }
 
