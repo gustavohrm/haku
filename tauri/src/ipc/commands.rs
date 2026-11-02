@@ -46,8 +46,9 @@ use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{
-    AddressFocusRequested, BookmarkEditRequested, BookmarksChanged, CloseConfirmationRequested, ContextMenuRequested,
-    FailureReported, FindEnded, FindRequested, FindResult, MemoryChanged, SettingsChanged, StateChanged,
+    AddressFocusRequested, BookmarkEditRequested, BookmarksChanged, BookmarksMenuRequested, CloseConfirmationRequested,
+    ContextMenuRequested, FailureReported, FindEnded, FindRequested, FindResult, MemoryChanged, SettingsChanged,
+    StateChanged,
 };
 use super::shortcuts::{self, PageAction, RecordedChord, Request as ShortcutRequest};
 use super::{downloads, extensions, recovery};
@@ -701,9 +702,45 @@ fn queue_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Sh
 /// the same would show it there.
 fn run_shortcut(app: &tauri::AppHandle, request: ShortcutRequest, shortcut: Shortcut) {
     let state = app.state::<AppState>();
-    if let Err(error) = run_shortcut_in(app, &state, request, shortcut) {
+    let ran = if shortcut == Shortcut::ToggleBookmarksBar {
+        toggle_bookmarks_bar(app, &state, request.window())
+    } else {
+        run_shortcut_in(app, &state, request, shortcut)
+    };
+    if let Err(error) = ran {
         report_failure(app, request.window(), error);
     }
+}
+
+/// Ctrl+Shift+B: shows or hides the bookmarks bar in every window, as the
+/// setting it changes applies to all of them. While bookmarks are the
+/// column's button there is no bar, and it opens the button's menu instead,
+/// in an ordinary window, the only kind with a column.
+/// [Bookmarks § The bookmarks bar](../../../docs/specs/bookmarks.md#the-bookmarks-bar).
+fn toggle_bookmarks_bar(app: &tauri::AppHandle, state: &AppState, window: WindowId) -> Result<()> {
+    let in_button = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
+        .bookmarks_in_button();
+    if in_button {
+        let kind = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?
+            .kind(window);
+        if kind == Some(WindowKind::Normal) {
+            // The menu takes the keyboard, which a page may hold, as the
+            // find bar does.
+            webview::chrome_of(app, window)?.set_focus()?;
+            BookmarksMenuRequested.emit_to(app, window.label())?;
+        }
+        return Ok(());
+    }
+    store_settings(app, state, window, |current| {
+        current.clone().with_bookmarks_bar_toggled()
+    })
+    .map(|_| ())
 }
 
 fn run_shortcut_in(

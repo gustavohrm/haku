@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-31
+last_updated: 2026-11-02
 scope: The layout settings of "Appearance is data" — where the tabs, the sidebar and the toolbar go, and whether the bars take space — and how the shell applies them.
 ---
 
@@ -19,6 +19,8 @@ All are fields of the Rust `Settings`, stored in `settings.json` with the rest a
 | `sidebarSide`      | `left`, `right`             | `left`       |
 | `toolbarPlacement` | `top`, `sidebar`            | `top`        |
 | `sidebarWidth`     | CSS pixels, 224 through 480 | 240          |
+
+Two more, `bookmarksBar` and `sidebarBookmarks`, say where bookmarks show, and belong to [Bookmarks § The bookmarks bar](bookmarks.md#the-bookmarks-bar), which owns their values and defaults. They are read leniently as these are.
 
 The defaults are what Haku drew before the settings existed, so an existing settings file opens unchanged. The last three shape the tab column, and have no effect while the tabs are horizontal.
 
@@ -135,6 +137,8 @@ Rejected: letting the marker float with the toolbar. A hidden marker makes a pri
 ## Settings page
 
 Appearance shows **Tabs**, **Sidebar**, **Toolbar** and **Bars** after Theme, each a group of icon buttons as Theme is ([Settings page § Layout](settings-page.md#layout)): `panel-top` and `panel-left` for the tabs, `panel-left` and `panel-right` for the sidebar's side, `panel-top` and `panel-left-dashed` for the toolbar, `app-window` and `panel-top-dashed` for the bars. Sidebar and Toolbar are disabled, still showing what is stored, while the tabs are horizontal. The width has no row: it is set where it shows, by dragging the column's edge.
+
+After Toolbar come **Bookmarks in the sidebar**, as icon buttons (`bookmark` for the button, `panel-top` for a bar above the page), disabled unless the toolbar is in the column, and **Bookmarks bar**, a select of its three choices, disabled while bookmarks are the column's button ([Bookmarks § The bookmarks bar](bookmarks.md#the-bookmarks-bar)).
 
 ## Verification
 

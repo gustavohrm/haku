@@ -1,6 +1,7 @@
 import { isNewTab, SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
 import { BookmarkStar } from "@features/bookmarks/bookmark-star";
+import { BookmarksButton } from "@features/bookmarks/bookmarks-button";
 import { isBookmarkable } from "@features/bookmarks/tree";
 import { DownloadsButton } from "@features/downloads/downloads-button";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
@@ -73,10 +74,14 @@ export function SidebarToolbar({ tab }: { tab: Tab | null }) {
   );
 }
 
-/** What the toolbar's right end holds, as a row at the foot of the sidebar. */
-export function SidebarActions({ tab }: { tab: Tab | null }) {
+/**
+ * What the toolbar's right end holds, as a row at the foot of the sidebar,
+ * with the **Bookmarks** button first when bookmarks are a button.
+ */
+export function SidebarActions({ tab, bookmarks = false }: { tab: Tab | null; bookmarks?: boolean }) {
   return (
     <div className="flex shrink-0 items-center justify-end gap-(--haku-gap)">
+      {bookmarks && <BookmarksButton tab={tab?.id ?? null} />}
       <ToolbarActions tab={tab} />
     </div>
   );

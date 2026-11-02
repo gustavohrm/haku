@@ -16,7 +16,7 @@ const holdBarForWindow = (content: BarContent) => {
 
 afterEach(() => {
   releases.splice(0).forEach((release) => release());
-  barHoldStore.set({ tabs: 0, toolbar: 0 });
+  barHoldStore.set({ tabs: 0, toolbar: 0, bookmarks: 0 });
 });
 
 describe("holdBar", () => {

@@ -39,6 +39,7 @@ const ACTIONS = {
   newPrivateWindow: { group: "windows", title: "shortcut.newPrivateWindow" },
   closeWindow: { group: "windows", title: "shortcut.closeWindow" },
   openBookmarks: { group: "windows", title: "shortcut.openBookmarks" },
+  toggleBookmarksBar: { group: "windows", title: "shortcut.toggleBookmarksBar" },
   reload: { group: "page", title: "shortcut.reload" },
   find: { group: "page", title: "shortcut.find" },
   print: { group: "page", title: "shortcut.print" },

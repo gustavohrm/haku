@@ -53,6 +53,7 @@ The default bindings follow Chrome's, because that is what users' hands already 
 | Ctrl+0                       | Reset the focused tab's page to 100%, for its whole site                                             |
 | Ctrl+D                       | Bookmark the focused tab's page, or edit its bookmark ([Bookmarks](bookmarks.md#bookmarking-a-page)) |
 | Ctrl+Shift+O                 | Open `haku://bookmarks` in a foreground tab                                                          |
+| Ctrl+Shift+B                 | Show or hide the bookmarks bar, in every window ([Bookmarks](bookmarks.md#the-bookmarks-bar))        |
 
 `model::keymap::DEFAULTS` is the table: each action with its default chords, in this order. Adding a shortcut is a `Shortcut` variant, a line in that table, its arm in `ipc/shortcuts.rs`, and its row and title in the interface ([Settings page § Shortcuts](settings-page.md#shortcuts)). Nothing else repeats a chord: the context menus read their hints from the keymap Rust reports.
 

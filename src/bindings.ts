@@ -273,6 +273,7 @@ export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
 	bookmarkEditRequested: makeEvent<BookmarkEditRequested>("bookmark-edit-requested"),
 	bookmarksChanged: makeEvent<BookmarksChanged>("bookmarks-changed"),
+	bookmarksMenuRequested: makeEvent<BookmarksMenuRequested>("bookmarks-menu-requested"),
 	closeConfirmationRequested: makeEvent<CloseConfirmationRequested>("close-confirmation-requested"),
 	contextMenuRequested: makeEvent<ContextMenuRequested>("context-menu-requested"),
 	downloadProgressed: makeEvent<DownloadProgressed>("download-progressed"),
@@ -372,11 +373,35 @@ export type Bookmarks = {
 };
 
 /**
+ *  When the bookmarks bar shows.
+ *  [Bookmarks § The bookmarks bar](../../../docs/specs/bookmarks.md#the-bookmarks-bar).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type BookmarksBar = 
+/**  In every tab. */
+"always" | 
+/**  Only while the focused tab is on the new-tab page, as in Chrome. */
+"newTab" | 
+/**  Never. */
+"never";
+
+/**
  *  The whole bookmark tree, sent to every window, ordinary and private,
  *  whenever anything in it changes.
  *  [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
  */
 export type BookmarksChanged = Bookmarks;
+
+/**
+ *  Asks the interface to open the column's **Bookmarks** menu, for
+ *  Ctrl+Shift+B while bookmarks are that button rather than a bar.
+ *  [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+ * 
+ *  Sent to the window the shortcut was pressed in only, once its interface
+ *  has the keyboard.
+ */
+export type BookmarksMenuRequested = null;
 
 /**  The projection of browser state one window's interface renders. */
 export type BrowserState = {
@@ -897,6 +922,8 @@ export type Settings = {
 	barLayout: BarLayout,
 	sidebarSide: SidebarSide,
 	toolbarPlacement: ToolbarPlacement,
+	bookmarksBar: BookmarksBar,
+	sidebarBookmarks: SidebarBookmarks,
 	/**
 	 *  The tab column's width in CSS pixels, between [`MIN_SIDEBAR_WIDTH`]
 	 *  and [`MAX_SIDEBAR_WIDTH`].
@@ -943,7 +970,19 @@ export type SettingsChanged = Settings;
  *  Its camelCase name is the action's id in `Settings.shortcuts`, so a
  *  variant is never renamed.
  */
-export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage" | "resetZoom" | "bookmarkTab" | "openBookmarks";
+export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage" | "resetZoom" | "bookmarkTab" | "openBookmarks" | "toggleBookmarksBar";
+
+/**
+ *  Where bookmarks go while the toolbar is in the tab column.
+ *  [Bookmarks § The bookmarks bar](../../../docs/specs/bookmarks.md#the-bookmarks-bar).
+ * 
+ *  Read leniently, as [`known_or_default`] explains.
+ */
+export type SidebarBookmarks = 
+/**  The bookmarks bar, as a row of its own across the top of the page area. */
+"row" | 
+/**  A button in the column's foot row, opening a menu of the bar. */
+"button";
 
 /**
  *  Which side of the window the tab column is on.
