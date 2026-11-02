@@ -163,7 +163,7 @@ pub struct Settings {
     /// [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
     pub shortcuts: Shortcuts,
     /// Whether browsing history is recorded at all.
-    /// [History § Turning recording off](../../../docs/specs/history.md#turning-recording-off-and-pausing).
+    /// [History § Recording on, off and paused](../../../docs/specs/history.md#recording-on-off-and-paused).
     pub history_enabled: bool,
     /// How long visits are kept.
     pub history_retention: HistoryRetention,

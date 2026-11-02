@@ -1134,7 +1134,7 @@ export type Settings = {
 	shortcuts: Partial<{ [key in Shortcut]: string[] }>,
 	/**
 	 *  Whether browsing history is recorded at all.
-	 *  [History § Turning recording off](../../../docs/specs/history.md#turning-recording-off-and-pausing).
+	 *  [History § Recording on, off and paused](../../../docs/specs/history.md#recording-on-off-and-paused).
 	 */
 	historyEnabled: boolean,
 	/**  How long visits are kept. */
