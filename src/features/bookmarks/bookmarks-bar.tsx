@@ -182,48 +182,52 @@ export function BookmarksBar({ tab, hold, standalone = false }: BookmarksBarProp
   };
 
   return (
-    <div
-      data-bookmarks-bar
-      className={cx(
-        "haku-bar flex h-[calc(1.5rem+var(--haku-gap))] shrink-0 items-start gap-0.5 px-(--haku-gap)",
-        standalone && "box-content pt-(--haku-gap)",
-      )}
-      onContextMenu={showRowMenu}
-    >
-      <ul
-        ref={listRef}
-        className="relative flex min-w-0 flex-1 gap-0.5 overflow-hidden"
-        aria-label={t("bookmarks.bar")}
+    <>
+      <div
+        data-bookmarks-bar
+        className={cx(
+          "haku-bar flex h-[calc(1.5rem+var(--haku-gap))] shrink-0 items-start gap-0.5 px-(--haku-gap)",
+          standalone && "box-content pt-(--haku-gap)",
+        )}
+        onContextMenu={showRowMenu}
       >
-        {children.map((node, index) => (
-          <BarItem
-            key={node.id}
-            node={node}
-            title={displayTitle(tree, node)}
-            isPrivate={isPrivate}
-            isHidden={index >= fits}
-            isExpanded={expanded === node.id}
-            onFollow={follow}
-            onOpenFolder={openFolder}
-            onMenu={showItemMenu}
-          />
-        ))}
-      </ul>
-      {overflow.length > 0 && (
-        <button
-          type="button"
-          className="btn ghost h-6 shrink-0 px-1.5 text-xs"
-          aria-label={t("bookmarks.bar.more")}
-          title={t("bookmarks.bar.more")}
-          aria-haspopup="menu"
-          aria-expanded={expanded === "overflow"}
-          onClick={(event) => openOverflow(event.currentTarget)}
+        <ul
+          ref={listRef}
+          className="relative flex min-w-0 flex-1 gap-0.5 overflow-hidden"
+          aria-label={t("bookmarks.bar")}
         >
-          »
-        </button>
-      )}
+          {children.map((node, index) => (
+            <BarItem
+              key={node.id}
+              node={node}
+              title={displayTitle(tree, node)}
+              isPrivate={isPrivate}
+              isHidden={index >= fits}
+              isExpanded={expanded === node.id}
+              onFollow={follow}
+              onOpenFolder={openFolder}
+              onMenu={showItemMenu}
+            />
+          ))}
+        </ul>
+        {overflow.length > 0 && (
+          <button
+            type="button"
+            className="btn ghost h-6 shrink-0 px-1.5 text-xs"
+            aria-label={t("bookmarks.bar.more")}
+            title={t("bookmarks.bar.more")}
+            aria-haspopup="menu"
+            aria-expanded={expanded === "overflow"}
+            onClick={(event) => openOverflow(event.currentTarget)}
+          >
+            »
+          </button>
+        )}
+      </div>
+      {/* Beside the row rather than in it: React passes a portal's events up its
+        own tree, so a right-click in a field would open the row's menu. */}
       {form && <BarForm tree={tree} target={form.target} at={form.at} hold={hold} onDone={() => setForm(null)} />}
-    </div>
+    </>
   );
 }
 

@@ -91,7 +91,7 @@ export const en = {
   "settings.needsVerticalTabs": "Has no effect while the tabs are horizontal.",
   "settings.sidebarBookmarks": "Bookmarks in the sidebar",
   "settings.sidebarBookmarks.help":
-    "With the toolbar in the sidebar: a Bookmarks button at its foot, or the bookmarks bar above the page.",
+    "With the toolbar in the sidebar: a Bookmarks button at its foot, which Ctrl+Shift+B opens, or the bookmarks bar above the page.",
   "settings.sidebarBookmarks.keywords": "bookmarks bar, favorites, favourites, sidebar, toolbar, layout, appearance",
   "settings.sidebarBookmarks.button": "A button in the sidebar",
   "settings.sidebarBookmarks.row": "A bar above the page",

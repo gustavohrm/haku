@@ -38,6 +38,8 @@ describe("BookmarksButton", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // In the column, inside the window, where jsdom would say nowhere.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 500, 28, 28));
     state.tree = sampleTree();
     container = document.createElement("div");
     document.body.append(container);
@@ -47,6 +49,7 @@ describe("BookmarksButton", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
   });
 
   const render = () => act(async () => root.render(<BookmarksButton tab={7} />));
@@ -65,6 +68,24 @@ describe("BookmarksButton", () => {
         .slice(0, 5),
     ).toEqual(["folder:3", "link:8", "separator:other", "other", "manage"]);
     expect(container.querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("waits for a hidden floating column to slide in before placing the menu", async () => {
+    vi.stubGlobal("requestAnimationFrame", (step: FrameRequestCallback) => setTimeout(() => step(0), 0));
+    try {
+      await render();
+      const button = container.querySelector("button")!;
+      // Off the window's left edge until a frame has passed, then in the column.
+      const rect = vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(-200, 500, 28, 28));
+      await act(async () => requests.handler?.());
+      rect.mockReturnValue(new DOMRect(40, 500, 28, 28));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+      expect(openMenu).toHaveBeenCalledOnce();
+      expect((openMenu.mock.lastCall as unknown as [{ at: { x: number } }])[0].at.x).toBe(40);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("opens the same menu when Ctrl+Shift+B asks for it, and stops listening once gone", async () => {

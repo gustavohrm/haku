@@ -134,6 +134,28 @@ describe("BookmarksBar", () => {
     expect(show.items.find((entry) => entry.kind === "radio" && entry.checked)?.id).toBe("always");
   });
 
+  it("leaves a right-click in its form to the form", async () => {
+    await render();
+    await act(async () => {
+      item("Haku").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    const edit = lastMenu().items.find((entry) => entry.id === "edit");
+    if (edit?.kind !== "command") {
+      throw new Error("no Edit…");
+    }
+    await act(async () => edit.onSelect());
+    const field = document.querySelector("section input")!;
+
+    const click = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    await act(async () => {
+      field.dispatchEvent(click);
+    });
+    // Only the item's menu: the row's did not open, and the field's is left
+    // to the document.
+    expect(openMenu).toHaveBeenCalledOnce();
+    expect(click.defaultPrevented).toBe(false);
+  });
+
   it("lists what does not fit in the » menu, and hides it from the row", async () => {
     // Each item is 100 pixels wide, in a row of 150.
     const widths = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(100);

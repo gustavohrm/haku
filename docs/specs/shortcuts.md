@@ -26,34 +26,34 @@ Ctrl+Shift+N opens a private browser window (`NewPrivateWindow`); Ctrl+N opens a
 
 The default bindings follow Chrome's, because that is what users' hands already know. Modifiers match exactly: Ctrl+Shift+W is not Ctrl+W. Every binding can be changed in settings ([Changing bindings](#changing-bindings)); the table lists the defaults.
 
-| Keys                         | Does                                                                                                 |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Ctrl+T                       | Open a new tab, in the address field                                                                 |
-| Ctrl+N                       | Open a new browser window                                                                            |
-| Ctrl+Shift+N                 | Open a new private browser window                                                                    |
-| Ctrl+W, Ctrl+F4              | Close the tab                                                                                        |
-| Ctrl+Shift+T                 | Reopen the last closed tab                                                                           |
-| Ctrl+Tab, Ctrl+PageDown      | Next tab, wrapping                                                                                   |
-| Ctrl+Shift+Tab, Ctrl+PageUp  | Previous tab, wrapping                                                                               |
-| Ctrl+1 … Ctrl+8              | The tab at that position, each its own action (`tab1` … `tab8`)                                      |
-| Ctrl+9                       | The last tab                                                                                         |
-| Ctrl+L, Alt+D, F6            | Focus the address field                                                                              |
-| Ctrl+R, F5                   | Reload                                                                                               |
-| Alt+Left, Alt+Right          | Back, forward                                                                                        |
-| Alt+Shift+N                  | Toggle split: new right partner and address focus, or separate the focused pair                      |
-| Ctrl+Shift+PageUp / PageDown | Move the focused tab or pair left/right over one strip unit, without wrapping                        |
-| Ctrl+Shift+W                 | Close the originating window                                                                         |
-| Alt+Home                     | Navigate the focused tab to the configured home page                                                 |
-| Shift+Esc                    | Open `haku://memory` in a foreground tab                                                             |
-| Ctrl+Shift+K                 | Duplicate the focused tab's current URL in a foreground tab                                          |
-| F12, Ctrl+Shift+I            | Developer tools for the tab's page                                                                   |
-| Ctrl+F                       | Find in the focused tab's page                                                                       |
-| Ctrl+P                       | Print the focused tab's page                                                                         |
-| Ctrl+S                       | Save the focused tab's page                                                                          |
-| Ctrl+0                       | Reset the focused tab's page to 100%, for its whole site                                             |
-| Ctrl+D                       | Bookmark the focused tab's page, or edit its bookmark ([Bookmarks](bookmarks.md#bookmarking-a-page)) |
-| Ctrl+Shift+O                 | Open `haku://bookmarks` in a foreground tab                                                          |
-| Ctrl+Shift+B                 | Show or hide the bookmarks bar, in every window ([Bookmarks](bookmarks.md#the-bookmarks-bar))        |
+| Keys                         | Does                                                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ctrl+T                       | Open a new tab, in the address field                                                                                                                          |
+| Ctrl+N                       | Open a new browser window                                                                                                                                     |
+| Ctrl+Shift+N                 | Open a new private browser window                                                                                                                             |
+| Ctrl+W, Ctrl+F4              | Close the tab                                                                                                                                                 |
+| Ctrl+Shift+T                 | Reopen the last closed tab                                                                                                                                    |
+| Ctrl+Tab, Ctrl+PageDown      | Next tab, wrapping                                                                                                                                            |
+| Ctrl+Shift+Tab, Ctrl+PageUp  | Previous tab, wrapping                                                                                                                                        |
+| Ctrl+1 … Ctrl+8              | The tab at that position, each its own action (`tab1` … `tab8`)                                                                                               |
+| Ctrl+9                       | The last tab                                                                                                                                                  |
+| Ctrl+L, Alt+D, F6            | Focus the address field                                                                                                                                       |
+| Ctrl+R, F5                   | Reload                                                                                                                                                        |
+| Alt+Left, Alt+Right          | Back, forward                                                                                                                                                 |
+| Alt+Shift+N                  | Toggle split: new right partner and address focus, or separate the focused pair                                                                               |
+| Ctrl+Shift+PageUp / PageDown | Move the focused tab or pair left/right over one strip unit, without wrapping                                                                                 |
+| Ctrl+Shift+W                 | Close the originating window                                                                                                                                  |
+| Alt+Home                     | Navigate the focused tab to the configured home page                                                                                                          |
+| Shift+Esc                    | Open `haku://memory` in a foreground tab                                                                                                                      |
+| Ctrl+Shift+K                 | Duplicate the focused tab's current URL in a foreground tab                                                                                                   |
+| F12, Ctrl+Shift+I            | Developer tools for the tab's page                                                                                                                            |
+| Ctrl+F                       | Find in the focused tab's page                                                                                                                                |
+| Ctrl+P                       | Print the focused tab's page                                                                                                                                  |
+| Ctrl+S                       | Save the focused tab's page                                                                                                                                   |
+| Ctrl+0                       | Reset the focused tab's page to 100%, for its whole site                                                                                                      |
+| Ctrl+D                       | Bookmark the focused tab's page, or edit its bookmark ([Bookmarks](bookmarks.md#bookmarking-a-page))                                                          |
+| Ctrl+Shift+O                 | Open `haku://bookmarks` in a foreground tab                                                                                                                   |
+| Ctrl+Shift+B                 | Show or hide the bookmarks bar, in every window; while bookmarks are the column's button, open its menu instead ([Bookmarks](bookmarks.md#the-bookmarks-bar)) |
 
 `model::keymap::DEFAULTS` is the table: each action with its default chords, in this order. Adding a shortcut is a `Shortcut` variant, a line in that table, its arm in `ipc/shortcuts.rs`, and its row and title in the interface ([Settings page § Shortcuts](settings-page.md#shortcuts)). Nothing else repeats a chord: the context menus read their hints from the keymap Rust reports.
 

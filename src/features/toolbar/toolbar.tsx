@@ -80,7 +80,9 @@ export function SidebarToolbar({ tab }: { tab: Tab | null }) {
  */
 export function SidebarActions({ tab, bookmarks = false }: { tab: Tab | null; bookmarks?: boolean }) {
   return (
-    <div className="flex shrink-0 items-center justify-end gap-(--haku-gap)">
+    // Wrapping, so pinned extensions in a narrow column move to a second line
+    // rather than push buttons past its edge.
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-(--haku-gap)">
       {bookmarks && <BookmarksButton tab={tab?.id ?? null} />}
       <ToolbarActions tab={tab} />
     </div>

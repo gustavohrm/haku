@@ -171,7 +171,7 @@ The bar, measured in slice 3 (2026-11-02) on the same machine, in Vitest 4.1 und
 | Reference file | 13.7 ms | 2.0 ms           | 1.7 ms     |
 | 5 000 links    | 30.4 ms | 3.3 ms           | 2.6 ms     |
 
-The bar draws only its root's own items: a folder's contents are read when its menu opens, so a change inside a folder draws nothing on the bar, and a change to one item draws that item alone. Not measured: layout and painting in WebView2, and the cost of measuring which items fit, which reads every item's position once per change or resize.
+The bar draws only its root's own items: a folder's menu is built when it opens, so a change inside a folder draws nothing on the bar, and a change to one item draws that item alone. A menu is built whole, its submenus with it, so opening the column's **Bookmarks** menu builds both roots' trees; the last column measures that. Not measured: layout and painting in WebView2, and the cost of measuring which items fit, which reads every item's position once per change or resize.
 
 ## Rejected alternatives
 
