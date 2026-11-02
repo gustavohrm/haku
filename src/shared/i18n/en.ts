@@ -35,6 +35,12 @@ export const en = {
   "toolbar.reload": "Reload",
   "toolbar.resetZoom": "Zoom {percent}%. Reset to 100%",
   "toolbar.address": "Search or enter address",
+  "toolbar.suggestions": "Suggestions",
+  "toolbar.suggest.search": "{engine} search",
+  "toolbar.suggest.visit": "Go to address",
+  "toolbar.suggest.switch": "Switch to tab",
+  "toolbar.suggest.bookmarked": "Bookmarked",
+  "toolbar.suggest.engine": "Search {engine}",
   "toolbar.devtools": "Open developer tools",
   "toolbar.settings": "Settings",
 
