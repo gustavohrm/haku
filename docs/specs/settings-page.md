@@ -41,7 +41,7 @@ The current settings, regrouped by what a person comes looking for:
 | ------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Appearance    | `haku://settings/appearance` | Theme; tabs; sidebar side; toolbar placement; bars ([Appearance](appearance.md)). Later: density, corners, surfaces, palette, presets, CSS.                       |
 | Tabs & memory | `haku://settings/tabs`       | Preset; loaded tabs; background memory; freeze; discard. **New:** kept sites, listed with a remove button.                                                        |
-| Browsing      | `haku://settings/browsing`   | Search engine; home page; site permissions, listed with a remove button ([Permissions](permissions.md)).                                                          |
+| Browsing      | `haku://settings/browsing`   | Search engine; home page; site permissions ([Permissions](permissions.md)) and zoom levels ([Zoom](zoom.md)), each listed with a remove button.                   |
 | Extensions    | `haku://settings/extensions` | Add extension; each extension with its switch, version and actions; folders that failed; the extensions folder ([Extensions § Settings](extensions.md#settings)). |
 | Shortcuts     | `haku://settings/shortcuts`  | Reset all; one row per action, grouped as Tabs, Windows, Page and Navigation ([Shortcuts](#shortcuts)).                                                           |
 | About         | `haku://settings/about`      | Version, the mark and wordmark, links to Memory (`haku://memory`) and History. **New**, read-only.                                                                |

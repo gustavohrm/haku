@@ -22,6 +22,7 @@ const tab = (id: number): Tab => ({
   dialog: null,
   permission: null,
   audible: false,
+  zoom: 100,
   relieved: false,
   restoring: false,
   scroll: { x: 0, y: 0 },

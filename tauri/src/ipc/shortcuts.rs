@@ -106,6 +106,9 @@ pub(super) struct Action {
     pub devtools: Option<SlotId>,
     pub close: Option<WindowId>,
     pub page: Option<PageAction>,
+    /// The stored zoom levels changed, and are to be stored once the change
+    /// commits. [Zoom](../../../docs/specs/zoom.md).
+    pub zoom: bool,
 }
 
 /// What a shortcut asks of its tab's live page, done once the change commits.
@@ -150,7 +153,8 @@ impl Request {
             | Shortcut::DevTools
             | Shortcut::Find
             | Shortcut::Print
-            | Shortcut::SavePage => {
+            | Shortcut::SavePage
+            | Shortcut::ResetZoom => {
                 if let Some((slot, tab)) = self.source {
                     if browser.tab_in(slot) != Some(tab) || browser.visible_tab_in(self.window, tab).is_err() {
                         return Ok(Action::default());
@@ -258,6 +262,11 @@ impl Request {
                     _ => PageAction::Save(slot),
                 });
                 Vec::new()
+            }
+            Shortcut::ResetZoom => {
+                let (effects, stored) = browser.reset_zoom(tab)?;
+                action.zoom = stored;
+                effects
             }
             Shortcut::NextTab
             | Shortcut::PreviousTab
@@ -607,6 +616,7 @@ mod tests {
             Shortcut::Find,
             Shortcut::Print,
             Shortcut::SavePage,
+            Shortcut::ResetZoom,
         ] {
             let (mut browser, [a, b, _]) = pages(1);
             let slot = browser.tab(a).unwrap().slot().unwrap();
@@ -619,6 +629,7 @@ mod tests {
             assert!(action.address.is_none(), "{shortcut:?}");
             assert!(action.devtools.is_none(), "{shortcut:?}");
             assert!(action.page.is_none(), "{shortcut:?}");
+            assert!(!action.zoom, "{shortcut:?}");
             assert_eq!(serde_json::to_value(browser.state()).unwrap(), before);
         }
     }
@@ -704,6 +715,22 @@ mod tests {
         assert_eq!(page(&mut browser, Shortcut::Find), Some(PageAction::Find(a)));
         assert_eq!(page(&mut browser, Shortcut::Print), Some(PageAction::Print(slot)));
         assert_eq!(page(&mut browser, Shortcut::SavePage), Some(PageAction::Save(slot)));
+    }
+
+    #[test]
+    fn resetting_zoom_returns_the_source_pages_site_to_100() {
+        let (mut browser, [a, _, _]) = pages(1);
+        let slot = browser.tab(a).unwrap().slot().unwrap();
+        browser.report_zoom(slot, 150, false, "https://a.test/");
+        let request = Request::page(&browser, slot).unwrap();
+
+        let action = request.prepare(&mut browser, Shortcut::ResetZoom, HOME, 1).unwrap();
+
+        assert!(action.zoom);
+        assert_eq!(action.effects, vec![Effect::SetZoom { slot, percent: 100 }]);
+        assert!(browser.site_zoom().is_empty());
+        let again = request.prepare(&mut browser, Shortcut::ResetZoom, HOME, 2).unwrap();
+        assert!(!again.zoom && again.effects.is_empty(), "nothing left to reset");
     }
 
     #[test]

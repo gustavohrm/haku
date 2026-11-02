@@ -246,6 +246,7 @@ pub enum Shortcut {
     Find,
     Print,
     SavePage,
+    ResetZoom,
 }
 
 impl Shortcut {
@@ -315,6 +316,7 @@ pub const DEFAULTS: &[(Shortcut, &[Chord])] = {
         (Shortcut::Find, &[Chord::ctrl(Letter('F'))]),
         (Shortcut::Print, &[Chord::ctrl(Letter('P'))]),
         (Shortcut::SavePage, &[Chord::ctrl(Letter('S'))]),
+        (Shortcut::ResetZoom, &[Chord::ctrl(Digit(0))]),
     ]
 };
 
@@ -467,7 +469,7 @@ mod tests {
         assert_eq!(Shortcut::Tab8.tab_index(), Some(7));
         assert_eq!(Shortcut::LastTab.tab_index(), None);
         assert_eq!(bound(Chord::ctrl(Key::Digit(9))), Some(Shortcut::LastTab));
-        assert_eq!(bound(Chord::ctrl(Key::Digit(0))), None);
+        assert_eq!(bound(Chord::ctrl(Key::Digit(0))), Some(Shortcut::ResetZoom));
     }
 
     #[test]

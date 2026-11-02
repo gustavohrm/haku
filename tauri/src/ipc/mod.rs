@@ -53,6 +53,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::save_page,
             commands::answer_dialog,
             commands::answer_permission,
+            commands::reset_zoom,
             commands::answer_context_menu,
             commands::memory_report,
             commands::tab_preview,

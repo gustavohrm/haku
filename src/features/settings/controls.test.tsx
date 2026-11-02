@@ -10,6 +10,7 @@ const {
   KeptSitesControl,
   SidebarSideControl,
   SitePermissionsControl,
+  SiteZoomControl,
   TabLayoutControl,
   ThemeControl,
   ToolbarPlacementControl,
@@ -106,6 +107,42 @@ describe("SitePermissionsControl", () => {
 
     const change = update.mock.calls[0]?.[0] as (current: Settings) => Settings;
     expect(change({ sitePermissions: decisions } as Settings).sitePermissions).toEqual([decisions[1], decisions[2]]);
+  });
+});
+
+describe("SiteZoomControl", () => {
+  const levels: Settings["siteZoom"] = [
+    { host: "b.test", percent: 125 },
+    { host: "a.test", percent: 80 },
+  ];
+  const renderLevels = (siteZoom: Settings["siteZoom"], update: UpdateSettings) =>
+    act(() =>
+      root.render(
+        <SiteZoomControl
+          settings={{ siteZoom } as Settings}
+          update={update}
+          id="c"
+          labelId="l"
+          describedBy={undefined}
+          disabled={false}
+        />,
+      ),
+    );
+
+  it("says so when every site is at 100%", () => {
+    renderLevels([], async () => null);
+    expect(container.textContent).toBe("Every site is shown at 100%.");
+  });
+
+  it("lists levels by host and resets only the one pressed", () => {
+    const update = vi.fn<UpdateSettings>(async () => null);
+    renderLevels(levels, update);
+
+    expect([...container.querySelectorAll("li")].map((item) => item.textContent)).toEqual(["a.test80%", "b.test125%"]);
+    act(() => container.querySelectorAll("button")[1]?.click());
+
+    const change = update.mock.calls[0]?.[0] as (current: Settings) => Settings;
+    expect(change({ siteZoom: levels } as Settings).siteZoom).toEqual([levels[1]]);
   });
 });
 

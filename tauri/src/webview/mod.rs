@@ -657,6 +657,11 @@ pub fn apply<R: tauri::Runtime>(
                     let _ = webview.eval(inject::EXIT_FULLSCREEN);
                 }
             }
+            Effect::SetZoom { slot, percent } => {
+                if let Some(webview) = app.get_webview(&slot.label()) {
+                    webview.set_zoom(f64::from(*percent) / 100.0)?;
+                }
+            }
         }
         Ok(())
     };
@@ -851,6 +856,9 @@ fn create_slot<R: tauri::Runtime>(
         .general_autofill_enabled(false)
         .focused(false)
         .devtools(true)
+        // The engine's zoom keys, Ctrl+wheel and pinch; Haku keeps the level
+        // per site. [Zoom](../../../docs/specs/zoom.md).
+        .zoom_hotkeys_enabled(true)
         .initialization_script(inject::navigation_log_script())
         .initialization_script(inject::page_state_script())
         .initialization_script(inject::extension_page_script(ExtensionView::Tab));

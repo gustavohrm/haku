@@ -458,6 +458,50 @@ export function SitePermissionsControl({ labelId, describedBy, settings, update 
   );
 }
 
+/**
+ * The zoom chosen for sites, which is otherwise only undone from each site.
+ * [Zoom](../../../docs/specs/zoom.md).
+ */
+export function SiteZoomControl({ labelId, describedBy, settings, update }: ControlProps) {
+  const levels = settings.siteZoom.toSorted((a, b) => a.host.localeCompare(b.host));
+  if (levels.length === 0) {
+    return <p className="text-text-secondary text-sm">{t("settings.siteZoom.empty")}</p>;
+  }
+  return (
+    <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+      {levels.map(({ host, percent }) => {
+        const id = `site-zoom-${host}`;
+        return (
+          <li key={host} className="flex items-center gap-2">
+            {/* The button is described by the level, so it reads as "Reset, example.com, 125%". */}
+            <span id={id} className="flex min-w-0 flex-1 gap-2">
+              <span className="truncate" title={host}>
+                {host}
+              </span>
+              <span className="text-text-secondary shrink-0">{`${percent}%`}</span>
+            </span>
+            <button
+              type="button"
+              className="btn icon ghost"
+              aria-label={t("settings.siteZoom.remove")}
+              aria-describedby={id}
+              title={t("settings.siteZoom.remove")}
+              onClick={() =>
+                void update((current) => ({
+                  ...current,
+                  siteZoom: current.siteZoom.filter((other) => other.host !== host),
+                }))
+              }
+            >
+              <i className="ic-x ic-sm" aria-hidden="true" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function SearchUrlControl({ id, describedBy, settings, update }: ControlProps) {
   return (
     <DraftInput

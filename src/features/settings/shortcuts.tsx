@@ -42,6 +42,7 @@ const ACTIONS = {
   find: { group: "page", title: "shortcut.find" },
   print: { group: "page", title: "shortcut.print" },
   savePage: { group: "page", title: "shortcut.savePage" },
+  resetZoom: { group: "page", title: "shortcut.resetZoom" },
   devTools: { group: "page", title: "shortcut.devTools" },
   focusAddress: { group: "navigation", title: "shortcut.focusAddress" },
   back: { group: "navigation", title: "shortcut.back" },
