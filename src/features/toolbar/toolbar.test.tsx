@@ -11,11 +11,15 @@ const { openExtensionPopup, resetZoom, state } = vi.hoisted(() => ({
 }));
 
 vi.mock("@bindings", () => ({
-  events: { addressFocusRequested: () => ({ listen: async () => () => {} }) },
+  events: {
+    addressFocusRequested: () => ({ listen: async () => () => {} }),
+    bookmarkEditRequested: () => ({ listen: async () => () => {} }),
+  },
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
 vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup, resetZoom } }));
 vi.mock("@ipc/hooks", () => ({
+  useBookmarks: () => null,
   useBrowserState: () => state,
   useExtensions: () => ({
     installed: [
@@ -90,6 +94,19 @@ describe("toolbar extension popups", () => {
     await act(async () => zoom?.click());
 
     expect(resetZoom).toHaveBeenCalledExactlyOnceWith(7);
+  });
+
+  it("shows the bookmark star on a web page only", async () => {
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    expect(container.querySelector('label [aria-label="Bookmark this tab"]')).not.toBeNull();
+
+    const settings: Tab = {
+      ...tab(7),
+      history: { entries: [{ url: "haku://settings", title: "Settings", favicon: null }], index: 0 },
+      presence: { status: "internal" },
+    };
+    await act(async () => root.render(<Toolbar tab={settings} />));
+    expect(container.querySelector('[aria-label="Bookmark this tab"]')).toBeNull();
   });
 
   it("shows no zoom at 100%", async () => {

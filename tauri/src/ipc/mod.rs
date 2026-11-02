@@ -8,9 +8,9 @@ mod shortcuts;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use events::{
-    AddressFocusRequested, BookmarksChanged, CloseConfirmationRequested, ContextMenuRequested, DownloadProgressed,
-    DownloadsChanged, ExtensionsChanged, FailureReported, FindEnded, FindRequested, FindResult, MemoryChanged,
-    SettingsChanged, StateChanged,
+    AddressFocusRequested, BookmarkEditRequested, BookmarksChanged, CloseConfirmationRequested, ContextMenuRequested,
+    DownloadProgressed, DownloadsChanged, ExtensionsChanged, FailureReported, FindEnded, FindRequested, FindResult,
+    MemoryChanged, SettingsChanged, StateChanged,
 };
 
 /// The single description of Haku's IPC surface.
@@ -77,6 +77,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::update_bookmark,
             commands::move_bookmark,
             commands::remove_bookmark,
+            commands::bookmark_tab,
         ])
         .events(collect_events![
             StateChanged,
@@ -92,7 +93,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             DownloadsChanged,
             DownloadProgressed,
             CloseConfirmationRequested,
-            BookmarksChanged
+            BookmarksChanged,
+            BookmarkEditRequested
         ])
 }
 

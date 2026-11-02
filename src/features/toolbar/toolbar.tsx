@@ -1,5 +1,7 @@
 import { isNewTab, SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
+import { BookmarkStar } from "@features/bookmarks/bookmark-star";
+import { isBookmarkable } from "@features/bookmarks/tree";
 import { DownloadsButton } from "@features/downloads/downloads-button";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { useOverlay } from "@features/overlays/use-overlay";
@@ -219,6 +221,11 @@ function AddressField({ tab, className, expandable = false }: AddressFieldProps)
           placeholder={t("toolbar.address")}
         />
         {tab && tab.zoom !== 100 && tab.presence.status !== "internal" && <ZoomButton tab={tab} />}
+        {/* Internal pages and pages with no address have nothing durable to
+            return to. [Bookmarks](../../../docs/specs/bookmarks.md#bookmarking-a-page) */}
+        {tab && tab.presence.status !== "internal" && isBookmarkable(url) && (
+          <BookmarkStar key={tab.id} tab={tab.id} url={url} />
+        )}
       </label>
     </form>
   );

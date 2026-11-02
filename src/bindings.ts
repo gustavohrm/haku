@@ -260,11 +260,18 @@ export const commands = {
 	moveBookmark: (id: BookmarkId, parent: BookmarkId, index: number | null) => typedError<null, HakuError>(__TAURI_INVOKE("move_bookmark", { id, parent, index })),
 	/**  Removes a link, or a folder with everything it holds. */
 	removeBookmark: (id: BookmarkId) => typedError<null, HakuError>(__TAURI_INVOKE("remove_bookmark", { id })),
+	/**
+	 *  Bookmarks the page `tab` shows in the calling window, or finds its most
+	 *  recently added bookmark, for the star and its editor.
+	 *  [Bookmarks § Bookmarking a page](../../../docs/specs/bookmarks.md#bookmarking-a-page).
+	 */
+	bookmarkTab: (tab: TabId) => typedError<BookmarkedTab, HakuError>(__TAURI_INVOKE("bookmark_tab", { tab })),
 };
 
 /** Events */
 export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
+	bookmarkEditRequested: makeEvent<BookmarkEditRequested>("bookmark-edit-requested"),
 	bookmarksChanged: makeEvent<BookmarksChanged>("bookmarks-changed"),
 	closeConfirmationRequested: makeEvent<CloseConfirmationRequested>("close-confirmation-requested"),
 	contextMenuRequested: makeEvent<ContextMenuRequested>("context-menu-requested"),
@@ -311,6 +318,18 @@ export type BarLayout =
  */
 "floating";
 
+/**
+ *  Asks the interface to open the bookmark editor on `id`, for the tab whose
+ *  page Ctrl+D bookmarked. [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+ * 
+ *  Sent to the tab's window only, after the [`BookmarksChanged`] that adds
+ *  the link when one was added, so the tree the interface has holds it.
+ */
+export type BookmarkEditRequested = {
+	tab: TabId,
+	id: BookmarkId,
+};
+
 /**  Identifies one bookmark or folder for as long as it exists. */
 export type BookmarkId = number;
 
@@ -332,6 +351,17 @@ export type BookmarkNode = {
 	 */
 	modifiedAt: number,
 	kind: BookmarkKind,
+};
+
+/**
+ *  What bookmarking a tab's page did.
+ *  [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+ */
+export type BookmarkedTab = {
+	/**  The link added, or the page's most recently added bookmark. */
+	id: BookmarkId,
+	/**  Whether the link was added now. */
+	added: boolean,
 };
 
 /**  The whole tree, under its two fixed roots. */
@@ -913,7 +943,7 @@ export type SettingsChanged = Settings;
  *  Its camelCase name is the action's id in `Settings.shortcuts`, so a
  *  variant is never renamed.
  */
-export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage" | "resetZoom";
+export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage" | "resetZoom" | "bookmarkTab" | "openBookmarks";
 
 /**
  *  Which side of the window the tab column is on.

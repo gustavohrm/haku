@@ -27,6 +27,7 @@ vi.mock("@bindings", () => ({
     findRequested: () => ({ listen: async () => () => {} }),
     findResult: () => ({ listen: async () => () => {} }),
     findEnded: () => ({ listen: async () => () => {} }),
+    bookmarkEditRequested: () => ({ listen: async () => () => {} }),
   },
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));

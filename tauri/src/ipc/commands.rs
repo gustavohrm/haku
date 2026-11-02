@@ -32,10 +32,10 @@ use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, O
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    check_query, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, Bookmarks, ContextMenuRequestId,
-    DialogAnswer, DialogId, Download, DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu,
-    PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId,
-    WindowId, WindowKind, WindowRequestId,
+    check_query, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
+    ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState, ExtensionSource, Extensions,
+    FindDirection, PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, ScreenRect,
+    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
@@ -46,8 +46,8 @@ use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{
-    AddressFocusRequested, BookmarksChanged, CloseConfirmationRequested, ContextMenuRequested, FailureReported,
-    FindEnded, FindRequested, FindResult, MemoryChanged, SettingsChanged, StateChanged,
+    AddressFocusRequested, BookmarkEditRequested, BookmarksChanged, CloseConfirmationRequested, ContextMenuRequested,
+    FailureReported, FindEnded, FindRequested, FindResult, MemoryChanged, SettingsChanged, StateChanged,
 };
 use super::shortcuts::{self, PageAction, RecordedChord, Request as ShortcutRequest};
 use super::{downloads, extensions, recovery};
@@ -724,6 +724,7 @@ fn run_shortcut_in(
                 Shortcut::ToggleSplit
                     | Shortcut::DuplicateTab
                     | Shortcut::Memory
+                    | Shortcut::OpenBookmarks
                     | Shortcut::Home
                     | Shortcut::NewTab
                     | Shortcut::NewWindow
@@ -790,6 +791,14 @@ fn run_native(
         }
         Some(PageAction::Print(slot)) => print_slot(app, request.window(), slot)?,
         Some(PageAction::Save(slot)) => save_slot(app, request.window(), slot)?,
+        Some(PageAction::Bookmark(tab)) => {
+            let state = app.state::<AppState>();
+            let bookmarked = bookmark_tab_in(app, &state, request.window(), tab)?;
+            // The editor takes the keyboard, which the page holds, as the
+            // find bar does.
+            webview::chrome_of(app, request.window())?.set_focus()?;
+            BookmarkEditRequested { tab, id: bookmarked.id }.emit_to(app, request.window().label())?;
+        }
         None => {}
     }
     Ok(())
@@ -2821,6 +2830,40 @@ pub fn remove_bookmark(
 ) -> Result<()> {
     ensure_chrome(&webview)?;
     change_bookmarks(&app, &state, |bookmarks, now| bookmarks.remove(id, now))
+}
+
+/// Bookmarks the page `tab` shows in the calling window, or finds its most
+/// recently added bookmark, for the star and its editor.
+/// [Bookmarks § Bookmarking a page](../../../docs/specs/bookmarks.md#bookmarking-a-page).
+#[tauri::command]
+#[specta::specta]
+pub fn bookmark_tab(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<BookmarkedTab> {
+    let window = ensure_chrome(&webview)?;
+    bookmark_tab_in(&app, &state, window, tab)
+}
+
+/// What [`bookmark_tab`] and Ctrl+D do: sends the tree only when a link was
+/// added, since finding one changes nothing.
+fn bookmark_tab_in(app: &tauri::AppHandle, state: &AppState, window: WindowId, tab: TabId) -> Result<BookmarkedTab> {
+    let (title, url) = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        let visit = browser.visible_tab_in(window, tab)?.history.current();
+        (visit.title.clone(), visit.url.clone())
+    };
+    let mut bookmarks = lock_bookmarks(state)?;
+    let (id, added) = bookmarks.bookmark_page(&title, &url, now_ms() as i64)?;
+    if added {
+        BookmarksChanged(bookmarks.tree()?).emit(app)?;
+    }
+    Ok(BookmarkedTab { id, added })
 }
 
 fn lock_bookmarks<'a>(state: &'a AppState) -> Result<std::sync::MutexGuard<'a, BookmarksDb>> {

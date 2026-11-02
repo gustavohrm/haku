@@ -247,6 +247,8 @@ pub enum Shortcut {
     Print,
     SavePage,
     ResetZoom,
+    BookmarkTab,
+    OpenBookmarks,
 }
 
 impl Shortcut {
@@ -317,6 +319,8 @@ pub const DEFAULTS: &[(Shortcut, &[Chord])] = {
         (Shortcut::Print, &[Chord::ctrl(Letter('P'))]),
         (Shortcut::SavePage, &[Chord::ctrl(Letter('S'))]),
         (Shortcut::ResetZoom, &[Chord::ctrl(Digit(0))]),
+        (Shortcut::BookmarkTab, &[Chord::ctrl(Letter('D'))]),
+        (Shortcut::OpenBookmarks, &[Chord::ctrl_shift(Letter('O'))]),
     ]
 };
 

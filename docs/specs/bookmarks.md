@@ -33,10 +33,10 @@ Chrome's third root, **Mobile bookmarks**, is not kept: Haku has no sync, so it 
 
 The address field shows a star for the focused tab's page, filled when its URL is bookmarked. Clicking it, or **Bookmark this tab** (Ctrl+D):
 
-- On a page that is not bookmarked, adds a link with the page's title and URL to the folder used last, the bar at first, and opens the bookmark editor anchored to the star.
+- On a page that is not bookmarked, adds a link with the page's title and URL to the folder used last, the bar at first, and opens the bookmark editor anchored to the star. The folder used last is the one a link was last added to or moved into, from anywhere: the star, the editor's folder menu, or `haku://bookmarks`. Moving a folder does not change it.
 - On a bookmarked page, opens the editor on its most recently added bookmark.
 
-The editor is a popover with the title, the folder (a menu of the tree), **Remove**, **More…** (opens the link in `haku://bookmarks`), and **Done**. Changes apply as they are made; Esc or clicking away closes it. Internal pages (`haku://`) and pages with no URL show no star and ignore Ctrl+D, since there is nothing durable to return to.
+The editor is a popover with the title, the folder (a menu of the tree), **Remove**, **More…** (opens the link's folder in `haku://bookmarks`, in a new tab), and **Done**. Changes apply as they are made: a folder chosen moves the link at once, and the title is kept when the editor closes, however it closes, so a title is not written on every keystroke. Esc or clicking away closes it; **Remove** removes the link and closes it. Internal pages (`haku://`) and pages with no URL show no star and ignore Ctrl+D, since there is nothing durable to return to. A popup window has no address field, so no star, and ignores Ctrl+D too, as it ignores the split and duplicate shortcuts ([Shortcuts](shortcuts.md)).
 
 ### The bookmarks bar
 
