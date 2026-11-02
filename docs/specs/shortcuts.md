@@ -10,7 +10,7 @@ scope: Browser keyboard shortcuts, how they are read wherever focus is, rebindin
 
 [First release § Keyboard input](../first-release.md#keyboard-input-while-a-page-has-focus) settles the mechanism: keys are intercepted natively, through WebView2's `AcceleratorKeyPressed`, and there is one keymap, in Rust (`model::keymap`).
 
-The handler is attached to the chrome and to every content webview, so a shortcut does the same thing wherever focus is. A key the keymap binds is marked handled before the webview acts on it: neither the page nor the engine's own handling of the key sees it, so a page cannot override Ctrl+W. A key the keymap does not bind passes through untouched, which is what leaves copy, paste and zoom to the page and the engine. Find, print and save are bound, so Haku runs them ([Find, print and save](find-print-save.md)).
+The handler is attached to the chrome and to every content webview, so a shortcut does the same thing wherever focus is. A key the keymap binds is marked handled before the webview acts on it: neither the page nor the engine's own handling of the key sees it, so a page cannot override Ctrl+W. A key the keymap does not bind passes through untouched, which is what leaves copy, paste and zooming in and out to the page and the engine. Find, print and save are bound, so Haku runs them ([Find, print and save](find-print-save.md)), and so is resetting the zoom ([Zoom](zoom.md)).
 
 A held key repeats. Only the first press runs its shortcut; repeats are still kept from the page. Otherwise holding Ctrl+T would open a tab per repeat.
 
@@ -50,6 +50,7 @@ The default bindings follow Chrome's, because that is what users' hands already 
 | Ctrl+F                       | Find in the focused tab's page                                                  |
 | Ctrl+P                       | Print the focused tab's page                                                    |
 | Ctrl+S                       | Save the focused tab's page                                                     |
+| Ctrl+0                       | Reset the focused tab's page to 100%, for its whole site                        |
 
 `model::keymap::DEFAULTS` is the table: each action with its default chords, in this order. Adding a shortcut is a `Shortcut` variant, a line in that table, its arm in `ipc/shortcuts.rs`, and its row and title in the interface ([Settings page § Shortcuts](settings-page.md#shortcuts)). Nothing else repeats a chord: the context menus read their hints from the keymap Rust reports.
 
