@@ -1645,14 +1645,19 @@ fn store_settings(
         *current = previous;
         return Err(error);
     }
-    let rules = settings.history_rules.compile()?;
-    *state
-        .history_rules
-        .write()
-        .map_err(|_| HakuError::Storage("history rules lock poisoned".into()))? = rules;
-    if settings.history_retention != previous.history_retention {
-        state.prune_history()?;
-    }
+    // Reported after announcing and applying, as a failed announcement is,
+    // so a history failure never leaves the stored settings unapplied.
+    let history = (|| {
+        *state
+            .history_rules
+            .write()
+            .map_err(|_| HakuError::Storage("history rules lock poisoned".into()))? =
+            settings.history_rules.compile()?;
+        if settings.history_retention != previous.history_retention {
+            state.prune_history()?;
+        }
+        Ok::<_, HakuError>(())
+    })();
     // Announced once stored, before applying, so every window shows the stored
     // settings even when applying them fails. Those stand and are applied again
     // at the next start; only the caller hears of the failure. Announced within
@@ -1675,6 +1680,7 @@ fn store_settings(
     switch_extensions(app, state, &previous.disabled_extensions, &settings.disabled_extensions)?;
     drop(storing);
     announced.map_err(HakuError::from)?;
+    history?;
     Ok(settings)
 }
 
