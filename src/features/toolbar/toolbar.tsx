@@ -187,7 +187,9 @@ function AddressField({ tab, className, expandable = false }: AddressFieldProps)
         {/* The icon says what the page is, and stays put while typing: the
             site menu behind it is as useful mid-edit as at rest. */}
         {tab && url !== "" && tab.presence.status !== "internal" ? (
-          <SiteMenu key={tab.id} tab={tab} url={url} warnInsecure={!editing && isInsecure(url)} />
+          // Keyed apart from the star, a sibling also kept per tab: siblings
+          // sharing a key are left behind as the tab changes.
+          <SiteMenu key={`site-${tab.id}`} tab={tab} url={url} warnInsecure={!editing && isInsecure(url)} />
         ) : (
           <i
             className={cx(
@@ -229,7 +231,7 @@ function AddressField({ tab, className, expandable = false }: AddressFieldProps)
         {/* Internal pages and pages with no address have nothing durable to
             return to. [Bookmarks](../../../docs/specs/bookmarks.md#bookmarking-a-page) */}
         {tab && tab.presence.status !== "internal" && isBookmarkable(url) && (
-          <BookmarkStar key={tab.id} tab={tab.id} url={url} />
+          <BookmarkStar key={`star-${tab.id}`} tab={tab.id} url={url} />
         )}
       </label>
     </form>
