@@ -59,3 +59,4 @@ Start with [Architecture](architecture.md).
 | [Zoom](specs/zoom.md)                            | Zooming pages; levels kept per site, shown and reset.         |
 | [Bookmarks](specs/bookmarks.md)                  | Saving pages, folders, the bar, import and export.            |
 | [History](specs/history.md)                      | What is recorded, rules, filters, deleting, storage.          |
+| [Address bar](specs/address-bar.md)              | Inline and floating layouts, suggestions, search engines.     |
