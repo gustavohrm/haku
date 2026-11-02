@@ -525,7 +525,7 @@ fn open_requested(app: &tauri::AppHandle, requested: WindowRequest) {
 
 /// Tells a window's interface about a failure no command call is waiting on,
 /// as one it called would have been told.
-fn report_failure(app: &tauri::AppHandle, window: WindowId, error: HakuError) {
+pub(super) fn report_failure(app: &tauri::AppHandle, window: WindowId, error: HakuError) {
     let _ = FailureReported(error).emit_to(app, window.label());
 }
 
