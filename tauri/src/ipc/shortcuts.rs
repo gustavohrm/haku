@@ -11,7 +11,7 @@ use tauri::async_runtime::{channel, Receiver, Sender};
 
 use crate::browser::{Browser, Effect, Pick};
 use crate::error::Result;
-use crate::model::{Chord, ChordRefusal, Key, Shortcut, SlotId, TabId, WindowId, WindowKind};
+use crate::model::{is_bookmarkable, Chord, ChordRefusal, Key, Shortcut, SlotId, TabId, WindowId, WindowKind};
 
 /// A chord pressed for settings to bind.
 /// [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
@@ -119,6 +119,9 @@ pub(super) enum PageAction {
     Find(TabId),
     Print(SlotId),
     Save(SlotId),
+    /// Bookmark the tab's page and open the editor on it.
+    /// [Bookmarks § Bookmarking a page](../../../docs/specs/bookmarks.md#bookmarking-a-page).
+    Bookmark(TabId),
 }
 
 impl Request {
@@ -154,7 +157,8 @@ impl Request {
             | Shortcut::Find
             | Shortcut::Print
             | Shortcut::SavePage
-            | Shortcut::ResetZoom => {
+            | Shortcut::ResetZoom
+            | Shortcut::BookmarkTab => {
                 if let Some((slot, tab)) = self.source {
                     if browser.tab_in(slot) != Some(tab) || browser.visible_tab_in(self.window, tab).is_err() {
                         return Ok(Action::default());
@@ -166,10 +170,15 @@ impl Request {
             }
             _ => focused,
         };
+        // A popup has no address field, so no star for Ctrl+D's editor.
         if browser.kind(self.window) == Some(WindowKind::Popup)
             && matches!(
                 shortcut,
-                Shortcut::ToggleSplit | Shortcut::MoveTabLeft | Shortcut::MoveTabRight | Shortcut::DuplicateTab
+                Shortcut::ToggleSplit
+                    | Shortcut::MoveTabLeft
+                    | Shortcut::MoveTabRight
+                    | Shortcut::DuplicateTab
+                    | Shortcut::BookmarkTab
             )
         {
             return Ok(Action::default());
@@ -226,6 +235,12 @@ impl Request {
             }
             Shortcut::Home => browser.navigate(tab, home)?,
             Shortcut::Memory => browser.open_tab_in(self.window, "haku://memory", true).1,
+            Shortcut::OpenBookmarks => browser.open_tab_in(self.window, "haku://bookmarks", true).1,
+            // Internal pages and pages with no address have nothing to return to.
+            Shortcut::BookmarkTab => {
+                action.page = is_bookmarkable(browser.tab(tab)?.url()).then_some(PageAction::Bookmark(tab));
+                Vec::new()
+            }
             Shortcut::DuplicateTab => {
                 let history = &browser.tab(tab)?.history;
                 if let Some(visit) = history.entries().get(history.index()) {
@@ -482,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn popup_split_move_and_duplicate_do_nothing_but_close_names_the_popup() {
+    fn popup_split_move_duplicate_and_bookmark_do_nothing_but_close_names_the_popup() {
         use crate::browser::Opening;
         use crate::model::{Placement, WindowRequestId};
         let (mut browser, [a, _, _]) = pages(2);
@@ -502,10 +517,12 @@ mod tests {
             Shortcut::MoveTabLeft,
             Shortcut::MoveTabRight,
             Shortcut::DuplicateTab,
+            Shortcut::BookmarkTab,
         ] {
             let action = request.prepare(&mut browser, shortcut, HOME, 1).unwrap();
             assert!(action.effects.is_empty());
             assert!(action.address.is_none());
+            assert!(action.page.is_none());
             assert_eq!(serde_json::to_value(browser.state_in(window)).unwrap(), before);
         }
         assert_eq!(
@@ -617,6 +634,7 @@ mod tests {
             Shortcut::Print,
             Shortcut::SavePage,
             Shortcut::ResetZoom,
+            Shortcut::BookmarkTab,
         ] {
             let (mut browser, [a, b, _]) = pages(1);
             let slot = browser.tab(a).unwrap().slot().unwrap();
@@ -715,6 +733,30 @@ mod tests {
         assert_eq!(page(&mut browser, Shortcut::Find), Some(PageAction::Find(a)));
         assert_eq!(page(&mut browser, Shortcut::Print), Some(PageAction::Print(slot)));
         assert_eq!(page(&mut browser, Shortcut::SavePage), Some(PageAction::Save(slot)));
+    }
+
+    #[test]
+    fn ctrl_d_bookmarks_the_source_page_but_not_an_internal_one() {
+        use crate::model::{Chord, Key};
+        let (mut browser, [a, _, _]) = pages(1);
+        let request = Request::page(&browser, browser.tab(a).unwrap().slot().unwrap()).unwrap();
+        let action = request.prepare(&mut browser, Shortcut::BookmarkTab, HOME, 1).unwrap();
+        assert_eq!(action.page, Some(PageAction::Bookmark(a)));
+        assert!(action.effects.is_empty());
+
+        let mut browser = Browser::new(1);
+        browser.open_tab("haku://settings", true);
+        assert!(run(&mut browser, Chord::ctrl(Key::Letter('D'))).page.is_none());
+    }
+
+    #[test]
+    fn ctrl_shift_o_opens_the_bookmarks_page_in_a_foreground_tab() {
+        use crate::model::{Chord, Key};
+        let (mut browser, _) = pages(1);
+        let action = run(&mut browser, Chord::ctrl_shift(Key::Letter('O')));
+        assert!(action.address.is_none());
+        let active = browser.active().unwrap();
+        assert_eq!(browser.tab(active).unwrap().url(), "haku://bookmarks");
     }
 
     #[test]

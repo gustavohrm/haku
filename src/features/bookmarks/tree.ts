@@ -142,6 +142,30 @@ export function search(tree: Bookmarks, query: string): Match[] {
 }
 
 /**
+ * The bookmark of `url` added most recently, which the star edits, as
+ * `bookmark_page` in `storage/bookmarks_db.rs` finds it; null when the URL is
+ * not bookmarked.
+ */
+export function newestLinkTo(tree: Bookmarks, url: string): Link | null {
+  let newest: Link | null = null;
+  const visit = (node: BookmarkNode) => {
+    if (urlOf(node) === url) {
+      if (
+        newest === null ||
+        node.addedAt > newest.addedAt ||
+        (node.addedAt === newest.addedAt && node.id > newest.id)
+      ) {
+        newest = node as Link;
+      }
+    }
+    childrenOf(node).forEach(visit);
+  };
+  visit(tree.bar);
+  visit(tree.other);
+  return newest;
+}
+
+/**
  * The index `move_bookmark` takes to put `moving` where `slot` is in
  * `siblings`, as they are now. Rust counts the index among the siblings
  * after `moving` has left them, so a slot past its old place is one less.
@@ -163,6 +187,14 @@ export function moveIndex(siblings: readonly BookmarkNode[], moving: BookmarkId,
 export function addressOf(input: string): string {
   const trimmed = input.trim();
   return trimmed === "" || /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+/**
+ * Whether `url` may be bookmarked, as `is_bookmarkable` in `model/bookmark.rs`
+ * decides: `http`, `https` or `file`, with something after the scheme.
+ */
+export function isBookmarkable(url: string): boolean {
+  return /^(?:https?|file):\/\/./i.test(url);
 }
 
 /**

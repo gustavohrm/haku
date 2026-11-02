@@ -43,6 +43,17 @@ pub struct Bookmarks {
     pub other: BookmarkNode,
 }
 
+/// What bookmarking a tab's page did.
+/// [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BookmarkedTab {
+    /// The link added, or the page's most recently added bookmark.
+    pub id: BookmarkId,
+    /// Whether the link was added now.
+    pub added: bool,
+}
+
 /// Schemes a bookmark may link to. A bookmark is followed by a click, so a
 /// `javascript:` or `data:` one would run script or show content from
 /// wherever the bookmark came from.

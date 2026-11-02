@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { link, sampleTree } from "./test-tree";
+import { folder, link, sampleTree } from "./test-tree";
 import {
   addressOf,
   contains,
   countLinks,
   displayTitle,
   faviconOf,
+  isBookmarkable,
   listFolders,
   locate,
   moveIndex,
+  newestLinkTo,
   search,
 } from "./tree";
 
@@ -57,6 +59,28 @@ describe("bookmark tree", () => {
     // Folders are not results; their names are not searched either.
     expect(search(tree, "recipes")).toEqual([]);
     expect(search(tree, "  ")).toEqual([]);
+  });
+
+  it("finds the bookmark of a URL added last, as Rust does", () => {
+    const tree = sampleTree();
+    expect(newestLinkTo(tree, "https://haku.test/")?.id).toBe(8);
+    expect(newestLinkTo(tree, "https://haku.test")).toBeNull();
+
+    const twice = sampleTree();
+    twice.other = folder(2, "Other bookmarks", [
+      { ...link(10, "Later", "https://haku.test/"), addedAt: 5 },
+      { ...link(11, "Same time", "https://haku.test/"), addedAt: 5 },
+    ]);
+    expect(newestLinkTo(twice, "https://haku.test/")?.id).toBe(11);
+  });
+
+  it("bookmarks web and file addresses only", () => {
+    expect(isBookmarkable("https://a.test/")).toBe(true);
+    expect(isBookmarkable("HTTP://a.test")).toBe(true);
+    expect(isBookmarkable("file:///C:/notes.html")).toBe(true);
+    expect(isBookmarkable("https://")).toBe(false);
+    expect(isBookmarkable("haku://settings")).toBe(false);
+    expect(isBookmarkable("about:blank")).toBe(false);
   });
 
   it("counts a later slot among the siblings left once the moved one leaves", () => {

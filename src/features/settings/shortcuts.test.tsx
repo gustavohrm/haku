@@ -64,7 +64,7 @@ describe("the section", () => {
     const ids = SHORTCUT_GROUPS.flatMap((group) => group.rows.map((row) => row.id)).filter((id) =>
       id.startsWith("shortcut-"),
     );
-    expect(ids).toHaveLength(32);
+    expect(ids).toHaveLength(34);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });

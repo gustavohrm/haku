@@ -16,7 +16,7 @@ pub mod tab;
 pub mod window;
 pub mod zoom;
 
-pub use bookmark::{is_bookmarkable, BookmarkId, BookmarkKind, BookmarkNode, Bookmarks};
+pub use bookmark::{is_bookmarkable, BookmarkId, BookmarkKind, BookmarkNode, BookmarkedTab, Bookmarks};
 pub use context_menu::{
     allowed_items, offers, plain_label, ContextMenuRequestId, ContextMenuTarget, ContextMenuTargetKind, NativeMenuItem,
     NativeMenuItemKind, PageMenu,

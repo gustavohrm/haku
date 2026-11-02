@@ -17,7 +17,11 @@ use crate::storage::sqlite;
 ///
 /// A row with no `url` is a folder. The two roots are the rows with a `root`,
 /// and have no parent. `position` orders a folder's rows from 0, with no gaps.
-const MIGRATIONS: &[&str] = &["CREATE TABLE bookmarks (
+///
+/// `remembered` holds what the database must recall beside the tree: today
+/// only `last_folder`, the folder a link was last added to or moved into.
+const MIGRATIONS: &[&str] = &[
+    "CREATE TABLE bookmarks (
         id          INTEGER PRIMARY KEY,
         parent      INTEGER,
         position    INTEGER NOT NULL,
@@ -30,7 +34,9 @@ const MIGRATIONS: &[&str] = &["CREATE TABLE bookmarks (
     CREATE INDEX idx_bookmarks_parent ON bookmarks (parent, position);
     INSERT INTO bookmarks (parent, position, root, url, title, added_at, modified_at) VALUES
         (NULL, 0, 'bar',   NULL, 'Bookmarks bar',   CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000),
-        (NULL, 1, 'other', NULL, 'Other bookmarks', CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000);"];
+        (NULL, 1, 'other', NULL, 'Other bookmarks', CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000);",
+    "CREATE TABLE remembered (name TEXT PRIMARY KEY, value INTEGER NOT NULL) WITHOUT ROWID;",
+];
 
 pub struct BookmarksDb {
     connection: Connection,
@@ -157,6 +163,53 @@ impl BookmarksDb {
         self.insert(parent, index, title, Some(url), now)
     }
 
+    /// Bookmarks a page: returns its most recently added bookmark of `url`
+    /// when there is one, and otherwise adds a link to the folder used last,
+    /// or to the bookmarks bar when none has been or it has since been
+    /// removed. Answers whether it added one.
+    /// [Bookmarks § Bookmarking a page](../../../docs/specs/bookmarks.md#bookmarking-a-page).
+    ///
+    /// # Errors
+    /// Returns [`HakuError::Unsupported`] when `url` may not be bookmarked,
+    /// and [`HakuError::Storage`] when the write fails.
+    pub fn bookmark_page(&mut self, title: &str, url: &str, now: i64) -> Result<(BookmarkId, bool)> {
+        check_url(url)?;
+        let existing: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT id FROM bookmarks WHERE url = ?1 ORDER BY added_at DESC, id DESC LIMIT 1",
+                [url],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(id) = existing {
+            return Ok((BookmarkId(id), false));
+        }
+        let remembered: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT bookmarks.id FROM remembered JOIN bookmarks ON bookmarks.id = remembered.value
+                 WHERE remembered.name = 'last_folder' AND bookmarks.url IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let folder = match remembered {
+            Some(id) => BookmarkId(id),
+            None => self.tree_root("bar")?,
+        };
+        Ok((self.insert(folder, None, title, Some(url), now)?, true))
+    }
+
+    fn tree_root(&self, name: &str) -> Result<BookmarkId> {
+        self.connection
+            .query_row("SELECT id FROM bookmarks WHERE root = ?1", [name], |row| {
+                row.get(0).map(BookmarkId)
+            })
+            .optional()?
+            .ok_or_else(|| HakuError::Storage(format!("the {name} bookmarks root is missing")))
+    }
+
     /// Adds an empty folder to `parent`, placed as [`Self::add_link`] places a
     /// link.
     ///
@@ -185,6 +238,9 @@ impl BookmarksDb {
         )?;
         let id = BookmarkId(transaction.last_insert_rowid());
         touch(&transaction, parent, now)?;
+        if url.is_some() {
+            remember_folder(&transaction, parent)?;
+        }
         transaction.commit()?;
         Ok(id)
     }
@@ -238,6 +294,9 @@ impl BookmarksDb {
         )?;
         touch(&transaction, entry.parent, now)?;
         touch(&transaction, parent, now)?;
+        if !entry.is_folder {
+            remember_folder(&transaction, parent)?;
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -367,6 +426,16 @@ fn close_place(transaction: &Transaction<'_>, parent: BookmarkId, position: i64)
     transaction.execute(
         "UPDATE bookmarks SET position = position - 1 WHERE parent = ?1 AND position > ?2",
         params![parent.0, position],
+    )?;
+    Ok(())
+}
+
+/// Makes `folder` the one the next bookmarked page goes to.
+fn remember_folder(transaction: &Transaction<'_>, folder: BookmarkId) -> Result<()> {
+    transaction.execute(
+        "INSERT INTO remembered (name, value) VALUES ('last_folder', ?1)
+         ON CONFLICT (name) DO UPDATE SET value = excluded.value",
+        [folder.0],
     )?;
     Ok(())
 }
@@ -656,6 +725,73 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn bookmarking_a_page_adds_it_to_the_bar_at_first() {
+        let mut database = database();
+        let (bar, _) = roots(&database);
+
+        let (id, added) = database.bookmark_page("A", "https://a.test/", 1).unwrap();
+
+        assert!(added);
+        let tree = database.tree().unwrap();
+        assert_eq!(children(&tree.bar)[0].id, id);
+        assert_eq!(tree.bar.id, bar);
+    }
+
+    #[test]
+    fn bookmarking_a_bookmarked_page_returns_its_newest_bookmark() {
+        let mut database = database();
+        let (bar, other) = roots(&database);
+        database.add_link(bar, None, "Old", "https://a.test/", 1).unwrap();
+        let newest = database.add_link(other, None, "New", "https://a.test/", 2).unwrap();
+        database.add_link(bar, None, "B", "https://b.test/", 3).unwrap();
+
+        assert_eq!(
+            database.bookmark_page("A", "https://a.test/", 4).unwrap(),
+            (newest, false)
+        );
+        assert_eq!(children(&database.tree().unwrap().other).len(), 1, "nothing added");
+    }
+
+    #[test]
+    fn a_bookmarked_page_goes_to_the_folder_a_link_last_went_to() {
+        let mut database = database();
+        let (bar, other) = roots(&database);
+        let folder = database.add_folder(other, None, "F", 1).unwrap();
+        database.add_link(folder, None, "A", "https://a.test/", 1).unwrap();
+
+        let (b, _) = database.bookmark_page("B", "https://b.test/", 2).unwrap();
+        assert_eq!(titles(&children(&database.tree().unwrap().other)[0]), ["A", "B"]);
+
+        // Moving a link chooses its folder too; moving a folder does not.
+        database.move_to(b, bar, None, 3).unwrap();
+        database.add_folder(other, None, "G", 3).unwrap();
+        database.move_to(folder, bar, None, 3).unwrap();
+        database.bookmark_page("C", "https://c.test/", 4).unwrap();
+        assert_eq!(titles(&database.tree().unwrap().bar), ["B", "F", "C"]);
+    }
+
+    #[test]
+    fn a_page_goes_to_the_bar_once_the_folder_used_last_is_removed() {
+        let mut database = database();
+        let (_, other) = roots(&database);
+        let folder = database.add_folder(other, None, "F", 1).unwrap();
+        database.add_link(folder, None, "A", "https://a.test/", 1).unwrap();
+        database.remove(folder, 2).unwrap();
+
+        database.bookmark_page("B", "https://b.test/", 3).unwrap();
+
+        assert_eq!(titles(&database.tree().unwrap().bar), ["B"]);
+    }
+
+    #[test]
+    fn a_page_that_may_not_be_bookmarked_is_refused() {
+        assert!(matches!(
+            database().bookmark_page("New tab", "haku://new-tab", 1),
+            Err(HakuError::Unsupported(_))
+        ));
+    }
+
     fn temp_path(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("haku-bookmarks-{name}"));
         let _ = fs::remove_dir_all(&dir);
@@ -669,12 +805,20 @@ mod tests {
         {
             let mut database = BookmarksDb::open_or_set_aside(&path).unwrap();
             let (bar, _) = roots(&database);
-            database.add_link(bar, None, "A", "https://a.test/", 1).unwrap();
+            let folder = database.add_folder(bar, None, "F", 1).unwrap();
+            database.add_link(folder, None, "A", "https://a.test/", 1).unwrap();
         }
 
-        let database = BookmarksDb::open_or_set_aside(&path).unwrap();
+        let mut database = BookmarksDb::open_or_set_aside(&path).unwrap();
+        database.bookmark_page("B", "https://b.test/", 2).unwrap();
 
-        assert_eq!(titles(&database.tree().unwrap().bar), ["A"]);
+        let tree = database.tree().unwrap();
+        assert_eq!(titles(&tree.bar), ["F"]);
+        assert_eq!(
+            titles(&children(&tree.bar)[0]),
+            ["A", "B"],
+            "the folder used last is kept"
+        );
     }
 
     #[test]

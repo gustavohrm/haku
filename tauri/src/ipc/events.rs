@@ -4,7 +4,9 @@ use tauri_specta::Event;
 
 use crate::browser::{BrowserState, Ending};
 use crate::error::HakuError;
-use crate::model::{Bookmarks, ContextMenuRequestId, ContextMenuTarget, Download, Extensions, NativeMenuItem, TabId};
+use crate::model::{
+    BookmarkId, Bookmarks, ContextMenuRequestId, ContextMenuTarget, Download, Extensions, NativeMenuItem, TabId,
+};
 use crate::state::MemoryReport;
 use crate::storage::Settings;
 
@@ -80,6 +82,18 @@ pub struct ExtensionsChanged(pub Extensions);
 /// [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct BookmarksChanged(pub Bookmarks);
+
+/// Asks the interface to open the bookmark editor on `id`, for the tab whose
+/// page Ctrl+D bookmarked. [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+///
+/// Sent to the tab's window only, after the [`BookmarksChanged`] that adds
+/// the link when one was added, so the tree the interface has holds it.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct BookmarkEditRequested {
+    pub tab: TabId,
+    pub id: BookmarkId,
+}
 
 /// The downloads a window lists, newest first, whenever one starts, moves
 /// on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
