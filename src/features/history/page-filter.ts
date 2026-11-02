@@ -125,9 +125,14 @@ function parseDay(day: string): number | null {
 
 /** Whether the filter narrows anything, so that deleting what it covers is not deleting everything. */
 export function isFiltered(filter: PageFilter): boolean {
+  // A custom range with neither end set narrows nothing.
+  const narrowsTime =
+    filter.when === "custom"
+      ? parseDay(filter.fromDay) !== null || parseDay(filter.toDay) !== null
+      : filter.when !== "any";
   return (
     filter.text.trim() !== "" ||
-    filter.when !== "any" ||
+    narrowsTime ||
     filter.include.length > 0 ||
     filter.exclude.length > 0 ||
     filter.transitions.length > 0

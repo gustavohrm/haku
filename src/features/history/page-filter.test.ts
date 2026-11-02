@@ -73,6 +73,12 @@ describe("isFiltered", () => {
     expect(isFiltered({ ...NO_FILTER, exclude: [site("a.com")] })).toBe(true);
     expect(isFiltered({ ...NO_FILTER, transitions: ["typed"] })).toBe(true);
   });
+
+  it("is false for a custom range with neither end set, which would cover every visit", () => {
+    expect(isFiltered({ ...NO_FILTER, when: "custom" })).toBe(false);
+    expect(isFiltered({ ...NO_FILTER, when: "custom", fromDay: "nonsense" })).toBe(false);
+    expect(isFiltered({ ...NO_FILTER, when: "custom", toDay: "2026-01-02" })).toBe(true);
+  });
 });
 
 describe("chipsOf", () => {
