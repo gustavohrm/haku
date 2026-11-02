@@ -76,6 +76,21 @@ pub enum ToolbarPlacement {
     Sidebar,
 }
 
+/// How the address field is edited.
+/// [Address bar § Layouts](../../../docs/specs/address-bar.md#layouts).
+///
+/// Read leniently, as [`known_or_default`] explains. Floating whatever it
+/// says while the toolbar is in the tab column.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AddressBarLayout {
+    /// In the toolbar, with the suggestions in a list under it.
+    #[default]
+    Inline,
+    /// In a card centred over the window, opened by focusing the field.
+    Floating,
+}
+
 /// When the bookmarks bar shows.
 /// [Bookmarks § The bookmarks bar](../../../docs/specs/bookmarks.md#the-bookmarks-bar).
 ///
@@ -137,6 +152,7 @@ pub struct Settings {
     pub bar_layout: BarLayout,
     pub sidebar_side: SidebarSide,
     pub toolbar_placement: ToolbarPlacement,
+    pub address_bar_layout: AddressBarLayout,
     pub bookmarks_bar: BookmarksBar,
     pub sidebar_bookmarks: SidebarBookmarks,
     /// The tab column's width in CSS pixels, between [`MIN_SIDEBAR_WIDTH`]
@@ -288,6 +304,7 @@ impl Default for Settings {
             bar_layout: BarLayout::default(),
             sidebar_side: SidebarSide::default(),
             toolbar_placement: ToolbarPlacement::default(),
+            address_bar_layout: AddressBarLayout::default(),
             bookmarks_bar: BookmarksBar::default(),
             sidebar_bookmarks: SidebarBookmarks::default(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
@@ -441,6 +458,12 @@ impl<'de> Deserialize<'de> for SidebarSide {
 impl<'de> Deserialize<'de> for ToolbarPlacement {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         known_or_default(deserializer, &[Self::Top, Self::Sidebar])
+    }
+}
+
+impl<'de> Deserialize<'de> for AddressBarLayout {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        known_or_default(deserializer, &[Self::Inline, Self::Floating])
     }
 }
 
@@ -1217,6 +1240,25 @@ mod tests {
         let settings = stored(serde_json::json!({ "sidebarSide": "top", "toolbarPlacement": "Sidebar" }));
         assert_eq!(settings.sidebar_side, SidebarSide::Left);
         assert_eq!(settings.toolbar_placement, ToolbarPlacement::Top);
+    }
+
+    #[test]
+    fn the_address_bar_is_inline_unless_stored_floating() {
+        assert_eq!(
+            stored(serde_json::json!({ "theme": "dark" })).address_bar_layout,
+            AddressBarLayout::Inline
+        );
+        let json = serde_json::to_value(Settings {
+            address_bar_layout: AddressBarLayout::Floating,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert_eq!(json["addressBarLayout"], "floating");
+        assert_eq!(stored(json).address_bar_layout, AddressBarLayout::Floating);
+        assert_eq!(
+            stored(serde_json::json!({ "addressBarLayout": "zen" })).address_bar_layout,
+            AddressBarLayout::Inline
+        );
     }
 
     #[test]

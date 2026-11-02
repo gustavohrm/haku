@@ -401,6 +401,19 @@ export type AddedExtension = {
 };
 
 /**
+ *  How the address field is edited.
+ *  [Address bar § Layouts](../../../docs/specs/address-bar.md#layouts).
+ * 
+ *  Read leniently, as [`known_or_default`] explains. Floating whatever it
+ *  says while the toolbar is in the tab column.
+ */
+export type AddressBarLayout = 
+/**  In the toolbar, with the suggestions in a list under it. */
+"inline" | 
+/**  In a card centred over the window, opened by focusing the field. */
+"floating";
+
+/**
  *  Asks the interface to focus the address field, for the given tab.
  * 
  *  Sent by a shortcut. Carries the tab because a shortcut that opens a tab
@@ -1143,6 +1156,7 @@ export type Settings = {
 	barLayout: BarLayout,
 	sidebarSide: SidebarSide,
 	toolbarPlacement: ToolbarPlacement,
+	addressBarLayout: AddressBarLayout,
 	bookmarksBar: BookmarksBar,
 	sidebarBookmarks: SidebarBookmarks,
 	/**

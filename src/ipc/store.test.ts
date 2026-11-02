@@ -22,6 +22,7 @@ const SETTINGS: Settings = {
   barLayout: "docked",
   sidebarSide: "left",
   toolbarPlacement: "top",
+  addressBarLayout: "inline",
   bookmarksBar: "newTab",
   sidebarBookmarks: "button",
   sidebarWidth: 240,
