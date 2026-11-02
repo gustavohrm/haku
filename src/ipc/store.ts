@@ -8,6 +8,7 @@
 
 import {
   events,
+  type Bookmarks,
   type BrowserState,
   type Download,
   type Extensions,
@@ -70,6 +71,8 @@ export const browserStore = createStore<BrowserState>(EMPTY_STATE);
 export const settingsStore = createStore<Settings | null>(null);
 /** What the extensions folder installed, or null until it is known. */
 export const extensionsStore = createStore<Extensions | null>(null);
+/** The bookmark tree, or null until it is known. */
+export const bookmarksStore = createStore<Bookmarks | null>(null);
 /** The downloads this window lists, newest first. */
 export const downloadsStore = createStore<Download[]>([]);
 
@@ -123,36 +126,43 @@ async function loadKeymap(): Promise<void> {
 export async function connect(): Promise<() => void> {
   let hasStateEvent = false;
   let hasDownloadsEvent = false;
+  let hasBookmarksEvent = false;
   // Progress for downloads not listed yet, until the startup list arrives:
   // reported before that list resolves, it would otherwise be lost to it.
   let early: Map<number, Download> | null = new Map();
-  const [stopState, stopFailures, stopSettings, stopExtensions, stopDownloads, stopProgress] = await Promise.all([
-    events.stateChanged(getCurrentWebview()).listen((event) => {
-      hasStateEvent = true;
-      browserStore.set(event.payload);
-    }),
-    events.failureReported(getCurrentWebview()).listen((event) => reportFailure(event.payload)),
-    events.settingsChanged.listen((event) => {
-      settingsStore.set(event.payload);
-      // A failure is reported by the command wrapper; the hints keep the
-      // keymap read last.
-      loadKeymap().catch(() => {});
-    }),
-    // The folder is installed after startup, possibly once this has loaded.
-    events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
-    // Each window lists its own profile's downloads only.
-    events.downloadsChanged(getCurrentWebview()).listen((event) => {
-      hasDownloadsEvent = true;
-      // Sent after any progress held, so it already carries it.
-      early = null;
-      downloadsStore.set(event.payload);
-    }),
-    // Progress alone arrives on its own, for one listed download.
-    events.downloadProgressed(getCurrentWebview()).listen((event) => {
-      early?.set(event.payload.id, event.payload);
-      downloadsStore.set(withProgress(downloadsStore.get(), event.payload));
-    }),
-  ]);
+  const [stopState, stopFailures, stopSettings, stopExtensions, stopDownloads, stopProgress, stopBookmarks] =
+    await Promise.all([
+      events.stateChanged(getCurrentWebview()).listen((event) => {
+        hasStateEvent = true;
+        browserStore.set(event.payload);
+      }),
+      events.failureReported(getCurrentWebview()).listen((event) => reportFailure(event.payload)),
+      events.settingsChanged.listen((event) => {
+        settingsStore.set(event.payload);
+        // A failure is reported by the command wrapper; the hints keep the
+        // keymap read last.
+        loadKeymap().catch(() => {});
+      }),
+      // The folder is installed after startup, possibly once this has loaded.
+      events.extensionsChanged.listen((event) => extensionsStore.set(event.payload)),
+      // Each window lists its own profile's downloads only.
+      events.downloadsChanged(getCurrentWebview()).listen((event) => {
+        hasDownloadsEvent = true;
+        // Sent after any progress held, so it already carries it.
+        early = null;
+        downloadsStore.set(event.payload);
+      }),
+      // Progress alone arrives on its own, for one listed download.
+      events.downloadProgressed(getCurrentWebview()).listen((event) => {
+        early?.set(event.payload.id, event.payload);
+        downloadsStore.set(withProgress(downloadsStore.get(), event.payload));
+      }),
+      // Every window, ordinary and private, shares one tree.
+      events.bookmarksChanged.listen((event) => {
+        hasBookmarksEvent = true;
+        bookmarksStore.set(event.payload);
+      }),
+    ]);
 
   // Each part is kept as it arrives, so one that fails to load does not take
   // the others with it: the tab strip still shows when the settings could not
@@ -191,6 +201,12 @@ export async function connect(): Promise<() => void> {
       }
       early = null;
     }),
+    unwrap(commands.bookmarks()).then((bookmarks) => {
+      // A change landing while this was read is the newer of the two.
+      if (!hasBookmarksEvent) {
+        bookmarksStore.set(bookmarks);
+      }
+    }),
   ]);
   const failed = loaded.find((part) => part.status === "rejected");
   if (failed) {
@@ -204,6 +220,7 @@ export async function connect(): Promise<() => void> {
     stopExtensions();
     stopDownloads();
     stopProgress();
+    stopBookmarks();
   };
 }
 

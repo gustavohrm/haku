@@ -1,8 +1,16 @@
-import { type BrowserState, type Download, type HakuError, type KeyBinding, type Settings } from "@bindings";
+import {
+  type Bookmarks,
+  type BrowserState,
+  type Download,
+  type HakuError,
+  type KeyBinding,
+  type Settings,
+} from "@bindings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { commands, reportFailure } from "./commands";
 import {
+  bookmarksStore,
   browserStore,
   connect,
   downloadsStore,
@@ -29,6 +37,9 @@ const downloadsListen = vi.hoisted(() =>
 const progressListen = vi.hoisted(() =>
   vi.fn<(callback: (event: { payload: Download }) => void) => Promise<() => void>>(async () => () => {}),
 );
+const bookmarksListen = vi.hoisted(() =>
+  vi.fn<(callback: (event: { payload: Bookmarks }) => void) => Promise<() => void>>(async () => () => {}),
+);
 const failureTarget = vi.hoisted(() => vi.fn());
 const progressTarget = vi.hoisted(() => vi.fn());
 const downloadsTarget = vi.hoisted(() => vi.fn());
@@ -49,17 +60,26 @@ vi.mock("@bindings", () => ({
       progressTarget(target);
       return { listen: progressListen };
     },
+    bookmarksChanged: { listen: bookmarksListen },
   },
 }));
 const CURRENT_WEBVIEW = vi.hoisted(() => ({ label: "window-1" }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => CURRENT_WEBVIEW }));
 vi.mock("./commands", () => ({
-  commands: { getState: vi.fn(), getSettings: vi.fn(), extensions: vi.fn(), downloads: vi.fn(), keymap: vi.fn() },
+  commands: {
+    getState: vi.fn(),
+    getSettings: vi.fn(),
+    extensions: vi.fn(),
+    downloads: vi.fn(),
+    keymap: vi.fn(),
+    bookmarks: vi.fn(),
+  },
   reportFailure: vi.fn(),
 }));
 
 const STATE = { ...EMPTY_STATE, capacity: 3 };
 const SETTINGS = { theme: "dark" } as Settings;
+const TREE = { bar: { id: 1 }, other: { id: 2 } } as Bookmarks;
 const failure = { status: "error", error: { kind: "Storage", message: "locked" } } as const;
 
 describe("connect", () => {
@@ -69,11 +89,13 @@ describe("connect", () => {
     extensionsStore.set(null);
     downloadsStore.set([]);
     keymapStore.set([]);
+    bookmarksStore.set(null);
     vi.mocked(commands.getState).mockResolvedValue({ status: "ok", data: STATE });
     vi.mocked(commands.getSettings).mockResolvedValue(failure);
     vi.mocked(commands.extensions).mockResolvedValue({ status: "ok", data: { installed: [] } } as never);
     vi.mocked(commands.downloads).mockResolvedValue({ status: "ok", data: [] });
     vi.mocked(commands.keymap).mockResolvedValue({ status: "ok", data: [] });
+    vi.mocked(commands.bookmarks).mockResolvedValue({ status: "ok", data: TREE });
   });
 
   it("keeps what loaded when another part fails to", async () => {
@@ -103,6 +125,25 @@ describe("connect", () => {
 
     const stop = await connect();
     expect(downloadsStore.get()).toBe(newer);
+    stop();
+  });
+
+  it("loads the bookmark tree", async () => {
+    await connect().catch(() => {});
+
+    expect(bookmarksStore.get()).toBe(TREE);
+  });
+
+  it("keeps a bookmarks event over a delayed startup tree", async () => {
+    const newer = { bar: { id: 1 }, other: { id: 3 } } as Bookmarks;
+    vi.mocked(commands.getSettings).mockResolvedValueOnce({ status: "ok", data: SETTINGS });
+    vi.mocked(commands.bookmarks).mockImplementationOnce(async () => {
+      bookmarksListen.mock.calls.at(-1)![0]({ payload: newer });
+      return { status: "ok", data: TREE };
+    });
+
+    const stop = await connect();
+    expect(bookmarksStore.get()).toBe(newer);
     stop();
   });
 
