@@ -36,12 +36,13 @@ const camera: PermissionRequest = { id: 7, kind: "camera", origin: "https://meet
 const tab = (permission: PermissionRequest | null, dialog: PageDialog | null = null) =>
   ({ id: 1, permission, dialog }) as Tab;
 
-function Prompt({ tab }: { tab: Tab | null }) {
-  usePermissionPrompt(tab);
+function Prompt({ tab, isPrivate }: { tab: Tab | null; isPrivate: boolean }) {
+  usePermissionPrompt(tab, isPrivate);
   return null;
 }
 
-const show = (shown: Tab | null) => act(() => root.render(<Prompt tab={shown} />));
+const show = (shown: Tab | null, isPrivate = false) =>
+  act(() => root.render(<Prompt tab={shown} isPrivate={isPrivate} />));
 
 /** The class the hook marks its dialog with, as the toaster would set it. */
 const marker = () => (confirm.mock.calls[0]![1] as { className: string }).className;
@@ -58,6 +59,15 @@ describe("usePermissionPrompt", () => {
         cancelLabel: "Block",
         backdropDismiss: false,
       }),
+    );
+  });
+
+  it("does not point a private window to settings, which never list its decisions", () => {
+    show(tab(camera), true);
+
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(
+      "Haku forgets this when you close your last private window.",
+      expect.anything(),
     );
   });
 
