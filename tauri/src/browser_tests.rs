@@ -4192,6 +4192,21 @@ fn allow_and_block_return_the_decision_to_store_and_answer_its_duplicates() {
 }
 
 #[test]
+fn an_answer_holds_for_requests_made_before_it_is_stored() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://a.test"]);
+    let slots: Vec<SlotId> = ids.iter().map(|id| slot_of(&browser, *id).unwrap()).collect();
+    browser.request_permission(slots[0], request(1, PermissionKind::Camera, "https://a.test"));
+    browser
+        .answer_permission(ids[0], PermissionRequestId(1), PermissionDecision::Allow)
+        .unwrap();
+
+    let later = browser.request_permission(slots[1], request(2, PermissionKind::Camera, "https://a.test"));
+
+    assert_eq!(granted(&later), vec![(PermissionRequestId(2), true)]);
+    assert_eq!(shown_permission(&browser, ids[1]), None);
+}
+
+#[test]
 fn an_answer_settles_the_same_request_waiting_in_other_tabs() {
     let (mut browser, ids) = browser_with(3, &["https://a.test", "https://a.test", "https://b.test"]);
     let slots: Vec<SlotId> = ids.iter().map(|id| slot_of(&browser, *id).unwrap()).collect();
