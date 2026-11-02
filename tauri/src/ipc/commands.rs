@@ -32,22 +32,22 @@ use crate::browser::{resolve_target, Browser, BrowserState, Direction, Effect, O
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::{
-    check_query, is_internal, jpeg_data_url, keymap, AddedExtension, ContextMenuRequestId, DialogAnswer, DialogId,
-    Download, DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu, PermissionDecision,
-    PermissionRequestId, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId, WindowId,
-    WindowKind, WindowRequestId,
+    check_query, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, Bookmarks, ContextMenuRequestId,
+    DialogAnswer, DialogId, Download, DownloadId, DownloadState, ExtensionSource, Extensions, FindDirection, PageMenu,
+    PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, ScreenRect, Shortcut, SlotId, TabId,
+    WindowId, WindowKind, WindowRequestId,
 };
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::HistoryEntry;
 use crate::storage::settings::{key_bindings, KeyBinding};
-use crate::storage::{Settings, WindowBounds};
+use crate::storage::{BookmarksDb, Settings, WindowBounds};
 use crate::webview::inject::ExtensionView;
 use crate::webview::{self, Departure, Hooks, PageObserver, PageReading};
 
 use super::events::{
-    AddressFocusRequested, CloseConfirmationRequested, ContextMenuRequested, FailureReported, FindEnded, FindRequested,
-    FindResult, MemoryChanged, SettingsChanged, StateChanged,
+    AddressFocusRequested, BookmarksChanged, CloseConfirmationRequested, ContextMenuRequested, FailureReported,
+    FindEnded, FindRequested, FindResult, MemoryChanged, SettingsChanged, StateChanged,
 };
 use super::shortcuts::{self, PageAction, RecordedChord, Request as ShortcutRequest};
 use super::{downloads, extensions, recovery};
@@ -2014,7 +2014,7 @@ mod layout_tests {
 mod hold_tests {
     use super::*;
     use crate::model::{Downloading, Policy, Pressure};
-    use crate::storage::{HistoryDb, Paths, Settings};
+    use crate::storage::{BookmarksDb, HistoryDb, Paths, Settings};
 
     #[test]
     fn a_failed_change_keeps_what_the_download_hold_decided() {
@@ -2035,6 +2035,7 @@ mod hold_tests {
             browser,
             Settings::default(),
             HistoryDb::open_or_in_memory(std::path::Path::new(":memory:")).0,
+            BookmarksDb::in_memory().unwrap(),
             Paths::under(&std::env::temp_dir().join("haku-hold-tests")),
         );
         let failed = std::cell::Cell::new(None);
@@ -2729,6 +2730,118 @@ pub async fn confirm_close(
             Ok(())
         }
     }
+}
+
+/// The bookmark tree. [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+#[tauri::command]
+#[specta::specta]
+pub fn bookmarks(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Bookmarks> {
+    ensure_chrome(&webview)?;
+    lock_bookmarks(&state)?.tree()
+}
+
+/// Adds a link to a folder, at `index` among what it holds, or at its end
+/// when `index` is nothing.
+#[tauri::command]
+#[specta::specta]
+pub fn add_bookmark(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    parent: BookmarkId,
+    index: Option<u32>,
+    title: String,
+    url: String,
+) -> Result<BookmarkId> {
+    ensure_chrome(&webview)?;
+    change_bookmarks(&app, &state, |bookmarks, now| {
+        bookmarks.add_link(parent, index, &title, &url, now)
+    })
+}
+
+/// Adds an empty folder, placed as [`add_bookmark`] places a link.
+#[tauri::command]
+#[specta::specta]
+pub fn add_bookmark_folder(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    parent: BookmarkId,
+    index: Option<u32>,
+    title: String,
+) -> Result<BookmarkId> {
+    ensure_chrome(&webview)?;
+    change_bookmarks(&app, &state, |bookmarks, now| {
+        bookmarks.add_folder(parent, index, &title, now)
+    })
+}
+
+/// Renames a link or folder, and gives a link `url` when there is one. `url`
+/// is ignored for a folder.
+#[tauri::command]
+#[specta::specta]
+pub fn update_bookmark(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: BookmarkId,
+    title: String,
+    url: Option<String>,
+) -> Result<()> {
+    ensure_chrome(&webview)?;
+    change_bookmarks(&app, &state, |bookmarks, now| {
+        bookmarks.update(id, &title, url.as_deref(), now)
+    })
+}
+
+/// Moves a link or folder into `parent`, to be at `index` among what it then
+/// holds, or at its end when `index` is nothing.
+#[tauri::command]
+#[specta::specta]
+pub fn move_bookmark(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: BookmarkId,
+    parent: BookmarkId,
+    index: Option<u32>,
+) -> Result<()> {
+    ensure_chrome(&webview)?;
+    change_bookmarks(&app, &state, |bookmarks, now| bookmarks.move_to(id, parent, index, now))
+}
+
+/// Removes a link, or a folder with everything it holds.
+#[tauri::command]
+#[specta::specta]
+pub fn remove_bookmark(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: BookmarkId,
+) -> Result<()> {
+    ensure_chrome(&webview)?;
+    change_bookmarks(&app, &state, |bookmarks, now| bookmarks.remove(id, now))
+}
+
+fn lock_bookmarks<'a>(state: &'a AppState) -> Result<std::sync::MutexGuard<'a, BookmarksDb>> {
+    state
+        .bookmarks
+        .lock()
+        .map_err(|_| HakuError::Storage("bookmarks lock poisoned".into()))
+}
+
+/// Makes a change and sends every window the tree it leaves, still holding
+/// the database, so windows hear changes in the order they were made. A
+/// change that fails sends nothing: it changed nothing.
+fn change_bookmarks<T>(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    change: impl FnOnce(&mut BookmarksDb, i64) -> Result<T>,
+) -> Result<T> {
+    let mut bookmarks = lock_bookmarks(state)?;
+    let changed = change(&mut bookmarks, now_ms() as i64)?;
+    BookmarksChanged(bookmarks.tree()?).emit(app)?;
+    Ok(changed)
 }
 
 fn is_private(state: &AppState, window: WindowId) -> Result<bool> {

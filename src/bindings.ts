@@ -239,11 +239,33 @@ export const commands = {
 	 *  [Downloads § Closing](../../../docs/specs/downloads.md#closing).
 	 */
 	confirmClose: (tab: number | null) => typedError<null, HakuError>(__TAURI_INVOKE("confirm_close", { tab })),
+	/**  The bookmark tree. [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract). */
+	bookmarks: () => typedError<Bookmarks, HakuError>(__TAURI_INVOKE("bookmarks")),
+	/**
+	 *  Adds a link to a folder, at `index` among what it holds, or at its end
+	 *  when `index` is nothing.
+	 */
+	addBookmark: (parent: BookmarkId, index: number | null, title: string, url: string) => typedError<BookmarkId, HakuError>(__TAURI_INVOKE("add_bookmark", { parent, index, title, url })),
+	/**  Adds an empty folder, placed as [`add_bookmark`] places a link. */
+	addBookmarkFolder: (parent: BookmarkId, index: number | null, title: string) => typedError<BookmarkId, HakuError>(__TAURI_INVOKE("add_bookmark_folder", { parent, index, title })),
+	/**
+	 *  Renames a link or folder, and gives a link `url` when there is one. `url`
+	 *  is ignored for a folder.
+	 */
+	updateBookmark: (id: BookmarkId, title: string, url: string | null) => typedError<null, HakuError>(__TAURI_INVOKE("update_bookmark", { id, title, url })),
+	/**
+	 *  Moves a link or folder into `parent`, to be at `index` among what it then
+	 *  holds, or at its end when `index` is nothing.
+	 */
+	moveBookmark: (id: BookmarkId, parent: BookmarkId, index: number | null) => typedError<null, HakuError>(__TAURI_INVOKE("move_bookmark", { id, parent, index })),
+	/**  Removes a link, or a folder with everything it holds. */
+	removeBookmark: (id: BookmarkId) => typedError<null, HakuError>(__TAURI_INVOKE("remove_bookmark", { id })),
 };
 
 /** Events */
 export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
+	bookmarksChanged: makeEvent<BookmarksChanged>("bookmarks-changed"),
 	closeConfirmationRequested: makeEvent<CloseConfirmationRequested>("close-confirmation-requested"),
 	contextMenuRequested: makeEvent<ContextMenuRequested>("context-menu-requested"),
 	downloadProgressed: makeEvent<DownloadProgressed>("download-progressed"),
@@ -288,6 +310,43 @@ export type BarLayout =
  *  something in them is needed.
  */
 "floating";
+
+/**  Identifies one bookmark or folder for as long as it exists. */
+export type BookmarkId = number;
+
+export type BookmarkKind = ({ link: {
+	url: string,
+} }) & { folder?: never } | ({ folder: {
+	children: BookmarkNode[],
+} }) & { link?: never };
+
+/**  A link or a folder, with what it holds. */
+export type BookmarkNode = {
+	id: BookmarkId,
+	title: string,
+	/**  Milliseconds since the Unix epoch. */
+	addedAt: number,
+	/**
+	 *  Milliseconds since the Unix epoch: when its title or URL last changed,
+	 *  or, for a folder, when what it holds last did.
+	 */
+	modifiedAt: number,
+	kind: BookmarkKind,
+};
+
+/**  The whole tree, under its two fixed roots. */
+export type Bookmarks = {
+	/**  What the bookmarks bar shows. */
+	bar: BookmarkNode,
+	other: BookmarkNode,
+};
+
+/**
+ *  The whole bookmark tree, sent to every window, ordinary and private,
+ *  whenever anything in it changes.
+ *  [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+ */
+export type BookmarksChanged = Bookmarks;
 
 /**  The projection of browser state one window's interface renders. */
 export type BrowserState = {

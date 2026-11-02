@@ -4,7 +4,7 @@ use tauri_specta::Event;
 
 use crate::browser::{BrowserState, Ending};
 use crate::error::HakuError;
-use crate::model::{ContextMenuRequestId, ContextMenuTarget, Download, Extensions, NativeMenuItem, TabId};
+use crate::model::{Bookmarks, ContextMenuRequestId, ContextMenuTarget, Download, Extensions, NativeMenuItem, TabId};
 use crate::state::MemoryReport;
 use crate::storage::Settings;
 
@@ -74,6 +74,12 @@ pub struct FailureReported(pub HakuError);
 /// the interface may already have asked for the list.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct ExtensionsChanged(pub Extensions);
+
+/// The whole bookmark tree, sent to every window, ordinary and private,
+/// whenever anything in it changes.
+/// [Bookmarks § Contract](../../../docs/specs/bookmarks.md#contract).
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct BookmarksChanged(pub Bookmarks);
 
 /// The downloads a window lists, newest first, whenever one starts, moves
 /// on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).

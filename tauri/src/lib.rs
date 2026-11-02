@@ -35,7 +35,7 @@ use tauri::Manager;
 
 use crate::model::{Preset, WindowKind};
 use crate::state::AppState;
-use crate::storage::{HistoryDb, Paths, Session, Settings};
+use crate::storage::{BookmarksDb, HistoryDb, Paths, Session, Settings};
 use crate::webview::Frame;
 
 /// Builds and runs the application.
@@ -71,6 +71,7 @@ pub fn run() {
             model::keymap::set_active(settings.shortcuts.keymap());
             let session: Session = storage::read_json(&paths.session);
             let (history, unopened) = HistoryDb::open_or_in_memory(&paths.history);
+            let (bookmarks, bookmarks_unopened) = BookmarksDb::open_or_in_memory(&paths.bookmarks);
 
             let (browser, restored) = session.restore(settings.pool_capacity(), &settings.home_url);
             let browser = browser
@@ -79,8 +80,8 @@ pub fn run() {
                 .with_site_permissions(settings.site_permissions.to_vec())
                 .with_site_zoom(settings.site_zoom.to_vec());
             let windows: Vec<_> = browser.window_ids().into_iter().zip(restored).collect();
-            app.manage(AppState::new(browser, settings, history, paths));
-            if let Some(failure) = unopened {
+            app.manage(AppState::new(browser, settings, history, bookmarks, paths));
+            for failure in [unopened, bookmarks_unopened].into_iter().flatten() {
                 app.state::<AppState>().held_failures.hold(failure);
             }
             // Before any page exists to start one. Where it cannot be, the
