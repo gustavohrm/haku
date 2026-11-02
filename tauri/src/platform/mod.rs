@@ -183,6 +183,14 @@ pub enum PageSignal {
     AudioChanged { playing: bool },
     /// The page gained or lost a fullscreen element.
     FullscreenChanged { fullscreen: bool },
+    /// The webview's zoom changed, to `percent`, while it showed `url`.
+    /// `navigation` is set when the change followed a navigation rather than
+    /// the user. [Zoom](../../../docs/specs/zoom.md).
+    ZoomChanged {
+        percent: u16,
+        navigation: bool,
+        url: String,
+    },
     /// A navigation of the top frame started. `form` is set when it carries a
     /// form submission, which makes the page it loads the user's work.
     NavigationStarted { form: bool },

@@ -4330,3 +4330,204 @@ fn a_private_window_puts_a_stored_block_ahead_of_its_own_allow() {
 
     assert_eq!(granted(&again), vec![(PermissionRequestId(2), false)]);
 }
+
+// -- zoom ----------------------------------------------------------------
+
+fn level(host: &str, percent: u16) -> SiteZoom {
+    SiteZoom {
+        host: host.into(),
+        percent,
+    }
+}
+
+fn zoom_of(browser: &Browser, id: TabId) -> u16 {
+    browser.tab(id).unwrap().zoom
+}
+
+fn set_zoom(slot: SlotId, percent: u16) -> Effect {
+    Effect::SetZoom { slot, percent }
+}
+
+#[test]
+fn a_users_zoom_is_kept_for_the_site_and_set_on_its_other_tabs() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test/x", "https://a.test/y", "https://b.test"]);
+    let (x, y, b) = (
+        slot_of(&browser, ids[0]).unwrap(),
+        slot_of(&browser, ids[1]).unwrap(),
+        slot_of(&browser, ids[2]).unwrap(),
+    );
+
+    let (effects, stored) = browser.report_zoom(x, 150, false, "https://a.test/x");
+
+    assert!(stored);
+    assert_eq!(browser.site_zoom(), [level("a.test", 150)]);
+    assert!(effects.contains(&set_zoom(y, 150)), "{effects:?}");
+    // Set again on the slot that zoomed, so the engine keeps it across the
+    // site's next navigation.
+    assert!(effects.contains(&set_zoom(x, 150)));
+    assert!(!effects.iter().any(|effect| *effect == set_zoom(b, 150)));
+    assert_eq!((zoom_of(&browser, ids[0]), zoom_of(&browser, ids[1])), (150, 150));
+    assert_eq!(zoom_of(&browser, ids[2]), 100);
+}
+
+#[test]
+fn a_tab_loading_a_zoomed_site_is_set_to_its_level() {
+    let mut browser = Browser::new(2).with_site_zoom(vec![level("b.test", 125)]);
+
+    let (id, effects) = browser.open_tab("https://b.test/page", true);
+
+    let slot = slot_of(&browser, id).unwrap();
+    let ensure = effects
+        .iter()
+        .position(|effect| matches!(effect, Effect::EnsureSlot { slot: ensured, .. } if *ensured == slot))
+        .expect("slot ensured");
+    let zoom = effects.iter().position(|effect| *effect == set_zoom(slot, 125));
+    assert!(zoom.is_some_and(|zoom| zoom > ensure), "{effects:?}");
+    assert_eq!(zoom_of(&browser, id), 125);
+}
+
+#[test]
+fn a_slot_handed_to_another_site_takes_that_sites_level() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_zoom(slot, 150, false, "https://a.test/");
+
+    let (other, effects) = browser.open_tab("https://b.test", true);
+    assert_eq!(slot_of(&browser, other), Some(slot));
+    assert!(effects.contains(&set_zoom(slot, 100)), "{effects:?}");
+
+    let effects = browser.select_tab(ids[0], 0).unwrap();
+    assert!(effects.contains(&set_zoom(slot, 150)), "{effects:?}");
+}
+
+#[test]
+fn navigating_to_another_site_sets_that_sites_level() {
+    let mut browser = Browser::new(1).with_site_zoom(vec![level("b.test", 80)]);
+    let (id, _) = browser.open_tab("https://a.test", true);
+    let slot = slot_of(&browser, id).unwrap();
+
+    let effects = browser.navigate(id, "https://b.test/").unwrap();
+
+    assert!(effects.contains(&set_zoom(slot, 80)), "{effects:?}");
+    assert_eq!(zoom_of(&browser, id), 80);
+}
+
+#[test]
+fn a_report_following_a_navigation_is_not_the_users() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+    browser.report_zoom(slot, 150, false, "https://a.test/");
+
+    let (effects, stored) = browser.report_zoom(slot, 100, true, "https://a.test/next");
+
+    assert!(!stored);
+    assert_eq!(browser.site_zoom(), [level("a.test", 150)]);
+    assert_eq!(effects, vec![set_zoom(slot, 150)]);
+}
+
+#[test]
+fn a_report_of_the_expected_level_changes_nothing() {
+    let (mut browser, ids) = browser_with(1, &["https://a.test"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let (effects, stored) = browser.report_zoom(slot, 100, false, "https://a.test/");
+
+    assert!(!stored);
+    assert!(effects.is_empty(), "{effects:?}");
+}
+
+#[test]
+fn a_report_made_on_a_host_the_tab_has_left_is_not_the_users() {
+    let (mut browser, id, slot) = loaded("https://b.test/");
+
+    let (effects, stored) = browser.report_zoom(slot, 150, false, "https://a.test/");
+
+    assert!(!stored);
+    assert!(browser.site_zoom().is_empty());
+    assert_eq!(effects, vec![set_zoom(slot, 100)]);
+    assert_eq!(zoom_of(&browser, id), 100);
+}
+
+#[test]
+fn resetting_returns_the_whole_site_to_100() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test/x", "https://a.test/y"]);
+    let (x, y) = (slot_of(&browser, ids[0]).unwrap(), slot_of(&browser, ids[1]).unwrap());
+    browser.report_zoom(x, 150, false, "https://a.test/x");
+
+    let (effects, stored) = browser.reset_zoom(ids[1]).unwrap();
+
+    assert!(stored);
+    assert!(browser.site_zoom().is_empty());
+    assert!(
+        effects.contains(&set_zoom(x, 100)) && effects.contains(&set_zoom(y, 100)),
+        "{effects:?}"
+    );
+    assert_eq!(zoom_of(&browser, ids[0]), 100);
+}
+
+#[test]
+fn removing_a_stored_level_sets_the_site_back_to_100() {
+    let mut browser = Browser::new(1).with_site_zoom(vec![level("a.test", 150), level("b.test", 80)]);
+    let (id, _) = browser.open_tab("https://a.test", true);
+    let slot = slot_of(&browser, id).unwrap();
+
+    let effects = browser.change_site_zoom(&[level("a.test", 150), level("b.test", 80)], &[level("b.test", 80)]);
+
+    assert_eq!(effects, vec![set_zoom(slot, 100)]);
+    assert_eq!(zoom_of(&browser, id), 100);
+    assert_eq!(browser.site_zoom(), [level("b.test", 80)]);
+}
+
+#[test]
+fn a_settings_change_keeps_a_level_chosen_since_the_page_was_shown() {
+    let mut browser = Browser::new(1).with_site_zoom(vec![level("a.test", 150)]);
+    let (id, _) = browser.open_tab("https://c.test", true);
+    let slot = slot_of(&browser, id).unwrap();
+    browser.report_zoom(slot, 125, false, "https://c.test/");
+
+    // The settings page removes a.test from a list that predates c.test.
+    browser.change_site_zoom(&[level("a.test", 150)], &[]);
+
+    assert_eq!(browser.site_zoom(), [level("c.test", 125)]);
+    assert_eq!(zoom_of(&browser, id), 125);
+}
+
+#[test]
+fn a_page_without_a_host_keeps_its_level_in_its_tab() {
+    let (mut browser, ids) = browser_with(2, &["file:///C:/a.html", "file:///C:/b.html"]);
+    let slot = slot_of(&browser, ids[0]).unwrap();
+
+    let (effects, stored) = browser.report_zoom(slot, 150, false, "file:///C:/a.html");
+
+    assert!(!stored);
+    assert!(browser.site_zoom().is_empty());
+    assert_eq!(effects, vec![set_zoom(slot, 150)]);
+    assert_eq!((zoom_of(&browser, ids[0]), zoom_of(&browser, ids[1])), (150, 100));
+
+    let (_, stored) = browser.reset_zoom(ids[0]).unwrap();
+    assert!(!stored);
+    assert_eq!(zoom_of(&browser, ids[0]), 100);
+}
+
+#[test]
+fn a_private_window_shows_stored_levels_and_keeps_its_own_in_memory() {
+    let mut browser = Browser::new(2).with_site_zoom(vec![level("a.test", 150)]);
+    let (normal, _) = browser.open_tab("https://a.test", true);
+    let (private, _) = browser.open_private_window("https://a.test/secret");
+    assert_eq!(zoom_of(&browser, private), 150);
+    let slot = slot_of(&browser, private).unwrap();
+
+    let (_, stored) = browser.report_zoom(slot, 200, false, "https://a.test/secret");
+
+    assert!(!stored);
+    assert_eq!(browser.site_zoom(), [level("a.test", 150)]);
+    assert_eq!((zoom_of(&browser, normal), zoom_of(&browser, private)), (150, 200));
+    // A private reset to 100 holds over the stored level, in private only.
+    browser.reset_zoom(private).unwrap();
+    assert_eq!((zoom_of(&browser, normal), zoom_of(&browser, private)), (150, 100));
+
+    let window = browser.window_of(private).unwrap();
+    browser.close_window(window);
+    let (again, _) = browser.open_private_window("https://a.test");
+    assert_eq!(zoom_of(&browser, again), 150, "forgotten with the private session");
+}

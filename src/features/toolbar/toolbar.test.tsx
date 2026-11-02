@@ -4,13 +4,17 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { openExtensionPopup, state } = vi.hoisted(() => ({ openExtensionPopup: vi.fn(), state: { private: false } }));
+const { openExtensionPopup, resetZoom, state } = vi.hoisted(() => ({
+  openExtensionPopup: vi.fn(),
+  resetZoom: vi.fn(),
+  state: { private: false },
+}));
 
 vi.mock("@bindings", () => ({
   events: { addressFocusRequested: () => ({ listen: async () => () => {} }) },
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
-vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup } }));
+vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup, resetZoom } }));
 vi.mock("@ipc/hooks", () => ({
   useBrowserState: () => state,
   useExtensions: () => ({
@@ -34,7 +38,7 @@ import { Toolbar } from "./toolbar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const tab = (id: number): Tab => ({
+const tab = (id: number, zoom = 100): Tab => ({
   id,
   history: { entries: [{ url: "https://example.com/", title: "Example", favicon: null }], index: 0 },
   presence: { status: "live", slot: 1 },
@@ -44,6 +48,7 @@ const tab = (id: number): Tab => ({
   dialog: null,
   permission: null,
   audible: false,
+  zoom,
   relieved: false,
   restoring: false,
 });
@@ -75,6 +80,21 @@ describe("toolbar extension popups", () => {
     document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("shows a zoom other than 100% in the address field, which resets it", async () => {
+    await act(async () => root.render(<Toolbar tab={tab(7, 125)} />));
+    const zoom = container.querySelector<HTMLButtonElement>('label [aria-label="Zoom 125%. Reset to 100%"]');
+    expect(zoom?.textContent).toBe("125%");
+
+    await act(async () => zoom?.click());
+
+    expect(resetZoom).toHaveBeenCalledExactlyOnceWith(7);
+  });
+
+  it("shows no zoom at 100%", async () => {
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    expect(container.querySelector('[aria-label^="Zoom"]')).toBeNull();
   });
 
   it("labels a private window beside the address", async () => {

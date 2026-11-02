@@ -218,8 +218,28 @@ function AddressField({ tab, className, expandable = false }: AddressFieldProps)
           aria-label={t("toolbar.address")}
           placeholder={t("toolbar.address")}
         />
+        {tab && tab.zoom !== 100 && tab.presence.status !== "internal" && <ZoomButton tab={tab} />}
       </label>
     </form>
+  );
+}
+
+/**
+ * The page's zoom while it is not 100%, which resets it for the whole site.
+ * [Zoom](../../../docs/specs/zoom.md).
+ */
+function ZoomButton({ tab }: { tab: Tab }) {
+  const label = t("toolbar.resetZoom").replace("{percent}", String(tab.zoom));
+  return (
+    <button
+      type="button"
+      className="btn ghost shrink-0 px-1.5 text-xs tabular-nums"
+      aria-label={label}
+      title={label}
+      onClick={() => void commands.resetZoom(tab.id)}
+    >
+      {`${tab.zoom}%`}
+    </button>
   );
 }
 

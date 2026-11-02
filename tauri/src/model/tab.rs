@@ -8,6 +8,7 @@ use super::history::{History, Visit};
 use super::page_state::{Loss, LossSignal, PageRecord, PageState, DRAFT_LIMIT};
 use super::permission::PermissionRequest;
 use super::pool::SlotId;
+use super::zoom::DEFAULT_ZOOM;
 
 /// Scheme used by pages Haku renders itself, inside the chrome webview.
 ///
@@ -86,6 +87,10 @@ pub struct Tab {
     pub queued_permissions: VecDeque<PermissionRequest>,
     /// The page is playing audio, which a smart policy will not interrupt.
     pub audible: bool,
+    /// The zoom the page is shown at, in percent: its site's level, or the
+    /// tab's own for a page with no host. [Zoom](../../../docs/specs/zoom.md).
+    #[serde(default = "default_zoom")]
+    pub zoom: u16,
     /// Discarded to free memory while the system was short of it, and not
     /// loaded since.
     pub relieved: bool,
@@ -122,6 +127,7 @@ impl Tab {
             permission: None,
             queued_permissions: VecDeque::new(),
             audible: false,
+            zoom: DEFAULT_ZOOM,
             relieved: false,
             restoring: false,
             draft: None,
@@ -238,6 +244,10 @@ pub fn is_internal(url: &str) -> bool {
 /// kept sites are listed and as the interface's `URL.hostname` gives it, an
 /// IPv6 address keeping its brackets. Nothing for anything but an `http` or
 /// `https` URL.
+const fn default_zoom() -> u16 {
+    DEFAULT_ZOOM
+}
+
 pub fn host_of(url: &str) -> Option<String> {
     let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
     let authority = rest.split(['/', '?', '#']).next()?;

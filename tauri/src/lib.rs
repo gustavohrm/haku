@@ -76,7 +76,8 @@ pub fn run() {
             let browser = browser
                 .with_policies(settings.freeze_tabs, settings.discard_tabs)
                 .with_keeping(settings.kept_memory_bytes(), settings.kept_sites.clone())
-                .with_site_permissions(settings.site_permissions.to_vec());
+                .with_site_permissions(settings.site_permissions.to_vec())
+                .with_site_zoom(settings.site_zoom.to_vec());
             let windows: Vec<_> = browser.window_ids().into_iter().zip(restored).collect();
             app.manage(AppState::new(browser, settings, history, paths));
             if let Some(failure) = unopened {

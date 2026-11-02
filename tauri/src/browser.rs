@@ -6,11 +6,14 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{HakuError, Result};
+use crate::model::host_of;
+use crate::model::zoom::{set_zoom, zoom_for};
 use crate::model::{
     decision_for, is_internal, origin_of, Acquired, Commit, CrashCause, DialogAnswer, DialogId, DialogKind,
     Downloading, Loss, LossSignal, NavigationKind, PageDialog, PageState, PermissionDecision, PermissionKind,
     PermissionRequest, PermissionRequestId, PermissionState, Placement, Policy, Pressure, Profile, Scroll,
-    SitePermission, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool, WindowId, WindowKind, WindowRequestId,
+    SitePermission, SiteZoom, Slot, SlotId, Tab, TabId, TabPresence, Visit, WebviewPool, WindowId, WindowKind,
+    WindowRequestId, DEFAULT_ZOOM,
 };
 
 /// URL a slot is parked on after its tab is discarded.
@@ -153,6 +156,12 @@ pub enum Effect {
     /// Ask the slot's page to leave fullscreen. Its window has already left.
     ExitPageFullscreen {
         slot: SlotId,
+    },
+    /// Set the zoom of the slot's webview, in percent, which the engine keeps
+    /// across its navigations. [Zoom](../../docs/specs/zoom.md).
+    SetZoom {
+        slot: SlotId,
+        percent: u16,
     },
     /// Bring a window to the front, when something the user did in another
     /// one opened a tab in it.
@@ -467,6 +476,14 @@ pub struct Browser {
     /// Requests dismissed without an answer, denied without asking until
     /// Haku quits: whether private, the origin and the kind.
     dismissed_permissions: HashSet<(bool, String, PermissionKind)>,
+    /// Zoom levels stored in settings, by host.
+    site_zoom: Vec<SiteZoom>,
+    /// Levels chosen in private windows, for the private session only. They
+    /// hold over the stored ones there, 100% included.
+    private_zoom: Vec<SiteZoom>,
+    /// The zoom each slot's webview is believed to have, in percent. A slot
+    /// left out has the default.
+    slot_zoom: HashMap<SlotId, u16>,
 }
 
 impl Browser {
@@ -502,6 +519,9 @@ impl Browser {
             site_permissions: Vec::new(),
             private_permissions: Vec::new(),
             dismissed_permissions: HashSet::new(),
+            site_zoom: Vec::new(),
+            private_zoom: Vec::new(),
+            slot_zoom: HashMap::new(),
         }
     }
 
@@ -1214,6 +1234,7 @@ impl Browser {
             self.private_session += 1;
             self.private_permissions.clear();
             self.dismissed_permissions.retain(|(private, _, _)| !private);
+            self.private_zoom.clear();
         }
         let id = TabId(self.next_id);
         self.next_id += 1;
@@ -2430,6 +2451,123 @@ impl Browser {
         self
     }
 
+    /// Applies a change the settings page made to the stored zoom levels,
+    /// from `previous` to `next`, and sets every live page whose site's level
+    /// changed. [Zoom](../../docs/specs/zoom.md).
+    ///
+    /// Applied as a change rather than a replacement, so a level the user
+    /// chose while the settings page still showed `previous` is kept.
+    pub fn change_site_zoom(&mut self, previous: &[SiteZoom], next: &[SiteZoom]) -> Vec<Effect> {
+        for gone in previous.iter().filter(|level| zoom_for(next, &level.host).is_none()) {
+            set_zoom(&mut self.site_zoom, &gone.host, DEFAULT_ZOOM, false);
+        }
+        for level in next.iter().filter(|level| !previous.contains(level)) {
+            set_zoom(&mut self.site_zoom, &level.host, level.percent, false);
+        }
+        self.settle_zoom()
+    }
+
+    /// Sets the stored zoom levels without touching any webview.
+    pub fn with_site_zoom(mut self, levels: Vec<SiteZoom>) -> Self {
+        self.site_zoom = levels;
+        self
+    }
+
+    /// The zoom levels to store in settings.
+    pub fn site_zoom(&self) -> &[SiteZoom] {
+        &self.site_zoom
+    }
+
+    /// Takes in the zoom a slot's page reported, in percent, made on `url`.
+    ///
+    /// A report that followed a navigation, matches the level expected or was
+    /// made on a host the tab has since left is not the user's: the page is
+    /// set back to its level. Otherwise the level becomes the site's, or the
+    /// tab's for a page with no host. Answers whether the stored levels
+    /// changed.
+    pub fn report_zoom(&mut self, slot: SlotId, percent: u16, navigation: bool, url: &str) -> (Vec<Effect>, bool) {
+        self.slot_zoom.insert(slot, percent);
+        let Some(tab) = self.tab_in(slot).and_then(|id| self.tab(id).ok()) else {
+            return (Vec::new(), false);
+        };
+        let id = tab.id;
+        let users = !navigation && percent != self.expected_zoom(tab) && host_of(url) == host_of(tab.url());
+        if !users {
+            return (self.settle_zoom(), false);
+        }
+        let stored = self.choose_zoom(id, percent);
+        // Set again although the slot already shows it: a level Haku sets is
+        // the one the engine keeps across the site's next navigation.
+        let mut effects = vec![Effect::SetZoom { slot, percent }];
+        effects.extend(self.settle_zoom());
+        (effects, stored)
+    }
+
+    /// Returns the tab's site, or the tab alone for a page with no host, to
+    /// 100%. Answers whether the stored levels changed.
+    ///
+    /// # Errors
+    /// [`HakuError::TabNotFound`] for a tab that is not open.
+    pub fn reset_zoom(&mut self, id: TabId) -> Result<(Vec<Effect>, bool)> {
+        self.tab(id)?;
+        let stored = self.choose_zoom(id, DEFAULT_ZOOM);
+        Ok((self.settle_zoom(), stored))
+    }
+
+    /// Records `percent` as the level the user chose for the tab's page.
+    /// Answers whether the stored levels changed.
+    fn choose_zoom(&mut self, id: TabId, percent: u16) -> bool {
+        let private = self.profile_of(id) == Profile::Private;
+        let Ok(tab) = self.tab_mut(id) else {
+            return false;
+        };
+        let Some(host) = host_of(tab.url()) else {
+            tab.zoom = percent;
+            return false;
+        };
+        if private {
+            set_zoom(&mut self.private_zoom, &host, percent, true);
+            return false;
+        }
+        let before = self.site_zoom.clone();
+        set_zoom(&mut self.site_zoom, &host, percent, false);
+        self.site_zoom != before
+    }
+
+    /// The zoom a tab's page should be shown at.
+    fn expected_zoom(&self, tab: &Tab) -> u16 {
+        let Some(host) = host_of(tab.url()) else {
+            return tab.zoom;
+        };
+        let private = self.profile_of(tab.id) == Profile::Private;
+        private
+            .then(|| zoom_for(&self.private_zoom, &host))
+            .flatten()
+            .or_else(|| zoom_for(&self.site_zoom, &host))
+            .unwrap_or(DEFAULT_ZOOM)
+    }
+
+    /// Brings every tab's zoom up to date, and sets each live page's slot
+    /// where it differs. A frozen page is set once it resumes.
+    fn settle_zoom(&mut self) -> Vec<Effect> {
+        let slots: HashSet<SlotId> = self.pool.slots().iter().map(|slot| slot.id).collect();
+        self.slot_zoom.retain(|slot, _| slots.contains(slot));
+        let expected: Vec<u16> = self.tabs.iter().map(|tab| self.expected_zoom(tab)).collect();
+        let mut effects = Vec::new();
+        for (tab, percent) in self.tabs.iter_mut().zip(expected) {
+            tab.zoom = percent;
+            let TabPresence::Live { slot } = tab.presence else {
+                continue;
+            };
+            let shown = self.slot_zoom.get(&slot).copied().unwrap_or(DEFAULT_ZOOM);
+            if shown != percent {
+                self.slot_zoom.insert(slot, percent);
+                effects.push(Effect::SetZoom { slot, percent });
+            }
+        }
+        effects
+    }
+
     /// The decision already made for a request, if one was: `true` to allow.
     ///
     /// A private window honours a stored Block, ahead of what was decided in
@@ -2635,6 +2773,8 @@ impl Browser {
         effects.extend(self.settle_background());
         // Visibility changes may release reservations even with discard off.
         effects.extend(self.trim());
+        // Last, once every webview it sets exists.
+        effects.extend(self.settle_zoom());
         self.just_left.clear();
         effects
     }

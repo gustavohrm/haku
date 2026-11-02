@@ -29,6 +29,7 @@ const SETTINGS: Settings = {
   disabledExtensions: [],
   pinnedExtensions: [],
   sitePermissions: [],
+  siteZoom: [],
   shortcuts: {},
 };
 

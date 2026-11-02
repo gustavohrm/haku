@@ -39,6 +39,7 @@ function tab(id: number, urls: string[] = ["https://example.com/"], index = urls
     dialog: null,
     permission: null,
     audible: false,
+    zoom: 100,
     relieved: false,
     restoring: false,
   } as unknown as Tab;

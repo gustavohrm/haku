@@ -145,6 +145,8 @@ export const commands = {
 	 *  Block made in an ordinary window. [Permissions](../../../docs/specs/permissions.md).
 	 */
 	answerPermission: (tab: TabId, request: PermissionRequestId, decision: PermissionDecision) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("answer_permission", { tab, request, decision })),
+	/**  Returns the tab's site to 100%, as Ctrl+0 does. [Zoom](../../../docs/specs/zoom.md). */
+	resetZoom: (tab: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("reset_zoom", { tab })),
 	/**
 	 *  Answers the context menu a page is waiting on, with the native item
 	 *  chosen, or with nothing when the choice was one of Haku's own items or the
@@ -824,6 +826,11 @@ export type Settings = {
 	 */
 	sitePermissions: SitePermission[],
 	/**
+	 *  The zoom chosen for sites, by host. 100% is never stored.
+	 *  [Zoom](../../../docs/specs/zoom.md).
+	 */
+	siteZoom: SiteZoom[],
+	/**
 	 *  The chords of the shortcuts the user changed, by action.
 	 *  [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
 	 */
@@ -838,7 +845,7 @@ export type SettingsChanged = Settings;
  *  Its camelCase name is the action's id in `Settings.shortcuts`, so a
  *  variant is never renamed.
  */
-export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage";
+export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage" | "resetZoom";
 
 /**
  *  Which side of the window the tab column is on.
@@ -857,6 +864,13 @@ export type SitePermission = {
 	origin: string,
 	kind: PermissionKind,
 	state: PermissionState,
+};
+
+/**  A level kept for a host. */
+export type SiteZoom = {
+	/**  As [`host_of`] gives it. */
+	host: string,
+	percent: number,
 };
 
 export type SlotId = number;
@@ -908,6 +922,11 @@ export type Tab = {
 	permission: PermissionRequest | null,
 	/**  The page is playing audio, which a smart policy will not interrupt. */
 	audible: boolean,
+	/**
+	 *  The zoom the page is shown at, in percent: its site's level, or the
+	 *  tab's own for a page with no host. [Zoom](../../../docs/specs/zoom.md).
+	 */
+	zoom?: number,
 	/**
 	 *  Discarded to free memory while the system was short of it, and not
 	 *  loaded since.

@@ -13,6 +13,7 @@ pub mod pressure;
 pub mod preview;
 pub mod tab;
 pub mod window;
+pub mod zoom;
 
 pub use context_menu::{
     allowed_items, offers, plain_label, ContextMenuRequestId, ContextMenuTarget, ContextMenuTargetKind, NativeMenuItem,
@@ -39,3 +40,4 @@ pub use pressure::{MemoryStatus, Pressure};
 pub use preview::{data_url, jpeg_data_url, Previews};
 pub use tab::{host_of, is_internal, CrashCause, Scroll, Tab, TabId, TabPresence};
 pub use window::{Placement, WindowId, WindowKind, WindowRequestId, WINDOW_LABEL_PREFIX};
+pub use zoom::{percent_of, SiteZoom, SiteZooms, DEFAULT_ZOOM};

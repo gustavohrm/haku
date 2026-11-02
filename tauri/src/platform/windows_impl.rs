@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -94,15 +94,16 @@ use webview2_com::{
     take_pwstr, AcceleratorKeyPressedEventHandler, BrowserExtensionEnableCompletedHandler,
     BrowserExtensionRemoveCompletedHandler, BytesReceivedChangedEventHandler,
     CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler,
-    ContainsFullScreenElementChangedEventHandler, ContextMenuRequestedEventHandler, DOMContentLoadedEventHandler,
-    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler, DownloadStartingEventHandler,
-    ExecuteScriptCompletedHandler, FindActiveMatchIndexChangedEventHandler, FindMatchCountChangedEventHandler,
-    FindStartCompletedHandler, FocusChangedEventHandler, GetProcessExtendedInfosCompletedHandler,
-    IsDocumentPlayingAudioChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler,
-    ProfileAddBrowserExtensionCompletedHandler, ProfileGetBrowserExtensionsCompletedHandler,
-    ScriptDialogOpeningEventHandler, ShowSaveAsUICompletedHandler, SourceChangedEventHandler, StateChangedEventHandler,
-    TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
+    ContainsFullScreenElementChangedEventHandler, ContentLoadingEventHandler, ContextMenuRequestedEventHandler,
+    DOMContentLoadedEventHandler, DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
+    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, FindActiveMatchIndexChangedEventHandler,
+    FindMatchCountChangedEventHandler, FindStartCompletedHandler, FocusChangedEventHandler,
+    GetProcessExtendedInfosCompletedHandler, IsDocumentPlayingAudioChangedEventHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    PermissionRequestedEventHandler, ProcessFailedEventHandler, ProfileAddBrowserExtensionCompletedHandler,
+    ProfileGetBrowserExtensionsCompletedHandler, ScriptDialogOpeningEventHandler, ShowSaveAsUICompletedHandler,
+    SourceChangedEventHandler, StateChangedEventHandler, TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
+    ZoomFactorChangedEventHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HWND, POINT};
@@ -135,7 +136,7 @@ use crate::model::{
     allowed_items, offers, plain_label, ContextMenuRequestId, ContextMenuTarget, ContextMenuTargetKind, NativeMenuItem,
     NativeMenuItemKind, PageMenu,
 };
-use crate::model::{origin_of, PermissionKind, PermissionRequest, PermissionRequestId};
+use crate::model::{origin_of, percent_of, PermissionKind, PermissionRequest, PermissionRequestId};
 use crate::model::{
     shortcut_for, Chord, Commit, CrashCause, DialogAnswer, DialogId, DialogKind, DownloadFailure, DownloadId,
     DownloadState, FindDirection, Key, MemoryStatus, NavigationKind, PageDialog, Placement, Settled, SlotId,
@@ -1044,6 +1045,39 @@ unsafe fn attach_observers(
     };
     controller.add_GotFocus(&on_focus, &mut token)?;
 
+    // Whether a zoom change now would follow a navigation: the engine reports
+    // one right after `ContentLoading` when the new document's zoom differs.
+    // Cleared by that report or once the document has loaded, whichever is
+    // first. [Zoom](../../../docs/specs/zoom.md).
+    let navigating = Arc::new(AtomicBool::new(false));
+    let on_content = {
+        let navigating = navigating.clone();
+        ContentLoadingEventHandler::create(Box::new(move |_, _| {
+            navigating.store(true, Ordering::Relaxed);
+            Ok(())
+        }))
+    };
+    core.add_ContentLoading(&on_content, &mut token)?;
+    let on_zoom = {
+        let sink = sink.clone();
+        let navigating = navigating.clone();
+        let core = core.clone();
+        ZoomFactorChangedEventHandler::create(Box::new(move |sender, _| {
+            let Some(controller) = sender else { return Ok(()) };
+            let mut factor = 1.0;
+            controller.ZoomFactor(&mut factor)?;
+            let mut source = PWSTR::null();
+            core.Source(&mut source)?;
+            sink(PageSignal::ZoomChanged {
+                percent: percent_of(factor),
+                navigation: navigating.swap(false, Ordering::Relaxed),
+                url: take_pwstr(source),
+            });
+            Ok(())
+        }))
+    };
+    controller.add_ZoomFactorChanged(&on_zoom, &mut token)?;
+
     let on_starting = {
         let sink = sink.clone();
         NavigationStartingEventHandler::create(Box::new(move |_, args| {
@@ -1103,7 +1137,9 @@ unsafe fn attach_observers(
     // A reloading tab's scroll and draft go back in once its document exists.
     let on_loaded = {
         let sink = sink.clone();
+        let navigating = navigating.clone();
         DOMContentLoadedEventHandler::create(Box::new(move |sender, _| {
+            navigating.store(false, Ordering::Relaxed);
             let Some(core) = sender else { return Ok(()) };
             let mut source = PWSTR::null();
             core.Source(&mut source)?;
@@ -1121,6 +1157,7 @@ unsafe fn attach_observers(
     let on_completed = {
         let sink = sink.clone();
         NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+            navigating.store(false, Ordering::Relaxed);
             let (Some(core), Some(args)) = (sender, args) else {
                 return Ok(());
             };

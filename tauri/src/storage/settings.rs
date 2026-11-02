@@ -5,6 +5,7 @@ use specta::Type;
 
 use crate::model::keymap::{defaults_of, DEFAULTS};
 use crate::model::permission::{normalized, SitePermissions};
+use crate::model::SiteZooms;
 use crate::model::{Chord, Keymap, Policy, Preset, Shortcut, DEFAULT_CAPACITY};
 
 const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
@@ -123,6 +124,9 @@ pub struct Settings {
     /// What the user allowed or blocked sites to use, by origin and kind.
     /// [Permissions](../../../docs/specs/permissions.md).
     pub site_permissions: SitePermissions,
+    /// The zoom chosen for sites, by host. 100% is never stored.
+    /// [Zoom](../../../docs/specs/zoom.md).
+    pub site_zoom: SiteZooms,
     /// The chords of the shortcuts the user changed, by action.
     /// [Shortcuts § Changing bindings](../../../docs/specs/shortcuts.md#changing-bindings).
     pub shortcuts: Shortcuts,
@@ -241,6 +245,7 @@ impl Default for Settings {
             disabled_extensions: Vec::new(),
             pinned_extensions: Vec::new(),
             site_permissions: SitePermissions::default(),
+            site_zoom: SiteZooms::default(),
             shortcuts: Shortcuts::default(),
         }
     }
@@ -267,6 +272,7 @@ impl Settings {
         }
         self.kept_sites = sites;
         self.site_permissions = SitePermissions(normalized(std::mem::take(&mut self.site_permissions.0)));
+        self.site_zoom = std::mem::take(&mut self.site_zoom).normalized();
         self.shortcuts = std::mem::take(&mut self.shortcuts).normalized();
         self
     }
@@ -283,6 +289,12 @@ impl Settings {
         next.site_permissions
             .iter()
             .any(|permission| !self.site_permissions.contains(permission))
+    }
+
+    /// Whether `next` stores a zoom level these settings do not. Removing one
+    /// is not storing one, as for kept sites.
+    pub fn adds_site_zoom(&self, next: &Self) -> bool {
+        next.site_zoom.iter().any(|level| !self.site_zoom.contains(level))
     }
 
     /// The budget for kept tabs, in bytes.

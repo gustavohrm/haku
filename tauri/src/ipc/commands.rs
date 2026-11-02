@@ -236,6 +236,33 @@ fn page_observer() -> PageObserver<tauri::Wry> {
                     });
                 });
             }
+            PageSignal::ZoomChanged {
+                percent,
+                navigation,
+                url,
+            } => {
+                // Numbered here, as fullscreen reports are: only the newest
+                // says what the webview shows.
+                let report = latest_zoom_reports().next(slot);
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let state = app.state::<AppState>();
+                    let mut stored = None;
+                    let _ = mutate(&app, &state, |browser| {
+                        if !latest_zoom_reports().is_latest(slot, report) {
+                            return Ok(Vec::new());
+                        }
+                        let (effects, changed) = browser.report_zoom(slot, percent, navigation, &url);
+                        stored = changed
+                            .then(|| browser.tab_in(slot).and_then(|tab| browser.window_of(tab)))
+                            .flatten();
+                        Ok(effects)
+                    });
+                    if let Some(window) = stored {
+                        let _ = store_site_zoom(&app, &state, window);
+                    }
+                });
+            }
             PageSignal::AudioChanged { playing } => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -271,6 +298,29 @@ fn latest_fullscreen_reports() -> std::sync::MutexGuard<'static, FullscreenRepor
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The newest zoom report numbered for each slot.
+fn latest_zoom_reports() -> std::sync::MutexGuard<'static, FullscreenReports> {
+    static REPORTS: OnceLock<Mutex<FullscreenReports>> = OnceLock::new();
+    REPORTS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Stores the zoom levels in effect, as they stand when stored rather than
+/// when they changed, so stores that overlap end with the newest levels.
+/// [Zoom](../../../docs/specs/zoom.md).
+fn store_site_zoom(app: &tauri::AppHandle, state: &AppState, window: WindowId) -> Result<()> {
+    store_settings(app, state, window, |current| {
+        let mut settings = current.clone();
+        if let Ok(browser) = state.browser.read() {
+            settings.site_zoom = crate::model::SiteZooms(browser.site_zoom().to_vec());
+        }
+        settings
+    })
+    .map(|_| ())
 }
 
 /// How long a page's context menu may go unanswered, say because its window
@@ -664,7 +714,7 @@ fn run_shortcut_in(
 ) -> Result<()> {
     let home = home_url(state)?;
     let pressure = read_pressure(state);
-    let native = std::cell::Cell::new((None, None, None, None));
+    let native = std::cell::Cell::new((None, None, None, None, false));
     let failed = std::cell::Cell::new(None);
     state.changes.run(
         &state.browser,
@@ -687,7 +737,7 @@ fn run_shortcut_in(
             }
             Ok(hold_then(state, browser, &failed, |browser| {
                 let action = request.prepare(browser, shortcut, &home, now_ms())?;
-                native.set((action.address, action.devtools, action.close, action.page));
+                native.set((action.address, action.devtools, action.close, action.page, action.zoom));
                 Ok(action.effects)
             }))
         },
@@ -704,11 +754,20 @@ fn run_shortcut_in(
                         | Shortcut::Home
                         | Shortcut::Memory
                         | Shortcut::DuplicateTab
+                        | Shortcut::ResetZoom
                 )
             {
                 commit(app, state, effects)?;
             }
-            let (address, devtools, close, page) = native.get();
+            let (address, devtools, close, page, zoom) = native.get();
+            // Off this turn, which storing settings would wait on.
+            if zoom {
+                let app = app.clone();
+                let window = request.window();
+                std::thread::spawn(move || {
+                    let _ = store_site_zoom(&app, &app.state::<AppState>(), window);
+                });
+            }
             if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
                 window.close()?;
             }
@@ -1386,7 +1445,21 @@ pub async fn set_settings(
     settings: Settings,
 ) -> Result<Settings> {
     let window = ensure_chrome(&webview)?;
-    store_settings(&app, &state, window, |_| settings)
+    let previous = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
+        .site_zoom
+        .clone();
+    let stored = store_settings(&app, &state, window, |_| settings)?;
+    // Only the settings page changes stored levels this way; a level the user
+    // zooms to is the browser's already.
+    if stored.site_zoom != previous {
+        mutate(&app, &state, |browser| {
+            Ok(browser.change_site_zoom(&previous, &stored.site_zoom))
+        })?;
+    }
+    Ok(stored)
 }
 
 /// Replaces the optimization settings with a preset's values.
@@ -1471,7 +1544,10 @@ fn store_settings(
             .write()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         let settings = update(&current).sanitized();
-        if current.keeps_new_site(&settings) || current.adds_site_permission(&settings) {
+        if current.keeps_new_site(&settings)
+            || current.adds_site_permission(&settings)
+            || current.adds_site_zoom(&settings)
+        {
             state
                 .browser
                 .read()
@@ -2128,6 +2204,34 @@ pub async fn answer_permission(
         settings.site_permissions.push(decided);
         settings
     })?;
+    let browser = state
+        .browser
+        .read()
+        .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+    Ok(browser.state_in(window).unwrap_or_else(|| browser.state()))
+}
+
+/// Returns the tab's site to 100%, as Ctrl+0 does. [Zoom](../../../docs/specs/zoom.md).
+#[tauri::command]
+#[specta::specta]
+pub async fn reset_zoom(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    let mut stored = false;
+    let snapshot = mutate_in(&app, &state, window, |browser| {
+        browser.visible_tab_in(window, tab)?;
+        let (effects, changed) = browser.reset_zoom(tab)?;
+        stored = changed;
+        Ok(effects)
+    })?;
+    if !stored {
+        return Ok(snapshot);
+    }
+    store_site_zoom(&app, &state, window)?;
     let browser = state
         .browser
         .read()
