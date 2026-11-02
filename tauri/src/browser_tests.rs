@@ -4021,6 +4021,23 @@ fn selecting_the_other_tab_of_a_split_pair_leaves_fullscreen() {
 }
 
 #[test]
+fn splitting_beside_the_fullscreen_tab_leaves_fullscreen() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://b.test"]);
+    let window = browser.main_window();
+    let slot = slot_of(&browser, ids[1]).unwrap();
+    browser.report_fullscreen(slot, true);
+
+    let effects = browser.split_tab(window, ids[0]).unwrap();
+
+    assert_eq!(fullscreen_of(&browser, window), None);
+    assert!(effects.contains(&Effect::SetFullscreen {
+        window,
+        fullscreen: false
+    }));
+    assert!(effects.contains(&Effect::ExitPageFullscreen { slot }));
+}
+
+#[test]
 fn selecting_the_fullscreen_tab_again_keeps_fullscreen() {
     let (mut browser, _) = browser_with(2, &["https://left.test"]);
     let (window, _, right) = split_pair(&mut browser);
@@ -4175,6 +4192,70 @@ fn allow_and_block_return_the_decision_to_store_and_answer_its_duplicates() {
 }
 
 #[test]
+fn an_answer_holds_for_requests_made_before_it_is_stored() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://a.test"]);
+    let slots: Vec<SlotId> = ids.iter().map(|id| slot_of(&browser, *id).unwrap()).collect();
+    browser.request_permission(slots[0], request(1, PermissionKind::Camera, "https://a.test"));
+    browser
+        .answer_permission(ids[0], PermissionRequestId(1), PermissionDecision::Allow)
+        .unwrap();
+
+    let later = browser.request_permission(slots[1], request(2, PermissionKind::Camera, "https://a.test"));
+
+    assert_eq!(granted(&later), vec![(PermissionRequestId(2), true)]);
+    assert_eq!(shown_permission(&browser, ids[1]), None);
+}
+
+#[test]
+fn an_answer_settles_the_same_request_waiting_in_other_tabs() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://a.test", "https://b.test"]);
+    let slots: Vec<SlotId> = ids.iter().map(|id| slot_of(&browser, *id).unwrap()).collect();
+    browser.request_permission(slots[0], request(1, PermissionKind::Camera, "https://a.test"));
+    browser.request_permission(slots[1], request(2, PermissionKind::Location, "https://a.test"));
+    browser.request_permission(slots[1], request(3, PermissionKind::Camera, "https://a.test"));
+    browser.request_permission(slots[2], request(4, PermissionKind::Camera, "https://b.test"));
+
+    let (effects, _) = browser
+        .answer_permission(ids[0], PermissionRequestId(1), PermissionDecision::Allow)
+        .unwrap();
+
+    assert_eq!(
+        granted(&effects),
+        vec![(PermissionRequestId(1), true), (PermissionRequestId(3), true)]
+    );
+    assert_eq!(shown_permission(&browser, ids[1]), Some(PermissionRequestId(2)));
+    assert_eq!(shown_permission(&browser, ids[2]), Some(PermissionRequestId(4)));
+
+    let (effects, _) = browser
+        .answer_permission(ids[1], PermissionRequestId(2), PermissionDecision::Allow)
+        .unwrap();
+    assert_eq!(granted(&effects), vec![(PermissionRequestId(2), true)]);
+    assert_eq!(
+        shown_permission(&browser, ids[1]),
+        None,
+        "its queued camera request was answered"
+    );
+}
+
+#[test]
+fn an_answer_shown_in_another_tab_is_settled_too() {
+    let (mut browser, ids) = browser_with(2, &["https://a.test", "https://a.test"]);
+    let slots: Vec<SlotId> = ids.iter().map(|id| slot_of(&browser, *id).unwrap()).collect();
+    browser.request_permission(slots[0], request(1, PermissionKind::Camera, "https://a.test"));
+    browser.request_permission(slots[1], request(2, PermissionKind::Camera, "https://a.test"));
+
+    let (effects, _) = browser
+        .answer_permission(ids[0], PermissionRequestId(1), PermissionDecision::Block)
+        .unwrap();
+
+    assert_eq!(
+        granted(&effects),
+        vec![(PermissionRequestId(1), false), (PermissionRequestId(2), false)]
+    );
+    assert_eq!(shown_permission(&browser, ids[1]), None);
+}
+
+#[test]
 fn a_dismissed_request_is_denied_unstored_and_not_asked_again() {
     let (mut browser, id, slot) = loaded("https://a.test");
     browser.request_permission(slot, request(1, PermissionKind::Notifications, "https://a.test"));
@@ -4282,7 +4363,7 @@ fn a_request_arriving_after_its_page_left_the_origin_is_denied() {
 }
 
 #[test]
-fn a_queued_request_decided_meanwhile_in_another_tab_is_answered_when_promoted() {
+fn a_queued_request_decided_in_another_tab_is_answered_at_once() {
     let (mut browser, ids) = browser_with(2, &["https://a.test", "https://a.test"]);
     let (first, second) = (ids[0], ids[1]);
     let first_slot = slot_of(&browser, first).unwrap();
@@ -4294,18 +4375,19 @@ fn a_queued_request_decided_meanwhile_in_another_tab_is_answered_when_promoted()
     browser.request_permission(first_slot, request(1, PermissionKind::Notifications, "https://a.test"));
     browser.request_permission(first_slot, request(2, PermissionKind::Camera, "https://a.test"));
     browser.request_permission(second_slot, request(3, PermissionKind::Camera, "https://a.test"));
-    browser
+    let (dismissed, _) = browser
         .answer_permission(second, PermissionRequestId(3), PermissionDecision::Dismiss)
         .unwrap();
+    assert_eq!(
+        granted(&dismissed),
+        vec![(PermissionRequestId(3), false), (PermissionRequestId(2), false)]
+    );
 
     let (effects, _) = browser
         .answer_permission(first, PermissionRequestId(1), PermissionDecision::Allow)
         .unwrap();
 
-    assert_eq!(
-        granted(&effects),
-        vec![(PermissionRequestId(1), true), (PermissionRequestId(2), false)]
-    );
+    assert_eq!(granted(&effects), vec![(PermissionRequestId(1), true)]);
     assert_eq!(shown_permission(&browser, first), None);
 }
 

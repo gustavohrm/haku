@@ -113,6 +113,17 @@ describe("FindBar", () => {
     expect(commands.stopFind).toHaveBeenCalledExactlyOnceWith(3, true);
   });
 
+  it("closes on Escape pressed on one of its buttons", async () => {
+    const onClose = vi.fn();
+    await act(async () => root.render(<FindBar tab={3} request={1} onClose={onClose} />));
+    const next = container.querySelector<HTMLButtonElement>('button[aria-label="Next match"]')!;
+    await act(async () => {
+      next.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(commands.stopFind).toHaveBeenCalledExactlyOnceWith(3, true);
+  });
+
   it("closes on its close button and gives the page its keyboard back", async () => {
     const onClose = vi.fn();
     await act(async () => root.render(<FindBar tab={3} request={1} onClose={onClose} />));

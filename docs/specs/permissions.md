@@ -25,7 +25,7 @@ A page asks for a permission with an API such as `getUserMedia` or `Notification
 | Escape, or closing it    | Denied       | Not stored. Denied without asking until Haku quits, or in a private window until the private session ends                 |
 | The page goes away first | Denied       | Nothing. Closing the tab, navigating or reloading it from Haku, the page leaving the request's origin, or losing its slot |
 
-A request whose origin and kind already have a decision is answered at once, without a dialog. Two requests for the same origin and kind that wait together are answered by the first answer.
+A request whose origin and kind already have a decision is answered at once, without a dialog. Two requests for the same origin and kind that wait together are answered by the first answer, in whichever tabs of the window's profile they wait.
 
 **Private windows.** A stored Block applies, ahead of any answer given in the private session; a stored Allow does not. Decisions made in a private window are kept in memory for the private session only and forgotten when it ends, as private visits never write a site-derived setting ([Settings page § Sections](settings-page.md#sections)).
 
@@ -53,7 +53,7 @@ Autoplay is engine policy and never asks the user, so it stays the engine's. A k
 
 **The signal.** `platform/` handles WebView2's `PermissionRequested` on every content webview. For a kind in the table it sets `SavesInProfile` to false, so the engine stores nothing itself, takes a deferral, holds the event keyed by a `PermissionRequestId`, and reports a page signal. The page is not paused.
 
-**The state.** `Browser::request_permission` attaches the request to the tab owning the slot, or answers it at once from a decision it already has: stored, private, or dismissed. A request from a slot no tab owns, or from an origin its tab has already left, is denied. Each tab shows one request, `Tab::permission`; further ones queue behind it in Rust. Every path that releases a tab's page dialog releases its permission requests too, and a tab waiting on one is not discarded under memory pressure, as one paused on a dialog is not. A queued request is answered from a decision made meanwhile, in another tab, when its turn comes, rather than shown. A page that navigates itself releases nothing on the way, so once a commit leaves the origin a request came from, that request is denied (`withdraw_stale_permissions`).
+**The state.** `Browser::request_permission` attaches the request to the tab owning the slot, or answers it at once from a decision it already has: stored, private, or dismissed. A request from a slot no tab owns, or from an origin its tab has already left, is denied. Each tab shows one request, `Tab::permission`; further ones queue behind it in Rust. Every path that releases a tab's page dialog releases its permission requests too, and a tab waiting on one is not discarded under memory pressure, as one paused on a dialog is not. An answer withdraws every request for the same origin and kind waiting in tabs of the same profile, shown or queued, so a second tab cannot ask again and overwrite it. A request queued later is answered from the decision when its turn comes, rather than shown. A page that navigates itself releases nothing on the way, so once a commit leaves the origin a request came from, that request is denied (`withdraw_stale_permissions`).
 
 **The contract.**
 

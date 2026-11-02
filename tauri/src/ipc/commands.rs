@@ -745,22 +745,15 @@ fn run_shortcut_in(
             if let Some(failure) = failed.take() {
                 return commit_held(app, state, effects, failure);
             }
-            // Internal pages and strip moves can change state without native effects.
-            if !effects.is_empty()
-                || matches!(
-                    shortcut,
-                    Shortcut::MoveTabLeft
-                        | Shortcut::MoveTabRight
-                        | Shortcut::Home
-                        | Shortcut::Memory
-                        | Shortcut::DuplicateTab
-                        | Shortcut::ResetZoom
-                )
-            {
-                commit(app, state, effects)?;
-            }
+            // Committed even without native effects, as `mutate` is: tabs on
+            // internal pages hold no webview, so opening, closing or moving
+            // between them changes state and nothing else. Its failure is
+            // returned after the native action, so a failure to watch a
+            // private window's workers cannot stop Ctrl+F or Ctrl+L.
+            let committed = commit(app, state, effects);
             let (address, devtools, close, page, zoom) = native.get();
-            // Off this turn, which storing settings would wait on.
+            // Off this turn, which storing settings would wait on. The levels
+            // are the browser's, which changed whether or not committing failed.
             if zoom {
                 let app = app.clone();
                 let window = request.window();
@@ -768,29 +761,38 @@ fn run_shortcut_in(
                     let _ = store_site_zoom(&app, &app.state::<AppState>(), window);
                 });
             }
-            if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
-                window.close()?;
-            }
-            if let Some(tab) = address {
-                focus_address(app, tab)?;
-            }
-            if let Some(page) = devtools.and_then(|slot| app.get_webview(&slot.label())) {
-                page.open_devtools();
-            }
-            match page {
-                Some(PageAction::Find(tab)) => {
-                    // The page holds the keyboard; the bar's field can only
-                    // take it once the chrome has it, as for the address field.
-                    webview::chrome_of(app, request.window())?.set_focus()?;
-                    FindRequested(tab).emit_to(app, request.window().label())?;
-                }
-                Some(PageAction::Print(slot)) => print_slot(app, request.window(), slot)?,
-                Some(PageAction::Save(slot)) => save_slot(app, request.window(), slot)?,
-                None => {}
-            }
-            Ok(())
+            committed.and(run_native(app, request, (address, devtools, close, page)))
         },
     )
+}
+
+/// What a shortcut does outside the browser's state, once that is committed.
+fn run_native(
+    app: &tauri::AppHandle,
+    request: ShortcutRequest,
+    (address, devtools, close, page): (Option<TabId>, Option<SlotId>, Option<WindowId>, Option<PageAction>),
+) -> Result<()> {
+    if let Some(window) = close.and_then(|id| app.get_window(&id.label())) {
+        window.close()?;
+    }
+    if let Some(tab) = address {
+        focus_address(app, tab)?;
+    }
+    if let Some(page) = devtools.and_then(|slot| app.get_webview(&slot.label())) {
+        page.open_devtools();
+    }
+    match page {
+        Some(PageAction::Find(tab)) => {
+            // The page holds the keyboard; the bar's field can only
+            // take it once the chrome has it, as for the address field.
+            webview::chrome_of(app, request.window())?.set_focus()?;
+            FindRequested(tab).emit_to(app, request.window().label())?;
+        }
+        Some(PageAction::Print(slot)) => print_slot(app, request.window(), slot)?,
+        Some(PageAction::Save(slot)) => save_slot(app, request.window(), slot)?,
+        None => {}
+    }
+    Ok(())
 }
 
 /// Opens the home page with `open`, in the address field, as every browser
@@ -1360,9 +1362,11 @@ fn close_window(app: &tauri::AppHandle, window: WindowId) {
 /// Remembers where a window is on screen, for the session. A minimised
 /// window is remembered where it was before, and a maximised one keeps the
 /// rectangle it returns to. A window maximised before it ever had another
-/// rectangle is not remembered, so it opens maximized again.
+/// rectangle is not remembered, so it opens maximized again. A fullscreen
+/// window is remembered as it was before, since it fills the screen only
+/// for the page that asked.
 fn record_bounds(window: &tauri::Window, id: WindowId, state: &AppState) {
-    if window.is_minimized().unwrap_or(false) {
+    if window.is_minimized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
         return;
     }
     let maximized = window.is_maximized().unwrap_or(false);
@@ -2344,7 +2348,12 @@ pub async fn stop_find(
     refocus: bool,
 ) -> Result<()> {
     let window = ensure_chrome(&webview)?;
-    let Some(page) = slot_of(&state, window, tab)?.and_then(|slot| app.get_webview(&slot.label())) else {
+    // The bar closes as its tab does, so a tab already gone has no search.
+    let slot = match slot_of(&state, window, tab) {
+        Err(HakuError::TabNotFound(_)) => return Ok(()),
+        found => found?,
+    };
+    let Some(page) = slot.and_then(|slot| app.get_webview(&slot.label())) else {
         return Ok(());
     };
     platform::stop_find(&page)?;
