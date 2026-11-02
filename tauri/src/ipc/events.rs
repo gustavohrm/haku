@@ -78,10 +78,17 @@ pub struct ExtensionsChanged(pub Extensions);
 /// The downloads a window lists, newest first, whenever one starts, moves
 /// on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
 ///
-/// Each window receives only its own profile's downloads. A running download's
-/// progress is sent at most four times a second.
+/// Each window receives only its own profile's downloads. Progress alone is
+/// sent as [`DownloadProgressed`] instead.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct DownloadsChanged(pub Vec<Download>);
+
+/// A download whose bytes received or size changed, and nothing else, sent to
+/// the windows of its profile at most four times a second. The interface
+/// replaces the entry with its id, and ignores one it does not list.
+/// [Downloads § Contract](../../../docs/specs/downloads.md#contract).
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct DownloadProgressed(pub Download);
 
 /// Closing a tab or window would cancel downloads, so it was not done: the
 /// interface asks, and answers with

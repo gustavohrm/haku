@@ -33,7 +33,8 @@ Also measured:
 Downloads are owned by Rust (`model/download.rs`, followed from `ipc/downloads.rs`). The interface only shows them and asks for actions.
 
 - Every content webview handles `DownloadStarting` with `Handled = true`: the engine's download UI never shows, and the file goes where the engine would put it, under the name it chose. Haku has no download folder setting and asks no question before a download, except the permission a page needs to start several automatically ([Permissions](permissions.md)). A WebView2 runtime too old to have the event (`ICoreWebView2_4`) keeps the engine's own download interface, and Haku lists nothing from it.
-- `DownloadsChanged(Download[])` is sent to a window whenever a download of its profile changes, with the whole list of that profile, newest first. Progress is reported at most every 250 ms per download (`PROGRESS_INTERVAL_MS`); a change of state is always reported. `downloads()` returns the same list for a window that has just started.
+- `DownloadsChanged(Download[])` is sent to a window whenever the downloads of its profile change other than by progress: one starts, changes state, restarts into a new file, is lost or unlisted, or the private session ends. It carries the whole list of that profile, newest first. `downloads()` returns the same list for a window that has just started.
+- `DownloadProgressed(Download)` is sent to the windows of a download's profile when only its bytes received or its size changed, with that one entry. It is reported at most every 250 ms per download (`PROGRESS_INTERVAL_MS`). The interface replaces the listed entry with the same id, and ignores one it does not list: the next `DownloadsChanged`, or the `downloads()` snapshot, brings it. Progress that arrives before that snapshot is held and applied to it, unless the snapshot already has more bytes received, since a running download's count only grows. A change of state is always sent as `DownloadsChanged`, so the interface's list can lag behind Rust's only in a progress figure, and only until the next report.
 - Commands, all chrome-only and scoped to the calling window's profile: `pause_download`, `resume_download`, `cancel_download`, `open_download`, `show_download` take an id; `clear_downloads` unlists the profile's ended downloads; `confirm_close(tab)` answers [a held close](#closing). An id not listed for the window's profile is an `Unsupported` error.
 - A download has a state (`inProgress`, `paused`, `completed`, `cancelled`, `failed`), and a `failure` when failed: `network`, `server`, `file`, `other`, or `lost`, which is Haku's own: the engine stopped reporting the download, because its webview went away or Haku quit while it ran. `canResume` is the engine's, for a paused or failed download.
 - **Retry** is `resume_download` on a failed download the engine can resume. A resumed download stays the same entry, though the engine starts it as a new operation into a new file; its path is updated to the new file.
@@ -86,13 +87,15 @@ A page can neither call these commands nor name a file: the commands are chrome-
 
 - **Toolbar**: a downloads button, shown once a download has started since launch, accented while one runs. It opens a list of this session's downloads, each with its name, progress or status, and its actions, and a **Show all downloads** item that opens `haku://downloads`.
 - **`haku://downloads`**: every listed download of the window's profile, the same entries and actions, and **Clear finished**.
+- An entry re-renders only when its own download changed, so a running download redraws one entry however many are listed.
 - Actions by state: in progress: pause, cancel; paused: resume, cancel; completed: open, show in folder; failed: retry and cancel when it can resume, otherwise show in folder; cancelled: none.
 
 ## Rejected alternatives
 
 - **Holding the tab rather than the webview.** The download outlives its tab: closing the tab would have to keep a closed tab around, and navigating the tab would release a webview the download still runs in.
 - **Counting held webviews in the configured capacity.** It would let a download take a slot from the tab the user is opening. Held webviews are kept on top of it, like the private anchor; a tab of the other profile grows the pool past them.
-- **One event per download.** The list is small, and sending it whole keeps the interface's copy from drifting; progress is throttled instead.
+- **Only the whole list, for progress too.** Recorded first, on the grounds that the list is small and that sending it whole keeps the interface's copy from drifting. It did not weigh that stored downloads stay until **Clear finished**: with about 500 of them, a running download sent roughly 100 KB to each window four times a second, and every entry re-rendered (issue #75). Progress now travels alone, and everything that adds, removes or ends an entry still sends the whole list, which keeps the drift to a progress figure.
+- **Only this session's downloads in the event, with `haku://downloads` fetching the rest.** The toolbar would get less, but an open downloads page would fetch the whole list on every report, which moves the cost rather than removing it.
 - **A database of its own.** Downloads and history are both records of what was fetched, grow alike, and are kept alike, as in Chrome; a migration costs less than a second file to open, back up and clear.
 - **A `force` flag on the close commands.** `confirm_close` cancels first and closes through the ordinary path, so no close path learns to skip the check.
 - **Retry by fetching the URL again.** WebView2 has no API to start a download, and navigating to the URL would replay a request that may need its page's state. Retry is the engine's resume only.
@@ -101,7 +104,8 @@ A page can neither call these commands nor name a file: the commands are chrome-
 ## Testing
 
 - The model is unit-tested in `model/download.rs`: listing, progress throttling, settling, a resumed failure staying one entry, losing a webview, private downloads, and restoring. `storage/history_db.rs` tests the migration, that private downloads are never written, and forgetting. Pool and browser tests cover the hold, the pool growing past another profile's held webview, and the held close.
-- The interface is tested with Vitest: the toolbar button, its list and actions, and `haku://downloads`.
+- `ipc/downloads.rs` tests that a batch of progress alone is sent entry by entry and that any other change sends the list.
+- The interface is tested with Vitest: the toolbar button, its list and actions, `haku://downloads`, and progress taken into the list without replacing the other entries.
 - In the app, checked on 2026-10-30 with a debug build: starting, pausing, resuming and cancelling a download; closing its tab while it runs; quitting with one running, both answers; a private window's download, listed only there, not stored, and the close of its window; a network failure retried to completion as one entry; **Save image as**; and **Show in folder**. **Open file** was not run in the app.
 
 ## Known limits

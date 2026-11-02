@@ -246,6 +246,7 @@ export const events = {
 	addressFocusRequested: makeEvent<AddressFocusRequested>("address-focus-requested"),
 	closeConfirmationRequested: makeEvent<CloseConfirmationRequested>("close-confirmation-requested"),
 	contextMenuRequested: makeEvent<ContextMenuRequested>("context-menu-requested"),
+	downloadProgressed: makeEvent<DownloadProgressed>("download-progressed"),
 	downloadsChanged: makeEvent<DownloadsChanged>("downloads-changed"),
 	extensionsChanged: makeEvent<ExtensionsChanged>("extensions-changed"),
 	failureReported: makeEvent<FailureReported>("failure-reported"),
@@ -436,6 +437,14 @@ export type DownloadFailure = "network" |
 /**  Identifies one download, unique across runs: stored downloads keep theirs. */
 export type DownloadId = number;
 
+/**
+ *  A download whose bytes received or size changed, and nothing else, sent to
+ *  the windows of its profile at most four times a second. The interface
+ *  replaces the entry with its id, and ignores one it does not list.
+ *  [Downloads § Contract](../../../docs/specs/downloads.md#contract).
+ */
+export type DownloadProgressed = Download;
+
 export type DownloadState = "inProgress" | "paused" | "completed" | "cancelled" | 
 /**  Stopped by a failure. [`Download::failure`] says which. */
 "failed";
@@ -444,8 +453,8 @@ export type DownloadState = "inProgress" | "paused" | "completed" | "cancelled" 
  *  The downloads a window lists, newest first, whenever one starts, moves
  *  on or is unlisted. [Downloads § Contract](../../../docs/specs/downloads.md#contract).
  * 
- *  Each window receives only its own profile's downloads. A running download's
- *  progress is sent at most four times a second.
+ *  Each window receives only its own profile's downloads. Progress alone is
+ *  sent as [`DownloadProgressed`] instead.
  */
 export type DownloadsChanged = Download[];
 
