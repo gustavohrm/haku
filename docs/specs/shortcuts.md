@@ -10,7 +10,7 @@ scope: Browser keyboard shortcuts, how they are read wherever focus is, rebindin
 
 [First release § Keyboard input](../first-release.md#keyboard-input-while-a-page-has-focus) settles the mechanism: keys are intercepted natively, through WebView2's `AcceleratorKeyPressed`, and there is one keymap, in Rust (`model::keymap`).
 
-The handler is attached to the chrome and to every content webview, so a shortcut does the same thing wherever focus is. A key the keymap binds is marked handled before the webview acts on it: neither the page nor the engine's own handling of the key sees it, so a page cannot override Ctrl+W. A key the keymap does not bind passes through untouched, which is what leaves copy, paste and zoom to the page and the engine. Find, print and save are bound, so Haku runs them ([Find, print and save](find-print-save.md)).
+The handler is attached to the chrome and to every content webview, so a shortcut does the same thing wherever focus is. A key the keymap binds is marked handled before the webview acts on it: neither the page nor the engine's own handling of the key sees it, so a page cannot override Ctrl+W. A key the keymap does not bind passes through untouched, which is what leaves copy and paste to the page and the engine. Zoom is not built, and the engine does not provide it either: Tauri turns the engine's zoom keys, Ctrl+wheel and pinch off unless `zoom_hotkeys_enabled` is set (wry's `SetIsZoomControlEnabled`, checked on wry 0.57.0), and Haku does not set it. Find, print and save are bound, so Haku runs them ([Find, print and save](find-print-save.md)).
 
 A held key repeats. Only the first press runs its shortcut; repeats are still kept from the page. Otherwise holding Ctrl+T would open a tab per repeat.
 
