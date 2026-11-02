@@ -814,3 +814,38 @@ fn forgotten_downloads_are_removed_and_others_kept() {
     let stored = database.downloads().unwrap();
     assert_eq!(stored.iter().map(|d| d.id).collect::<Vec<_>>(), [DownloadId(2)]);
 }
+
+#[test]
+fn suggested_pages_have_every_word_and_come_most_used_first() {
+    let database = database();
+    database.record(visit("https://a.test/rust", "Rust book", 1)).unwrap();
+    database
+        .record(visit_by("https://b.test/rust", "Rust by example", 2, Transition::Typed))
+        .unwrap();
+    database.record(visit("https://c.test/", "Go book", 3)).unwrap();
+
+    let pages = database.suggest_pages("RUST b", 10).unwrap();
+    let found: Vec<(&str, i64)> = pages.iter().map(|page| (page.url.as_str(), page.typed_count)).collect();
+    assert_eq!(found, [("https://b.test/rust", 1), ("https://a.test/rust", 0)]);
+    assert!(database.suggest_pages("  ", 10).unwrap().is_empty());
+}
+
+#[test]
+fn only_a_typed_host_completes() {
+    let database = database();
+    database.record(visit("https://www.youtube.com/watch", "", 1)).unwrap();
+    assert_eq!(database.typed_host("you").unwrap(), None);
+
+    database
+        .record(visit_by("https://www.youtube.com/", "", 2, Transition::Typed))
+        .unwrap();
+    database
+        .record(visit_by("https://you.test/", "", 3, Transition::Typed))
+        .unwrap();
+    database
+        .record(visit_by("https://www.youtube.com/", "", 4, Transition::Typed))
+        .unwrap();
+    assert_eq!(database.typed_host("you").unwrap().as_deref(), Some("www.youtube.com"));
+    assert_eq!(database.typed_host("you.").unwrap().as_deref(), Some("you.test"));
+    assert_eq!(database.typed_host("%").unwrap(), None);
+}

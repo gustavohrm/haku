@@ -15,7 +15,7 @@ use crate::model::{
     SitePermission, SiteZoom, Slot, SlotId, Tab, TabId, TabPresence, Transition, Visit, WebviewPool, WindowId,
     WindowKind, WindowRequestId, DEFAULT_ZOOM,
 };
-use crate::model::{search_url, Search};
+use crate::model::{search_url, Search, SearchEngine, Suggestion, TabCandidate};
 
 /// URL a slot is parked on after its tab is discarded.
 ///
@@ -1940,6 +1940,51 @@ impl Browser {
         Ok(effects)
     }
 
+    /// Selects a tab in whichever window holds it, for the address bar of
+    /// `from`, and brings that window forward.
+    /// [Address bar § Approved decisions](../../docs/specs/address-bar.md#approved-decisions), I.
+    ///
+    /// # Errors
+    /// Returns [`HakuError::TabNotFound`] when no tab has this id, and
+    /// [`HakuError::Unsupported`] for a tab of the other profile, which the
+    /// address bar never offers.
+    pub fn switch_to_tab(&mut self, from: WindowId, id: TabId, now: u64) -> Result<Vec<Effect>> {
+        let window = self
+            .window_of(id)
+            .ok_or_else(|| HakuError::TabNotFound(id.0.to_string()))?;
+        if self.is_private(window) != self.is_private(from) {
+            return Err(HakuError::Unsupported(
+                "a tab of the other profile cannot be switched to".into(),
+            ));
+        }
+        let mut effects = self.select_tab(id, now)?;
+        if window != from {
+            effects.push(Effect::FocusWindow { window });
+        }
+        Ok(effects)
+    }
+
+    /// The open tabs the address bar of `window` may offer: those of its
+    /// profile, every window's, but not the tab it shows.
+    pub fn switchable_tabs(&self, window: WindowId) -> impl Iterator<Item = TabCandidate<'_>> {
+        let private = self.is_private(window);
+        let shown = self.active_in(window);
+        self.tabs
+            .iter()
+            .filter(move |tab| {
+                Some(tab.id) != shown
+                    && self
+                        .window_of(tab.id)
+                        .is_some_and(|home| self.is_private(home) == private)
+            })
+            .map(|tab| TabCandidate {
+                id: tab.id,
+                url: tab.url(),
+                title: &tab.history.current().title,
+                active_at: tab.active_at,
+            })
+    }
+
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn navigate(&mut self, id: TabId, url: impl Into<String>) -> Result<Vec<Effect>> {
@@ -3302,13 +3347,44 @@ pub fn resolve_target(input: &str, search: &Search) -> String {
 ///
 /// @returns The URL, empty for blank input, and whether it searches.
 pub fn resolve_input(input: &str, search: &Search) -> (String, bool) {
+    match resolve(input, search) {
+        Resolved::Empty => (String::new(), false),
+        Resolved::Address(url) => (url, false),
+        Resolved::Search { engine, query } => (search_url(&engine.url, &urlencode(query)), true),
+    }
+}
+
+/// What Enter does with the input, as the address bar's first row says it,
+/// or nothing for blank input.
+/// [Address bar § Suggestions](../../docs/specs/address-bar.md#suggestions).
+pub fn describe_input(input: &str, search: &Search) -> Option<Suggestion> {
+    match resolve(input, search) {
+        Resolved::Empty => None,
+        Resolved::Address(url) => Some(Suggestion::Visit { url }),
+        Resolved::Search { engine, query } => Some(Suggestion::Search {
+            engine: engine.name.clone(),
+            query: query.to_string(),
+        }),
+    }
+}
+
+enum Resolved<'a, 'b> {
+    Empty,
+    Address(String),
+    Search { engine: &'b SearchEngine, query: &'a str },
+}
+
+fn resolve<'a, 'b>(input: &'a str, search: &'b Search) -> Resolved<'a, 'b> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return (String::new(), false);
+        return Resolved::Empty;
     }
     if let Some((word, query)) = trimmed.split_once(char::is_whitespace) {
         if let Some(engine) = search.by_keyword(word) {
-            return (search_url(&engine.url, &urlencode(query.trim())), true);
+            return Resolved::Search {
+                engine,
+                query: query.trim(),
+            };
         }
     }
     // An extension's own pages are reached by address: the engine draws no
@@ -3318,13 +3394,16 @@ pub fn resolve_input(input: &str, search: &Search) -> (String, bool) {
         || trimmed.starts_with("https://")
         || trimmed.starts_with("chrome-extension://")
     {
-        return (trimmed.to_string(), false);
+        return Resolved::Address(trimmed.to_string());
     }
     // A single token with a dot and no spaces is a host, anything else is a query.
     if !trimmed.contains(' ') && trimmed.contains('.') {
-        return (format!("https://{trimmed}"), false);
+        return Resolved::Address(format!("https://{trimmed}"));
     }
-    (search_url(&search.default.url, &urlencode(trimmed)), true)
+    Resolved::Search {
+        engine: &search.default,
+        query: trimmed,
+    }
 }
 
 fn urlencode(value: &str) -> String {

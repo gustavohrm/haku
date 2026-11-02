@@ -14,7 +14,8 @@ use specta::Type;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    any_matches, host_of, CompiledPattern, Download, DownloadFailure, DownloadId, DownloadState, Transition, UrlPattern,
+    any_matches, host_of, CompiledPattern, Download, DownloadFailure, DownloadId, DownloadState, PageCandidate,
+    Transition, UrlPattern,
 };
 use crate::storage::sqlite::{self, Migration};
 
@@ -224,6 +225,28 @@ struct Clause {
 }
 
 const FROM_VISITS: &str = "FROM visits v JOIN pages p ON p.id = v.page_id";
+
+/// Narrows `sql`, over `pages p`, to pages with every term in the title or
+/// address, ignoring case.
+fn push_text(sql: &mut String, values: &mut Vec<Value>, terms: &[&str]) {
+    let (long, short): (Vec<&str>, Vec<&str>) = terms.iter().copied().partition(|term| term.chars().count() >= TRIGRAM);
+    if !long.is_empty() {
+        let phrases: Vec<String> = long
+            .iter()
+            .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+            .collect();
+        sql.push_str(" AND p.id IN (SELECT rowid FROM pages_fts WHERE pages_fts MATCH ?)");
+        values.push(Value::Text(phrases.join(" ")));
+    }
+    for term in short {
+        let like = format!(
+            "%{}%",
+            term.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+        );
+        sql.push_str(r" AND (p.title LIKE ? ESCAPE '\' OR p.url LIKE ? ESCAPE '\')");
+        values.extend([Value::Text(like.clone()), Value::Text(like)]);
+    }
+}
 
 pub struct HistoryDb {
     connection: Connection,
@@ -443,6 +466,62 @@ impl HistoryDb {
         Ok(sites)
     }
 
+    /// Pages with every word of `text` in their title or address, the most
+    /// used first, for the address bar to rank.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the query fails.
+    pub fn suggest_pages(&self, text: &str, limit: u32) -> Result<Vec<PageCandidate>> {
+        let terms: Vec<&str> = text.split_whitespace().collect();
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut sql = String::from("1");
+        let mut values = Vec::new();
+        push_text(&mut sql, &mut values, &terms);
+        values.push(Value::Integer(i64::from(limit.max(1))));
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT p.url, p.title, p.visit_count, p.typed_count, p.last_visited_at FROM pages p WHERE {sql}
+             ORDER BY p.typed_count * 4 + p.visit_count DESC, p.last_visited_at DESC LIMIT ?"
+        ))?;
+        let pages = statement
+            .query_map(params_from_iter(values), |row| {
+                Ok(PageCandidate {
+                    url: row.get(0)?,
+                    title: row.get(1)?,
+                    visit_count: row.get(2)?,
+                    typed_count: row.get(3)?,
+                    last_visited_at: row.get(4)?,
+                    bookmarked: false,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(pages)
+    }
+
+    /// The host most typed into the address bar that starts with `prefix`,
+    /// directly or after `www.`; hosts only ever reached otherwise are left
+    /// out.
+    ///
+    /// # Errors
+    /// Returns [`crate::error::HakuError::Storage`] when the query fails.
+    pub fn typed_host(&self, prefix: &str) -> Result<Option<String>> {
+        if prefix.is_empty() {
+            return Ok(None);
+        }
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT host FROM pages
+                 WHERE host <> '' AND (substr(host, 1, length(?1)) = ?1 OR substr(host, 1, length(?1) + 4) = 'www.' || ?1)
+                 GROUP BY host HAVING SUM(typed_count) > 0
+                 ORDER BY SUM(typed_count) DESC, MAX(last_visited_at) DESC, host LIMIT 1",
+                [prefix],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// Deletes the visits the filter covers.
     ///
     /// While history is kept in memory, the same visits are deleted from the
@@ -540,26 +619,7 @@ impl HistoryDb {
             values.extend(filter.transitions.iter().map(|t| Value::Text(t.name().into())));
         }
 
-        let (long, short): (Vec<&str>, Vec<&str>) = filter
-            .terms()
-            .into_iter()
-            .partition(|term| term.chars().count() >= TRIGRAM);
-        if !long.is_empty() {
-            let phrases: Vec<String> = long
-                .iter()
-                .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
-                .collect();
-            sql.push_str(" AND p.id IN (SELECT rowid FROM pages_fts WHERE pages_fts MATCH ?)");
-            values.push(Value::Text(phrases.join(" ")));
-        }
-        for term in short {
-            let like = format!(
-                "%{}%",
-                term.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
-            );
-            sql.push_str(r" AND (p.title LIKE ? ESCAPE '\' OR p.url LIKE ? ESCAPE '\')");
-            values.extend([Value::Text(like.clone()), Value::Text(like)]);
-        }
+        push_text(&mut sql, &mut values, &filter.terms());
 
         for (name, patterns, negate) in [
             ("haku_include", &filter.include, ""),

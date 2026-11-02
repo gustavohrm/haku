@@ -18,6 +18,15 @@ export const commands = {
 	 */
 	searchEngines: () => typedError<ListedSearchEngine[], HakuError>(__TAURI_INVOKE("search_engines")),
 	/**
+	 *  What the address bar suggests for `input`: what Enter does, then the
+	 *  engines a keyword being typed could be, open tabs and pages. Local only, so
+	 *  it answers while the user types.
+	 *  [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+	 *  # Errors
+	 *  Rejects non-chrome callers; propagates storage failures.
+	 */
+	suggest: (input: string) => typedError<Suggestions, HakuError>(__TAURI_INVOKE("suggest", { input })),
+	/**
 	 *  Replaces the settings, applying anything that takes effect immediately.
 	 * 
 	 *  Settings are shared: whichever window calls this changes them for every
@@ -67,6 +76,14 @@ export const commands = {
 	openTab: (url: string | null, activate: boolean, source: NavigationSource) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate, source })),
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
+	/**
+	 *  Selects a tab in whichever window holds it, as the address bar offers
+	 *  open tabs, and brings that window forward.
+	 *  [Address bar § Approved decisions](../../../docs/specs/address-bar.md#approved-decisions), I.
+	 *  # Errors
+	 *  Rejects non-chrome callers, unknown tabs and tabs of the other profile.
+	 */
+	switchToTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("switch_to_tab", { id })),
 	/**
 	 *  Pairs a distinct unpaired tab with the selected unpaired tab.
 	 *  # Errors
@@ -1263,6 +1280,35 @@ export type SlotMemory = {
  *  a consistent picture out of a stream of partial updates.
  */
 export type StateChanged = BrowserState;
+
+/**  One row of the list. */
+export type Suggestion = 
+/**  What Enter does for input that searches: `engine` names where. */
+{ kind: "search"; engine: string; query: string } | 
+/**  What Enter does for input that is an address, or completes to one. */
+{ kind: "visit"; url: string } | 
+/**  An open tab, offered to switch to rather than open again. */
+{ kind: "tab"; tab: TabId; title: string; url: string } | 
+/**  A page from history, a bookmark, or both. */
+{ kind: "page"; title: string; url: string; bookmarked: boolean } | 
+/**
+ *  An engine, while its keyword is being typed. Choosing it puts the
+ *  keyword in the field, to type a query after.
+ */
+{ kind: "engine"; name: string; keyword: string };
+
+/**  The rows for one input. */
+export type Suggestions = {
+	/**
+	 *  The input these answer, so the interface can drop an answer that
+	 *  arrives after the input changed.
+	 */
+	input: string,
+	/**  The input completed to a host the user typed before, or nothing. */
+	completion: string | null,
+	/**  What Enter does first, then engines, open tabs, then pages. */
+	rows: Suggestion[],
+};
 
 export type Tab = {
 	id: TabId,

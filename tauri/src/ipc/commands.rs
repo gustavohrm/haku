@@ -28,10 +28,15 @@ use tauri::{Manager, State};
 use tauri_specta::Event;
 
 use crate::browser::Ending;
-use crate::browser::{resolve_input, resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport};
+use crate::browser::{
+    describe_input, resolve_input, resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport,
+};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
-use crate::model::ListedSearchEngine;
+use crate::model::suggest::{
+    complete_host, host_prefix, keyword_rows, rank_pages, rank_tabs, words, PAGES_MAX, PAGE_CANDIDATES_MAX,
+    SUGGESTIONS_MAX, TABS_MAX,
+};
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
     CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
@@ -39,6 +44,7 @@ use crate::model::{
     PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, Recording, ScreenRect,
     Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
+use crate::model::{ListedSearchEngine, Suggestions};
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::{HistoryCursor, HistoryFilter, HistoryPage, HistorySite, NewVisit};
@@ -1525,6 +1531,62 @@ pub fn search_engines(webview: tauri::Webview, state: State<'_, AppState>) -> Re
     Ok(settings.listed_search_engines())
 }
 
+/// What the address bar suggests for `input`: what Enter does, then the
+/// engines a keyword being typed could be, open tabs and pages. Local only, so
+/// it answers while the user types.
+/// [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+/// # Errors
+/// Rejects non-chrome callers; propagates storage failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn suggest(webview: tauri::Webview, state: State<'_, AppState>, input: String) -> Result<Suggestions> {
+    let window = ensure_chrome(&webview)?;
+    let search = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
+        .search();
+    let typed = words(&input);
+    let (completion, history) = {
+        let history = state
+            .history
+            .lock()
+            .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
+        let completion = match host_prefix(&input) {
+            Some(prefix) => history
+                .typed_host(&prefix)?
+                .and_then(|host| complete_host(&prefix, &host)),
+            None => None,
+        };
+        (completion, history.suggest_pages(&input, PAGE_CANDIDATES_MAX)?)
+    };
+    let bookmarks = state
+        .bookmarks
+        .lock()
+        .map_err(|_| HakuError::Storage("bookmarks lock poisoned".into()))?
+        .suggest_links(&input, PAGE_CANDIDATES_MAX)?;
+    let tabs = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        rank_tabs(browser.switchable_tabs(window), &typed, TABS_MAX)
+    };
+
+    let mut rows: Vec<_> = describe_input(completion.as_deref().unwrap_or(&input), &search)
+        .into_iter()
+        .collect();
+    rows.extend(keyword_rows(&input, &search.engines));
+    rows.extend(tabs);
+    rows.extend(rank_pages(history, bookmarks, &typed, now_ms() as i64, PAGES_MAX));
+    rows.truncate(SUGGESTIONS_MAX);
+    Ok(Suggestions {
+        input,
+        completion,
+        rows,
+    })
+}
+
 /// Replaces the settings, applying anything that takes effect immediately.
 ///
 /// Settings are shared: whichever window calls this changes them for every
@@ -1771,6 +1833,27 @@ pub async fn select_tab(
     mutate_in(&app, &state, window, |browser| {
         browser.set_pressure(pressure);
         browser.select_tab(id, now_ms())
+    })
+}
+
+/// Selects a tab in whichever window holds it, as the address bar offers
+/// open tabs, and brings that window forward.
+/// [Address bar § Approved decisions](../../../docs/specs/address-bar.md#approved-decisions), I.
+/// # Errors
+/// Rejects non-chrome callers, unknown tabs and tabs of the other profile.
+#[tauri::command]
+#[specta::specta]
+pub async fn switch_to_tab(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: TabId,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    let pressure = read_pressure(&state);
+    mutate_in(&app, &state, window, |browser| {
+        browser.set_pressure(pressure);
+        browser.switch_to_tab(window, id, now_ms())
     })
 }
 

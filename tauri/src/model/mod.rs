@@ -14,6 +14,7 @@ pub mod pool;
 pub mod pressure;
 pub mod preview;
 pub mod search;
+pub mod suggest;
 pub mod tab;
 pub mod url_pattern;
 pub mod window;
@@ -50,6 +51,7 @@ pub use preview::{data_url, jpeg_data_url, Previews};
 pub use search::{
     preset_engine, search_url, ListedSearchEngine, Search, SearchEngine, DEFAULT_SEARCH_ENGINE, PRESET_ENGINES,
 };
+pub use suggest::{BookmarkCandidate, PageCandidate, Suggestion, Suggestions, TabCandidate};
 pub use tab::{host_of, is_internal, CrashCause, Scroll, Tab, TabId, TabPresence};
 pub use url_pattern::{any_matches, CompiledPattern, UrlPattern, UrlPatternKind};
 pub use window::{Placement, WindowId, WindowKind, WindowRequestId, WINDOW_LABEL_PREFIX};

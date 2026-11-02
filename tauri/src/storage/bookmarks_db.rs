@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::error::{HakuError, Result};
-use crate::model::{is_bookmarkable, BookmarkId, BookmarkKind, BookmarkNode, Bookmarks, ImportedBookmarks};
+use crate::model::{
+    is_bookmarkable, BookmarkCandidate, BookmarkId, BookmarkKind, BookmarkNode, Bookmarks, ImportedBookmarks,
+};
 use crate::storage::bookmarks_html::{self, BookmarkFile};
 use crate::storage::sqlite;
 
@@ -200,6 +202,43 @@ impl BookmarksDb {
             None => self.tree_root("bar")?,
         };
         Ok((self.insert(folder, None, title, Some(url), now)?, true))
+    }
+
+    /// Links with every word of `text` in their title or address, ignoring
+    /// case, for the address bar to rank.
+    ///
+    /// # Errors
+    /// Returns [`HakuError::Storage`] when the query fails.
+    pub fn suggest_links(&self, text: &str, limit: u32) -> Result<Vec<BookmarkCandidate>> {
+        let likes: Vec<String> = text
+            .split_whitespace()
+            .map(|word| {
+                let escaped = word.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+                format!("%{escaped}%")
+            })
+            .collect();
+        if likes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut sql = String::from("SELECT url, title, added_at FROM bookmarks WHERE url IS NOT NULL");
+        for index in 1..=likes.len() {
+            sql.push_str(&format!(
+                r" AND (title LIKE ?{index} ESCAPE '\' OR url LIKE ?{index} ESCAPE '\')"
+            ));
+        }
+        sql.push_str(&format!(" ORDER BY modified_at DESC, id LIMIT {}", limit.max(1)));
+        let links = self
+            .connection
+            .prepare(&sql)?
+            .query_map(rusqlite::params_from_iter(&likes), |row| {
+                Ok(BookmarkCandidate {
+                    url: row.get(0)?,
+                    title: row.get(1)?,
+                    added_at: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(links)
     }
 
     fn tree_root(&self, name: &str) -> Result<BookmarkId> {
@@ -1068,5 +1107,24 @@ mod tests {
         assert!(matches!(failure, Some(HakuError::Storage(_))));
         assert!(database.tree().is_ok());
         assert!(path.is_dir(), "the path is left as it was");
+    }
+
+    #[test]
+    fn suggested_links_have_every_word_and_leave_folders_out() {
+        let mut database = database();
+        let (bar, _) = roots(&database);
+        database.add_link(bar, None, "Rust Book", "https://a.test/", 1).unwrap();
+        database.add_link(bar, None, "Rust", "https://b.test/book", 2).unwrap();
+        database.add_link(bar, None, "Other", "https://c.test/100%", 3).unwrap();
+        database.add_folder(bar, None, "Rust book folder", 4).unwrap();
+
+        let urls = |text: &str| -> Vec<String> {
+            let links = database.suggest_links(text, 10).unwrap();
+            links.into_iter().map(|link| link.url).collect()
+        };
+        assert_eq!(urls("rust BOOK"), ["https://b.test/book", "https://a.test/"]);
+        assert_eq!(urls("0%"), ["https://c.test/100%"]);
+        assert!(urls("_").is_empty());
+        assert!(urls(" ").is_empty());
     }
 }

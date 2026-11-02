@@ -4835,3 +4835,67 @@ fn a_private_window_shows_stored_levels_and_keeps_its_own_in_memory() {
     let (again, _) = browser.open_private_window("https://a.test");
     assert_eq!(zoom_of(&browser, again), 150, "forgotten with the private session");
 }
+
+#[test]
+fn switching_to_a_tab_of_another_window_selects_it_and_brings_that_window_forward() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test"]);
+    let first = browser.main_window();
+    let (other, _) = browser.open_window("https://c.test");
+    let second = browser.window_of(other).unwrap();
+
+    let effects = browser.switch_to_tab(second, ids[0], 10).unwrap();
+
+    assert_eq!(browser.active_in(first), Some(ids[0]));
+    assert!(effects.contains(&Effect::FocusWindow { window: first }));
+    let effects = browser.switch_to_tab(first, ids[1], 20).unwrap();
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::FocusWindow { .. })));
+}
+
+#[test]
+fn a_tab_of_the_other_profile_is_never_offered_or_switched_to() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test"]);
+    let normal = browser.main_window();
+    let (secret, _) = browser.open_private_window("https://secret.test");
+    let private = browser.window_of(secret).unwrap();
+
+    let offered =
+        |browser: &Browser, window| -> Vec<TabId> { browser.switchable_tabs(window).map(|tab| tab.id).collect() };
+    assert_eq!(offered(&browser, normal), [ids[0]], "the tab shown is not offered");
+    assert!(offered(&browser, private).is_empty());
+    assert!(matches!(
+        browser.switch_to_tab(normal, secret, 10),
+        Err(HakuError::Unsupported(_))
+    ));
+    assert!(matches!(
+        browser.switch_to_tab(private, ids[0], 10),
+        Err(HakuError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn the_first_row_says_what_enter_does() {
+    let search = searching("https://search.test/?q=%s");
+    assert_eq!(
+        describe_input("@g example.com", &search),
+        Some(Suggestion::Search {
+            engine: "google".into(),
+            query: "example.com".into()
+        })
+    );
+    assert_eq!(
+        describe_input(" rust book ", &search),
+        Some(Suggestion::Search {
+            engine: "default".into(),
+            query: "rust book".into()
+        })
+    );
+    assert_eq!(
+        describe_input("example.com", &search),
+        Some(Suggestion::Visit {
+            url: "https://example.com".into()
+        })
+    );
+    assert_eq!(describe_input("  ", &search), None);
+}
