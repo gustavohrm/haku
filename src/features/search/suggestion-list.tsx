@@ -16,7 +16,8 @@ interface SuggestionListProps {
 
 /**
  * The rows under the address field. Drawn over the page, so registered as an
- * overlay. A row takes no focus: the input keeps it, and names the selected
+ * overlay. Unframed: the caller edges it, as a list of its own or as part of
+ * the floating card. A row takes no focus: the input keeps it, and names the selected
  * row as its active descendant.
  * [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
  */
@@ -33,10 +34,7 @@ export function SuggestionList({ id, rows, selected, rowId, onChoose, className 
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- A combobox's popup: a select cannot hang under a text input while the input keeps focus.
       role="listbox"
       aria-label={t("toolbar.suggestions")}
-      className={cx(
-        "bg-chrome-raised border-edge z-30 flex flex-col overflow-hidden rounded-(--radius-control) border py-1",
-        className,
-      )}
+      className={cx("bg-chrome-raised z-30 flex flex-col overflow-hidden py-1", className)}
     >
       {rows.map((row, index) => {
         const { icon, title, detail, bookmarked } = describe(row);

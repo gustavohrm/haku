@@ -100,6 +100,14 @@ export const en = {
   "settings.toolbarPlacement.keywords": "address bar, url bar, toolbar, single toolbar, sidebar, layout, appearance",
   "settings.toolbarPlacement.top": "Top",
   "settings.toolbarPlacement.sidebar": "In the sidebar",
+  "settings.addressBarLayout": "Address bar",
+  "settings.addressBarLayout.help":
+    "In the toolbar, with suggestions under it, or in a card over the middle of the window while you type.",
+  "settings.addressBarLayout.keywords":
+    "address bar, url bar, omnibox, search bar, floating, centered, zen, layout, appearance",
+  "settings.addressBarLayout.inline": "In the toolbar",
+  "settings.addressBarLayout.floating": "Floating",
+  "settings.disabledByToolbarInColumn": "Always floating while the toolbar is in the sidebar.",
   "settings.needsVerticalTabs": "Has no effect while the tabs are horizontal.",
   "settings.sidebarBookmarks": "Bookmarks in the sidebar",
   "settings.sidebarBookmarks.help":

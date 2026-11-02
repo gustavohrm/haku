@@ -1,5 +1,6 @@
 import { type ThemePreference } from "@app/theme";
 import {
+  type AddressBarLayout,
   type BarLayout,
   type BookmarksBar,
   type Extension,
@@ -163,6 +164,25 @@ export function ToolbarPlacementControl({ labelId, describedBy, disabled, settin
       choices={TOOLBAR_PLACEMENTS}
       value={settings.toolbarPlacement}
       onChoose={(toolbarPlacement) => void update({ toolbarPlacement })}
+    />
+  );
+}
+
+const ADDRESS_BAR_LAYOUTS: { value: AddressBarLayout; icon: string; label: TranslationKey }[] = [
+  { value: "inline", icon: "ic-text-cursor-input", label: "settings.addressBarLayout.inline" },
+  { value: "floating", icon: "ic-rectangle-ellipsis", label: "settings.addressBarLayout.floating" },
+];
+
+/** Whether the address is edited in the toolbar or in a card over the window, as the theme's icon buttons. */
+export function AddressBarLayoutControl({ labelId, describedBy, disabled, settings, update }: ControlProps) {
+  return (
+    <IconChoices
+      labelId={labelId}
+      describedBy={describedBy}
+      disabled={disabled}
+      choices={ADDRESS_BAR_LAYOUTS}
+      value={settings.addressBarLayout}
+      onChoose={(addressBarLayout) => void update({ addressBarLayout })}
     />
   );
 }

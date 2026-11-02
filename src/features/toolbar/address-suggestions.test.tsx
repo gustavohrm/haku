@@ -31,6 +31,8 @@ vi.mock("@ipc/hooks", () => ({
   useDownloads: () => [],
 }));
 
+import { barHoldStore } from "@features/bars/holds";
+
 import { Toolbar } from "./toolbar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -218,5 +220,70 @@ describe("address suggestions", () => {
     expect(input().value).toBe("@g ");
     expect(navigateTab).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(input());
+  });
+});
+
+describe("floating address card", () => {
+  const card = () => document.querySelector<HTMLFormElement>("[data-address-card]");
+  const field = () => container.querySelector<HTMLInputElement>("input[readonly]")!;
+  const editor = () => card()!.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+  const open = () => act(async () => field().focus());
+
+  const typeInCard = async (value: string) => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      set.call(editor(), value);
+      editor().dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+    });
+  };
+
+  beforeEach(async () => {
+    await act(async () => root.render(<Toolbar tab={TAB} floatingAddress />));
+  });
+
+  it("opens on focusing the field, with the address to edit, and holds the bar", async () => {
+    expect(card()).toBeNull();
+
+    await open();
+
+    expect(document.activeElement).toBe(editor());
+    expect(editor().value).toBe("https://example.com/");
+    expect(field().value).toBe("example.com");
+    expect(barHoldStore.get().toolbar).toBe(1);
+  });
+
+  it("closes on Escape and on leaving it, discarding what was typed", async () => {
+    await open();
+    await typeInCard("abc");
+    await act(async () => {
+      editor().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(card()).toBeNull();
+    expect(barHoldStore.get().toolbar).toBe(0);
+
+    await open();
+    expect(editor().value).toBe("https://example.com/");
+    await act(async () => editor().blur());
+    expect(card()).toBeNull();
+  });
+
+  it("lists suggestions in the card and closes once one is opened", async () => {
+    answering((typed) => [search(typed), page("https://a.test/")]);
+    await open();
+    await typeInCard("te");
+    expect(card()!.querySelectorAll('[role="option"]')).toHaveLength(2);
+
+    await act(async () => card()!.requestSubmit());
+
+    expect(navigateTab).toHaveBeenCalledExactlyOnceWith(1, "te", "typed");
+    expect(card()).toBeNull();
+  });
+
+  it("stays open when pressed outside its input", async () => {
+    await open();
+    const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    await act(async () => card()!.dispatchEvent(press));
+    expect(press.defaultPrevented).toBe(true);
+    expect(card()).not.toBeNull();
   });
 });

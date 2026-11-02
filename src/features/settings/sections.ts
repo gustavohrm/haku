@@ -3,6 +3,7 @@ import { t } from "@shared/i18n";
 
 import {
   AddExtensionControl,
+  AddressBarLayoutControl,
   BarLayoutControl,
   BookmarksBarControl,
   CapacityControl,
@@ -45,6 +46,10 @@ const unlessToolbarInColumn = (settings: { tabLayout: string; toolbarPlacement: 
   settings.tabLayout === "vertical" && settings.toolbarPlacement === "sidebar"
     ? null
     : ("settings.needsToolbarInColumn" as const);
+
+// The address field in the column always floats.
+const ifToolbarInColumn = (settings: { tabLayout: string; toolbarPlacement: string }) =>
+  unlessToolbarInColumn(settings) === null ? ("settings.disabledByToolbarInColumn" as const) : null;
 
 // The bar shows nowhere while bookmarks are the column's button.
 const unlessBookmarksBarShown = (settings: {
@@ -102,6 +107,15 @@ export const SECTIONS: SettingSection[] = [
             labelsControl: false,
             disabledReason: unlessVerticalTabs,
             Control: ToolbarPlacementControl,
+          },
+          {
+            id: "addressBarLayout",
+            title: "settings.addressBarLayout",
+            description: "settings.addressBarLayout.help",
+            keywords: "settings.addressBarLayout.keywords",
+            labelsControl: false,
+            disabledReason: ifToolbarInColumn,
+            Control: AddressBarLayoutControl,
           },
           {
             id: "sidebarBookmarks",

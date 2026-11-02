@@ -434,29 +434,8 @@ dialog[data-toast-instance] .toast-dialog-container {
   transition: none;
 }
 
-/* The address in a sidebar grows over the page while it is edited, toward
-   the page, so a long address has room however narrow the column is. */
-.haku-address-expandable {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  z-index: 10;
-  width: 100%;
-  outline-offset: -2px;
-  transition: width var(--haku-enter) var(--haku-ease-enter);
-}
-
-.haku-address-expandable[data-expanded] {
-  width: max(100%, min(40rem, 60vw));
-}
-
-[data-side="right"] .haku-address-expandable {
-  inset-inline: auto 0;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .haku-bar-panel,
-  .haku-address-expandable,
   .haku-sidebar-resizer::after {
     transition: none !important;
   }
