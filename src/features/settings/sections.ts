@@ -16,7 +16,6 @@ import {
   KeptSitesControl,
   MemoryPageControl,
   PresetControl,
-  SearchUrlControl,
   SidebarBookmarksControl,
   SidebarSideControl,
   SitePermissionsControl,
@@ -27,6 +26,7 @@ import {
   VersionControl,
 } from "./controls";
 import { HistoryEnabledControl, HistoryRetentionControl, HistoryRulesControl } from "./history-controls";
+import { SearchEngineControl, SearchEnginesControl } from "./search-controls";
 import { SHORTCUT_GROUPS } from "./shortcuts";
 import { type SettingRowDefinition, type SettingSection } from "./types";
 
@@ -202,12 +202,20 @@ export const SECTIONS: SettingSection[] = [
       {
         rows: [
           {
-            id: "searchUrl",
-            title: "settings.search",
-            description: "settings.search.help",
-            keywords: "settings.search.keywords",
+            id: "searchEngine",
+            title: "settings.searchEngine",
+            description: "settings.searchEngine.help",
+            keywords: "settings.searchEngine.keywords",
+            Control: SearchEngineControl,
+          },
+          {
+            id: "searchEngines",
+            title: "settings.searchEngines",
+            description: "settings.searchEngines.help",
+            keywords: "settings.searchEngines.keywords",
             wide: true,
-            Control: SearchUrlControl,
+            labelsControl: false,
+            Control: SearchEnginesControl,
           },
           {
             id: "homeUrl",

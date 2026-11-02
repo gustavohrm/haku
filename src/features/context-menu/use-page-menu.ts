@@ -1,7 +1,8 @@
 import { events, type Tab, type TabId } from "@bindings";
+import { defaultEngineName, useSearchEngines } from "@features/search/use-search-engines";
 import { paneGeometryStore } from "@features/viewport/use-chrome-layout";
 import { commands } from "@ipc/commands";
-import { useBrowserState } from "@ipc/hooks";
+import { useBrowserState, useSettings } from "@ipc/hooks";
 import { t } from "@shared/i18n";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useEffectEvent, useRef } from "react";
@@ -39,6 +40,8 @@ export function usePageMenu(tab: Tab | null): void {
   const open = useRef<OpenPageMenu | null>(null);
   const tabOf = useEffectEvent((id: number) => tabs.find((candidate) => candidate.id === id) ?? null);
   const privateWindow = useEffectEvent(() => isPrivate);
+  const engineName = defaultEngineName(useSearchEngines(), useSettings());
+  const searchEngine = useEffectEvent(() => engineName);
   const paneOf = useEffectEvent((id: number) => viewports.find((pane) => pane.tab === id)?.id);
   const focusedTab = useEffectEvent(() => tabId);
 
@@ -81,6 +84,7 @@ export function usePageMenu(tab: Tab | null): void {
           label: t("menu.page"),
           items: pageMenu(request, tabOf(id), {
             isPrivate: privateWindow(),
+            searchEngine: searchEngine(),
             back: own(() => void commands.goBack(id)),
             forward: own(() => void commands.goForward(id)),
             reload: own(() => void commands.reloadTab(id)),

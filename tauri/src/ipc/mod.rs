@@ -23,6 +23,7 @@ pub fn builder() -> Builder<tauri::Wry> {
         .commands(collect_commands![
             commands::get_state,
             commands::get_settings,
+            commands::search_engines,
             commands::set_settings,
             commands::apply_preset,
             commands::current_preset,

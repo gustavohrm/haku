@@ -34,7 +34,7 @@ vi.mock("@bindings", () => ({
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
 vi.mock("@ipc/commands", () => ({ commands }));
-vi.mock("@ipc/hooks", () => ({ useBrowserState: () => state }));
+vi.mock("@ipc/hooks", () => ({ useBrowserState: () => state, useSettings: () => null }));
 
 import { paneGeometryStore } from "@features/viewport/use-chrome-layout";
 

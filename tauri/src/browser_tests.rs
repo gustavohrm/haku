@@ -5,6 +5,24 @@ use crate::model::Loss;
 const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
 
+/// Searching with one engine at `url`, and Google by `@g`.
+fn searching(url: &str) -> Search {
+    let engine = |id: &str, url: &str, keyword: Option<&str>| crate::model::SearchEngine {
+        id: id.into(),
+        name: id.into(),
+        url: url.into(),
+        suggest_url: None,
+        keyword: keyword.map(Into::into),
+    };
+    Search {
+        default: engine("default", url, None),
+        engines: vec![
+            engine("default", url, None),
+            engine("google", "https://www.google.com/search?q=%s", Some("@g")),
+        ],
+    }
+}
+
 #[test]
 fn pressure_keeps_one_anchor_when_several_private_pages_are_discarded_together() {
     let mut browser = Browser::new(4);
@@ -1019,48 +1037,75 @@ fn reordering_past_the_end_clamps_to_the_last_position() {
 
 #[test]
 fn an_address_with_a_scheme_is_used_as_typed() {
-    assert_eq!(resolve_target("https://a.test/x", SEARCH), "https://a.test/x");
-    assert_eq!(resolve_target("haku://settings", SEARCH), "haku://settings");
     assert_eq!(
-        resolve_target("chrome-extension://abc/popup.html", SEARCH),
+        resolve_target("https://a.test/x", &searching(SEARCH)),
+        "https://a.test/x"
+    );
+    assert_eq!(resolve_target("haku://settings", &searching(SEARCH)), "haku://settings");
+    assert_eq!(
+        resolve_target("chrome-extension://abc/popup.html", &searching(SEARCH)),
         "chrome-extension://abc/popup.html"
     );
 }
 
 #[test]
 fn a_bare_host_gets_an_https_scheme() {
-    assert_eq!(resolve_target("example.com", SEARCH), "https://example.com");
+    assert_eq!(resolve_target("example.com", &searching(SEARCH)), "https://example.com");
 }
 
 #[test]
 fn words_are_searched_rather_than_treated_as_a_host() {
-    assert_eq!(resolve_target("how to fly", SEARCH), format!("{SEARCH}how+to+fly"));
+    assert_eq!(
+        resolve_target("how to fly", &searching(SEARCH)),
+        format!("{SEARCH}how+to+fly")
+    );
 }
 
 #[test]
 fn a_dotted_phrase_containing_spaces_is_a_search_not_a_host() {
     assert_eq!(
-        resolve_target("what is node.js", SEARCH),
+        resolve_target("what is node.js", &searching(SEARCH)),
         format!("{SEARCH}what+is+node.js")
     );
 }
 
 #[test]
 fn reserved_characters_in_a_search_are_percent_encoded() {
-    assert_eq!(resolve_target("a&b=c", SEARCH), format!("{SEARCH}a%26b%3Dc"));
+    assert_eq!(
+        resolve_target("a&b=c", &searching(SEARCH)),
+        format!("{SEARCH}a%26b%3Dc")
+    );
 }
 
 #[test]
 fn a_search_goes_where_the_search_url_marks_it() {
     assert_eq!(
-        resolve_target("how to fly", "https://search.test/?q=%s&lang=en"),
+        resolve_target("how to fly", &searching("https://search.test/?q=%s&lang=en")),
         "https://search.test/?q=how+to+fly&lang=en"
     );
 }
 
 #[test]
+fn a_keyword_searches_its_engine_whatever_the_query_looks_like() {
+    assert_eq!(
+        resolve_input("@G  rust book ", &searching(SEARCH)),
+        ("https://www.google.com/search?q=rust+book".to_string(), true)
+    );
+    assert_eq!(
+        resolve_target("@g example.com", &searching(SEARCH)),
+        "https://www.google.com/search?q=example.com"
+    );
+}
+
+#[test]
+fn a_keyword_alone_or_a_word_that_is_not_one_is_an_ordinary_search() {
+    assert_eq!(resolve_target("@g", &searching(SEARCH)), format!("{SEARCH}%40g"));
+    assert_eq!(resolve_target("g cats", &searching(SEARCH)), format!("{SEARCH}g+cats"));
+}
+
+#[test]
 fn an_empty_address_resolves_to_nothing() {
-    assert_eq!(resolve_target("   ", SEARCH), "");
+    assert_eq!(resolve_target("   ", &searching(SEARCH)), "");
 }
 
 fn dialog(id: u64, kind: DialogKind) -> PageDialog {
@@ -1381,14 +1426,17 @@ fn while_history_is_paused_no_report_reaches_it_and_the_tab_still_follows_the_pa
 #[test]
 fn input_resolving_to_a_search_says_so() {
     assert_eq!(
-        resolve_input("rust book", "https://s.test/?q="),
+        resolve_input("rust book", &searching("https://s.test/?q=")),
         ("https://s.test/?q=rust+book".to_string(), true)
     );
     assert_eq!(
-        resolve_input("example.com", "https://s.test/?q="),
+        resolve_input("example.com", &searching("https://s.test/?q=")),
         ("https://example.com".to_string(), false)
     );
-    assert_eq!(resolve_input("  ", "https://s.test/?q="), (String::new(), false));
+    assert_eq!(
+        resolve_input("  ", &searching("https://s.test/?q=")),
+        (String::new(), false)
+    );
 }
 
 // -- optimization policies -------------------------------------------------

@@ -10,6 +10,14 @@ export const commands = {
 	getState: () => typedError<BrowserState, HakuError>(__TAURI_INVOKE("get_state")),
 	getSettings: () => typedError<Settings, HakuError>(__TAURI_INVOKE("get_settings")),
 	/**
+	 *  Every search engine, presets first, with the user's keywords applied, so
+	 *  the interface lists them without a copy of the presets.
+	 *  [Address bar § Contract](../../../docs/specs/address-bar.md#contract).
+	 *  # Errors
+	 *  Rejects non-chrome callers.
+	 */
+	searchEngines: () => typedError<ListedSearchEngine[], HakuError>(__TAURI_INVOKE("search_engines")),
+	/**
 	 *  Replaces the settings, applying anything that takes effect immediately.
 	 * 
 	 *  Settings are shared: whichever window calls this changes them for every
@@ -899,6 +907,14 @@ export type Layout = {
 	overlays: Overlay[],
 };
 
+/**  An engine as the settings page lists it. */
+export type ListedSearchEngine = {
+	engine: SearchEngine,
+	/**  Shipped with Haku: its URL is fixed, and it is hidden, not removed. */
+	preset: boolean,
+	hidden: boolean,
+};
+
 /**  What discarding a tab would cost, from least to most. */
 export type Loss = 
 /**  A reload shows the same thing. */
@@ -1067,6 +1083,22 @@ export type Scroll = {
 	y: number,
 };
 
+/**  A search engine as the interface and the address field use it. */
+export type SearchEngine = {
+	/**  A preset's fixed id, or one the interface made for a custom engine. */
+	id: string,
+	name: string,
+	/**  Where a search goes, with [`SEARCH_MARK`] where the query goes. */
+	url: string,
+	/**
+	 *  Where completions for a query are asked, in the OpenSearch suggestions
+	 *  format, or nothing when the engine has none Haku can use.
+	 */
+	suggestUrl: string | null,
+	/**  Typed before a query, searches this engine once. */
+	keyword: string | null,
+};
+
 export type Settings = {
 	/**
 	 *  How many webviews may exist at once. One means only the visible tab is
@@ -1103,7 +1135,20 @@ export type Settings = {
 	sidebarWidth: number,
 	/**  BCP-47 language tag the interface is shown in. */
 	locale: string,
-	searchUrl: string,
+	/**
+	 *  The id of the engine searches go to.
+	 *  [Address bar § Search engines](../../../docs/specs/address-bar.md#search-engines).
+	 */
+	searchEngine: string,
+	/**  Engines the user added, in the order they were added. */
+	customSearchEngines: SearchEngine[],
+	/**
+	 *  Keywords the user gave presets in place of their own, by preset id. An
+	 *  empty one leaves the preset without a keyword.
+	 */
+	presetKeywords: { [key in string]: string },
+	/**  Ids of presets the user hid. The default engine is never hidden. */
+	hiddenSearchEngines: string[],
 	homeUrl: string,
 	/**
 	 *  Ids of installed extensions the user switched off. Extensions are

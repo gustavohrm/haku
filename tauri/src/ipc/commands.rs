@@ -31,6 +31,7 @@ use crate::browser::Ending;
 use crate::browser::{resolve_input, resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
+use crate::model::ListedSearchEngine;
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
     CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
@@ -1508,6 +1509,22 @@ pub fn get_settings(webview: tauri::Webview, state: State<'_, AppState>) -> Resu
     Ok(settings.clone())
 }
 
+/// Every search engine, presets first, with the user's keywords applied, so
+/// the interface lists them without a copy of the presets.
+/// [Address bar § Contract](../../../docs/specs/address-bar.md#contract).
+/// # Errors
+/// Rejects non-chrome callers.
+#[tauri::command]
+#[specta::specta]
+pub fn search_engines(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Vec<ListedSearchEngine>> {
+    ensure_chrome(&webview)?;
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+    Ok(settings.listed_search_engines())
+}
+
 /// Replaces the settings, applying anything that takes effect immediately.
 ///
 /// Settings are shared: whichever window calls this changes them for every
@@ -1708,7 +1725,7 @@ pub async fn open_tab(
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         match url {
-            Some(url) => resolve_input(&url, &settings.search_url),
+            Some(url) => resolve_input(&url, &settings.search()),
             None => (settings.home_url.clone(), false),
         }
     };
@@ -1854,7 +1871,7 @@ pub async fn navigate_tab(
             .settings
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        resolve_input(&input, &settings.search_url)
+        resolve_input(&input, &settings.search())
     };
     if target.is_empty() {
         return get_state(webview, state);
@@ -1919,7 +1936,7 @@ pub async fn open_window(
             .settings
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        resolve_target(&url, &settings.search_url)
+        resolve_target(&url, &settings.search())
     };
     let pressure = read_pressure(&state);
     mutate_in(&app, &state, window, |browser| {

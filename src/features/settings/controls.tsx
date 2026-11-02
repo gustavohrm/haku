@@ -558,19 +558,6 @@ export function SiteZoomControl({ labelId, describedBy, settings, update }: Cont
   );
 }
 
-export function SearchUrlControl({ id, describedBy, settings, update }: ControlProps) {
-  return (
-    <DraftInput
-      id={id}
-      type="text"
-      className="w-full"
-      aria-describedby={describedBy}
-      value={settings.searchUrl}
-      onCommit={async (next) => (await update({ searchUrl: next }))?.searchUrl ?? null}
-    />
-  );
-}
-
 export function HomeUrlControl({ id, describedBy, settings, update }: ControlProps) {
   return (
     <DraftInput

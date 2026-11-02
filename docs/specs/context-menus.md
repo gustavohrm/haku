@@ -103,7 +103,7 @@ Haku's items, by what was clicked:
 | Page      | Back, Forward, Reload, Print…, Save as…                                                            |
 | Link      | Open link in new tab, Open link in new window, Open link in private window (ordinary windows only) |
 | Image     | Open image in new tab, when the engine gives the image's address                                   |
-| Selection | Search for "…" (the search engine's name is not known, so the label does not name one)             |
+| Selection | Search _engine_ for "…", naming the default engine ([Address bar](address-bar.md#search-engines))  |
 
 Native items follow in their own groups, then extension items in a group of their own, as Chrome shows them. Every page menu, whatever was clicked, ends with **Inspect**, which opens the tab's DevTools with `open_tab_devtools`, in place of the engine's inspectElement.
 

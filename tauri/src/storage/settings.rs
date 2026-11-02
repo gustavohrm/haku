@@ -5,10 +5,11 @@ use specta::Type;
 
 use crate::model::keymap::{defaults_of, DEFAULTS};
 use crate::model::permission::{normalized, SitePermissions};
+use crate::model::search::same_search_url;
+use crate::model::{preset_engine, ListedSearchEngine, Search, SearchEngine, DEFAULT_SEARCH_ENGINE, PRESET_ENGINES};
 use crate::model::{Chord, Keymap, Policy, Preset, Shortcut, DEFAULT_CAPACITY};
 use crate::model::{HistoryRetention, HistoryRules, SiteZooms};
 
-const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q=";
 const DEFAULT_HOME_URL: &str = "haku://new-tab";
 const DEFAULT_KEPT_MEMORY_MB: u32 = 512;
 /// Schemes Haku opens from a stored address, as a home page or a restored tab.
@@ -143,7 +144,16 @@ pub struct Settings {
     pub sidebar_width: u32,
     /// BCP-47 language tag the interface is shown in.
     pub locale: String,
-    pub search_url: String,
+    /// The id of the engine searches go to.
+    /// [Address bar § Search engines](../../../docs/specs/address-bar.md#search-engines).
+    pub search_engine: String,
+    /// Engines the user added, in the order they were added.
+    pub custom_search_engines: Vec<SearchEngine>,
+    /// Keywords the user gave presets in place of their own, by preset id. An
+    /// empty one leaves the preset without a keyword.
+    pub preset_keywords: BTreeMap<String, String>,
+    /// Ids of presets the user hid. The default engine is never hidden.
+    pub hidden_search_engines: Vec<String>,
     pub home_url: String,
     /// Ids of installed extensions the user switched off. Extensions are
     /// installed by placing them in the extensions folder, so this holds only
@@ -282,7 +292,10 @@ impl Default for Settings {
             sidebar_bookmarks: SidebarBookmarks::default(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             locale: "en".into(),
-            search_url: DEFAULT_SEARCH_URL.into(),
+            search_engine: DEFAULT_SEARCH_ENGINE.into(),
+            custom_search_engines: Vec::new(),
+            preset_keywords: BTreeMap::new(),
+            hidden_search_engines: Vec::new(),
             home_url: DEFAULT_HOME_URL.into(),
             disabled_extensions: Vec::new(),
             pinned_extensions: Vec::new(),
@@ -299,12 +312,12 @@ impl Default for Settings {
 impl Settings {
     /// Clamps values that would leave the browser unusable.
     ///
-    /// Settings can be hand-edited, so a zero capacity or a search URL that is
-    /// not a web address has to be survivable rather than fatal.
+    /// Settings can be hand-edited, so a zero capacity or a search engine that
+    /// does not exist has to be survivable rather than fatal.
     pub fn sanitized(mut self) -> Self {
         self.webview_capacity = self.webview_capacity.max(1);
         self.sidebar_width = self.sidebar_width.clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
-        self.search_url = normalized_search_url(&self.search_url);
+        self.sanitize_search_engines();
         self.home_url = normalized_home_url(&self.home_url);
         // Hosts are compared as `host_of` gives them, so a hand-edited entry
         // in another case or with stray spaces still matches.
@@ -470,32 +483,179 @@ fn normalized_home_url(typed: &str) -> String {
     normalized_url(typed, OPENABLE_SCHEMES, DEFAULT_HOME_URL)
 }
 
-/// The search URL as it is stored, by the home page's rules but for web
+/// A search URL as it is stored, by the home page's rules but for web
 /// addresses only: a search is sent to a site, and anything else would turn
 /// every search typed in the address field into something that is not one.
-fn normalized_search_url(typed: &str) -> String {
-    normalized_url(typed, SEARCH_SCHEMES, DEFAULT_SEARCH_URL)
+/// Nothing when it is not one.
+fn normalized_search_url(typed: &str) -> Option<String> {
+    web_or_typed_url(typed, SEARCH_SCHEMES)
 }
 
 fn normalized_url(typed: &str, schemes: &[&str], default: &str) -> String {
+    web_or_typed_url(typed, schemes).unwrap_or_else(|| default.into())
+}
+
+/// `typed` when it has one of `schemes`, `https://` and `typed` when it is a
+/// bare host, and nothing otherwise.
+fn web_or_typed_url(typed: &str, schemes: &[&str]) -> Option<String> {
     let trimmed = typed.trim();
     if trimmed.is_empty() {
-        return default.into();
+        return None;
     }
     if let Ok(url) = tauri::Url::parse(trimmed) {
         if schemes.contains(&url.scheme()) {
-            return trimmed.into();
+            return Some(trimmed.into());
         }
     }
     // Something that names a scheme already is not a bare host: `ftp://x`
     // would otherwise become `https://ftp://x`.
     if trimmed.contains("://") || trimmed.chars().any(char::is_whitespace) {
-        return default.into();
+        return None;
     }
     let with_scheme = format!("{HTTPS_PREFIX}{trimmed}");
     match tauri::Url::parse(&with_scheme) {
-        Ok(url) if url.host().is_some() => with_scheme,
-        _ => default.into(),
+        Ok(url) if url.host().is_some() => Some(with_scheme),
+        _ => None,
+    }
+}
+
+/// The id a search URL from before search engines is kept under, when it is
+/// no preset's.
+const MIGRATED_ENGINE_ID: &str = "migrated";
+
+impl Settings {
+    /// Takes on a search URL stored before search engines existed, when the
+    /// stored document names no engine: a preset's URL selects that preset,
+    /// and any other becomes a custom engine named after its host.
+    /// [Address bar § Approved decisions](../../../docs/specs/address-bar.md#approved-decisions), D.
+    ///
+    /// The URL is read from the document as stored, since `Settings` no longer
+    /// has the field. It is not written back, so this runs at each launch until
+    /// anything in settings is saved, with the same result each time.
+    pub fn migrated(mut self, stored: &serde_json::Value) -> Self {
+        if stored.get("searchEngine").is_some() {
+            return self;
+        }
+        let Some(url) = stored
+            .get("searchUrl")
+            .and_then(serde_json::Value::as_str)
+            .and_then(normalized_search_url)
+        else {
+            return self;
+        };
+        if let Some(preset) = PRESET_ENGINES.iter().find(|preset| same_search_url(preset.url, &url)) {
+            self.search_engine = preset.id.into();
+            return self;
+        }
+        let name = tauri::Url::parse(&url)
+            .ok()
+            .and_then(|parsed| {
+                parsed
+                    .host_str()
+                    .map(|host| host.trim_start_matches("www.").to_string())
+            })
+            .unwrap_or_else(|| url.clone());
+        self.custom_search_engines
+            .retain(|engine| engine.id != MIGRATED_ENGINE_ID);
+        self.custom_search_engines.push(SearchEngine {
+            id: MIGRATED_ENGINE_ID.into(),
+            name,
+            url,
+            suggest_url: None,
+            keyword: None,
+        });
+        self.search_engine = MIGRATED_ENGINE_ID.into();
+        self
+    }
+
+    /// Every engine, presets first, as the settings page lists them.
+    pub fn listed_search_engines(&self) -> Vec<ListedSearchEngine> {
+        let presets = PRESET_ENGINES.iter().map(|preset| ListedSearchEngine {
+            engine: preset.engine(self.preset_keywords.get(preset.id).map(String::as_str)),
+            preset: true,
+            hidden: self.hidden_search_engines.iter().any(|id| id == preset.id),
+        });
+        let custom = self.custom_search_engines.iter().map(|engine| ListedSearchEngine {
+            engine: engine.clone(),
+            preset: false,
+            hidden: false,
+        });
+        presets.chain(custom).collect()
+    }
+
+    /// What the address field searches with. Sanitized settings always name
+    /// a visible engine; anything else searches with the default preset.
+    pub fn search(&self) -> Search {
+        let engines: Vec<SearchEngine> = self
+            .listed_search_engines()
+            .into_iter()
+            .filter(|listed| !listed.hidden)
+            .map(|listed| listed.engine)
+            .collect();
+        let default = engines
+            .iter()
+            .find(|engine| engine.id == self.search_engine)
+            .cloned()
+            .unwrap_or_else(|| PRESET_ENGINES[0].engine(None));
+        Search { default, engines }
+    }
+
+    /// Drops custom engines that cannot search, unknown presets and keywords
+    /// that clash, and keeps the default engine one that exists and shows.
+    fn sanitize_search_engines(&mut self) {
+        let mut ids: HashSet<String> = PRESET_ENGINES.iter().map(|preset| preset.id.to_string()).collect();
+        let mut custom = Vec::new();
+        for mut engine in self.custom_search_engines.drain(..) {
+            engine.id = engine.id.trim().to_string();
+            let Some(url) = normalized_search_url(&engine.url) else {
+                continue;
+            };
+            if engine.id.is_empty() || !ids.insert(engine.id.clone()) {
+                continue;
+            }
+            engine.url = url;
+            engine.suggest_url = engine.suggest_url.as_deref().and_then(normalized_search_url);
+            engine.name = engine.name.trim().to_string();
+            if engine.name.is_empty() {
+                engine.name.clone_from(&engine.url);
+            }
+            custom.push(engine);
+        }
+
+        // Kept first come, first served, presets before custom engines, so a
+        // keyword that clashes never sends a search somewhere unexpected.
+        let mut keywords = HashSet::new();
+        let mut take = |keyword: &str| -> Option<String> {
+            let keyword = keyword.trim();
+            let usable = !keyword.is_empty()
+                && !keyword.chars().any(char::is_whitespace)
+                && keywords.insert(keyword.to_lowercase());
+            usable.then(|| keyword.to_string())
+        };
+        let mut preset_keywords = BTreeMap::new();
+        for preset in PRESET_ENGINES {
+            let stored = self.preset_keywords.get(preset.id).map(String::as_str);
+            let kept = take(stored.unwrap_or(preset.keyword)).unwrap_or_default();
+            if kept != preset.keyword {
+                preset_keywords.insert(preset.id.to_string(), kept);
+            }
+        }
+        self.preset_keywords = preset_keywords;
+        for engine in &mut custom {
+            engine.keyword = engine.keyword.as_deref().and_then(&mut take);
+        }
+        self.custom_search_engines = custom;
+
+        if !ids.contains(&self.search_engine) {
+            DEFAULT_SEARCH_ENGINE.clone_into(&mut self.search_engine);
+        }
+        let mut hidden: Vec<String> = Vec::new();
+        for id in self.hidden_search_engines.drain(..) {
+            if preset_engine(&id).is_some() && id != self.search_engine && !hidden.contains(&id) {
+                hidden.push(id);
+            }
+        }
+        self.hidden_search_engines = hidden;
     }
 }
 
@@ -700,48 +860,186 @@ mod tests {
         assert_eq!(settings.webview_capacity, 1);
     }
 
-    fn sanitized_search_url(search_url: &str) -> String {
+    fn custom(id: &str, url: &str, keyword: Option<&str>) -> SearchEngine {
+        SearchEngine {
+            id: id.into(),
+            name: id.into(),
+            url: url.into(),
+            suggest_url: None,
+            keyword: keyword.map(Into::into),
+        }
+    }
+
+    fn with_custom(engines: Vec<SearchEngine>) -> Settings {
         Settings {
-            search_url: search_url.into(),
+            custom_search_engines: engines,
             ..Settings::default()
         }
         .sanitized()
-        .search_url
+    }
+
+    fn sanitized_search_url(search_url: &str) -> Option<String> {
+        with_custom(vec![custom("mine", search_url, None)])
+            .custom_search_engines
+            .first()
+            .map(|engine| engine.url.clone())
     }
 
     #[test]
-    fn a_search_url_without_a_scheme_gets_https() {
+    fn a_custom_search_url_without_a_scheme_gets_https() {
         assert_eq!(
-            sanitized_search_url("google.com/search?q="),
-            "https://google.com/search?q="
+            sanitized_search_url("google.com/search?q=").as_deref(),
+            Some("https://google.com/search?q=")
         );
     }
 
     #[test]
-    fn a_search_url_marking_where_the_search_goes_is_kept_as_typed() {
+    fn a_custom_search_url_marking_where_the_search_goes_is_kept_as_typed() {
         assert_eq!(
-            sanitized_search_url(" https://search.test/?q=%s "),
-            "https://search.test/?q=%s"
+            sanitized_search_url(" https://search.test/?q=%s ").as_deref(),
+            Some("https://search.test/?q=%s")
         );
     }
 
     #[test]
-    fn a_search_url_that_is_not_a_web_address_falls_back_to_the_default() {
-        let default = Settings::default().search_url;
-        assert_eq!(sanitized_search_url("not a url"), default);
-        assert_eq!(sanitized_search_url("haku://settings?q="), default);
-        assert_eq!(sanitized_search_url("javascript:alert(1)//"), default);
-        assert_eq!(sanitized_search_url("https://"), default);
+    fn a_custom_engine_whose_url_is_not_a_web_address_is_dropped() {
+        for url in [
+            "not a url",
+            "haku://settings?q=",
+            "javascript:alert(1)//",
+            "https://",
+            "  ",
+        ] {
+            assert_eq!(sanitized_search_url(url), None, "{url}");
+        }
     }
 
     #[test]
-    fn a_blank_search_url_falls_back_to_the_default() {
+    fn searches_go_to_duckduckgo_by_default_with_every_preset_shown() {
+        let settings = Settings::default();
+        assert_eq!(settings.search_engine, "duckduckgo");
+        let search = settings.search();
+        assert_eq!(search.default.url, "https://duckduckgo.com/?q=%s");
+        assert_eq!(search.engines.len(), PRESET_ENGINES.len());
+    }
+
+    #[test]
+    fn an_engine_that_does_not_exist_falls_back_to_the_default() {
         let settings = Settings {
-            search_url: "  ".into(),
+            search_engine: "gone".into(),
             ..Settings::default()
         }
         .sanitized();
-        assert_eq!(settings.search_url, Settings::default().search_url);
+        assert_eq!(settings.search_engine, "duckduckgo");
+    }
+
+    #[test]
+    fn the_default_engine_is_never_hidden_and_unknown_ids_are_not_kept() {
+        let settings = Settings {
+            search_engine: "google".into(),
+            hidden_search_engines: vec!["google".into(), "bing".into(), "nope".into(), "bing".into()],
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(settings.hidden_search_engines, vec!["bing".to_string()]);
+        assert!(settings.search().engines.iter().all(|engine| engine.id != "bing"));
+    }
+
+    #[test]
+    fn a_custom_engine_reusing_a_taken_id_is_dropped() {
+        let settings = with_custom(vec![
+            custom("google", "https://a.test/?q=", None),
+            custom("mine", "https://b.test/?q=", None),
+            custom("mine", "https://c.test/?q=", None),
+        ]);
+        let urls: Vec<_> = settings
+            .custom_search_engines
+            .iter()
+            .map(|engine| engine.url.as_str())
+            .collect();
+        assert_eq!(urls, vec!["https://b.test/?q="]);
+    }
+
+    #[test]
+    fn a_keyword_already_taken_is_dropped_from_the_later_engine() {
+        let settings = with_custom(vec![
+            custom("one", "https://a.test/?q=", Some("@G")),
+            custom("two", "https://b.test/?q=", Some("wk")),
+            custom("three", "https://c.test/?q=", Some("WK")),
+            custom("four", "https://d.test/?q=", Some("two words")),
+        ]);
+        let keywords: Vec<_> = settings
+            .custom_search_engines
+            .iter()
+            .map(|engine| engine.keyword.as_deref())
+            .collect();
+        assert_eq!(keywords, vec![None, Some("wk"), None, None]);
+    }
+
+    #[test]
+    fn a_preset_keyword_is_stored_only_when_it_differs_and_an_empty_one_removes_it() {
+        let settings = Settings {
+            preset_keywords: BTreeMap::from([
+                ("google".to_string(), "gg".to_string()),
+                ("bing".to_string(), "@b".to_string()),
+                ("brave".to_string(), String::new()),
+                ("nope".to_string(), "x".to_string()),
+            ]),
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(
+            settings.preset_keywords,
+            BTreeMap::from([
+                ("brave".to_string(), String::new()),
+                ("google".to_string(), "gg".to_string())
+            ])
+        );
+        let search = settings.search();
+        assert_eq!(search.by_keyword("GG").map(|engine| engine.id.as_str()), Some("google"));
+        assert!(search.by_keyword("@g").is_none());
+        assert!(search
+            .engines
+            .iter()
+            .any(|engine| engine.id == "brave" && engine.keyword.is_none()));
+    }
+
+    #[test]
+    fn a_stored_search_url_of_a_preset_selects_that_preset() {
+        for (url, id) in [
+            ("https://duckduckgo.com/?q=", "duckduckgo"),
+            ("https://www.google.com/search?q=%s", "google"),
+            ("www.bing.com/search?q=", "bing"),
+        ] {
+            let settings = Settings::default().migrated(&serde_json::json!({ "searchUrl": url }));
+            assert_eq!(settings.search_engine, id, "{url}");
+            assert!(settings.custom_search_engines.is_empty());
+        }
+    }
+
+    #[test]
+    fn any_other_stored_search_url_becomes_a_custom_engine_named_after_its_host() {
+        let stored = serde_json::json!({ "searchUrl": "https://www.search.test/find?q=%s&x=1" });
+        let settings = Settings::default().migrated(&stored).migrated(&stored).sanitized();
+        assert_eq!(settings.search_engine, "migrated");
+        assert_eq!(
+            settings.custom_search_engines,
+            vec![SearchEngine {
+                id: "migrated".into(),
+                name: "search.test".into(),
+                url: "https://www.search.test/find?q=%s&x=1".into(),
+                suggest_url: None,
+                keyword: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_stored_engine_or_an_unusable_search_url_migrates_nothing() {
+        let named = serde_json::json!({ "searchEngine": "bing", "searchUrl": "https://a.test/?q=" });
+        assert_eq!(Settings::default().migrated(&named), Settings::default());
+        let unusable = serde_json::json!({ "searchUrl": "javascript:alert(1)" });
+        assert_eq!(Settings::default().migrated(&unusable), Settings::default());
     }
 
     #[test]
@@ -877,16 +1175,12 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("haku-layout-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("settings.json");
-        std::fs::write(
-            &path,
-            r#"{ "tabLayout": "Vertical", "searchUrl": "https://search.test/?q=" }"#,
-        )
-        .unwrap();
+        std::fs::write(&path, r#"{ "tabLayout": "Vertical", "theme": "dark" }"#).unwrap();
 
         let settings: Settings = crate::storage::read_json(&path);
 
         assert_eq!(settings.tab_layout, TabLayout::Horizontal);
-        assert_eq!(settings.search_url, "https://search.test/?q=");
+        assert_eq!(settings.theme, "dark");
         assert!(!crate::storage::corrupt_path(&path).exists());
         std::fs::remove_dir_all(&directory).unwrap();
     }

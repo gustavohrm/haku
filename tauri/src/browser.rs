@@ -15,6 +15,7 @@ use crate::model::{
     SitePermission, SiteZoom, Slot, SlotId, Tab, TabId, TabPresence, Transition, Visit, WebviewPool, WindowId,
     WindowKind, WindowRequestId, DEFAULT_ZOOM,
 };
+use crate::model::{search_url, Search};
 
 /// URL a slot is parked on after its tab is discarded.
 ///
@@ -3288,17 +3289,27 @@ pub fn favicon_for(url: &str) -> Option<String> {
     Some(format!("{scheme}://{host}/favicon.ico"))
 }
 
-pub fn resolve_target(input: &str, search_url: &str) -> String {
-    resolve_input(input, search_url).0
+pub fn resolve_target(input: &str, search: &Search) -> String {
+    resolve_input(input, search).0
 }
 
 /// What address-field input resolves to, and whether that is a search.
 ///
+/// A keyword followed by a query searches the keyword's engine, whatever the
+/// query looks like, as it does in other browsers: `@g example.com` asks
+/// Google about the site rather than opening it.
+/// [Address bar § Search engines](../../docs/specs/address-bar.md#search-engines).
+///
 /// @returns The URL, empty for blank input, and whether it searches.
-pub fn resolve_input(input: &str, search_url: &str) -> (String, bool) {
+pub fn resolve_input(input: &str, search: &Search) -> (String, bool) {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return (String::new(), false);
+    }
+    if let Some((word, query)) = trimmed.split_once(char::is_whitespace) {
+        if let Some(engine) = search.by_keyword(word) {
+            return (search_url(&engine.url, &urlencode(query.trim())), true);
+        }
     }
     // An extension's own pages are reached by address: the engine draws no
     // toolbar to open its popup from.
@@ -3313,18 +3324,8 @@ pub fn resolve_input(input: &str, search_url: &str) -> (String, bool) {
     if !trimmed.contains(' ') && trimmed.contains('.') {
         return (format!("https://{trimmed}"), false);
     }
-    let query = urlencode(trimmed);
-    // `%s` marks where the search goes, each time it appears, as in other
-    // browsers' search URLs; without it the search is added to the end.
-    let url = if search_url.contains(SEARCH_MARK) {
-        search_url.replace(SEARCH_MARK, &query)
-    } else {
-        format!("{search_url}{query}")
-    };
-    (url, true)
+    (search_url(&search.default.url, &urlencode(trimmed)), true)
 }
-
-const SEARCH_MARK: &str = "%s";
 
 fn urlencode(value: &str) -> String {
     value
