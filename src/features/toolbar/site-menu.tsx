@@ -1,5 +1,6 @@
 import { type Tab } from "@bindings";
 import { useBarHold } from "@features/bars/holds";
+import { neverRecordSite } from "@features/history/history-actions";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
@@ -39,7 +40,7 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
   const switchId = useId();
   const siteSwitchId = useId();
   const siteHelpId = useId();
-  const { private: isPrivate } = useBrowserState();
+  const { private: isPrivate, historyPaused } = useBrowserState();
   const settings = useSettings();
   const host = hostnameOf(url);
   const siteKept = host !== null && (settings?.keptSites.includes(host) ?? false);
@@ -143,6 +144,40 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
                 <span id={siteHelpId} className="text-text-secondary text-sm">
                   {t("site.keepSite.help")}
                 </span>
+              </div>
+            )}
+
+            {/* Hidden in a private window, which records nothing, and where a
+                rule naming the host would write the private visit to disk. */}
+            {!isPrivate && host !== null && (
+              <div className="border-text/10 flex flex-col gap-1 border-t pt-3">
+                {settings?.historyEnabled === false ? (
+                  <span className="text-text-secondary text-sm">{t("site.history.off")}</span>
+                ) : historyPaused ? (
+                  <span className="text-text-secondary text-sm">{t("site.history.paused")}</span>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn ghost justify-start"
+                  onClick={() => {
+                    close();
+                    void commands.openTab(`haku://history?site=${encodeURIComponent(host)}`, true, "other");
+                  }}
+                >
+                  <i className="ic-history ic-sm" aria-hidden="true" />
+                  {t("site.history.show")}
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost justify-start"
+                  onClick={() => {
+                    close();
+                    void neverRecordSite(host);
+                  }}
+                >
+                  <i className="ic-circle-off ic-sm" aria-hidden="true" />
+                  {t("site.history.neverRecord")}
+                </button>
               </div>
             )}
           </section>,

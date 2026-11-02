@@ -1141,7 +1141,7 @@ export type SettingsChanged = Settings;
  *  Its camelCase name is the action's id in `Settings.shortcuts`, so a
  *  variant is never renamed.
  */
-export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage" | "resetZoom" | "bookmarkTab" | "openBookmarks" | "toggleBookmarksBar";
+export type Shortcut = "newTab" | "newWindow" | "newPrivateWindow" | "toggleSplit" | "moveTabLeft" | "moveTabRight" | "closeWindow" | "home" | "memory" | "duplicateTab" | "closeTab" | "reopenClosedTab" | "nextTab" | "previousTab" | "tab1" | "tab2" | "tab3" | "tab4" | "tab5" | "tab6" | "tab7" | "tab8" | "lastTab" | "focusAddress" | "reload" | "back" | "forward" | "devTools" | "find" | "print" | "savePage" | "resetZoom" | "bookmarkTab" | "openBookmarks" | "toggleBookmarksBar" | "openHistory";
 
 /**
  *  Where bookmarks go while the toolbar is in the tab column.

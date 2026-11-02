@@ -1,5 +1,5 @@
 ---
-status: APPROVED
+status: IMPLEMENTED
 last_updated: 2026-11-02
 scope: What browsing history records, the rules and switches that stop it, how it is searched, filtered and deleted, and its storage.
 ---

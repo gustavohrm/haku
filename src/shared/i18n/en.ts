@@ -49,6 +49,10 @@ export const en = {
   "site.keepSite": "Don't unload this site",
   "site.keepSite.help":
     "Tabs on this site stay in memory, paused, as if they held unsaved work. Use it for pages that lose something Haku cannot see when they reload.",
+  "site.history.show": "Show history for this site",
+  "site.history.neverRecord": "Never record this site…",
+  "site.history.off": "History is off",
+  "site.history.paused": "History is paused",
 
   "window.minimize": "Minimize",
   "window.maximize": "Maximize",
@@ -286,6 +290,7 @@ export const en = {
   "shortcut.bookmarkTab": "Bookmark this tab",
   "shortcut.openBookmarks": "Open the bookmarks page",
   "shortcut.toggleBookmarksBar": "Show or hide the bookmarks bar",
+  "shortcut.openHistory": "Open the history page",
   "settings.version": "Version",
   "settings.version.keywords": "about, update, release",
   "settings.memoryPage.help": "What each loaded tab holds in memory, and why it is loaded.",
@@ -337,7 +342,7 @@ export const en = {
   "history.clear.weeks4": "Last 4 weeks",
   "history.clear.all": "All time",
   "history.recording": "Record history",
-  "history.pause": "Pause",
+  "history.pause": "Pause until restart",
   "history.resume": "Resume",
   "history.off": "History is off. New visits are not recorded.",
   "history.paused": "History is paused until Haku restarts. New visits are not recorded.",

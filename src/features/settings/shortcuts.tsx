@@ -40,6 +40,7 @@ const ACTIONS = {
   closeWindow: { group: "windows", title: "shortcut.closeWindow" },
   openBookmarks: { group: "windows", title: "shortcut.openBookmarks" },
   toggleBookmarksBar: { group: "windows", title: "shortcut.toggleBookmarksBar" },
+  openHistory: { group: "windows", title: "shortcut.openHistory" },
   reload: { group: "page", title: "shortcut.reload" },
   find: { group: "page", title: "shortcut.find" },
   print: { group: "page", title: "shortcut.print" },

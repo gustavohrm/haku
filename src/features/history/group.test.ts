@@ -42,6 +42,14 @@ describe("groupByDay", () => {
     expect(new Set(groups.flatMap((group) => group.rows.map((row) => row.key))).size).toBe(2);
   });
 
+  it("merges a day and a row that a page boundary split", () => {
+    const first = [visit("https://a.com/", at(2, 12)), visit("https://b.com/", at(2, 11))];
+    const second = [visit("https://a.com/", at(2, 10))];
+    const groups = groupByDay([...first, ...second]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.rows.map((row) => row.visits.length)).toEqual([2, 1]);
+  });
+
   it("gives nothing for no visits", () => {
     expect(groupByDay([])).toEqual([]);
   });

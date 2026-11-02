@@ -4,10 +4,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { openExtensionPopup, resetZoom, state } = vi.hoisted(() => ({
+const { openExtensionPopup, openTab, resetZoom, state } = vi.hoisted(() => ({
   openExtensionPopup: vi.fn(),
+  openTab: vi.fn(),
   resetZoom: vi.fn(),
-  state: { private: false },
+  state: { private: false, historyPaused: false },
 }));
 
 vi.mock("@bindings", () => ({
@@ -17,7 +18,7 @@ vi.mock("@bindings", () => ({
   },
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
-vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup, resetZoom } }));
+vi.mock("@ipc/commands", () => ({ commands: { openExtensionPopup, openTab, resetZoom } }));
 vi.mock("@ipc/hooks", () => ({
   useBookmarks: () => null,
   useBrowserState: () => state,
@@ -34,7 +35,7 @@ vi.mock("@ipc/hooks", () => ({
       },
     ],
   }),
-  useSettings: () => ({ pinnedExtensions: ["extension"], disabledExtensions: [], keptSites: [] }),
+  useSettings: () => ({ pinnedExtensions: ["extension"], disabledExtensions: [], keptSites: [], historyEnabled: true }),
   useDownloads: () => [],
 }));
 
@@ -63,6 +64,7 @@ describe("toolbar extension popups", () => {
 
   beforeEach(() => {
     state.private = false;
+    state.historyPaused = false;
     openExtensionPopup.mockReset();
     openExtensionPopup.mockResolvedValue({ status: "ok", data: true });
     vi.stubGlobal(
@@ -147,6 +149,20 @@ describe("toolbar extension popups", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')?.click());
     expect(document.body.textContent).toContain("Keep this tab loaded");
     expect(document.body.textContent).not.toContain("Don't unload this site");
+    expect(document.body.textContent).not.toContain("Show history for this site");
+    expect(document.body.textContent).not.toContain("Never record this site");
+  });
+
+  it("opens the site's history from the site menu, and says when history is paused", async () => {
+    state.historyPaused = true;
+    await act(async () => root.render(<Toolbar tab={tab(7)} />));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Site information"]')?.click());
+    expect(document.body.textContent).toContain("History is paused");
+    const show = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Show history for this site",
+    );
+    await act(async () => show?.click());
+    expect(openTab).toHaveBeenCalledExactlyOnceWith("haku://history?site=example.com", true, "other");
   });
 
   it("passes the focused tab to a pinned extension popup, including after selection changes", async () => {

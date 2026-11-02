@@ -236,6 +236,7 @@ impl Request {
             Shortcut::Home => browser.navigate(tab, home)?,
             Shortcut::Memory => browser.open_tab_in(self.window, "haku://memory", true).1,
             Shortcut::OpenBookmarks => browser.open_tab_in(self.window, "haku://bookmarks", true).1,
+            Shortcut::OpenHistory => browser.open_tab_in(self.window, "haku://history", true).1,
             // A setting, not the browser's state: `run_shortcut` stores it.
             Shortcut::ToggleBookmarksBar => Vec::new(),
             // Internal pages and pages with no address have nothing to return to.
@@ -759,6 +760,16 @@ mod tests {
         assert!(action.address.is_none());
         let active = browser.active().unwrap();
         assert_eq!(browser.tab(active).unwrap().url(), "haku://bookmarks");
+    }
+
+    #[test]
+    fn ctrl_h_opens_the_history_page_in_a_foreground_tab() {
+        use crate::model::{Chord, Key};
+        let (mut browser, _) = pages(1);
+        let action = run(&mut browser, Chord::ctrl(Key::Letter('H')));
+        assert!(action.address.is_none());
+        let active = browser.active().unwrap();
+        assert_eq!(browser.tab(active).unwrap().url(), "haku://history");
     }
 
     #[test]

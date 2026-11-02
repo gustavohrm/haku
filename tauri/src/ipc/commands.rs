@@ -763,6 +763,7 @@ fn run_shortcut_in(
                     | Shortcut::DuplicateTab
                     | Shortcut::Memory
                     | Shortcut::OpenBookmarks
+                    | Shortcut::OpenHistory
                     | Shortcut::Home
                     | Shortcut::NewTab
                     | Shortcut::NewWindow
