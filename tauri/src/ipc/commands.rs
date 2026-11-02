@@ -1292,9 +1292,11 @@ fn close_window(app: &tauri::AppHandle, window: WindowId) {
 /// Remembers where a window is on screen, for the session. A minimised
 /// window is remembered where it was before, and a maximised one keeps the
 /// rectangle it returns to. A window maximised before it ever had another
-/// rectangle is not remembered, so it opens maximized again.
+/// rectangle is not remembered, so it opens maximized again. A fullscreen
+/// window is remembered as it was before, since it fills the screen only
+/// for the page that asked.
 fn record_bounds(window: &tauri::Window, id: WindowId, state: &AppState) {
-    if window.is_minimized().unwrap_or(false) {
+    if window.is_minimized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
         return;
     }
     let maximized = window.is_maximized().unwrap_or(false);
