@@ -40,6 +40,9 @@ export function feedback(): Toaster {
   instance = createToaster({
     container,
     position: "bottom-right",
+    // A failure can take longer to read than it stays up, so it can be closed
+    // by hand too, with the mouse or the keyboard.
+    dismissible: true,
     labels: {
       dismiss: t("feedback.dismiss"),
       confirm: t("dialog.ok"),
