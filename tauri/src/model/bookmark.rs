@@ -54,6 +54,26 @@ pub struct BookmarkedTab {
     pub added: bool,
 }
 
+/// What an import added, and what it left out.
+/// [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedBookmarks {
+    pub links: u32,
+    pub folders: u32,
+    /// Links of a scheme Haku does not import, and separators.
+    pub skipped: u32,
+}
+
+/// What an export wrote, the two roots aside.
+/// [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedBookmarks {
+    pub links: u32,
+    pub folders: u32,
+}
+
 /// Schemes a bookmark may link to. A bookmark is followed by a click, so a
 /// `javascript:` or `data:` one would run script or show content from
 /// wherever the bookmark came from.

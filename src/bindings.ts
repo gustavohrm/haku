@@ -266,6 +266,32 @@ export const commands = {
 	 *  [Bookmarks § Bookmarking a page](../../../docs/specs/bookmarks.md#bookmarking-a-page).
 	 */
 	bookmarkTab: (tab: TabId) => typedError<BookmarkedTab, HakuError>(__TAURI_INVOKE("bookmark_tab", { tab })),
+	/**
+	 *  Asks the user for a bookmark file and imports it, sending the tree once
+	 *  when anything was added. Answers nothing when the dialog was cancelled.
+	 *  The interface never names a path.
+	 *  [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+	 * 
+	 *  Async, because the dialog blocks until the user answers.
+	 */
+	importBookmarks: () => typedError<{
+	links: number,
+	folders: number,
+	/**  Links of a scheme Haku does not import, and separators. */
+	skipped: number,
+} | null, HakuError>(__TAURI_INVOKE("import_bookmarks")),
+	/**
+	 *  Asks the user where to export bookmarks and writes every one there, as
+	 *  Chrome writes a bookmark file. Answers nothing when the dialog was
+	 *  cancelled. The interface never names a path.
+	 *  [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+	 * 
+	 *  Async, because the dialog blocks until the user answers.
+	 */
+	exportBookmarks: () => typedError<{
+	links: number,
+	folders: number,
+} | null, HakuError>(__TAURI_INVOKE("export_bookmarks")),
 };
 
 /** Events */
@@ -579,6 +605,15 @@ export type Ending =
 /**  It closes the last private tab, which ends the private session. */
 "privateSession";
 
+/**
+ *  What an export wrote, the two roots aside.
+ *  [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+ */
+export type ExportedBookmarks = {
+	links: number,
+	folders: number,
+};
+
 /**  An installed extension, as the interface lists it. */
 export type Extension = {
 	id: string,
@@ -716,6 +751,17 @@ export type HistoryEntry = {
 	title: string,
 	/**  Milliseconds since the Unix epoch. */
 	visitedAt: number,
+};
+
+/**
+ *  What an import added, and what it left out.
+ *  [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
+ */
+export type ImportedBookmarks = {
+	links: number,
+	folders: number,
+	/**  Links of a scheme Haku does not import, and separators. */
+	skipped: number,
 };
 
 /**  An action's chords as the interface lists them. */

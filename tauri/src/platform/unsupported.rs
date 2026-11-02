@@ -76,6 +76,18 @@ pub fn pick_extension<R: tauri::Runtime>(
     Err(unsupported("picking an extension"))
 }
 
+pub fn pick_bookmarks_file<R: tauri::Runtime>(_window: &tauri::Window<R>) -> Result<Option<std::path::PathBuf>> {
+    Err(unsupported("choosing a bookmark file"))
+}
+
+pub fn choose_bookmarks_export<R: tauri::Runtime>(_window: &tauri::Window<R>) -> Result<Option<std::path::PathBuf>> {
+    Err(unsupported("choosing where to export bookmarks"))
+}
+
+pub fn local_date() -> Result<(u16, u16, u16)> {
+    Err(unsupported("reading the local date"))
+}
+
 pub fn reveal_folder(_folder: &Path) -> Result<()> {
     Err(unsupported("opening a folder"))
 }

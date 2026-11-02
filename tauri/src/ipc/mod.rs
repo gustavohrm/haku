@@ -78,6 +78,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::move_bookmark,
             commands::remove_bookmark,
             commands::bookmark_tab,
+            commands::import_bookmarks,
+            commands::export_bookmarks,
         ])
         .events(collect_events![
             StateChanged,

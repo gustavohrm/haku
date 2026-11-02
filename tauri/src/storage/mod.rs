@@ -7,6 +7,7 @@
 //! time, so they are SQLite too, in a file of their own.
 
 pub mod bookmarks_db;
+pub mod bookmarks_html;
 pub mod extensions;
 pub mod history_db;
 pub mod merge;

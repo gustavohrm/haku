@@ -2360,6 +2360,83 @@ pub fn pick_extension<R: tauri::Runtime>(
     picked.map_err(picker_error)
 }
 
+/// Shows a file dialog made by `make`, owned by `window`, on a thread of its
+/// own so it gets the single-threaded COM apartment it needs, and answers the
+/// file chosen, or nothing when it is cancelled.
+fn choose_file<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    doing: &'static str,
+    make: impl FnOnce() -> windows::core::Result<windows::Win32::UI::Shell::IFileDialog> + Send + 'static,
+) -> Result<Option<std::path::PathBuf>> {
+    use windows::Win32::Foundation::ERROR_CANCELLED;
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::SIGDN_FILESYSPATH;
+
+    // A window handle is not `Send`; its value is all the dialog needs.
+    let owner = window
+        .hwnd()
+        .map_err(|error| HakuError::WindowMissing(error.to_string()))?
+        .0 as isize;
+    let chosen = std::thread::spawn(move || unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+        let chosen = (|| {
+            let dialog = make()?;
+            match dialog.Show(Some(HWND(owner as *mut _))) {
+                Err(error) if error.code() == ERROR_CANCELLED.to_hresult() => return Ok(None),
+                shown => shown?,
+            }
+            let path = dialog.GetResult()?.GetDisplayName(SIGDN_FILESYSPATH)?;
+            Ok(Some(std::path::PathBuf::from(take_pwstr(path))))
+        })();
+        CoUninitialize();
+        chosen
+    })
+    .join()
+    .map_err(|_| HakuError::Unsupported(format!("{doing}: the dialog failed")))?;
+    chosen.map_err(|error: windows::core::Error| HakuError::Unsupported(format!("{doing}: {error}")))
+}
+
+/// Bookmark files, named by their patterns, which read the same in every language.
+const BOOKMARK_FILES: windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC =
+    windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC {
+        pszName: windows::core::w!("*.html, *.htm"),
+        pszSpec: windows::core::w!("*.html;*.htm"),
+    };
+
+pub fn pick_bookmarks_file<R: tauri::Runtime>(window: &tauri::Window<R>) -> Result<Option<std::path::PathBuf>> {
+    use windows::core::Interface;
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+    use windows::Win32::UI::Shell::{FileOpenDialog, IFileOpenDialog, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM};
+
+    choose_file(window, "choosing a bookmark file", || unsafe {
+        let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
+        dialog.SetFileTypes(&[BOOKMARK_FILES])?;
+        dialog.SetOptions(dialog.GetOptions()? | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST)?;
+        dialog.cast()
+    })
+}
+
+pub fn choose_bookmarks_export<R: tauri::Runtime>(window: &tauri::Window<R>) -> Result<Option<std::path::PathBuf>> {
+    use windows::core::Interface;
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+    use windows::Win32::UI::Shell::{FileSaveDialog, IFileSaveDialog, FOS_FORCEFILESYSTEM, FOS_OVERWRITEPROMPT};
+
+    choose_file(window, "choosing where to export bookmarks", || unsafe {
+        let dialog: IFileSaveDialog = CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?;
+        dialog.SetFileTypes(&[BOOKMARK_FILES])?;
+        dialog.SetDefaultExtension(windows::core::w!("html"))?;
+        dialog.SetFileName(windows::core::w!("bookmarks.html"))?;
+        dialog.SetOptions(dialog.GetOptions()? | FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT)?;
+        dialog.cast()
+    })
+}
+
+pub fn local_date() -> Result<(u16, u16, u16)> {
+    // SAFETY: GetLocalTime only writes the structure it returns.
+    let now = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    Ok((now.wYear, now.wMonth, now.wDay))
+}
+
 pub fn reveal_folder(folder: &Path) -> Result<()> {
     std::process::Command::new("explorer")
         .arg(folder)
