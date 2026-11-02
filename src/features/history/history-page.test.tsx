@@ -145,7 +145,9 @@ describe("HistoryPage", () => {
     });
     await render();
     await click(button("Sites"));
-    const site = [...container.querySelectorAll("li > button")].find((each) => each.textContent?.includes("a.com"));
+    const site = [...container.querySelectorAll("li > button")].find(
+      (each) => each.querySelector(".font-medium")?.textContent === "a.com",
+    );
     await click(site);
     expect(button("Visits")?.getAttribute("aria-pressed")).toBe("true");
     expect(lastFilter().include).toEqual([{ kind: "site", value: "a.com" }]);
