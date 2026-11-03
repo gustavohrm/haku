@@ -248,6 +248,16 @@ export const commands = {
 	 *  content webviews, and a capture shows another tab's page.
 	 */
 	tabPreview: (id: TabId) => typedError<string | null, HakuError>(__TAURI_INVOKE("tab_preview", { id })),
+	/**
+	 *  What a tab's page shows now, as a `data:` URL, drawn blurred behind the
+	 *  floating address card while it is open, since the chrome cannot draw over
+	 *  the page itself. [Address bar § Layouts](../../../docs/specs/address-bar.md#layouts).
+	 * 
+	 *  Nothing for a tab without a live page, or when the capture fails or takes
+	 *  longer than [`BACKDROP_CAPTURE_TIMEOUT`]. Only the caller's window's tabs,
+	 *  and a command rather than a protocol, as for [`tab_preview`].
+	 */
+	capturePage: (tab: TabId) => typedError<string | null, HakuError>(__TAURI_INVOKE("capture_page", { tab })),
 	/**  The extensions the extensions folder installed. */
 	extensions: () => typedError<Extensions, HakuError>(__TAURI_INVOKE("extensions")),
 	/**

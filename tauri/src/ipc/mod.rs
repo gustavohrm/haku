@@ -66,6 +66,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::answer_context_menu,
             commands::memory_report,
             commands::tab_preview,
+            commands::capture_page,
             commands::extensions,
             commands::open_extensions_folder,
             commands::add_extension,

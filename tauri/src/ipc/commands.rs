@@ -2356,6 +2356,33 @@ pub fn tab_preview(webview: tauri::Webview, state: State<'_, AppState>, id: TabI
     Ok(previews.get(id).map(jpeg_data_url))
 }
 
+/// The longest a capture for the address card's backdrop is waited on. Past
+/// it the card shows over the live page, as a late backdrop would arrive
+/// while the user is already typing.
+const BACKDROP_CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// What a tab's page shows now, as a `data:` URL, drawn blurred behind the
+/// floating address card while it is open, since the chrome cannot draw over
+/// the page itself. [Address bar § Layouts](../../../docs/specs/address-bar.md#layouts).
+///
+/// Nothing for a tab without a live page, or when the capture fails or takes
+/// longer than [`BACKDROP_CAPTURE_TIMEOUT`]. Only the caller's window's tabs,
+/// and a command rather than a protocol, as for [`tab_preview`].
+#[tauri::command]
+#[specta::specta]
+pub async fn capture_page(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<Option<String>> {
+    let window = ensure_chrome(&webview)?;
+    let Some(page) = slot_of(&state, window, tab)?.and_then(|slot| app.get_webview(&slot.label())) else {
+        return Ok(None);
+    };
+    Ok(platform::capture(&page, BACKDROP_CAPTURE_TIMEOUT).map(|jpeg| jpeg_data_url(&jpeg)))
+}
+
 fn lock_history(state: &AppState) -> Result<std::sync::MutexGuard<'_, HistoryDb>> {
     state
         .history
