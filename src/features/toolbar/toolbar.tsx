@@ -190,7 +190,9 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
   // completes it.
   const suggestions = useSuggestions(editing ? typed : null);
   const engineRows = useEngineSuggestions(editing ? typed : null);
-  const rows = withEngineRows(suggestions?.rows ?? [], engineRows);
+  // Completions wait for the local rows, so the first row is always what
+  // Enter does, which choosing and the selection count on.
+  const rows = suggestions ? withEngineRows(suggestions.rows, engineRows) : [];
   const isCurrent = suggestions !== null && suggestions.input === typed;
   const completion =
     typed !== null && completing && isCurrent && selected === 0 ? completed(typed, suggestions.completion) : null;

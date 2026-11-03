@@ -275,6 +275,20 @@ describe("engine suggestions", () => {
     expect(navigateTab).toHaveBeenCalledExactlyOnceWith(1, "@g te pages", "typed");
   });
 
+  it("lists no completions until the local rows, led by what Enter does, have answered", async () => {
+    suggest.mockResolvedValue({ status: "error", error: { kind: "storage", message: "down" } });
+    searchSuggestions.mockImplementation(async (input: string) => ({
+      status: "ok",
+      data: { input, rows: [suggested(`${input} pages`)] },
+    }));
+    await focus();
+    await type("te");
+    await act(async () => vi.advanceTimersByTime(ENGINE_SUGGESTIONS_DELAY_MS));
+
+    expect(searchSuggestions).toHaveBeenCalled();
+    expect(options()).toHaveLength(0);
+  });
+
   it("makes room for completions from the end of a full list", async () => {
     answering((typed) => [search(typed), ...Array.from({ length: 9 }, (_, index) => page(`https://${index}.test/`))]);
     searchSuggestions.mockImplementation(async (input: string) => ({
