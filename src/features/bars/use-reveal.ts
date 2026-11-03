@@ -14,9 +14,9 @@ interface Reveal {
   revealed: boolean;
   /** Spread on the element holding the bar and its edge. */
   handlers: {
-    onPointerEnter: () => void;
-    onPointerLeave: (event: PointerEvent<HTMLElement>) => void;
-    onFocus: () => void;
+    onPointerOver: (event: PointerEvent<HTMLElement>) => void;
+    onPointerOut: (event: PointerEvent<HTMLElement>) => void;
+    onFocus: (event: FocusEvent<HTMLElement>) => void;
     onBlur: (event: FocusEvent<HTMLElement>) => void;
   };
 }
@@ -47,11 +47,21 @@ export function useReveal(contents: readonly BarContent[], isNeeded: boolean, fl
   );
 
   const isHeld = contents.some((content) => holds[content] > 0);
+
+  // React passes events up its own tree, so what a bar renders into a portal,
+  // such as the floating address card and its window-wide backdrop, would
+  // count as the pointer or focus being in the bar, and keep it shown. Only
+  // what is in the bar on the page counts, so pointer enter and leave are read
+  // from over and out, as the page does.
+  const isIn = (element: HTMLElement, node: EventTarget | null) => node instanceof Node && element.contains(node);
   const revealed = isHovered || isFocused || isHeld || isNeeded;
   return {
     revealed,
     handlers: {
-      onPointerEnter: () => {
+      onPointerOver: (event) => {
+        if (!isIn(event.currentTarget, event.target) || isIn(event.currentTarget, event.relatedTarget)) {
+          return;
+        }
         clearTimeout(hideTimer.current);
         clearTimeout(showTimer.current);
         // A bar already on screen, shown or docked, keeps the pointer at
@@ -64,7 +74,10 @@ export function useReveal(contents: readonly BarContent[], isNeeded: boolean, fl
           showTimer.current = setTimeout(() => setHovered(true), SHOW_DELAY_MS);
         }
       },
-      onPointerLeave: (event) => {
+      onPointerOut: (event) => {
+        if (!isIn(event.currentTarget, event.target) || isIn(event.currentTarget, event.relatedTarget)) {
+          return;
+        }
         clearTimeout(showTimer.current);
         clearTimeout(hideTimer.current);
         // A focused element removed from the bar, such as a closed tab's
@@ -74,10 +87,14 @@ export function useReveal(contents: readonly BarContent[], isNeeded: boolean, fl
         }
         hideTimer.current = setTimeout(() => setHovered(false), HIDE_DELAY_MS);
       },
-      onFocus: () => setFocused(true),
+      onFocus: (event) => {
+        if (isIn(event.currentTarget, event.target)) {
+          setFocused(true);
+        }
+      },
       onBlur: (event) => {
         // Focus moving within the bar is still focus in it.
-        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+        if (isIn(event.currentTarget, event.target) && !isIn(event.currentTarget, event.relatedTarget)) {
           setFocused(false);
         }
       },

@@ -5,6 +5,24 @@ use crate::model::Loss;
 const SEARCH: &str = "https://duckduckgo.com/?q=";
 const HOME: &str = "haku://new-tab";
 
+/// Searching with one engine at `url`, and Google by `@g`.
+fn searching(url: &str) -> Search {
+    let engine = |id: &str, url: &str, keyword: Option<&str>| crate::model::SearchEngine {
+        id: id.into(),
+        name: id.into(),
+        url: url.into(),
+        suggest_url: None,
+        keyword: keyword.map(Into::into),
+    };
+    Search {
+        default: engine("default", url, None),
+        engines: vec![
+            engine("default", url, None),
+            engine("google", "https://www.google.com/search?q=%s", Some("@g")),
+        ],
+    }
+}
+
 #[test]
 fn pressure_keeps_one_anchor_when_several_private_pages_are_discarded_together() {
     let mut browser = Browser::new(4);
@@ -1019,48 +1037,75 @@ fn reordering_past_the_end_clamps_to_the_last_position() {
 
 #[test]
 fn an_address_with_a_scheme_is_used_as_typed() {
-    assert_eq!(resolve_target("https://a.test/x", SEARCH), "https://a.test/x");
-    assert_eq!(resolve_target("haku://settings", SEARCH), "haku://settings");
     assert_eq!(
-        resolve_target("chrome-extension://abc/popup.html", SEARCH),
+        resolve_target("https://a.test/x", &searching(SEARCH)),
+        "https://a.test/x"
+    );
+    assert_eq!(resolve_target("haku://settings", &searching(SEARCH)), "haku://settings");
+    assert_eq!(
+        resolve_target("chrome-extension://abc/popup.html", &searching(SEARCH)),
         "chrome-extension://abc/popup.html"
     );
 }
 
 #[test]
 fn a_bare_host_gets_an_https_scheme() {
-    assert_eq!(resolve_target("example.com", SEARCH), "https://example.com");
+    assert_eq!(resolve_target("example.com", &searching(SEARCH)), "https://example.com");
 }
 
 #[test]
 fn words_are_searched_rather_than_treated_as_a_host() {
-    assert_eq!(resolve_target("how to fly", SEARCH), format!("{SEARCH}how+to+fly"));
+    assert_eq!(
+        resolve_target("how to fly", &searching(SEARCH)),
+        format!("{SEARCH}how+to+fly")
+    );
 }
 
 #[test]
 fn a_dotted_phrase_containing_spaces_is_a_search_not_a_host() {
     assert_eq!(
-        resolve_target("what is node.js", SEARCH),
+        resolve_target("what is node.js", &searching(SEARCH)),
         format!("{SEARCH}what+is+node.js")
     );
 }
 
 #[test]
 fn reserved_characters_in_a_search_are_percent_encoded() {
-    assert_eq!(resolve_target("a&b=c", SEARCH), format!("{SEARCH}a%26b%3Dc"));
+    assert_eq!(
+        resolve_target("a&b=c", &searching(SEARCH)),
+        format!("{SEARCH}a%26b%3Dc")
+    );
 }
 
 #[test]
 fn a_search_goes_where_the_search_url_marks_it() {
     assert_eq!(
-        resolve_target("how to fly", "https://search.test/?q=%s&lang=en"),
+        resolve_target("how to fly", &searching("https://search.test/?q=%s&lang=en")),
         "https://search.test/?q=how+to+fly&lang=en"
     );
 }
 
 #[test]
+fn a_keyword_searches_its_engine_whatever_the_query_looks_like() {
+    assert_eq!(
+        resolve_input("@G  rust book ", &searching(SEARCH)),
+        ("https://www.google.com/search?q=rust+book".to_string(), true)
+    );
+    assert_eq!(
+        resolve_target("@g example.com", &searching(SEARCH)),
+        "https://www.google.com/search?q=example.com"
+    );
+}
+
+#[test]
+fn a_keyword_alone_or_a_word_that_is_not_one_is_an_ordinary_search() {
+    assert_eq!(resolve_target("@g", &searching(SEARCH)), format!("{SEARCH}%40g"));
+    assert_eq!(resolve_target("g cats", &searching(SEARCH)), format!("{SEARCH}g+cats"));
+}
+
+#[test]
 fn an_empty_address_resolves_to_nothing() {
-    assert_eq!(resolve_target("   ", SEARCH), "");
+    assert_eq!(resolve_target("   ", &searching(SEARCH)), "");
 }
 
 fn dialog(id: u64, kind: DialogKind) -> PageDialog {
@@ -1381,14 +1426,17 @@ fn while_history_is_paused_no_report_reaches_it_and_the_tab_still_follows_the_pa
 #[test]
 fn input_resolving_to_a_search_says_so() {
     assert_eq!(
-        resolve_input("rust book", "https://s.test/?q="),
+        resolve_input("rust book", &searching("https://s.test/?q=")),
         ("https://s.test/?q=rust+book".to_string(), true)
     );
     assert_eq!(
-        resolve_input("example.com", "https://s.test/?q="),
+        resolve_input("example.com", &searching("https://s.test/?q=")),
         ("https://example.com".to_string(), false)
     );
-    assert_eq!(resolve_input("  ", "https://s.test/?q="), (String::new(), false));
+    assert_eq!(
+        resolve_input("  ", &searching("https://s.test/?q=")),
+        (String::new(), false)
+    );
 }
 
 // -- optimization policies -------------------------------------------------
@@ -4786,4 +4834,137 @@ fn a_private_window_shows_stored_levels_and_keeps_its_own_in_memory() {
     browser.close_window(window);
     let (again, _) = browser.open_private_window("https://a.test");
     assert_eq!(zoom_of(&browser, again), 150, "forgotten with the private session");
+}
+
+#[test]
+fn switching_to_a_tab_of_another_window_selects_it_and_brings_that_window_forward() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test"]);
+    let first = browser.main_window();
+    let (other, _) = browser.open_window("https://c.test");
+    let second = browser.window_of(other).unwrap();
+
+    let effects = browser.switch_to_tab(second, ids[0], 10).unwrap();
+
+    assert_eq!(browser.active_in(first), Some(ids[0]));
+    assert!(effects.contains(&Effect::FocusWindow { window: first }));
+    let effects = browser.switch_to_tab(first, ids[1], 20).unwrap();
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::FocusWindow { .. })));
+}
+
+#[test]
+fn a_tab_of_the_other_profile_is_never_offered_or_switched_to() {
+    let (mut browser, ids) = browser_with(3, &["https://a.test", "https://b.test"]);
+    let normal = browser.main_window();
+    let (secret, _) = browser.open_private_window("https://secret.test");
+    let private = browser.window_of(secret).unwrap();
+
+    let offered =
+        |browser: &Browser, window| -> Vec<TabId> { browser.switchable_tabs(window).map(|tab| tab.id).collect() };
+    assert_eq!(offered(&browser, normal), [ids[0]], "the tab shown is not offered");
+    assert!(offered(&browser, private).is_empty());
+    assert!(matches!(
+        browser.switch_to_tab(normal, secret, 10),
+        Err(HakuError::Unsupported(_))
+    ));
+    assert!(matches!(
+        browser.switch_to_tab(private, ids[0], 10),
+        Err(HakuError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn the_first_row_says_what_enter_does() {
+    let search = searching("https://search.test/?q=%s");
+    assert_eq!(
+        describe_input("@g example.com", &search),
+        Some(Suggestion::Search {
+            engine: "google".into(),
+            query: "example.com".into()
+        })
+    );
+    assert_eq!(
+        describe_input(" rust book ", &search),
+        Some(Suggestion::Search {
+            engine: "default".into(),
+            query: "rust book".into()
+        })
+    );
+    assert_eq!(
+        describe_input("example.com", &search),
+        Some(Suggestion::Visit {
+            url: "https://example.com".into()
+        })
+    );
+    assert_eq!(describe_input("  ", &search), None);
+}
+
+/// [`searching`], with suggestion URLs on both engines.
+fn suggesting() -> Search {
+    let mut search = searching(SEARCH);
+    for engine in std::iter::once(&mut search.default).chain(search.engines.iter_mut()) {
+        engine.suggest_url = Some(format!("https://{}.test/ac?q=%s", engine.id));
+    }
+    search
+}
+
+#[test]
+fn engine_completions_are_asked_of_the_engine_the_input_searches() {
+    let search = suggesting();
+    let request = suggestion_request(" rust book ", &search).unwrap();
+    assert_eq!(request.engine.id, "default");
+    assert_eq!(request.query, "rust book");
+    assert_eq!(request.url, "https://default.test/ac?q=rust+book");
+
+    let request = suggestion_request("@g café", &search).unwrap();
+    assert_eq!(request.engine.id, "google");
+    assert_eq!(request.url, "https://google.test/ac?q=caf%C3%A9");
+}
+
+#[test]
+fn no_completions_are_asked_for_an_address_blank_input_or_an_engine_without_a_suggestion_url() {
+    let search = suggesting();
+    assert!(suggestion_request("example.com", &search).is_none());
+    assert!(suggestion_request("https://example.com/a b", &search).is_none());
+    assert!(suggestion_request("   ", &search).is_none());
+    assert!(suggestion_request("rust", &searching(SEARCH)).is_none());
+}
+
+#[test]
+fn a_completion_searches_its_engine_by_keyword_only_when_it_alone_would_go_elsewhere() {
+    let search = suggesting();
+    let inputs = |input: &str, completions: &[&str]| -> Vec<(String, String)> {
+        let request = suggestion_request(input, &search).unwrap();
+        let completions = completions.iter().map(|completion| completion.to_string()).collect();
+        suggested_rows(&request, completions, &search, 4)
+            .into_iter()
+            .map(|row| match row {
+                Suggestion::Suggested { query, input, .. } => (query, input),
+                other => panic!("not a completion: {other:?}"),
+            })
+            .collect()
+    };
+
+    assert_eq!(
+        inputs("@g rust", &["rust", "Rust", "rust book", "rust book", "rust.org"]),
+        vec![
+            ("rust book".to_string(), "@g rust book".to_string()),
+            ("rust.org".to_string(), "@g rust.org".to_string()),
+        ]
+    );
+    // The default engine has no keyword: a completion that is an address,
+    // or starts with another engine's keyword, cannot be sent to it.
+    assert_eq!(
+        inputs(
+            "rust",
+            &["rust book", "rust.org", "@g rust", "rust lang", "rust game", "rust fmt"]
+        ),
+        vec![
+            ("rust book".to_string(), "rust book".to_string()),
+            ("rust lang".to_string(), "rust lang".to_string()),
+            ("rust game".to_string(), "rust game".to_string()),
+            ("rust fmt".to_string(), "rust fmt".to_string()),
+        ]
+    );
 }

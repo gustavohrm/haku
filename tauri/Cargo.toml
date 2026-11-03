@@ -43,6 +43,7 @@ miniz_oxide = "0.8"
 # Chrome derives an extension's id from the SHA-256 of its key. Already built
 # as part of Tauri.
 sha2 = "0.10"
+ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
 
 [target.'cfg(windows)'.dependencies]
 # `windows` and `webview2-com` must match the versions Tauri's runtime (wry) uses:

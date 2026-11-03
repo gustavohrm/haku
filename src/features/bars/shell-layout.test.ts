@@ -8,6 +8,7 @@ const vertical = {
   sidebarSide: "right",
   toolbarPlacement: "sidebar",
   sidebarWidth: 300,
+  addressBarLayout: "inline",
 } as const;
 
 describe("shellLayout", () => {
@@ -18,6 +19,7 @@ describe("shellLayout", () => {
       side: "left",
       toolbar: "top",
       sidebarWidth: 240,
+      address: "inline",
     });
   });
 
@@ -28,7 +30,18 @@ describe("shellLayout", () => {
       side: "right",
       toolbar: "sidebar",
       sidebarWidth: 300,
+      address: "floating",
     });
+  });
+
+  it("floats the address field in the column whatever the setting, and on top only when asked", () => {
+    expect(shellLayout(vertical, "normal", false).address).toBe("floating");
+    const top = { ...vertical, toolbarPlacement: "top" } as const;
+    expect(shellLayout(top, "normal", false).address).toBe("inline");
+    expect(shellLayout({ ...top, addressBarLayout: "floating" }, "normal", false).address).toBe("floating");
+    const horizontal = { ...vertical, tabLayout: "horizontal", addressBarLayout: "floating" } as const;
+    expect(shellLayout(horizontal, "normal", false).address).toBe("floating");
+    expect(shellLayout(horizontal, "popup", false).address).toBe("inline");
   });
 
   it("keeps the toolbar on top when the tabs are not in a column", () => {

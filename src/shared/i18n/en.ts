@@ -35,6 +35,12 @@ export const en = {
   "toolbar.reload": "Reload",
   "toolbar.resetZoom": "Zoom {percent}%. Reset to 100%",
   "toolbar.address": "Search or enter address",
+  "toolbar.suggestions": "Suggestions",
+  "toolbar.suggest.search": "{engine} search",
+  "toolbar.suggest.visit": "Go to address",
+  "toolbar.suggest.switch": "Switch to tab",
+  "toolbar.suggest.bookmarked": "Bookmarked",
+  "toolbar.suggest.engine": "Search {engine}",
   "toolbar.devtools": "Open developer tools",
   "toolbar.settings": "Settings",
 
@@ -94,6 +100,14 @@ export const en = {
   "settings.toolbarPlacement.keywords": "address bar, url bar, toolbar, single toolbar, sidebar, layout, appearance",
   "settings.toolbarPlacement.top": "Top",
   "settings.toolbarPlacement.sidebar": "In the sidebar",
+  "settings.addressBarLayout": "Address bar",
+  "settings.addressBarLayout.help":
+    "In the toolbar, with suggestions under it, or in a card over the middle of the window while you type.",
+  "settings.addressBarLayout.keywords":
+    "address bar, url bar, omnibox, search bar, floating, centered, zen, layout, appearance",
+  "settings.addressBarLayout.inline": "In the toolbar",
+  "settings.addressBarLayout.floating": "Floating",
+  "settings.disabledByToolbarInColumn": "Always floating while the toolbar is in the sidebar.",
   "settings.needsVerticalTabs": "Has no effect while the tabs are horizontal.",
   "settings.sidebarBookmarks": "Bookmarks in the sidebar",
   "settings.sidebarBookmarks.help":
@@ -200,10 +214,32 @@ export const en = {
   "settings.browsing": "Browsing",
   "settings.unavailable": "Settings could not be loaded",
   "settings.unavailable.help": "Nothing was changed. Try loading them again.",
-  "settings.search": "Search engine URL",
-  "settings.search.help":
-    "Searches typed in the address field go to this address, in place of %s, or added to its end when it has none.",
-  "settings.search.keywords": "search engine, DuckDuckGo, Google, Bing",
+  "settings.searchEngine": "Search engine",
+  "settings.searchEngine.help": "Where searches typed in the address field go.",
+  "settings.searchEngine.keywords":
+    "search engine, default search, DuckDuckGo, Google, Bing, Brave, Startpage, Ecosia, Kagi",
+  "settings.searchSuggestions": "Search suggestions",
+  "settings.searchSuggestions.help":
+    "Suggest searches as you type in the address bar. What you type is sent to the search engine it searches, without its cookies. Never in private windows, and never for addresses.",
+  "settings.searchSuggestions.keywords": "search suggestions, autocomplete, completions, predictions, omnibox, privacy",
+  "settings.searchEngines": "Search engines",
+  "settings.searchEngines.help":
+    "Type a keyword before a search to send it to that engine once, as in \u201c@g cats\u201d. Add an engine by the address of its results, with %s where the search goes.",
+  "settings.searchEngines.keywords": "keyword, shortcut, custom search engine, add search engine, search URL",
+  "settings.searchEngines.default": "Default",
+  "settings.searchEngines.isDefault": "The default engine can\u2019t be hidden or removed",
+  "settings.searchEngines.hide": "Hide engine",
+  "settings.searchEngines.show": "Show engine",
+  "settings.searchEngines.remove": "Remove engine",
+  "settings.searchEngines.keyword": "Keyword for {engine}",
+  "settings.searchEngines.keywordField": "Keyword",
+  "settings.searchEngines.name": "Name",
+  "settings.searchEngines.url": "Search address",
+  "settings.searchEngines.add": "Add engine",
+  "settings.searchEngines.invalidUrl":
+    "That address can\u2019t take a search. Use an http or https address, with %s where the search goes.",
+  "settings.searchEngines.keywordTaken":
+    "Added without a keyword: \u201c{keyword}\u201d is already used, or contains a space.",
   "settings.home": "Home page",
   "settings.home.help": "Where new tabs and windows open.",
   "settings.home.keywords": "start page, new tab, startup",
@@ -641,6 +677,7 @@ export const en = {
   "menu.openLinkWindow": "Open link in new window",
   "menu.openImageTab": "Open image in new tab",
   "menu.searchFor": "Search for \u201c{text}\u201d",
+  "menu.searchWith": "Search {engine} for \u201c{text}\u201d",
   "menu.print": "Print\u2026",
   "menu.savePage": "Save as\u2026",
   "menu.inspect": "Inspect",

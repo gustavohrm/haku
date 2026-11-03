@@ -1,4 +1,12 @@
-import type { BarLayout, Settings, SidebarSide, TabLayout, ToolbarPlacement, WindowKind } from "@bindings";
+import type {
+  AddressBarLayout,
+  BarLayout,
+  Settings,
+  SidebarSide,
+  TabLayout,
+  ToolbarPlacement,
+  WindowKind,
+} from "@bindings";
 
 /** The tab column's width, in CSS pixels, before settings load: what Rust defaults to. */
 export const DEFAULT_SIDEBAR_WIDTH = 240;
@@ -13,9 +21,14 @@ export interface ShellLayout {
   toolbar: ToolbarPlacement;
   /** The tab column's width, in CSS pixels. */
   sidebarWidth: number;
+  /** How the address field is edited. Always `floating` with the toolbar in the column. */
+  address: AddressBarLayout;
 }
 
-type LayoutSettings = Pick<Settings, "tabLayout" | "barLayout" | "sidebarSide" | "toolbarPlacement" | "sidebarWidth">;
+type LayoutSettings = Pick<
+  Settings,
+  "tabLayout" | "barLayout" | "sidebarSide" | "toolbarPlacement" | "sidebarWidth" | "addressBarLayout"
+>;
 
 /**
  * Maps the layout settings onto the shell, for a window of `kind`.
@@ -25,20 +38,25 @@ type LayoutSettings = Pick<Settings, "tabLayout" | "barLayout" | "sidebarSide" |
  * ([Appearance § Popups](../../../docs/specs/appearance.md#popups)). A private
  * window's bars stay docked too, so its Private marker never hides
  * ([Appearance § Private windows](../../../docs/specs/appearance.md#private-windows)).
- * The toolbar goes in the sidebar only when there is one.
+ * The toolbar goes in the sidebar only when there is one, and the address
+ * field there always floats: a list hanging from a narrow column has no room
+ * for a title and an address per row
+ * ([Address bar § Layouts](../../../docs/specs/address-bar.md#layouts)).
  */
 export function shellLayout(settings: LayoutSettings | null, kind: WindowKind, isPrivate: boolean): ShellLayout {
   const sidebarWidth = settings?.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
   if (kind === "popup") {
-    return { tabs: "horizontal", bars: "docked", side: "left", toolbar: "top", sidebarWidth };
+    return { tabs: "horizontal", bars: "docked", side: "left", toolbar: "top", sidebarWidth, address: "inline" };
   }
   const tabs = settings?.tabLayout ?? "horizontal";
+  const toolbar = tabs === "vertical" ? (settings?.toolbarPlacement ?? "top") : "top";
   return {
     tabs,
     bars: isPrivate ? "docked" : (settings?.barLayout ?? "docked"),
     side: settings?.sidebarSide ?? "left",
-    toolbar: tabs === "vertical" ? (settings?.toolbarPlacement ?? "top") : "top",
+    toolbar,
     sidebarWidth,
+    address: toolbar === "sidebar" ? "floating" : (settings?.addressBarLayout ?? "inline"),
   };
 }
 

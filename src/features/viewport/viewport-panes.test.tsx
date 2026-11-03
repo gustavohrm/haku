@@ -9,6 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 
+import { backdropStore } from "./backdrop";
 import { ViewportPanes } from "./viewport-panes";
 
 const { alert, dismiss, addressListeners } = vi.hoisted(() => ({
@@ -296,4 +297,19 @@ it("shows a fullscreen pane alone, keeping its partner's surface to measure as h
   const right = host.querySelector('[data-viewport="right"]')!.closest("section")!;
   expect(left.hidden).toBe(true);
   expect(right.hidden).toBe(false);
+});
+
+it("draws a pane's capture under the chrome while a backdrop is up, and stays uncovered", async () => {
+  browserStore.set({ ...browserStore.get(), tabs: [tab(1), tab(2)] });
+  await act(async () => root.render(<ViewportPanes />));
+  const pane = (id: string) => host.querySelector<HTMLElement>(`[data-viewport="${id}"]`)!;
+
+  await act(async () => backdropStore.set(new Map([[2, "data:image/jpeg;base64,backdrop"]])));
+  expect(pane("left").querySelector("img")).toBeNull();
+  expect(pane("right").querySelector("img")?.src).toContain("backdrop");
+  // The backdrop covers the page; the pane does not, so the page keeps its hole.
+  expect(pane("right").dataset.covered).toBe("false");
+
+  await act(async () => backdropStore.set(null));
+  expect(pane("right").querySelector("img")).toBeNull();
 });

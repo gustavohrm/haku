@@ -434,31 +434,34 @@ dialog[data-toast-instance] .toast-dialog-container {
   transition: none;
 }
 
-/* The address in a sidebar grows over the page while it is edited, toward
-   the page, so a long address has room however narrow the column is. */
-.haku-address-expandable {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  z-index: 10;
-  width: 100%;
-  outline-offset: -2px;
-  transition: width var(--haku-enter) var(--haku-ease-enter);
+/* Behind the floating address card: the window, blurred and dimmed a
+   little, so the card has the focus. The pages under it are their captures,
+   since the chrome cannot draw over a page. It comes in quickly rather than
+   at once, so the blur does not snap. */
+.haku-address-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgb(0 0 0 / 10%);
+  backdrop-filter: blur(4px);
+  animation: haku-address-backdrop-in var(--haku-enter) var(--haku-ease-enter) both;
 }
 
-.haku-address-expandable[data-expanded] {
-  width: max(100%, min(40rem, 60vw));
-}
-
-[data-side="right"] .haku-address-expandable {
-  inset-inline: auto 0;
+@keyframes haku-address-backdrop-in {
+  from {
+    background: transparent;
+    backdrop-filter: blur(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .haku-bar-panel,
-  .haku-address-expandable,
   .haku-sidebar-resizer::after {
     transition: none !important;
+  }
+
+  .haku-address-backdrop {
+    animation: none;
   }
 }
 

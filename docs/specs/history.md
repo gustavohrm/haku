@@ -16,7 +16,7 @@ Haku has recorded visits since the first release, but `haku://history` shows onl
 - **Control over what is kept.** Turning recording off and on easily, and saying once that a site, or any URL matching a pattern, is never recorded.
 - **Deleting precisely.** Removing exactly what a search shows, not everything or one row at a time.
 
-History also feeds the address bar's suggestions, which come later. The data they need — how a page was reached, how often it was typed — cannot be recovered afterwards, so it is recorded from this change on.
+History also feeds the address bar's suggestions, which [Address bar § Suggestions](address-bar.md#suggestions) specifies. The data they need — how a page was reached, how often it was typed — cannot be recovered afterwards, so it was recorded before they existed.
 
 ## Approved direction
 

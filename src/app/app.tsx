@@ -96,7 +96,7 @@ export function App() {
             <WindowControls />
           </header>
 
-          <Toolbar tab={tab} />
+          <Toolbar tab={tab} floatingAddress={layout.address === "floating"} />
           {bookmarks === "bar" && <BookmarksBar tab={tab?.id ?? null} hold="toolbar" />}
         </BarSlot>
       ) : layout.toolbar === "sidebar" ? (
@@ -127,7 +127,7 @@ export function App() {
       ) : (
         <>
           <BarSlot edge="top" contents={["toolbar"]} floating={isFloating} isNeeded={toolbarNeeded}>
-            <Toolbar tab={tab} trailing={<WindowControls />} />
+            <Toolbar tab={tab} trailing={<WindowControls />} floatingAddress={layout.address === "floating"} />
             {bookmarks === "bar" && <BookmarksBar tab={tab?.id ?? null} hold="toolbar" />}
           </BarSlot>
           <BarSlot edge="side" contents={["tabs"]} floating={isFloating} isNeeded={tabsNeeded}>

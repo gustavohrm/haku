@@ -19,6 +19,13 @@ const separator = (id: string): MenuItem => ({ kind: "separator", id: `separator
 /** The longest selection a "Search for" label quotes in full. */
 const QUOTED_LENGTH = 32;
 
+/** "Search for …", naming the engine once it is known. */
+function searchLabel(selection: string, engine: string | null): string {
+  // Functions, so `$&` and the like in the selection stay literal.
+  const label = engine === null ? t("menu.searchFor") : t("menu.searchWith").replace("{engine}", () => engine);
+  return label.replace("{text}", () => quote(selection));
+}
+
 /**
  * An interface menu's items, with **Inspect interface** at the end in
  * development builds, so working on Haku keeps the interface's DevTools.
@@ -197,6 +204,8 @@ export function fieldMenu(selected: boolean, editable: boolean, actions: FieldAc
 
 export interface PageActions {
   isPrivate: boolean;
+  /** The name of the engine a search goes to, or null while it is not known. */
+  searchEngine: string | null;
   back: () => void;
   forward: () => void;
   reload: () => void;
@@ -257,8 +266,7 @@ export function pageMenu(request: ContextMenuRequested, tab: Tab | null, actions
       {
         kind: "command",
         id: "search",
-        // A function, so `$&` and the like in the selection stay literal.
-        label: t("menu.searchFor").replace("{text}", () => quote(selection)),
+        label: searchLabel(selection, actions.searchEngine),
         onSelect: () => actions.search(selection),
       },
       separator("afterSearch"),

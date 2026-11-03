@@ -518,6 +518,16 @@ pub fn leave_page<R: tauri::Runtime>(
     backend::leave_page(webview, expression, capture, timeout)
 }
 
+/// Captures what a webview shows as a JPEG, waiting at most `timeout`.
+///
+/// Blocks, as [`leave_page`] does, and is as meaningful only while the webview
+/// is visible.
+///
+/// @returns The image, or nothing when the capture failed or did not finish in time.
+pub fn capture<R: tauri::Runtime>(webview: &tauri::Webview<R>, timeout: std::time::Duration) -> Option<Vec<u8>> {
+    backend::leave_page(webview, "null", true, timeout).1
+}
+
 /// Releases a page paused on a dialog, with the given answer.
 ///
 /// Does nothing for a dialog that was already answered or whose webview is

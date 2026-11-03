@@ -28,9 +28,16 @@ use tauri::{Manager, State};
 use tauri_specta::Event;
 
 use crate::browser::Ending;
-use crate::browser::{resolve_input, resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport};
+use crate::browser::{
+    describe_input, resolve_input, resolve_target, suggested_rows, suggestion_request, Browser, BrowserState,
+    Direction, Effect, Opening, PageReport,
+};
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
+use crate::model::suggest::{
+    complete_host, host_prefix, keyword_rows, parse_open_search, rank_pages, rank_tabs, words, ENGINE_SUGGESTIONS_MAX,
+    PAGES_MAX, PAGE_CANDIDATES_MAX, SUGGESTIONS_MAX, TABS_MAX,
+};
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
     CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
@@ -38,6 +45,8 @@ use crate::model::{
     PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, Recording, ScreenRect,
     Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
+use crate::model::{EngineSuggestions, ListedSearchEngine, Suggestions};
+use crate::net;
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::{HistoryCursor, HistoryFilter, HistoryPage, HistorySite, NewVisit};
@@ -1508,6 +1517,78 @@ pub fn get_settings(webview: tauri::Webview, state: State<'_, AppState>) -> Resu
     Ok(settings.clone())
 }
 
+/// Every search engine, presets first, with the user's keywords applied, so
+/// the interface lists them without a copy of the presets.
+/// [Address bar § Contract](../../../docs/specs/address-bar.md#contract).
+/// # Errors
+/// Rejects non-chrome callers.
+#[tauri::command]
+#[specta::specta]
+pub fn search_engines(webview: tauri::Webview, state: State<'_, AppState>) -> Result<Vec<ListedSearchEngine>> {
+    ensure_chrome(&webview)?;
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+    Ok(settings.listed_search_engines())
+}
+
+/// What the address bar suggests for `input`: what Enter does, then the
+/// engines a keyword being typed could be, open tabs and pages. Local only, so
+/// it answers while the user types.
+/// [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+/// # Errors
+/// Rejects non-chrome callers; propagates storage failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn suggest(webview: tauri::Webview, state: State<'_, AppState>, input: String) -> Result<Suggestions> {
+    let window = ensure_chrome(&webview)?;
+    let search = state
+        .settings
+        .read()
+        .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?
+        .search();
+    let typed = words(&input);
+    let (completion, history) = {
+        let history = state
+            .history
+            .lock()
+            .map_err(|_| HakuError::Storage("history lock poisoned".into()))?;
+        let completion = match host_prefix(&input) {
+            Some(prefix) => history
+                .typed_host(&prefix)?
+                .and_then(|host| complete_host(&prefix, &host)),
+            None => None,
+        };
+        (completion, history.suggest_pages(&input, PAGE_CANDIDATES_MAX)?)
+    };
+    let bookmarks = state
+        .bookmarks
+        .lock()
+        .map_err(|_| HakuError::Storage("bookmarks lock poisoned".into()))?
+        .suggest_links(&input, PAGE_CANDIDATES_MAX)?;
+    let tabs = {
+        let browser = state
+            .browser
+            .read()
+            .map_err(|_| HakuError::Storage("browser lock poisoned".into()))?;
+        rank_tabs(browser.switchable_tabs(window), &typed, TABS_MAX)
+    };
+
+    let mut rows: Vec<_> = describe_input(completion.as_deref().unwrap_or(&input), &search)
+        .into_iter()
+        .collect();
+    rows.extend(keyword_rows(&input, &search.engines));
+    rows.extend(tabs);
+    rows.extend(rank_pages(history, bookmarks, &typed, now_ms() as i64, PAGES_MAX));
+    rows.truncate(SUGGESTIONS_MAX);
+    Ok(Suggestions {
+        input,
+        completion,
+        rows,
+    })
+}
+
 /// Replaces the settings, applying anything that takes effect immediately.
 ///
 /// Settings are shared: whichever window calls this changes them for every
@@ -1708,7 +1789,7 @@ pub async fn open_tab(
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
         match url {
-            Some(url) => resolve_input(&url, &settings.search_url),
+            Some(url) => resolve_input(&url, &settings.search()),
             None => (settings.home_url.clone(), false),
         }
     };
@@ -1754,6 +1835,27 @@ pub async fn select_tab(
     mutate_in(&app, &state, window, |browser| {
         browser.set_pressure(pressure);
         browser.select_tab(id, now_ms())
+    })
+}
+
+/// Selects a tab in whichever window holds it, as the address bar offers
+/// open tabs, and brings that window forward.
+/// [Address bar § Approved decisions](../../../docs/specs/address-bar.md#approved-decisions), I.
+/// # Errors
+/// Rejects non-chrome callers, unknown tabs and tabs of the other profile.
+#[tauri::command]
+#[specta::specta]
+pub async fn switch_to_tab(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: TabId,
+) -> Result<BrowserState> {
+    let window = ensure_chrome(&webview)?;
+    let pressure = read_pressure(&state);
+    mutate_in(&app, &state, window, |browser| {
+        browser.set_pressure(pressure);
+        browser.switch_to_tab(window, id, now_ms())
     })
 }
 
@@ -1854,7 +1956,7 @@ pub async fn navigate_tab(
             .settings
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        resolve_input(&input, &settings.search_url)
+        resolve_input(&input, &settings.search())
     };
     if target.is_empty() {
         return get_state(webview, state);
@@ -1919,7 +2021,7 @@ pub async fn open_window(
             .settings
             .read()
             .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
-        resolve_target(&url, &settings.search_url)
+        resolve_target(&url, &settings.search())
     };
     let pressure = read_pressure(&state);
     mutate_in(&app, &state, window, |browser| {
@@ -2254,6 +2356,79 @@ pub fn tab_preview(webview: tauri::Webview, state: State<'_, AppState>, id: TabI
         .lock()
         .map_err(|_| HakuError::Storage("preview lock poisoned".into()))?;
     Ok(previews.get(id).map(jpeg_data_url))
+}
+
+/// The search engine's completions for what the user typed in the address
+/// bar. [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+///
+/// None while engine suggestions are off, in a private window, for input
+/// that is an address or searches an engine without a suggestion URL, and
+/// when the engine fails or takes longer than [`net::SUGGESTIONS_TIMEOUT`]:
+/// the list is whole without them, so a failure is not reported.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_suggestions(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    input: String,
+) -> Result<EngineSuggestions> {
+    let window = ensure_chrome(&webview)?;
+    let search = {
+        let settings = state
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        settings.search_suggestions.then(|| settings.search())
+    };
+    let search = if is_private(&state, window)? { None } else { search };
+    let Some((search, url)) = search.and_then(|search| {
+        let url = suggestion_request(&input, &search)?.url;
+        Some((search, url))
+    }) else {
+        return Ok(EngineSuggestions {
+            input,
+            rows: Vec::new(),
+        });
+    };
+    // Off the async runtime's threads, which a slow engine would otherwise hold.
+    let body = tauri::async_runtime::spawn_blocking(move || net::fetch_text(&url, net::SUGGESTIONS_TIMEOUT))
+        .await
+        .ok()
+        .flatten();
+    let rows = match (body, suggestion_request(&input, &search)) {
+        (Some(body), Some(request)) => {
+            suggested_rows(&request, parse_open_search(&body), &search, ENGINE_SUGGESTIONS_MAX)
+        }
+        _ => Vec::new(),
+    };
+    Ok(EngineSuggestions { input, rows })
+}
+
+/// The longest a capture for the address card's backdrop is waited on. Past
+/// it the card shows over the live page, as a late backdrop would arrive
+/// while the user is already typing.
+const BACKDROP_CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// What a tab's page shows now, as a `data:` URL, drawn blurred behind the
+/// floating address card while it is open, since the chrome cannot draw over
+/// the page itself. [Address bar § Layouts](../../../docs/specs/address-bar.md#layouts).
+///
+/// Nothing for a tab without a live page, or when the capture fails or takes
+/// longer than [`BACKDROP_CAPTURE_TIMEOUT`]. Only the caller's window's tabs,
+/// and a command rather than a protocol, as for [`tab_preview`].
+#[tauri::command]
+#[specta::specta]
+pub async fn capture_page(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    tab: TabId,
+) -> Result<Option<String>> {
+    let window = ensure_chrome(&webview)?;
+    let Some(page) = slot_of(&state, window, tab)?.and_then(|slot| app.get_webview(&slot.label())) else {
+        return Ok(None);
+    };
+    Ok(platform::capture(&page, BACKDROP_CAPTURE_TIMEOUT).map(|jpeg| jpeg_data_url(&jpeg)))
 }
 
 fn lock_history(state: &AppState) -> Result<std::sync::MutexGuard<'_, HistoryDb>> {

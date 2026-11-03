@@ -3,6 +3,7 @@ import { t } from "@shared/i18n";
 
 import {
   AddExtensionControl,
+  AddressBarLayoutControl,
   BarLayoutControl,
   BookmarksBarControl,
   CapacityControl,
@@ -16,7 +17,6 @@ import {
   KeptSitesControl,
   MemoryPageControl,
   PresetControl,
-  SearchUrlControl,
   SidebarBookmarksControl,
   SidebarSideControl,
   SitePermissionsControl,
@@ -27,6 +27,7 @@ import {
   VersionControl,
 } from "./controls";
 import { HistoryEnabledControl, HistoryRetentionControl, HistoryRulesControl } from "./history-controls";
+import { SearchEngineControl, SearchEnginesControl, SearchSuggestionsControl } from "./search-controls";
 import { SHORTCUT_GROUPS } from "./shortcuts";
 import { type SettingRowDefinition, type SettingSection } from "./types";
 
@@ -45,6 +46,10 @@ const unlessToolbarInColumn = (settings: { tabLayout: string; toolbarPlacement: 
   settings.tabLayout === "vertical" && settings.toolbarPlacement === "sidebar"
     ? null
     : ("settings.needsToolbarInColumn" as const);
+
+// The address field in the column always floats.
+const ifToolbarInColumn = (settings: { tabLayout: string; toolbarPlacement: string }) =>
+  unlessToolbarInColumn(settings) === null ? ("settings.disabledByToolbarInColumn" as const) : null;
 
 // The bar shows nowhere while bookmarks are the column's button.
 const unlessBookmarksBarShown = (settings: {
@@ -102,6 +107,15 @@ export const SECTIONS: SettingSection[] = [
             labelsControl: false,
             disabledReason: unlessVerticalTabs,
             Control: ToolbarPlacementControl,
+          },
+          {
+            id: "addressBarLayout",
+            title: "settings.addressBarLayout",
+            description: "settings.addressBarLayout.help",
+            keywords: "settings.addressBarLayout.keywords",
+            labelsControl: false,
+            disabledReason: ifToolbarInColumn,
+            Control: AddressBarLayoutControl,
           },
           {
             id: "sidebarBookmarks",
@@ -202,12 +216,27 @@ export const SECTIONS: SettingSection[] = [
       {
         rows: [
           {
-            id: "searchUrl",
-            title: "settings.search",
-            description: "settings.search.help",
-            keywords: "settings.search.keywords",
+            id: "searchEngine",
+            title: "settings.searchEngine",
+            description: "settings.searchEngine.help",
+            keywords: "settings.searchEngine.keywords",
+            Control: SearchEngineControl,
+          },
+          {
+            id: "searchEngines",
+            title: "settings.searchEngines",
+            description: "settings.searchEngines.help",
+            keywords: "settings.searchEngines.keywords",
             wide: true,
-            Control: SearchUrlControl,
+            labelsControl: false,
+            Control: SearchEnginesControl,
+          },
+          {
+            id: "searchSuggestions",
+            title: "settings.searchSuggestions",
+            description: "settings.searchSuggestions.help",
+            keywords: "settings.searchSuggestions.keywords",
+            Control: SearchSuggestionsControl,
           },
           {
             id: "homeUrl",

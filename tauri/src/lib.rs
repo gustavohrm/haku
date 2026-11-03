@@ -26,6 +26,7 @@ pub mod chrome;
 pub mod error;
 pub mod ipc;
 pub mod model;
+pub mod net;
 pub mod platform;
 pub mod state;
 pub mod storage;
@@ -64,7 +65,15 @@ pub fn run() {
             // A first launch starts on the Balanced preset rather than on the
             // bare defaults, which keep a single page loaded.
             let first_launch = !paths.settings.exists();
-            let mut settings: Settings = storage::read_json::<Settings>(&paths.settings).sanitized();
+            // The stored document as written, for the one setting it may still
+            // hold under its old name.
+            let stored = std::fs::read_to_string(&paths.settings)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .unwrap_or_default();
+            let mut settings: Settings = storage::read_json::<Settings>(&paths.settings)
+                .migrated(&stored)
+                .sanitized();
             if first_launch {
                 settings = settings.with_preset(Preset::Balanced);
             }

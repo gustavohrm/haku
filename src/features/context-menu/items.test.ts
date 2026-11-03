@@ -82,6 +82,7 @@ function request(target: Partial<ContextMenuTarget>, items: NativeMenuItem[] = [
 function actions(): PageActions {
   return {
     isPrivate: false,
+    searchEngine: null,
     back: vi.fn(),
     forward: vi.fn(),
     reload: vi.fn(),
@@ -294,6 +295,14 @@ describe("pageMenu", () => {
     expect(search && "label" in search && search.label).toContain("…");
     select(search);
     expect(acts.search).toHaveBeenCalledWith(text);
+  });
+
+  it("names the search engine once it is known", () => {
+    const search = find(
+      pageMenu(request({ kind: "selection", selection: "cats" }), tab(1), { ...actions(), searchEngine: "Google" }),
+      "search",
+    );
+    expect(search && "label" in search && search.label).toBe("Search Google for “cats”");
   });
 
   it("hands a native item back by its engine id", () => {

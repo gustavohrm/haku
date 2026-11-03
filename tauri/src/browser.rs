@@ -15,6 +15,7 @@ use crate::model::{
     SitePermission, SiteZoom, Slot, SlotId, Tab, TabId, TabPresence, Transition, Visit, WebviewPool, WindowId,
     WindowKind, WindowRequestId, DEFAULT_ZOOM,
 };
+use crate::model::{search_url, Search, SearchEngine, Suggestion, TabCandidate};
 
 /// URL a slot is parked on after its tab is discarded.
 ///
@@ -1939,6 +1940,51 @@ impl Browser {
         Ok(effects)
     }
 
+    /// Selects a tab in whichever window holds it, for the address bar of
+    /// `from`, and brings that window forward.
+    /// [Address bar § Approved decisions](../../docs/specs/address-bar.md#approved-decisions), I.
+    ///
+    /// # Errors
+    /// Returns [`HakuError::TabNotFound`] when no tab has this id, and
+    /// [`HakuError::Unsupported`] for a tab of the other profile, which the
+    /// address bar never offers.
+    pub fn switch_to_tab(&mut self, from: WindowId, id: TabId, now: u64) -> Result<Vec<Effect>> {
+        let window = self
+            .window_of(id)
+            .ok_or_else(|| HakuError::TabNotFound(id.0.to_string()))?;
+        if self.is_private(window) != self.is_private(from) {
+            return Err(HakuError::Unsupported(
+                "a tab of the other profile cannot be switched to".into(),
+            ));
+        }
+        let mut effects = self.select_tab(id, now)?;
+        if window != from {
+            effects.push(Effect::FocusWindow { window });
+        }
+        Ok(effects)
+    }
+
+    /// The open tabs the address bar of `window` may offer: those of its
+    /// profile, every window's, but not the tab it shows.
+    pub fn switchable_tabs(&self, window: WindowId) -> impl Iterator<Item = TabCandidate<'_>> {
+        let private = self.is_private(window);
+        let shown = self.active_in(window);
+        self.tabs
+            .iter()
+            .filter(move |tab| {
+                Some(tab.id) != shown
+                    && self
+                        .window_of(tab.id)
+                        .is_some_and(|home| self.is_private(home) == private)
+            })
+            .map(|tab| TabCandidate {
+                id: tab.id,
+                url: tab.url(),
+                title: &tab.history.current().title,
+                active_at: tab.active_at,
+            })
+    }
+
     /// # Errors
     /// Returns [`HakuError::TabNotFound`] when no tab has this id.
     pub fn navigate(&mut self, id: TabId, url: impl Into<String>) -> Result<Vec<Effect>> {
@@ -3288,17 +3334,120 @@ pub fn favicon_for(url: &str) -> Option<String> {
     Some(format!("{scheme}://{host}/favicon.ico"))
 }
 
-pub fn resolve_target(input: &str, search_url: &str) -> String {
-    resolve_input(input, search_url).0
+pub fn resolve_target(input: &str, search: &Search) -> String {
+    resolve_input(input, search).0
 }
 
 /// What address-field input resolves to, and whether that is a search.
 ///
+/// A keyword followed by a query searches the keyword's engine, whatever the
+/// query looks like, as it does in other browsers: `@g example.com` asks
+/// Google about the site rather than opening it.
+/// [Address bar § Search engines](../../docs/specs/address-bar.md#search-engines).
+///
 /// @returns The URL, empty for blank input, and whether it searches.
-pub fn resolve_input(input: &str, search_url: &str) -> (String, bool) {
+pub fn resolve_input(input: &str, search: &Search) -> (String, bool) {
+    match resolve(input, search) {
+        Resolved::Empty => (String::new(), false),
+        Resolved::Address(url) => (url, false),
+        Resolved::Search { engine, query } => (search_url(&engine.url, &urlencode(query)), true),
+    }
+}
+
+/// What Enter does with the input, as the address bar's first row says it,
+/// or nothing for blank input.
+/// [Address bar § Suggestions](../../docs/specs/address-bar.md#suggestions).
+pub fn describe_input(input: &str, search: &Search) -> Option<Suggestion> {
+    match resolve(input, search) {
+        Resolved::Empty => None,
+        Resolved::Address(url) => Some(Suggestion::Visit { url }),
+        Resolved::Search { engine, query } => Some(Suggestion::Search {
+            engine: engine.name.clone(),
+            query: query.to_string(),
+        }),
+    }
+}
+
+/// Where the search engine is asked for completions of the input: the input
+/// searches an engine with a suggestion URL.
+pub struct SuggestionRequest<'a, 'b> {
+    pub engine: &'b SearchEngine,
+    pub query: &'a str,
+    pub url: String,
+}
+
+/// The request for the engine's completions of `input`, or nothing for input
+/// that is blank, an address, or searches an engine without a suggestion URL.
+/// [Address bar § Suggestions](../../docs/specs/address-bar.md#suggestions).
+pub fn suggestion_request<'a, 'b>(input: &'a str, search: &'b Search) -> Option<SuggestionRequest<'a, 'b>> {
+    let Resolved::Search { engine, query } = resolve(input, search) else {
+        return None;
+    };
+    let template = engine.suggest_url.as_deref()?;
+    if query.is_empty() {
+        return None;
+    }
+    Some(SuggestionRequest {
+        engine,
+        query,
+        url: search_url(template, &urlencode(query)),
+    })
+}
+
+/// The rows for an engine's `completions`, at most `limit`, each searching
+/// that engine. A completion repeating the query, already the first row, or
+/// an earlier completion is left out, as is one that would go elsewhere from
+/// an engine without a keyword to send it there.
+pub fn suggested_rows(
+    request: &SuggestionRequest,
+    completions: Vec<String>,
+    search: &Search,
+    limit: usize,
+) -> Vec<Suggestion> {
+    let mut seen = vec![request.query.to_lowercase()];
+    completions
+        .into_iter()
+        .filter(|completion| {
+            let key = completion.to_lowercase();
+            let is_new = !seen.contains(&key);
+            seen.push(key);
+            is_new
+        })
+        .filter_map(|query| {
+            let input = match resolve(&query, search) {
+                Resolved::Search { engine, query: alone } if engine.id == request.engine.id && alone == query => {
+                    query.clone()
+                }
+                _ => format!("{} {query}", request.engine.keyword.as_deref()?),
+            };
+            Some(Suggestion::Suggested {
+                engine: request.engine.name.clone(),
+                query,
+                input,
+            })
+        })
+        .take(limit)
+        .collect()
+}
+
+enum Resolved<'a, 'b> {
+    Empty,
+    Address(String),
+    Search { engine: &'b SearchEngine, query: &'a str },
+}
+
+fn resolve<'a, 'b>(input: &'a str, search: &'b Search) -> Resolved<'a, 'b> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return (String::new(), false);
+        return Resolved::Empty;
+    }
+    if let Some((word, query)) = trimmed.split_once(char::is_whitespace) {
+        if let Some(engine) = search.by_keyword(word) {
+            return Resolved::Search {
+                engine,
+                query: query.trim(),
+            };
+        }
     }
     // An extension's own pages are reached by address: the engine draws no
     // toolbar to open its popup from.
@@ -3307,24 +3456,17 @@ pub fn resolve_input(input: &str, search_url: &str) -> (String, bool) {
         || trimmed.starts_with("https://")
         || trimmed.starts_with("chrome-extension://")
     {
-        return (trimmed.to_string(), false);
+        return Resolved::Address(trimmed.to_string());
     }
     // A single token with a dot and no spaces is a host, anything else is a query.
     if !trimmed.contains(' ') && trimmed.contains('.') {
-        return (format!("https://{trimmed}"), false);
+        return Resolved::Address(format!("https://{trimmed}"));
     }
-    let query = urlencode(trimmed);
-    // `%s` marks where the search goes, each time it appears, as in other
-    // browsers' search URLs; without it the search is added to the end.
-    let url = if search_url.contains(SEARCH_MARK) {
-        search_url.replace(SEARCH_MARK, &query)
-    } else {
-        format!("{search_url}{query}")
-    };
-    (url, true)
+    Resolved::Search {
+        engine: &search.default,
+        query: trimmed,
+    }
 }
-
-const SEARCH_MARK: &str = "%s";
 
 fn urlencode(value: &str) -> String {
     value

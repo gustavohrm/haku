@@ -10,6 +10,23 @@ export const commands = {
 	getState: () => typedError<BrowserState, HakuError>(__TAURI_INVOKE("get_state")),
 	getSettings: () => typedError<Settings, HakuError>(__TAURI_INVOKE("get_settings")),
 	/**
+	 *  Every search engine, presets first, with the user's keywords applied, so
+	 *  the interface lists them without a copy of the presets.
+	 *  [Address bar § Contract](../../../docs/specs/address-bar.md#contract).
+	 *  # Errors
+	 *  Rejects non-chrome callers.
+	 */
+	searchEngines: () => typedError<ListedSearchEngine[], HakuError>(__TAURI_INVOKE("search_engines")),
+	/**
+	 *  What the address bar suggests for `input`: what Enter does, then the
+	 *  engines a keyword being typed could be, open tabs and pages. Local only, so
+	 *  it answers while the user types.
+	 *  [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+	 *  # Errors
+	 *  Rejects non-chrome callers; propagates storage failures.
+	 */
+	suggest: (input: string) => typedError<Suggestions, HakuError>(__TAURI_INVOKE("suggest", { input })),
+	/**
 	 *  Replaces the settings, applying anything that takes effect immediately.
 	 * 
 	 *  Settings are shared: whichever window calls this changes them for every
@@ -59,6 +76,14 @@ export const commands = {
 	openTab: (url: string | null, activate: boolean, source: NavigationSource) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("open_tab", { url, activate, source })),
 	closeTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("close_tab", { id })),
 	selectTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("select_tab", { id })),
+	/**
+	 *  Selects a tab in whichever window holds it, as the address bar offers
+	 *  open tabs, and brings that window forward.
+	 *  [Address bar § Approved decisions](../../../docs/specs/address-bar.md#approved-decisions), I.
+	 *  # Errors
+	 *  Rejects non-chrome callers, unknown tabs and tabs of the other profile.
+	 */
+	switchToTab: (id: TabId) => typedError<BrowserState, HakuError>(__TAURI_INVOKE("switch_to_tab", { id })),
 	/**
 	 *  Pairs a distinct unpaired tab with the selected unpaired tab.
 	 *  # Errors
@@ -223,6 +248,26 @@ export const commands = {
 	 *  content webviews, and a capture shows another tab's page.
 	 */
 	tabPreview: (id: TabId) => typedError<string | null, HakuError>(__TAURI_INVOKE("tab_preview", { id })),
+	/**
+	 *  What a tab's page shows now, as a `data:` URL, drawn blurred behind the
+	 *  floating address card while it is open, since the chrome cannot draw over
+	 *  the page itself. [Address bar § Layouts](../../../docs/specs/address-bar.md#layouts).
+	 * 
+	 *  Nothing for a tab without a live page, or when the capture fails or takes
+	 *  longer than [`BACKDROP_CAPTURE_TIMEOUT`]. Only the caller's window's tabs,
+	 *  and a command rather than a protocol, as for [`tab_preview`].
+	 */
+	capturePage: (tab: TabId) => typedError<string | null, HakuError>(__TAURI_INVOKE("capture_page", { tab })),
+	/**
+	 *  The search engine's completions for what the user typed in the address
+	 *  bar. [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+	 * 
+	 *  None while engine suggestions are off, in a private window, for input
+	 *  that is an address or searches an engine without a suggestion URL, and
+	 *  when the engine fails or takes longer than [`net::SUGGESTIONS_TIMEOUT`]:
+	 *  the list is whole without them, so a failure is not reported.
+	 */
+	searchSuggestions: (input: string) => typedError<EngineSuggestions, HakuError>(__TAURI_INVOKE("search_suggestions", { input })),
 	/**  The extensions the extensions folder installed. */
 	extensions: () => typedError<Extensions, HakuError>(__TAURI_INVOKE("extensions")),
 	/**
@@ -374,6 +419,19 @@ export type AddedExtension = {
 	/**  The version it replaced, when it updated one already installed. */
 	replaced: string | null,
 };
+
+/**
+ *  How the address field is edited.
+ *  [Address bar § Layouts](../../../docs/specs/address-bar.md#layouts).
+ * 
+ *  Read leniently, as [`known_or_default`] explains. Floating whatever it
+ *  says while the toolbar is in the tab column.
+ */
+export type AddressBarLayout = 
+/**  In the toolbar, with the suggestions in a list under it. */
+"inline" | 
+/**  In a card centred over the window, opened by focusing the field. */
+"floating";
 
 /**
  *  Asks the interface to focus the address field, for the given tab.
@@ -663,6 +721,14 @@ export type Ending =
 /**  It closes the last private tab, which ends the private session. */
 "privateSession";
 
+/**  The search engine's completions for one input. */
+export type EngineSuggestions = {
+	/**  The input these answer, as for [`Suggestions`]. */
+	input: string,
+	/**  [`Suggestion::Suggested`] rows, at most [`ENGINE_SUGGESTIONS_MAX`]. */
+	rows: Suggestion[],
+};
+
 /**
  *  What an export wrote, the two roots aside.
  *  [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
@@ -899,6 +965,14 @@ export type Layout = {
 	overlays: Overlay[],
 };
 
+/**  An engine as the settings page lists it. */
+export type ListedSearchEngine = {
+	engine: SearchEngine,
+	/**  Shipped with Haku: its URL is fixed, and it is hidden, not removed. */
+	preset: boolean,
+	hidden: boolean,
+};
+
 /**  What discarding a tab would cost, from least to most. */
 export type Loss = 
 /**  A reload shows the same thing. */
@@ -1067,6 +1141,22 @@ export type Scroll = {
 	y: number,
 };
 
+/**  A search engine as the interface and the address field use it. */
+export type SearchEngine = {
+	/**  A preset's fixed id, or one the interface made for a custom engine. */
+	id: string,
+	name: string,
+	/**  Where a search goes, with [`SEARCH_MARK`] where the query goes. */
+	url: string,
+	/**
+	 *  Where completions for a query are asked, in the OpenSearch suggestions
+	 *  format, or nothing when the engine has none Haku can use.
+	 */
+	suggestUrl: string | null,
+	/**  Typed before a query, searches this engine once. */
+	keyword: string | null,
+};
+
 export type Settings = {
 	/**
 	 *  How many webviews may exist at once. One means only the visible tab is
@@ -1094,6 +1184,7 @@ export type Settings = {
 	barLayout: BarLayout,
 	sidebarSide: SidebarSide,
 	toolbarPlacement: ToolbarPlacement,
+	addressBarLayout: AddressBarLayout,
 	bookmarksBar: BookmarksBar,
 	sidebarBookmarks: SidebarBookmarks,
 	/**
@@ -1103,7 +1194,26 @@ export type Settings = {
 	sidebarWidth: number,
 	/**  BCP-47 language tag the interface is shown in. */
 	locale: string,
-	searchUrl: string,
+	/**
+	 *  The id of the engine searches go to.
+	 *  [Address bar § Search engines](../../../docs/specs/address-bar.md#search-engines).
+	 */
+	searchEngine: string,
+	/**  Engines the user added, in the order they were added. */
+	customSearchEngines: SearchEngine[],
+	/**
+	 *  Keywords the user gave presets in place of their own, by preset id. An
+	 *  empty one leaves the preset without a keyword.
+	 */
+	presetKeywords: { [key in string]: string },
+	/**  Ids of presets the user hid. The default engine is never hidden. */
+	hiddenSearchEngines: string[],
+	/**
+	 *  Whether the address bar asks the search engine for completions as the
+	 *  user types. Off until the user turns it on, since it sends what is
+	 *  typed to the engine; never in a private window.
+	 */
+	searchSuggestions: boolean,
 	homeUrl: string,
 	/**
 	 *  Ids of installed extensions the user switched off. Extensions are
@@ -1218,6 +1328,42 @@ export type SlotMemory = {
  *  a consistent picture out of a stream of partial updates.
  */
 export type StateChanged = BrowserState;
+
+/**  One row of the list. */
+export type Suggestion = 
+/**  What Enter does for input that searches: `engine` names where. */
+{ kind: "search"; engine: string; query: string } | 
+/**  What Enter does for input that is an address, or completes to one. */
+{ kind: "visit"; url: string } | 
+/**  An open tab, offered to switch to rather than open again. */
+{ kind: "tab"; tab: TabId; title: string; url: string } | 
+/**  A page from history, a bookmark, or both. */
+{ kind: "page"; title: string; url: string; bookmarked: boolean } | 
+/**
+ *  An engine, while its keyword is being typed. Choosing it puts the
+ *  keyword in the field, to type a query after.
+ */
+{ kind: "engine"; name: string; keyword: string } | 
+/**
+ *  A completion from the search engine, which searches `engine` for
+ *  `query`. `input` is what the field takes to do that: the query, or the
+ *  engine's keyword and the query where the query alone would go
+ *  elsewhere, to another engine or to an address.
+ */
+{ kind: "suggested"; engine: string; query: string; input: string };
+
+/**  The rows for one input. */
+export type Suggestions = {
+	/**
+	 *  The input these answer, so the interface can drop an answer that
+	 *  arrives after the input changed.
+	 */
+	input: string,
+	/**  The input completed to a host the user typed before, or nothing. */
+	completion: string | null,
+	/**  What Enter does first, then engines, open tabs, then pages. */
+	rows: Suggestion[],
+};
 
 export type Tab = {
 	id: TabId,
