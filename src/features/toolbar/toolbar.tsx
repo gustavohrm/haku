@@ -380,44 +380,47 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
           className="border-edge absolute inset-x-0 top-full mt-1 rounded-(--radius-control) border"
         />
       )}
-      {isBackdropUp &&
-        createPortal(
-          // Pressing it leaves the card's input, which closes the card.
-          <div ref={backdropRef} data-address-backdrop className="haku-address-backdrop" aria-hidden="true" />,
-          document.body,
-        )}
       {isCardOpen &&
         createPortal(
-          // Centred on the window rather than the page, which a docked column
-          // would put off-centre. Opaque, edged and without a shadow, as a
-          // floating bar is, since the page cannot show through or around it.
-          // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- The press is not handled, only kept from taking focus from the input.
-          <form
-            ref={cardRef}
-            data-address-card
-            className="bg-chrome-raised border-text/15 text-text fixed top-[20vh] left-1/2 z-30 flex w-[min(48rem,calc(100vw-6rem))] -translate-x-1/2 flex-col overflow-hidden rounded-(--haku-radius) border"
-            onSubmit={submit}
-            // Pressing anywhere in the card but the input would blur it, which
-            // closes the card.
-            onMouseDown={(event) => {
-              if (event.target !== inputRef.current) {
-                event.preventDefault();
-              }
-            }}
-          >
-            <div className="flex h-[calc(var(--control-height)+0.5rem)] items-center gap-2 px-3">
-              <i className="ic-search ic-sm text-text-secondary shrink-0" aria-hidden="true" />
-              {editor}
-            </div>
-            <SuggestionList
-              id={listId}
-              rows={isListed ? rows : []}
-              selected={selected}
-              rowId={rowId}
-              onChoose={choose}
-              className="border-edge border-t"
-            />
-          </form>,
+          // One portal, so the backdrop, arriving after the card, still goes
+          // in under it rather than on top.
+          <>
+            {isBackdropUp && (
+              // Pressing it leaves the card's input, which closes the card.
+              <div ref={backdropRef} data-address-backdrop className="haku-address-backdrop" aria-hidden="true" />
+            )}
+            {/* Centred on the window rather than the page, which a docked
+                column would put off-centre. Opaque, edged and without a
+                shadow, as a floating bar is, since the page cannot show
+                through or around it. */}
+            {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- The press is not handled, only kept from taking focus from the input. */}
+            <form
+              ref={cardRef}
+              data-address-card
+              className="bg-chrome-raised border-text/15 text-text fixed top-[20vh] left-1/2 z-30 flex w-[min(48rem,calc(100vw-6rem))] -translate-x-1/2 flex-col overflow-hidden rounded-(--haku-radius) border"
+              onSubmit={submit}
+              // Pressing anywhere in the card but the input would blur it, which
+              // closes the card.
+              onMouseDown={(event) => {
+                if (event.target !== inputRef.current) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              <div className="flex h-[calc(var(--control-height)+0.5rem)] items-center gap-2 px-3">
+                <i className="ic-search ic-sm text-text-secondary shrink-0" aria-hidden="true" />
+                {editor}
+              </div>
+              <SuggestionList
+                id={listId}
+                rows={isListed ? rows : []}
+                selected={selected}
+                rowId={rowId}
+                onChoose={choose}
+                className="border-edge border-t"
+              />
+            </form>
+          </>,
           document.body,
         )}
     </form>

@@ -1,5 +1,6 @@
 import { overlayStore } from "@features/overlays/registry";
 import { act } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -143,6 +144,22 @@ describe("BarSlot", () => {
     expect(revealed()).toBe(true);
 
     await act(async () => input.blur());
+    expect(revealed()).toBe(false);
+  });
+
+  it("is not shown by what it renders elsewhere on the page, as the address card", async () => {
+    await act(async () =>
+      root.render(
+        <BarSlot edge="top" contents={["toolbar"]} floating isNeeded={false}>
+          {createPortal(<input aria-label="Card" />, document.body)}
+        </BarSlot>,
+      ),
+    );
+    const card = document.querySelector<HTMLInputElement>('input[aria-label="Card"]')!;
+
+    await pointer("pointerover", card);
+    await act(async () => vi.advanceTimersByTime(SHOW_DELAY_MS));
+    await act(async () => card.focus());
     expect(revealed()).toBe(false);
   });
 

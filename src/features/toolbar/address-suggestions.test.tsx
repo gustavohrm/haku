@@ -296,6 +296,8 @@ describe("floating address card", () => {
 
     expect(capturePage).toHaveBeenCalledExactlyOnceWith(1);
     expect(backdrop()).not.toBeNull();
+    // Later on the page, so drawn over it, though the backdrop arrived last.
+    expect(backdrop()!.compareDocumentPosition(card()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(backdropStore.get()?.get(1)).toBe("data:image/jpeg;base64,AA==");
 
     await act(async () => editor().blur());
