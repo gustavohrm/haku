@@ -26,6 +26,7 @@ pub mod chrome;
 pub mod error;
 pub mod ipc;
 pub mod model;
+pub mod net;
 pub mod platform;
 pub mod state;
 pub mod storage;

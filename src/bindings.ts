@@ -258,6 +258,16 @@ export const commands = {
 	 *  and a command rather than a protocol, as for [`tab_preview`].
 	 */
 	capturePage: (tab: TabId) => typedError<string | null, HakuError>(__TAURI_INVOKE("capture_page", { tab })),
+	/**
+	 *  The search engine's completions for what the user typed in the address
+	 *  bar. [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+	 * 
+	 *  None while engine suggestions are off, in a private window, for input
+	 *  that is an address or searches an engine without a suggestion URL, and
+	 *  when the engine fails or takes longer than [`net::SUGGESTIONS_TIMEOUT`]:
+	 *  the list is whole without them, so a failure is not reported.
+	 */
+	searchSuggestions: (input: string) => typedError<EngineSuggestions, HakuError>(__TAURI_INVOKE("search_suggestions", { input })),
 	/**  The extensions the extensions folder installed. */
 	extensions: () => typedError<Extensions, HakuError>(__TAURI_INVOKE("extensions")),
 	/**
@@ -710,6 +720,14 @@ export type Ending =
 "quit" | 
 /**  It closes the last private tab, which ends the private session. */
 "privateSession";
+
+/**  The search engine's completions for one input. */
+export type EngineSuggestions = {
+	/**  The input these answer, as for [`Suggestions`]. */
+	input: string,
+	/**  [`Suggestion::Suggested`] rows, at most [`ENGINE_SUGGESTIONS_MAX`]. */
+	rows: Suggestion[],
+};
 
 /**
  *  What an export wrote, the two roots aside.
@@ -1190,6 +1208,12 @@ export type Settings = {
 	presetKeywords: { [key in string]: string },
 	/**  Ids of presets the user hid. The default engine is never hidden. */
 	hiddenSearchEngines: string[],
+	/**
+	 *  Whether the address bar asks the search engine for completions as the
+	 *  user types. Off until the user turns it on, since it sends what is
+	 *  typed to the engine; never in a private window.
+	 */
+	searchSuggestions: boolean,
 	homeUrl: string,
 	/**
 	 *  Ids of installed extensions the user switched off. Extensions are
@@ -1319,7 +1343,14 @@ export type Suggestion =
  *  An engine, while its keyword is being typed. Choosing it puts the
  *  keyword in the field, to type a query after.
  */
-{ kind: "engine"; name: string; keyword: string };
+{ kind: "engine"; name: string; keyword: string } | 
+/**
+ *  A completion from the search engine, which searches `engine` for
+ *  `query`. `input` is what the field takes to do that: the query, or the
+ *  engine's keyword and the query where the query alone would go
+ *  elsewhere, to another engine or to an address.
+ */
+{ kind: "suggested"; engine: string; query: string; input: string };
 
 /**  The rows for one input. */
 export type Suggestions = {

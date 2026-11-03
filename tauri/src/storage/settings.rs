@@ -170,6 +170,10 @@ pub struct Settings {
     pub preset_keywords: BTreeMap<String, String>,
     /// Ids of presets the user hid. The default engine is never hidden.
     pub hidden_search_engines: Vec<String>,
+    /// Whether the address bar asks the search engine for completions as the
+    /// user types. Off until the user turns it on, since it sends what is
+    /// typed to the engine; never in a private window.
+    pub search_suggestions: bool,
     pub home_url: String,
     /// Ids of installed extensions the user switched off. Extensions are
     /// installed by placing them in the extensions folder, so this holds only
@@ -313,6 +317,7 @@ impl Default for Settings {
             custom_search_engines: Vec::new(),
             preset_keywords: BTreeMap::new(),
             hidden_search_engines: Vec::new(),
+            search_suggestions: false,
             home_url: DEFAULT_HOME_URL.into(),
             disabled_extensions: Vec::new(),
             pinned_extensions: Vec::new(),
@@ -1240,6 +1245,12 @@ mod tests {
         let settings = stored(serde_json::json!({ "sidebarSide": "top", "toolbarPlacement": "Sidebar" }));
         assert_eq!(settings.sidebar_side, SidebarSide::Left);
         assert_eq!(settings.toolbar_placement, ToolbarPlacement::Top);
+    }
+
+    #[test]
+    fn engine_suggestions_are_off_unless_turned_on() {
+        assert!(!stored(serde_json::json!({ "theme": "dark" })).search_suggestions);
+        assert!(stored(serde_json::json!({ "searchSuggestions": true })).search_suggestions);
     }
 
     #[test]

@@ -29,13 +29,14 @@ use tauri_specta::Event;
 
 use crate::browser::Ending;
 use crate::browser::{
-    describe_input, resolve_input, resolve_target, Browser, BrowserState, Direction, Effect, Opening, PageReport,
+    describe_input, resolve_input, resolve_target, suggested_rows, suggestion_request, Browser, BrowserState,
+    Direction, Effect, Opening, PageReport,
 };
 use crate::chrome::{self, Layout};
 use crate::error::{HakuError, Result};
 use crate::model::suggest::{
-    complete_host, host_prefix, keyword_rows, rank_pages, rank_tabs, words, PAGES_MAX, PAGE_CANDIDATES_MAX,
-    SUGGESTIONS_MAX, TABS_MAX,
+    complete_host, host_prefix, keyword_rows, parse_open_search, rank_pages, rank_tabs, words, ENGINE_SUGGESTIONS_MAX,
+    PAGES_MAX, PAGE_CANDIDATES_MAX, SUGGESTIONS_MAX, TABS_MAX,
 };
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
@@ -44,7 +45,8 @@ use crate::model::{
     PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, Recording, ScreenRect,
     Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
-use crate::model::{ListedSearchEngine, Suggestions};
+use crate::model::{EngineSuggestions, ListedSearchEngine, Suggestions};
+use crate::net;
 use crate::platform::{self, DownloadAction, KeySink, PageSignal, ProcessFailure};
 use crate::state::{now_ms, AppState, MemoryReport};
 use crate::storage::history_db::{HistoryCursor, HistoryFilter, HistoryPage, HistorySite, NewVisit};
@@ -2354,6 +2356,52 @@ pub fn tab_preview(webview: tauri::Webview, state: State<'_, AppState>, id: TabI
         .lock()
         .map_err(|_| HakuError::Storage("preview lock poisoned".into()))?;
     Ok(previews.get(id).map(jpeg_data_url))
+}
+
+/// The search engine's completions for what the user typed in the address
+/// bar. [Address bar § Suggestions](../../../docs/specs/address-bar.md#suggestions).
+///
+/// None while engine suggestions are off, in a private window, for input
+/// that is an address or searches an engine without a suggestion URL, and
+/// when the engine fails or takes longer than [`net::SUGGESTIONS_TIMEOUT`]:
+/// the list is whole without them, so a failure is not reported.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_suggestions(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    input: String,
+) -> Result<EngineSuggestions> {
+    let window = ensure_chrome(&webview)?;
+    let search = {
+        let settings = state
+            .settings
+            .read()
+            .map_err(|_| HakuError::Storage("settings lock poisoned".into()))?;
+        settings.search_suggestions.then(|| settings.search())
+    };
+    let search = if is_private(&state, window)? { None } else { search };
+    let Some((search, url)) = search.and_then(|search| {
+        let url = suggestion_request(&input, &search)?.url;
+        Some((search, url))
+    }) else {
+        return Ok(EngineSuggestions {
+            input,
+            rows: Vec::new(),
+        });
+    };
+    // Off the async runtime's threads, which a slow engine would otherwise hold.
+    let body = tauri::async_runtime::spawn_blocking(move || net::fetch_text(&url, net::SUGGESTIONS_TIMEOUT))
+        .await
+        .ok()
+        .flatten();
+    let rows = match (body, suggestion_request(&input, &search)) {
+        (Some(body), Some(request)) => {
+            suggested_rows(&request, parse_open_search(&body), &search, ENGINE_SUGGESTIONS_MAX)
+        }
+        _ => Vec::new(),
+    };
+    Ok(EngineSuggestions { input, rows })
 }
 
 /// The longest a capture for the address card's backdrop is waited on. Past

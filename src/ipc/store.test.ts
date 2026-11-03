@@ -31,6 +31,7 @@ const SETTINGS: Settings = {
   customSearchEngines: [],
   presetKeywords: {},
   hiddenSearchEngines: [],
+  searchSuggestions: false,
   homeUrl: "haku://new-tab",
   disabledExtensions: [],
   pinnedExtensions: [],

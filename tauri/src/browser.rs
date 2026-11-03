@@ -3368,6 +3368,68 @@ pub fn describe_input(input: &str, search: &Search) -> Option<Suggestion> {
     }
 }
 
+/// Where the search engine is asked for completions of the input: the input
+/// searches an engine with a suggestion URL.
+pub struct SuggestionRequest<'a, 'b> {
+    pub engine: &'b SearchEngine,
+    pub query: &'a str,
+    pub url: String,
+}
+
+/// The request for the engine's completions of `input`, or nothing for input
+/// that is blank, an address, or searches an engine without a suggestion URL.
+/// [Address bar § Suggestions](../../docs/specs/address-bar.md#suggestions).
+pub fn suggestion_request<'a, 'b>(input: &'a str, search: &'b Search) -> Option<SuggestionRequest<'a, 'b>> {
+    let Resolved::Search { engine, query } = resolve(input, search) else {
+        return None;
+    };
+    let template = engine.suggest_url.as_deref()?;
+    if query.is_empty() {
+        return None;
+    }
+    Some(SuggestionRequest {
+        engine,
+        query,
+        url: search_url(template, &urlencode(query)),
+    })
+}
+
+/// The rows for an engine's `completions`, at most `limit`, each searching
+/// that engine. A completion repeating the query, already the first row, or
+/// an earlier completion is left out, as is one that would go elsewhere from
+/// an engine without a keyword to send it there.
+pub fn suggested_rows(
+    request: &SuggestionRequest,
+    completions: Vec<String>,
+    search: &Search,
+    limit: usize,
+) -> Vec<Suggestion> {
+    let mut seen = vec![request.query.to_lowercase()];
+    completions
+        .into_iter()
+        .filter(|completion| {
+            let key = completion.to_lowercase();
+            let is_new = !seen.contains(&key);
+            seen.push(key);
+            is_new
+        })
+        .filter_map(|query| {
+            let input = match resolve(&query, search) {
+                Resolved::Search { engine, query: alone } if engine.id == request.engine.id && alone == query => {
+                    query.clone()
+                }
+                _ => format!("{} {query}", request.engine.keyword.as_deref()?),
+            };
+            Some(Suggestion::Suggested {
+                engine: request.engine.name.clone(),
+                query,
+                input,
+            })
+        })
+        .take(limit)
+        .collect()
+}
+
 enum Resolved<'a, 'b> {
     Empty,
     Address(String),

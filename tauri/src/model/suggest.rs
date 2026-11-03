@@ -15,6 +15,8 @@ pub const SUGGESTIONS_MAX: usize = 10;
 pub const TABS_MAX: usize = 3;
 /// The most history and bookmark rows the list shows, together.
 pub const PAGES_MAX: usize = 6;
+/// The most completions from the search engine the list shows.
+pub const ENGINE_SUGGESTIONS_MAX: usize = 4;
 /// How many matching history pages are ranked, the most used first. A page
 /// past them would rank low anyway: few visits, so it is far down the list.
 pub const PAGE_CANDIDATES_MAX: u32 = 100;
@@ -45,6 +47,15 @@ pub enum Suggestion {
     /// An engine, while its keyword is being typed. Choosing it puts the
     /// keyword in the field, to type a query after.
     Engine { name: String, keyword: String },
+    /// A completion from the search engine, which searches `engine` for
+    /// `query`. `input` is what the field takes to do that: the query, or the
+    /// engine's keyword and the query where the query alone would go
+    /// elsewhere, to another engine or to an address.
+    Suggested {
+        engine: String,
+        query: String,
+        input: String,
+    },
 }
 
 /// The rows for one input.
@@ -58,6 +69,33 @@ pub struct Suggestions {
     pub completion: Option<String>,
     /// What Enter does first, then engines, open tabs, then pages.
     pub rows: Vec<Suggestion>,
+}
+
+/// The search engine's completions for one input.
+#[derive(Clone, Debug, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineSuggestions {
+    /// The input these answer, as for [`Suggestions`].
+    pub input: String,
+    /// [`Suggestion::Suggested`] rows, at most [`ENGINE_SUGGESTIONS_MAX`].
+    pub rows: Vec<Suggestion>,
+}
+
+/// The completions in an OpenSearch suggestions answer, `[query, [completion, …], …]`,
+/// which every preset's suggestion URL answers in. Nothing for any other shape.
+pub fn parse_open_search(body: &str) -> Vec<String> {
+    let Ok(serde_json::Value::Array(parts)) = serde_json::from_str(body) else {
+        return Vec::new();
+    };
+    let Some(serde_json::Value::Array(completions)) = parts.get(1) else {
+        return Vec::new();
+    };
+    completions
+        .iter()
+        .filter_map(|completion| completion.as_str())
+        .map(|completion| completion.trim().to_string())
+        .filter(|completion| !completion.is_empty())
+        .collect()
 }
 
 /// A history page, or a bookmark ranked as one.
@@ -268,7 +306,7 @@ mod tests {
         rows.iter()
             .map(|row| match row {
                 Suggestion::Page { url, .. } | Suggestion::Tab { url, .. } | Suggestion::Visit { url } => url.as_str(),
-                Suggestion::Search { query, .. } => query.as_str(),
+                Suggestion::Search { query, .. } | Suggestion::Suggested { query, .. } => query.as_str(),
                 Suggestion::Engine { keyword, .. } => keyword.as_str(),
             })
             .collect()
@@ -449,5 +487,16 @@ mod tests {
         assert_eq!(urls(&keyword_rows("@B", &engines)), ["@br", "@b"]);
         assert!(keyword_rows("@g cats", &engines).is_empty());
         assert!(keyword_rows("w", &engines).is_empty());
+    }
+
+    #[test]
+    fn completions_are_read_from_an_open_search_answer_and_nothing_else() {
+        assert_eq!(
+            parse_open_search(r#"["rust",[" rust book ","","rust lang",7],[],{"extra":1}]"#),
+            vec!["rust book".to_string(), "rust lang".to_string()]
+        );
+        assert!(parse_open_search("[\"rust\"]").is_empty());
+        assert!(parse_open_search(r#"{"results":["rust"]}"#).is_empty());
+        assert!(parse_open_search("<html>").is_empty());
     }
 }

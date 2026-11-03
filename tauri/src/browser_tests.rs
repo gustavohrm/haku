@@ -4899,3 +4899,72 @@ fn the_first_row_says_what_enter_does() {
     );
     assert_eq!(describe_input("  ", &search), None);
 }
+
+/// [`searching`], with suggestion URLs on both engines.
+fn suggesting() -> Search {
+    let mut search = searching(SEARCH);
+    for engine in std::iter::once(&mut search.default).chain(search.engines.iter_mut()) {
+        engine.suggest_url = Some(format!("https://{}.test/ac?q=%s", engine.id));
+    }
+    search
+}
+
+#[test]
+fn engine_completions_are_asked_of_the_engine_the_input_searches() {
+    let search = suggesting();
+    let request = suggestion_request(" rust book ", &search).unwrap();
+    assert_eq!(request.engine.id, "default");
+    assert_eq!(request.query, "rust book");
+    assert_eq!(request.url, "https://default.test/ac?q=rust+book");
+
+    let request = suggestion_request("@g café", &search).unwrap();
+    assert_eq!(request.engine.id, "google");
+    assert_eq!(request.url, "https://google.test/ac?q=caf%C3%A9");
+}
+
+#[test]
+fn no_completions_are_asked_for_an_address_blank_input_or_an_engine_without_a_suggestion_url() {
+    let search = suggesting();
+    assert!(suggestion_request("example.com", &search).is_none());
+    assert!(suggestion_request("https://example.com/a b", &search).is_none());
+    assert!(suggestion_request("   ", &search).is_none());
+    assert!(suggestion_request("rust", &searching(SEARCH)).is_none());
+}
+
+#[test]
+fn a_completion_searches_its_engine_by_keyword_only_when_it_alone_would_go_elsewhere() {
+    let search = suggesting();
+    let inputs = |input: &str, completions: &[&str]| -> Vec<(String, String)> {
+        let request = suggestion_request(input, &search).unwrap();
+        let completions = completions.iter().map(|completion| completion.to_string()).collect();
+        suggested_rows(&request, completions, &search, 4)
+            .into_iter()
+            .map(|row| match row {
+                Suggestion::Suggested { query, input, .. } => (query, input),
+                other => panic!("not a completion: {other:?}"),
+            })
+            .collect()
+    };
+
+    assert_eq!(
+        inputs("@g rust", &["rust", "Rust", "rust book", "rust book", "rust.org"]),
+        vec![
+            ("rust book".to_string(), "@g rust book".to_string()),
+            ("rust.org".to_string(), "@g rust.org".to_string()),
+        ]
+    );
+    // The default engine has no keyword: a completion that is an address,
+    // or starts with another engine's keyword, cannot be sent to it.
+    assert_eq!(
+        inputs(
+            "rust",
+            &["rust book", "rust.org", "@g rust", "rust lang", "rust game", "rust fmt"]
+        ),
+        vec![
+            ("rust book".to_string(), "rust book".to_string()),
+            ("rust lang".to_string(), "rust lang".to_string()),
+            ("rust game".to_string(), "rust game".to_string()),
+            ("rust fmt".to_string(), "rust fmt".to_string()),
+        ]
+    );
+}
