@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-01
+last_updated: 2026-11-03
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -29,9 +29,33 @@ Two native operations, both in `platform/`:
 
 ### Why not transparency
 
-The obvious alternative — a transparent chrome webview on top — depends on two sibling child HWNDs alpha-compositing, which Windows does not do reliably. The region approach needs no compositing at all: the chrome is either present at a pixel or absent.
+The obvious alternative is a transparent chrome webview on top. It was rejected on the belief that two sibling child HWNDs do not alpha-composite reliably. That belief was never measured, and the measurement below contradicts it on one machine. The decision stands for a different reason: what the interface needs over the page is mostly blur, and transparency alone cannot give it. The region approach needs no compositing at all: the chrome is either present at a pixel or absent.
 
 The cost is that anything drawn over the page must be opaque, and must register itself. That is what `features/overlays` is for.
+
+#### What was measured
+
+Measured on 2026-11-03 against `tauri 2.12.5` / `wry 0.57.0` / WebView2 runtime `156.0.4314.58`, Windows 11 build 26300, one GPU and driver, at 100% scaling. Screen pixels were read from the desktop, not from `PrintWindow`. The test window had two Tauri webviews, the chrome raised over the content with `SetWindowPos(HWND_TOP)` as Haku does.
+
+| Question                                                    | Result                                                                                                                                                                                                                                                 | Where it stops                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| Does a transparent chrome webview show the page beneath it? | Yes, with Tauri's `transparent(true)` or a background colour of alpha 0. A transparent pixel read exactly the page's colour, and a `rgba(255,0,0,0.5)` panel blended exactly as expected over it. The page repainting under the chrome showed at once. | Nothing on this stack                                           |
+| Can the webview background be partly transparent?           | No. `SetDefaultBackgroundColor` accepts only alpha 0 or 255 (`E_INVALIDARG` otherwise), and wry clamps any other alpha to 255. CSS `rgba` on elements gives any alpha, so this costs nothing.                                                          | WebView2, then wry                                              |
+| Can `backdrop-filter` blur the page?                        | No. It blurs only what the chrome's own document painted.                                                                                                                                                                                              | Each webview is a separate document rendered in its own surface |
+| Can CSS blur the page any other way?                        | No. `filter`, and SVG filters such as `feGaussianBlur`, take the element's own rendering as their input. SVG's `BackgroundImage` input is not implemented in Chromium, and would still see only the chrome's document.                                 | Same boundary                                                   |
+| Do clicks pass through the transparent chrome?              | No. Clicks went to the chrome until a region hole was cut.                                                                                                                                                                                             | Native HWND hit testing, which the region already handles       |
+| What breaks the transparency?                               | `WS_CLIPSIBLINGS` on the content webview's container: the chrome then shows the window's background instead of the page. wry does not set it. Making the chrome a layered window does not help: a global alpha fades opaque elements too.              | Win32 clipping                                                  |
+
+Untested, and each a reason the earlier belief may have had grounds: other GPU vendors and hybrid graphics; video under a translucent overlay, which may be presented on a hardware overlay plane that bypasses ordinary composition; scaling above 100%; live window resizing; older WebView2 runtimes.
+
+#### What blur would take
+
+Blurring the live page needs a native effect under the interface, because no document can see another's pixels. Haku already blurs a still image of the page instead: the [address bar's card](address-bar.md) draws its backdrop over captures taken with `capture_page`, so a playing video looks paused while it is up. That suits a surface that is up briefly and covers the window, not one that stays over a page that keeps changing. Two ways to blur the live page were tried outside Haku, on the same machine:
+
+- **Composition hosting.** WebView2 renders into a DirectComposition visual instead of a child HWND (`CreateCoreWebView2CompositionController`). Two webviews in one visual tree blended correctly, and a native blur could sit between them; that blur was not tried. The host then owns input: mouse, pointer, cursor and focus are forwarded by hand. wry creates only windowed controllers (`src/webview2/mod.rs`, around line 398), so this needs wry first. [wry#1762](https://github.com/tauri-apps/wry/pull/1762) adds composition hosting as an opt-in, aimed at native content under a single webview rather than stacked webviews; it was open and unreviewed on 2026-11-03.
+- **A transparent owned popup window with the system backdrop** (`DWMSBT_TRANSIENTWINDOW`). The page beneath was really blurred. But clicking the popup deactivated the main window, which `WS_EX_NOACTIVATE` did not prevent, and while inactive the backdrop falls back to flat gray. The popup did not follow the main window without being moved on each move and resize, and the main window did not clip it.
+
+Transparency alone would serve overlays that need no blur, such as toasts that fade or antialiased edges over the page. It is not adopted, because most effects wanted over the page are blurred.
 
 ### Rounded page corners
 
