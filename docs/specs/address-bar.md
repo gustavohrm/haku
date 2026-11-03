@@ -54,7 +54,8 @@ Approved on 2026-11-02 as recommended.
 - An opaque card on `chrome-raised`, edged 1 px, radius as a floating bar's card, no shadow, as [Appearance § Bars](appearance.md#bars) draws one.
 - The input on top, then the suggestions. The site menu, zoom and star stay on the field at rest, not in the card: they act on the page, and the card is for going somewhere else.
 - Opens and closes at once, with no motion: it is a field taking focus, not a bar arriving.
-- While it is open, a floating bar it was opened from stays shown, as anything opened from a bar does ([Appearance § Bars](appearance.md#bars)).
+- Behind it, the window is blurred 4 px and darkened 10%, so the card has the focus. The chrome cannot draw over a page, only in its place, so each shown live page is captured (`capture_page`) and the backdrop goes up over the captures, covering the window and registered as an overlay. It comes in over the enter duration rather than at once, so the blur does not snap, and at once with reduced motion. It goes up only once every shown live page has a capture, within 250 ms each: a page left out would show as a plain surface, and a backdrop arriving later would land while the user is typing. Without it the card shows over the live page. Pressing it closes the card, and the page behind does not take the press. While it is up, the page is a still image: a playing video looks paused until the card closes.
+- It holds no floating bar, unlike a menu opened from one ([Appearance § Bars](appearance.md#bars)): a menu hangs from its bar, the card from none, and the address the bar shows is not what is being typed. A floating bar hides once the pointer and focus have left it, as it otherwise does.
 
 The card closes on Escape, on a click outside it, on submitting and on the window losing focus. Closing discards what was typed, as blurring the field does today.
 
@@ -125,12 +126,13 @@ The default engine is used for searches typed without a keyword, for the context
 
 ### Commands
 
-| Command              | Does                                                                                                                        |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `suggest`            | Takes the input; returns the first row and the open-tab, history and bookmark rows, ranked. Local only, so it answers fast. |
-| `search_suggestions` | Takes the input; returns the engine's completions, or none when off, private, address-like or failed. Times out at 1 s.     |
-| `switch_to_tab`      | Focuses the window holding a tab and selects it.                                                                            |
-| `search_engines`     | Returns the presets with the user's keywords applied, so the interface does not duplicate the list.                         |
+| Command              | Does                                                                                                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `suggest`            | Takes the input; returns the first row and the open-tab, history and bookmark rows, ranked. Local only, so it answers fast.                                             |
+| `search_suggestions` | Takes the input; returns the engine's completions, or none when off, private, address-like or failed. Times out at 1 s.                                                 |
+| `switch_to_tab`      | Focuses the window holding a tab and selects it.                                                                                                                        |
+| `search_engines`     | Returns the presets with the user's keywords applied, so the interface does not duplicate the list.                                                                     |
+| `capture_page`       | Takes a tab in the caller's window; returns what its page shows as a JPEG `data:` URL, or none without a live page, on failure or past 250 ms. For the card's backdrop. |
 
 The interface asks `search_suggestions` 150 ms after typing stops and drops answers to input it no longer shows. `resolve_input` gains the engines, so `navigate_tab` resolves keywords exactly as the first row describes.
 
@@ -145,7 +147,7 @@ Each lands on `feat/address-bar` as its own commits, verified alone:
 
 ## Rejected alternatives
 
-- **Dimming or blurring the page behind the card**, as Zen does. The chrome cannot draw over the page translucently.
+- **No backdrop**, because the chrome cannot draw over the page translucently. Reversed: that weighed drawing over the live page. It did not weigh drawing the page's capture in its place, which `CapturePreview` already takes as a tab is left, so the chrome blurs an image of the page rather than the page.
 - **Fetching engine suggestions from the interface.** The CSP forbids it, and loosening it would let the chrome reach any site; a request from the chrome would also carry the engine's cookies, tying each keystroke to an account.
 - **Presets stored in settings in full.** A preset's URL could never be corrected for existing users.
 - **Bare keywords for presets**, such as `g`. They would capture real searches that start with a letter or short word.
@@ -154,4 +156,4 @@ Each lands on `feat/address-bar` as its own commits, verified alone:
 
 ## Testing
 
-Per [Tests](tests.md): Rust unit tests for migration, keyword resolution, sanitizing, matching and ranking order; interface tests for the list's keyboard handling, stale answers being dropped, the floating card opening and closing, and the layout rule in `shellLayout`. Engine suggestion URLs are checked by hand once, recorded in the pull request.
+Per [Tests](tests.md): Rust unit tests for migration, keyword resolution, sanitizing, matching and ranking order; interface tests for the list's keyboard handling, stale answers being dropped, the floating card opening and closing, its backdrop going up only once every shown page is captured, and the layout rule in `shellLayout`. Engine suggestion URLs are checked by hand once, recorded in the pull request.

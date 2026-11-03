@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@shared/error-boundary";
 import { t } from "@shared/i18n";
 import { Fragment, useEffect, useEffectEvent, useRef } from "react";
 
+import { useBackdropCapture } from "./backdrop";
 import { PreviewCover, usePreviewCover } from "./preview-cover";
 import { SplitDivider } from "./split-divider";
 import { useChromeLayout } from "./use-chrome-layout";
@@ -92,6 +93,7 @@ function Pane({
   const crash = tab.presence.status === "crashed" ? tab.presence.cause : null;
   const url = tab.history.entries[tab.history.index]?.url ?? "";
   const cover = usePreviewCover(tab);
+  const backdrop = useBackdropCapture(tab.id);
   const isCovered = isInternal || crash !== null || cover !== null;
   const title = pageName(tab);
   const focus = () => {
@@ -145,6 +147,17 @@ function Pane({
         )}
         {crash !== null && <TabCrash tabId={tab.id} cause={crash} />}
         {cover !== null && <PreviewCover src={cover} />}
+        {/* Under the page until a backdrop covers it, which then shows the
+            page as it was, blurred. */}
+        {backdrop !== undefined && (
+          <img
+            src={backdrop}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 size-full object-cover object-left-top"
+            draggable={false}
+          />
+        )}
         {find !== null && tab.presence.status === "live" && (
           <FindBar tab={tab.id} request={find.request} onClose={onCloseFind} />
         )}

@@ -434,10 +434,34 @@ dialog[data-toast-instance] .toast-dialog-container {
   transition: none;
 }
 
+/* Behind the floating address card: the window, blurred and dimmed a
+   little, so the card has the focus. The pages under it are their captures,
+   since the chrome cannot draw over a page. It comes in quickly rather than
+   at once, so the blur does not snap. */
+.haku-address-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgb(0 0 0 / 10%);
+  backdrop-filter: blur(4px);
+  animation: haku-address-backdrop-in var(--haku-enter) var(--haku-ease-enter) both;
+}
+
+@keyframes haku-address-backdrop-in {
+  from {
+    background: transparent;
+    backdrop-filter: blur(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .haku-bar-panel,
   .haku-sidebar-resizer::after {
     transition: none !important;
+  }
+
+  .haku-address-backdrop {
+    animation: none;
   }
 }
 

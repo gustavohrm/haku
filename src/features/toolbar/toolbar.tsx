@@ -1,6 +1,5 @@
 import { isNewTab, SETTINGS_URL } from "@app/router";
 import { type Tab } from "@bindings";
-import { useBarHold } from "@features/bars/holds";
 import { BookmarkStar } from "@features/bookmarks/bookmark-star";
 import { BookmarksButton } from "@features/bookmarks/bookmarks-button";
 import { isBookmarkable } from "@features/bookmarks/tree";
@@ -9,6 +8,7 @@ import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { SuggestionList } from "@features/search/suggestion-list";
 import { completed, rowText, useSuggestions } from "@features/search/suggestions";
+import { usePageBackdrop } from "@features/viewport/backdrop";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
@@ -169,15 +169,18 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
   // so focusing it opens the card and leaving it closes the card.
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLFormElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   // The select-all a focus asks for, waiting on a frame.
   const selectingRef = useRef(0);
   const inputId = useId();
   const listId = useId();
   const isCardOpen = floating && editing;
-  // Over the page, which must not take its clicks; and opened from a bar,
-  // which stays shown while it is open.
+  // Over the page, which must not take its clicks. It holds no floating bar:
+  // it hangs from none, and the address the bar shows is not what is typed.
   useOverlay(cardRef, isCardOpen);
-  useBarHold("toolbar", isCardOpen);
+  // Covers the window, so the page under it is drawn from its capture.
+  const isBackdropUp = usePageBackdrop(isCardOpen);
+  useOverlay(backdropRef, isBackdropUp);
 
   const url = tab ? (tab.history.entries[tab.history.index]?.url ?? "") : "";
   useAddressFocus(tab?.id, inputRef);
@@ -377,6 +380,12 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
           className="border-edge absolute inset-x-0 top-full mt-1 rounded-(--radius-control) border"
         />
       )}
+      {isBackdropUp &&
+        createPortal(
+          // Pressing it leaves the card's input, which closes the card.
+          <div ref={backdropRef} data-address-backdrop className="haku-address-backdrop" aria-hidden="true" />,
+          document.body,
+        )}
       {isCardOpen &&
         createPortal(
           // Centred on the window rather than the page, which a docked column

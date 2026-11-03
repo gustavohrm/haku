@@ -3,10 +3,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { suggest, navigateTab, switchToTab } = vi.hoisted(() => ({
+const { suggest, navigateTab, switchToTab, capturePage, shown } = vi.hoisted(() => ({
   suggest: vi.fn(),
   navigateTab: vi.fn(),
   switchToTab: vi.fn(),
+  capturePage: vi.fn(),
+  // The window's tabs, which the backdrop captures.
+  shown: { tabs: [] as unknown[] },
 }));
 
 vi.mock("@bindings", () => ({
@@ -16,10 +19,16 @@ vi.mock("@bindings", () => ({
   },
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
-vi.mock("@ipc/commands", () => ({ commands: { suggest, navigateTab, switchToTab } }));
+vi.mock("@ipc/commands", () => ({ commands: { suggest, navigateTab, switchToTab, capturePage } }));
 vi.mock("@ipc/hooks", () => ({
   useBookmarks: () => null,
-  useBrowserState: () => ({ private: false, historyPaused: false }),
+  useBrowserState: () => ({
+    private: false,
+    historyPaused: false,
+    viewports: [{ id: "pane-1", tab: 1 }],
+    tabs: shown.tabs,
+    fullscreen: null,
+  }),
   useExtensions: () => ({ installed: [] }),
   useSettings: () => ({
     pinnedExtensions: [],
@@ -32,6 +41,7 @@ vi.mock("@ipc/hooks", () => ({
 }));
 
 import { barHoldStore } from "@features/bars/holds";
+import { backdropStore } from "@features/viewport/backdrop";
 
 import { Toolbar } from "./toolbar";
 
@@ -67,6 +77,8 @@ let root: Root;
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  shown.tabs = [TAB];
+  capturePage.mockResolvedValue({ status: "ok", data: "data:image/jpeg;base64,AA==" });
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -241,7 +253,7 @@ describe("floating address card", () => {
     await act(async () => root.render(<Toolbar tab={TAB} floatingAddress />));
   });
 
-  it("opens on focusing the field, with the address to edit, and holds the bar", async () => {
+  it("opens on focusing the field, with the address to edit, leaving a floating bar free to hide", async () => {
     expect(card()).toBeNull();
 
     await open();
@@ -249,7 +261,7 @@ describe("floating address card", () => {
     expect(document.activeElement).toBe(editor());
     expect(editor().value).toBe("https://example.com/");
     expect(field().value).toBe("example.com");
-    expect(barHoldStore.get().toolbar).toBe(1);
+    expect(barHoldStore.get().toolbar).toBe(0);
   });
 
   it("closes on Escape and on leaving it, discarding what was typed", async () => {
@@ -259,7 +271,6 @@ describe("floating address card", () => {
       editor().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(card()).toBeNull();
-    expect(barHoldStore.get().toolbar).toBe(0);
 
     await open();
     expect(editor().value).toBe("https://example.com/");
@@ -277,6 +288,28 @@ describe("floating address card", () => {
 
     expect(navigateTab).toHaveBeenCalledExactlyOnceWith(1, "te", "typed");
     expect(card()).toBeNull();
+  });
+
+  it("puts the page's capture under a backdrop once it is taken, and takes both down on closing", async () => {
+    const backdrop = () => document.querySelector("[data-address-backdrop]");
+    await open();
+
+    expect(capturePage).toHaveBeenCalledExactlyOnceWith(1);
+    expect(backdrop()).not.toBeNull();
+    expect(backdropStore.get()?.get(1)).toBe("data:image/jpeg;base64,AA==");
+
+    await act(async () => editor().blur());
+    expect(backdrop()).toBeNull();
+    expect(backdropStore.get()).toBeNull();
+  });
+
+  it("shows no backdrop when a page cannot be captured", async () => {
+    capturePage.mockResolvedValue({ status: "ok", data: null });
+    await open();
+
+    expect(card()).not.toBeNull();
+    expect(document.querySelector("[data-address-backdrop]")).toBeNull();
+    expect(backdropStore.get()).toBeNull();
   });
 
   it("stays open when pressed outside its input", async () => {
