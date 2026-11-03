@@ -7,7 +7,7 @@ import { DownloadsButton } from "@features/downloads/downloads-button";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { SuggestionList } from "@features/search/suggestion-list";
-import { completed, rowText, useSuggestions } from "@features/search/suggestions";
+import { completed, rowText, useEngineSuggestions, useSuggestions, withEngineRows } from "@features/search/suggestions";
 import { usePageBackdrop } from "@features/viewport/backdrop";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
@@ -189,7 +189,8 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
   // not flicker with every keystroke; only an answer to what is typed now
   // completes it.
   const suggestions = useSuggestions(editing ? typed : null);
-  const rows = suggestions?.rows ?? [];
+  const engineRows = useEngineSuggestions(editing ? typed : null);
+  const rows = withEngineRows(suggestions?.rows ?? [], engineRows);
   const isCurrent = suggestions !== null && suggestions.input === typed;
   const completion =
     typed !== null && completing && isCurrent && selected === 0 ? completed(typed, suggestions.completion) : null;
@@ -252,6 +253,11 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
       case "engine": {
         retype(`${row.keyword} `, false);
         return;
+      }
+      case "suggested": {
+        // A search, recorded as one. [History § Transitions](../../../docs/specs/history.md#transitions)
+        navigate(row.input);
+        break;
       }
       default: {
         navigate(entered);

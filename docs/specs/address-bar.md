@@ -68,7 +68,7 @@ The list is one column of rows, at most 10, refreshed on every keystroke. Each r
 1. **What Enter does**, always first and selected: "Search DuckDuckGo for …", "Go to …", or the completed host ([H](#approved-decisions)). With a keyword, it names the keyword's engine.
 2. **Open tabs**, up to 3, as "Switch to tab".
 3. **History and bookmarks**, together, deduplicated by URL, up to 6. Bookmarks carry the star.
-4. **Engine suggestions**, up to 4, when on.
+4. **Engine suggestions**, up to 4, when on. They take their room from the end of the rows above, so a full list keeps its 10. A completion repeating the query or an earlier completion is left out. Choosing one searches the engine that answered it, by its keyword when the completion alone would go elsewhere, and without one when that engine has no keyword.
 
 Typing `@` alone lists the engines and their keywords.
 
@@ -126,15 +126,15 @@ The default engine is used for searches typed without a keyword, for the context
 
 ### Commands
 
-| Command              | Does                                                                                                                                                                    |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `suggest`            | Takes the input; returns the first row and the open-tab, history and bookmark rows, ranked. Local only, so it answers fast.                                             |
-| `search_suggestions` | Takes the input; returns the engine's completions, or none when off, private, address-like or failed. Times out at 1 s.                                                 |
-| `switch_to_tab`      | Focuses the window holding a tab and selects it.                                                                                                                        |
-| `search_engines`     | Returns the presets with the user's keywords applied, so the interface does not duplicate the list.                                                                     |
-| `capture_page`       | Takes a tab in the caller's window; returns what its page shows as a JPEG `data:` URL, or none without a live page, on failure or past 250 ms. For the card's backdrop. |
+| Command              | Does                                                                                                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `suggest`            | Takes the input; returns the first row and the open-tab, history and bookmark rows, ranked. Local only, so it answers fast.                                                         |
+| `search_suggestions` | Takes the input; returns the engine's completions as `suggested` rows, each with the `input` that searches it, or none when off, private, address-like or failed. Times out at 1 s. |
+| `switch_to_tab`      | Focuses the window holding a tab and selects it.                                                                                                                                    |
+| `search_engines`     | Returns the presets with the user's keywords applied, so the interface does not duplicate the list.                                                                                 |
+| `capture_page`       | Takes a tab in the caller's window; returns what its page shows as a JPEG `data:` URL, or none without a live page, on failure or past 250 ms. For the card's backdrop.             |
 
-The interface asks `search_suggestions` 150 ms after typing stops and drops answers to input it no longer shows. `resolve_input` gains the engines, so `navigate_tab` resolves keywords exactly as the first row describes.
+The interface asks `search_suggestions` 150 ms after typing stops and drops answers to input it no longer shows; the last answer stays shown until the next arrives, so the rows do not flicker as the user types on. `resolve_input` gains the engines, so `navigate_tab` resolves keywords exactly as the first row describes.
 
 ## Slices
 
@@ -156,4 +156,4 @@ Each lands on `feat/address-bar` as its own commits, verified alone:
 
 ## Testing
 
-Per [Tests](tests.md): Rust unit tests for migration, keyword resolution, sanitizing, matching and ranking order; interface tests for the list's keyboard handling, stale answers being dropped, the floating card opening and closing, its backdrop going up only once every shown page is captured, and the layout rule in `shellLayout`. Engine suggestion URLs are checked by hand once, recorded in the pull request.
+Per [Tests](tests.md): Rust unit tests for migration, keyword resolution, sanitizing, matching and ranking order; interface tests for the list's keyboard handling, stale answers being dropped, the floating card opening and closing, its backdrop going up only once every shown page is captured, and the layout rule in `shellLayout`; Rust unit tests for reading an OpenSearch answer and for which completions become rows; interface tests for asking the engine once typing pauses, choosing a completion and making room for completions in a full list. Engine suggestion URLs are checked by hand once, recorded in the pull request; `cargo test -- --ignored every_preset` repeats the check.

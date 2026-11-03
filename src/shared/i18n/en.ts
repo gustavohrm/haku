@@ -218,6 +218,10 @@ export const en = {
   "settings.searchEngine.help": "Where searches typed in the address field go.",
   "settings.searchEngine.keywords":
     "search engine, default search, DuckDuckGo, Google, Bing, Brave, Startpage, Ecosia, Kagi",
+  "settings.searchSuggestions": "Search suggestions",
+  "settings.searchSuggestions.help":
+    "Suggest searches as you type in the address bar. What you type is sent to the search engine it searches, without its cookies. Never in private windows, and never for addresses.",
+  "settings.searchSuggestions.keywords": "search suggestions, autocomplete, completions, predictions, omnibox, privacy",
   "settings.searchEngines": "Search engines",
   "settings.searchEngines.help":
     "Type a keyword before a search to send it to that engine once, as in \u201c@g cats\u201d. Add an engine by the address of its results, with %s where the search goes.",

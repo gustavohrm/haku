@@ -14,6 +14,20 @@ import { type ControlProps, type UpdateSettings } from "./types";
   [Address bar § Settings page](../../../docs/specs/address-bar.md#settings-page).
 */
 
+/** Whether the address bar asks the search engine for completions. */
+export function SearchSuggestionsControl({ id, describedBy, settings, update }: ControlProps) {
+  return (
+    <input
+      id={id}
+      type="checkbox"
+      className="switch"
+      aria-describedby={describedBy}
+      checked={settings.searchSuggestions}
+      onChange={(event) => void update({ searchSuggestions: event.target.checked })}
+    />
+  );
+}
+
 /** The engine searches go to, from the engines that show. */
 export function SearchEngineControl({ id, describedBy, settings, update }: ControlProps) {
   const engines = useSearchEngines();

@@ -3,8 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { suggest, navigateTab, switchToTab, capturePage, shown } = vi.hoisted(() => ({
+const { suggest, searchSuggestions, navigateTab, switchToTab, capturePage, shown } = vi.hoisted(() => ({
   suggest: vi.fn(),
+  searchSuggestions: vi.fn(),
   navigateTab: vi.fn(),
   switchToTab: vi.fn(),
   capturePage: vi.fn(),
@@ -19,7 +20,7 @@ vi.mock("@bindings", () => ({
   },
 }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ label: "window-1" }) }));
-vi.mock("@ipc/commands", () => ({ commands: { suggest, navigateTab, switchToTab, capturePage } }));
+vi.mock("@ipc/commands", () => ({ commands: { suggest, searchSuggestions, navigateTab, switchToTab, capturePage } }));
 vi.mock("@ipc/hooks", () => ({
   useBookmarks: () => null,
   useBrowserState: () => ({
@@ -41,6 +42,7 @@ vi.mock("@ipc/hooks", () => ({
 }));
 
 import { barHoldStore } from "@features/bars/holds";
+import { ENGINE_SUGGESTIONS_DELAY_MS } from "@features/search/suggestions";
 import { backdropStore } from "@features/viewport/backdrop";
 
 import { Toolbar } from "./toolbar";
@@ -78,6 +80,7 @@ let root: Root;
 beforeEach(async () => {
   vi.clearAllMocks();
   shown.tabs = [TAB];
+  searchSuggestions.mockImplementation(async (input: string) => ({ status: "ok", data: { input, rows: [] } }));
   capturePage.mockResolvedValue({ status: "ok", data: "data:image/jpeg;base64,AA==" });
   vi.stubGlobal(
     "ResizeObserver",
@@ -232,6 +235,58 @@ describe("address suggestions", () => {
     expect(input().value).toBe("@g ");
     expect(navigateTab).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(input());
+  });
+});
+
+describe("engine suggestions", () => {
+  const suggested = (query: string, input = query): Suggestion => ({
+    kind: "suggested",
+    engine: "DuckDuckGo",
+    query,
+    input,
+  });
+  const titles = () => options().map((option) => option.querySelector("span")?.textContent);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks the engine once typing pauses, and searches with the completion chosen", async () => {
+    answering((typed) => [search(typed)]);
+    searchSuggestions.mockImplementation(async (input: string) => ({
+      status: "ok",
+      data: { input, rows: [suggested(`${input} pages`, `@g ${input} pages`)] },
+    }));
+    await focus();
+    await type("t");
+    await type("te");
+    expect(searchSuggestions).not.toHaveBeenCalled();
+
+    await act(async () => vi.advanceTimersByTime(ENGINE_SUGGESTIONS_DELAY_MS));
+    expect(searchSuggestions).toHaveBeenCalledExactlyOnceWith("te");
+    expect(titles()).toEqual(["te", "te pages"]);
+
+    await press("ArrowDown");
+    expect(input().value).toBe("@g te pages");
+    await enter();
+    expect(navigateTab).toHaveBeenCalledExactlyOnceWith(1, "@g te pages", "typed");
+  });
+
+  it("makes room for completions from the end of a full list", async () => {
+    answering((typed) => [search(typed), ...Array.from({ length: 9 }, (_, index) => page(`https://${index}.test/`))]);
+    searchSuggestions.mockImplementation(async (input: string) => ({
+      status: "ok",
+      data: { input, rows: [suggested("one"), suggested("two")] },
+    }));
+    await focus();
+    await type("te");
+    await act(async () => vi.advanceTimersByTime(ENGINE_SUGGESTIONS_DELAY_MS));
+
+    expect(titles()).toHaveLength(10);
+    expect(titles().slice(-3)).toEqual(["https://6.test/", "one", "two"]);
   });
 });
 

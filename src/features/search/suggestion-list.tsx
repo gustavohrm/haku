@@ -102,6 +102,14 @@ function describe(row: Suggestion): Described {
         bookmarked: row.bookmarked,
       };
     }
+    case "suggested": {
+      return {
+        icon: "ic-search",
+        title: row.query,
+        detail: t("toolbar.suggest.search").replace("{engine}", () => row.engine),
+        bookmarked: false,
+      };
+    }
     case "engine": {
       return {
         icon: "ic-search",
@@ -123,6 +131,9 @@ function rowKey(row: Suggestion, index: number): string {
     }
     case "engine": {
       return `engine-${row.keyword}`;
+    }
+    case "suggested": {
+      return `suggested-${row.query}`;
     }
     default: {
       return `enter-${index}`;

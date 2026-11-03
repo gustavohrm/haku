@@ -27,7 +27,7 @@ import {
   VersionControl,
 } from "./controls";
 import { HistoryEnabledControl, HistoryRetentionControl, HistoryRulesControl } from "./history-controls";
-import { SearchEngineControl, SearchEnginesControl } from "./search-controls";
+import { SearchEngineControl, SearchEnginesControl, SearchSuggestionsControl } from "./search-controls";
 import { SHORTCUT_GROUPS } from "./shortcuts";
 import { type SettingRowDefinition, type SettingSection } from "./types";
 
@@ -230,6 +230,13 @@ export const SECTIONS: SettingSection[] = [
             wide: true,
             labelsControl: false,
             Control: SearchEnginesControl,
+          },
+          {
+            id: "searchSuggestions",
+            title: "settings.searchSuggestions",
+            description: "settings.searchSuggestions.help",
+            keywords: "settings.searchSuggestions.keywords",
+            Control: SearchSuggestionsControl,
           },
           {
             id: "homeUrl",
