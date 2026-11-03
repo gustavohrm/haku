@@ -83,7 +83,7 @@ The column is then one bar holding both tabs and toolbar, so a hold on either, o
 
 **Width.** `sidebarWidth` sets the column's width, docked or floating. Its inner edge is a handle: dragging it resizes the column, writing the width to the shell's style each frame so the page follows without a render or a settings write per frame, and releasing stores it once. A double click restores 240. The handle is a focusable separator; the arrow keys move it 16 pixels, Home and End to its bounds. A line shows on it once the pointer has rested on it 150 ms. The bounds are 224, below which a tab's title is cut to a few characters, and 480, past which the column takes more of a common window than the page needs to give.
 
-Reversed: the toolbar in the column was rejected because a 15 rem address field is too narrow for most addresses and the extension buttons would wrap. That weighed a fixed width and the address field at rest. It did not weigh a field that grows over the page while edited, a column the user can widen, or moving the extensions to a row of their own, which together answer both reasons.
+Reversed: the toolbar in the column was rejected because a 15 rem address field is too narrow for most addresses and the extension buttons would wrap. That weighed a fixed width and the address field at rest. It did not weigh giving the address room beyond the column while it is edited, first by a field that grew over the page and now by the floating card ([Address bar § Layouts](address-bar.md#layouts)), a column the user can widen, or moving the extensions to a row of their own, which together answer both reasons.
 
 Rejected:
 
