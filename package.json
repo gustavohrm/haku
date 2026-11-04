@@ -33,10 +33,10 @@
     "labels": "node scripts/sync-labels.mjs"
   },
   "dependencies": {
-    "@codenhub/icons": "^0.2.1",
+    "@codenhub/icons": "^0.3.0",
     "@codenhub/styles": "^0.6.0",
-    "@codenhub/theme": "^0.1.2",
-    "@codenhub/toaster": "^0.2.0",
+    "@codenhub/theme": "^0.2.1",
+    "@codenhub/toaster": "^0.3.0",
     "@tauri-apps/api": "^2.12.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
@@ -50,8 +50,8 @@
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^4.1.12",
     "jsdom": "^29.1.1",
-    "oxfmt": "^0.74.0",
-    "oxlint": "^1.89.0",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
     "prettier": "^3.9.10",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
