@@ -42,7 +42,7 @@ tauri-plugin-single-instance = "2"
 miniz_oxide = "0.8"
 # Chrome derives an extension's id from the SHA-256 of its key. Already built
 # as part of Tauri.
-sha2 = "0.10"
+sha2 = "0.11"
 ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
 
 [target.'cfg(windows)'.dependencies]
