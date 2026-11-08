@@ -39,7 +39,7 @@ regex = "1"
 tauri-plugin-single-instance = "2"
 # Inflates the files of an extension archive; reading the archive around them
 # is Haku's own (`storage::package`). Already built as part of Tauri.
-miniz_oxide = "0.8"
+miniz_oxide = "0.9"
 # Chrome derives an extension's id from the SHA-256 of its key. Already built
 # as part of Tauri.
 sha2 = "0.10"
