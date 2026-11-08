@@ -129,6 +129,7 @@ A change that touches any of the above names it in its pull request and adds or 
 
 <!-- project:start -->
 
+- Does it add or change an IPC command or event? Is that named in the pull request, and is the change to an existing one approved as a contract change?
 - Does each new command call `ensure_chrome` before anything else, and act only on its window unless it changes shared state by design?
 - Does a page now reach Rust, a chrome surface or a `haku://` page by a new path? That changes the boundary, so decide it first.
 - Does a new injected script record a secret, or anything a reload would not lose?

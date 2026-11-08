@@ -8,5 +8,6 @@
   { "name": "area:tauri", "color": "c5def5", "description": "The Rust backend in tauri/" },
   { "name": "area:docs", "color": "c5def5", "description": "Documentation under docs/ and the README files" },
   { "name": "status:needs-triage", "color": "fbca04", "description": "Not yet reviewed by a maintainer" },
-  { "name": "status:blocked", "color": "b60205", "description": "Waiting on another issue, release, or decision" }
+  { "name": "status:blocked", "color": "b60205", "description": "Waiting on another issue, release, or decision" },
+  { "name": "status:upstream", "color": "5319e7", "description": "Waiting on a change in a dependency we maintain" }
 ]

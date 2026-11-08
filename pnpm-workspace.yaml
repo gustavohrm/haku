@@ -3,8 +3,8 @@
 packages:
   - .
 
-# Every version is declared once, here, and package.json refers to it as `catalog:`, so the workspace can
-# never hold two versions of one dependency by accident. A new third-party dependency adds its version here.
+# Every direct dependency's version is declared once, here, and package.json refers to it as `catalog:`, so
+# the workspace can never declare two versions of one dependency by accident. A new third-party dependency adds its version here.
 catalog:
   "@codenhub/icons": ^0.2.1
   "@codenhub/styles": ^0.6.0
@@ -13,7 +13,7 @@ catalog:
   "@tailwindcss/vite": ^4.3.3
   "@tauri-apps/api": ^2.12.4
   "@tauri-apps/cli": ^2.12.4
-  "@types/node": ~24.13.6
+  "@types/node": ~24.19.2
   "@types/react": ^19.3.0
   "@types/react-dom": ^19.3.0
   "@vitejs/plugin-react": ^6.1.2

@@ -48,7 +48,7 @@ Keep these names as they are: CI, the git hooks and the agent instructions call 
 | `pnpm verify:rust`       | `format:check:rust`, `lint:check:rust`, `bindings:check` and `test:rust`, in that order. |
 | `pnpm labels`            | The GitHub labels match `.github/labels.json`.                                           |
 
-`format:check` and `lint:check` cover Rust too, through rustfmt and clippy. `pnpm verify` is `verify:web`, then `verify:rust`: the template's order for everything but Rust, then the Rust checks and `bindings:check`. Each half runs on the CI runner it needs ([CI](ci.md)), and together they run every step of the contract.
+`format:check`, `format:fix` and `lint:check` cover Rust too, through rustfmt and clippy. `pnpm verify` is `verify:web`, then `verify:rust`: the template's order for everything but Rust, then the Rust checks and `bindings:check`. Each half runs on the CI runner it needs ([CI](ci.md)), and together they run every step of the contract.
 <!-- project:end -->
 
 ## Configuration
