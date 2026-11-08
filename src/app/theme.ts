@@ -10,7 +10,7 @@ import { createTheme } from "@codenhub/theme";
 const theme = createTheme({
   storageKey: "haku:theme",
   attribute: "data-theme",
-  isTailwindCss: true,
+  darkClass: true,
 });
 
 export type ThemePreference = "system" | "light" | "dark";

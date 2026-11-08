@@ -52,11 +52,7 @@ const ifToolbarInColumn = (settings: { tabLayout: string; toolbarPlacement: stri
   unlessToolbarInColumn(settings) === null ? ("settings.disabledByToolbarInColumn" as const) : null;
 
 // The bar shows nowhere while bookmarks are the column's button.
-const unlessBookmarksBarShown = (settings: {
-  tabLayout: string;
-  toolbarPlacement: string;
-  sidebarBookmarks: string;
-}) =>
+const unlessBookmarksBarShown = (settings: { tabLayout: string; toolbarPlacement: string; sidebarBookmarks: string }) =>
   unlessToolbarInColumn(settings) === null && settings.sidebarBookmarks === "button"
     ? ("settings.disabledByBookmarksButton" as const)
     : null;
