@@ -129,8 +129,15 @@ impl RoundedRect {
                     ((self.left + inset).ceil() as i32, (self.right - inset).floor() as i32)
                 }
                 Edge::Touched => {
-                    // The other one, which the curve reaches furthest out at.
-                    let inset = inset(f64::from(y)).min(inset(f64::from(y) + 1.0));
+                    // Where the curve reaches furthest out: the straight part
+                    // when the row meets it, even where only the two curves'
+                    // ends meet inside the row, and otherwise the nearer end.
+                    let (top, bottom) = (f64::from(y), f64::from(y) + 1.0);
+                    let inset = if self.top + radius <= bottom && self.bottom - radius >= top {
+                        0.0
+                    } else {
+                        inset(top).min(inset(bottom))
+                    };
                     ((self.left + inset).floor() as i32, (self.right - inset).ceil() as i32)
                 }
             };
@@ -891,20 +898,25 @@ mod tests {
     fn a_touched_edge_covers_exactly_the_pixels_the_curve_reaches_into() {
         // A toast at a fractional position on a 125% display: a pixel it only
         // partly covers must stay the chrome's, or its antialiased edge is
-        // cut off by the page.
-        let shape = shape(12.875, 3.3, 263.625, 53.7, 10.0);
-        let spans = shape.spans(Edge::Touched, WINDOW);
+        // cut off by the page. The pill's curves meet inside one row, where
+        // it reaches furthest out between the row's top and bottom.
+        for shape in [
+            shape(12.875, 3.3, 263.625, 53.7, 10.0),
+            shape(19.99, 0.5, 120.0, 10.5, 999.0),
+        ] {
+            let spans = shape.spans(Edge::Touched, WINDOW);
+            let r = shape.radius.min((shape.bottom - shape.top) / 2.0);
 
-        for y in 0..60 {
-            for x in 0..280 {
-                // The shape is its inner rectangle grown by the radius, so a
-                // pixel reaches into it when it is nearer that rectangle.
-                let (left, top) = (f64::from(x), f64::from(y));
-                let r = shape.radius;
-                let dx = (shape.left + r - (left + 1.0)).max(left - (shape.right - r)).max(0.0);
-                let dy = (shape.top + r - (top + 1.0)).max(top - (shape.bottom - r)).max(0.0);
-                let touched = dx * dx + dy * dy < r * r;
-                assert_eq!(covered(&spans, x, y), touched, "pixel {x},{y}");
+            for y in 0..60 {
+                for x in 0..280 {
+                    // The shape is its inner rectangle grown by the radius, so a
+                    // pixel reaches into it when it is nearer that rectangle.
+                    let (left, top) = (f64::from(x), f64::from(y));
+                    let dx = (shape.left + r - (left + 1.0)).max(left - (shape.right - r)).max(0.0);
+                    let dy = (shape.top + r - (top + 1.0)).max(top - (shape.bottom - r)).max(0.0);
+                    let touched = dx * dx + dy * dy < r * r;
+                    assert_eq!(covered(&spans, x, y), touched, "pixel {x},{y} of {shape:?}");
+                }
             }
         }
     }
