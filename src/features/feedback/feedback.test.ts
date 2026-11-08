@@ -95,13 +95,13 @@ it("registers a toast shown while a dialog holds the toast stacks", async () => 
   prototype.close = function (this: HTMLDialogElement) {
     this.removeAttribute("open");
   };
+  const asked = feedback().dialog.confirm("Sure?");
+  const shown = feedback().info({ title: "Meanwhile", autoDismiss: false });
   try {
-    const asked = feedback().dialog.confirm("Sure?");
     const dialog = container().querySelector("dialog")!;
     expect(dialog.open).toBe(true);
     boxAt(dialog, 300, 200, 400, 200);
 
-    feedback().info({ title: "Meanwhile", autoDismiss: false });
     await Promise.resolve();
     const [stack] = stacksIn(dialog);
     const [toast] = [...stack!.children];
@@ -113,8 +113,9 @@ it("registers a toast shown while a dialog holds the toast stacks", async () => 
       { rect: { x: 300, y: 200, width: 400, height: 200 }, radius: 0 },
       { rect: { x: 620, y: 400, width: 280, height: 60 }, radius: 0 },
     ]);
-    asked.dismiss();
   } finally {
+    shown.dismiss();
+    asked.dismiss();
     delete prototype.showModal;
     delete prototype.close;
   }
