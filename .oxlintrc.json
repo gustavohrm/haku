@@ -1,12 +1,24 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["dist/**", "coverage/**", "src/bindings.ts", "tauri/target/**"],
+  "ignorePatterns": [
+    // project:start
+    "src/bindings.ts",
+    "tauri/target/**",
+    // project:end
+    "**/dist/**",
+    "**/coverage/**",
+    "**/test-results/**",
+    "**/playwright-report/**"
+  ],
   "env": {
     "browser": true,
     "node": true
   },
-  "plugins": ["typescript", "oxc", "jsdoc", "unicorn", "promise", "vitest", "react", "jsx-a11y"],
+  "plugins": ["typescript", "oxc", "jsdoc", "unicorn", "promise", "vitest"],
   "rules": {
+    // project:start
+    "vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "expectErr"] }],
+    // project:end
     "curly": ["error", "all"],
     "eqeqeq": ["error", "always"],
     "jsdoc/check-access": "error",
@@ -22,41 +34,37 @@
     "jsdoc/require-returns-description": "error",
     "jsdoc/require-throws-description": "error",
     "no-await-in-loop": "error",
-    "no-console": "error",
+    "no-console": ["error", { "allow": ["warn", "error"] }],
     "no-empty": "error",
     "no-empty-function": "off",
     "no-var": "error",
     "prefer-const": "error",
     "promise/prefer-await-to-then": "error",
-    "typescript/consistent-type-imports": [
-      "error",
-      {
-        "prefer": "type-imports"
-      }
-    ],
+    "typescript/consistent-type-imports": ["error", { "prefer": "type-imports" }],
     "typescript/no-explicit-any": "error",
-    "typescript/no-unused-vars": [
-      "error",
-      {
-        "argsIgnorePattern": "^_"
-      }
-    ],
-    "unicorn/filename-case": [
-      "error",
-      {
-        "case": "kebabCase"
-      }
-    ],
-    "vitest/expect-expect": [
-      "error",
-      {
-        "assertFunctionNames": ["expect", "expectErr"]
-      }
-    ],
+    "typescript/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "unicorn/filename-case": ["error", { "case": "kebabCase" }],
     "vitest/no-identical-title": "error",
-    "vitest/require-mock-type-parameters": "off",
-    "react/rules-of-hooks": "error",
-    "react/jsx-key": "error",
-    "react/no-danger": "error"
-  }
+    "vitest/require-mock-type-parameters": "off"
+  },
+  "overrides": [
+    // project:start
+    // The interface is React; the template's plugin list is framework-neutral.
+    {
+      "files": ["**/*.ts", "**/*.tsx"],
+      "plugins": ["react", "jsx-a11y"],
+      "rules": {
+        "react/jsx-key": "error",
+        "react/no-danger": "error",
+        "react/rules-of-hooks": "error"
+      }
+    },
+    // project:end
+    {
+      "files": [".githooks/**", "**/scripts/**", "**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }

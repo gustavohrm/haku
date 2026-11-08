@@ -1,6 +1,48 @@
+# Haku is one package at the root, not a workspace of apps/* and packages/*: the Tauri crate in tauri/,
+# the generated src/bindings.ts and the CI paths all assume it. docs/tooling.md records the decision.
 packages:
   - .
 
+# Every version is declared once, here, and package.json refers to it as `catalog:`, so the workspace can
+# never hold two versions of one dependency by accident. A new third-party dependency adds its version here.
+catalog:
+  "@codenhub/icons": ^0.2.1
+  "@codenhub/styles": ^0.6.0
+  "@codenhub/theme": ^0.1.2
+  "@codenhub/toaster": ^0.2.0
+  "@tailwindcss/vite": ^4.3.3
+  "@tauri-apps/api": ^2.12.4
+  "@tauri-apps/cli": ^2.12.4
+  "@types/node": ~24.13.6
+  "@types/react": ^19.3.0
+  "@types/react-dom": ^19.3.0
+  "@vitejs/plugin-react": ^6.1.2
+  "@vitest/coverage-v8": ^4.1.12
+  jsdom: ^29.1.1
+  oxfmt: ^0.74.0
+  oxlint: ^1.89.0
+  prettier: ^3.9.10
+  react: ^19.3.1
+  react-dom: ^19.3.1
+  tailwindcss: ^4.3.3
+  typescript: ^7.0.2
+  vite: ^8.3.5
+  vitest: ^4.1.12
+
+# Supply-chain rules, applied to every install, local and in CI alike (docs/ci.md, "Dependency installs").
+# Refuses a transitive dependency that resolves to a git repository or a tarball URL instead of the registry.
 blockExoticSubdeps: true
+# Refuses a version published with weaker trust evidence (provenance, trusted publishing) than an earlier
+# version of the same package, a common sign of a compromised publish.
 trustPolicy: no-downgrade
+# Seven days, in minutes: a version published longer ago than this is no longer held to the trust policy, so
+# a long-standing release that predates provenance is not refused as a downgrade.
 trustPolicyIgnoreAfter: 10080
+# The only dependencies whose install scripts may run. A dependency that needs one gets an entry in the same
+# change, with the reason in a comment.
+allowBuilds: {}
+
+# Makes pnpm refuse an install outside `engines` in package.json instead of only printing a warning, so a
+# mismatch surfaces before it turns into a failure no one can reproduce (docs/ci.md, "Toolchain"). It lives
+# here because pnpm ignores `engine-strict` in .npmrc: checked with pnpm 11.7 and 12.16.
+engineStrict: true

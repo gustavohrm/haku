@@ -1,0 +1,19 @@
+{
+  // The interface in `src/`: React in the webview, bundled by Vite and tested by Vitest under jsdom.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "exactOptionalPropertyTypes": true,
+    "paths": {
+      "@app/*": ["./src/app/*"],
+      "@bindings": ["./src/bindings.ts"],
+      "@ipc/*": ["./src/ipc/*"],
+      "@features/*": ["./src/features/*"],
+      "@shared/*": ["./src/shared/*"]
+    },
+    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.app.tsbuildinfo"
+  },
+  "include": ["src"]
+}

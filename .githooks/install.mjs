@@ -18,6 +18,6 @@ const result = spawnSync("git", ["config", "core.hooksPath", HOOKS_PATH], {
 });
 
 if (result.error !== undefined || result.status !== 0) {
-  const reason = result.error?.message ?? result.stderr?.trim() ?? `git exited with ${String(result.status)}`;
+  const reason = result.error?.message ?? (result.stderr?.trim() || `git exited with ${String(result.status)}`);
   process.stdout.write(`Skipped git hook setup: ${reason}\n`);
 }

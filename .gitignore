@@ -2,24 +2,26 @@
 logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 pnpm-debug.log*
 
 # Dependencies
 node_modules
 
-# Build output
+# Build output and caches
 dist
-dist-ssr
-*.local
-*.tsbuildinfo
 coverage
-**/coverage
+*.tsbuildinfo
 test-results
-**/test-results
+playwright-report
 
-# Rust build output is ignored by `tauri/.gitignore`.
+# Local environment and credentials; an example file is committed instead.
+.env
+.env.*
+!.env.example
 
-# AI agents
+# AI agents: local settings, sessions, and worktrees.
 .agents
 .antigravity
 .claude
@@ -28,5 +30,13 @@ test-results
 .gemini
 .opencode
 
-# Short-lived plans (docs/guidelines/documentation.md, "What belongs here")
+# Short-lived plans (docs/guidelines/documentation.md, "What belongs here").
 docs/plans
+
+# project:start
+# Vite's server-side build output and local env overrides.
+dist-ssr
+*.local
+
+# Rust build output is ignored by `tauri/.gitignore`.
+# project:end

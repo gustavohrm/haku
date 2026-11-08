@@ -1,14 +1,18 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-06
-scope: The `package.json` scripts, what `pnpm verify` runs, git hooks, and generated files.
+last_updated: 2026-11-08
+scope: How the `package.json` scripts are implemented, what `pnpm verify` runs, the TypeScript and Vitest configuration, git hooks, and generated files.
 ---
 
 # Tooling
 
-Every check is a `package.json` script, run from the repository root. Cargo scripts reach the crate with `--manifest-path tauri/Cargo.toml`, so nothing needs to be run from inside `tauri/`. CI runs these same scripts and nothing else; [CI](ci.md) describes how.
+Every check is a `package.json` script, run from the repository root. [Workspace](workspace.md) is the contract the script names and their guarantees follow; this document says how Haku implements them. Cargo scripts reach the crate with `--manifest-path tauri/Cargo.toml`, so nothing needs to be run from inside `tauri/`. CI runs these same scripts and nothing else; [CI](ci.md) describes how.
 
 There is no task runner. Haku is one application, and a dozen scripts chained with `&&` are easier to read and reproduce than a tool that would have to be learned, versioned, and trusted first.
+
+## One package at the root
+
+The shared template lays a project out as a pnpm workspace of `apps/*` and `packages/*`. Haku keeps one package at the repository root instead, with `packages: [.]` in `pnpm-workspace.yaml`. Moving the app into `apps/haku` would rewrite paths that the rest of the repository relies on: the Tauri crate in `tauri/` and its `tauri.conf.json`, which runs `pnpm dev` and reads `../dist`; the Rust test that writes `src/bindings.ts` and the script that checks it; the Rust paths in CI; and the path aliases and the links throughout `docs/`. Haku has no second package to share code with, so the layout would buy nothing yet. The decision is worth revisiting when a second app or a shared package appears. Everything else follows the template: the root scripts, the TypeScript solution, the catalog, and the shared configurations.
 
 ## Scripts
 
@@ -16,16 +20,16 @@ There is no task runner. Haku is one application, and a dozen scripts chained wi
 | --------------------- | ------------------------------------------------------------- |
 | `pnpm tauri dev`      | The app, with the interface served by Vite                    |
 | `pnpm dev`            | Vite alone, on port 1420                                      |
-| `pnpm build`          | `tsc`, then the interface bundle into `dist/`                 |
+| `pnpm build`          | `tsc -b`, then the interface bundle into `dist/`              |
 | `pnpm verify`         | `verify:web`, then `verify:rust`                              |
-| `pnpm verify:web`     | Format, lint, type check, Vitest, and the interface bundle    |
+| `pnpm verify:web`     | Format, lint, the interface bundle, type check, and Vitest    |
 | `pnpm verify:rust`    | rustfmt, clippy, the bindings drift check, and `cargo test`   |
 | `pnpm format:check`   | oxfmt, Prettier for Markdown, and rustfmt, without writing    |
 | `pnpm format:fix`     | The same three formatters, writing                            |
 | `pnpm format`         | `format:check`                                                |
 | `pnpm lint:check`     | oxlint and clippy, both failing on any warning                |
 | `pnpm lint:fix`       | oxlint's fixes                                                |
-| `pnpm typecheck`      | `tsc`                                                         |
+| `pnpm typecheck`      | `tsc -b` over the TypeScript solution                         |
 | `pnpm test`           | Vitest, once                                                  |
 | `pnpm test:watch`     | Vitest in watch mode                                          |
 | `pnpm test:coverage`  | Vitest with a V8 coverage report                              |
@@ -47,31 +51,44 @@ Every cargo script passes `--locked`, the Rust counterpart to `pnpm install --fr
 
 1. `format:check:web` — oxfmt over code, CSS, HTML and JSON; Prettier over Markdown.
 2. `lint:check:web` — oxlint with `--deny-warnings`.
-3. `typecheck` — `tsc`.
-4. `test` — Vitest.
-5. `vite build` — the production bundle, which is where a missing import or a broken virtual module shows up.
+3. `build` — `tsc -b`, then `vite build`, the production bundle, which is where a missing import or a broken virtual module shows up.
+4. `typecheck` — `tsc -b`, which after `build` finds its incremental state current and returns at once.
+5. `test` — Vitest.
 6. `format:check:rust` — rustfmt.
 7. `lint:check:rust` — clippy over every target, with warnings denied.
 8. `bindings:check` — the drift check described below.
 9. `test:rust` — `cargo test`.
 
-The order is by cost within each half: the cheapest step most likely to fail on a fresh change runs first. The web half runs first because it reports in seconds, while the Rust half may compile for minutes.
+The web half follows the order [Workspace](workspace.md#root-scripts) sets. `build` type-checks before bundling because `tauri build` runs `pnpm build` alone, and a release should not bundle code that does not type-check. The web half runs first because it reports in seconds, while the Rust half may compile for minutes.
 
 `check:release` is not part of `verify`. A release compile on a cold cache takes minutes and guards one trap, a missing Tauri `devtools` feature; CI runs it on every pull request, and it is worth running locally when changing features in `tauri/Cargo.toml`.
 
 ## Formatters and linters
 
-| Language                    | Formatter | Linter | Configuration                         |
-| --------------------------- | --------- | ------ | ------------------------------------- |
-| TypeScript, CSS, HTML, JSON | oxfmt     | oxlint | `.oxfmtrc.json`, `.oxlintrc.json`     |
-| Markdown                    | Prettier  | —      | `.prettierrc.json`, `.prettierignore` |
-| Rust                        | rustfmt   | clippy | `tauri/rustfmt.toml`                  |
+| Language                    | Formatter | Linter | Configuration                          |
+| --------------------------- | --------- | ------ | -------------------------------------- |
+| TypeScript, CSS, HTML, JSON | oxfmt     | oxlint | `.oxfmtrc.json`, `.oxlintrc.json`      |
+| Markdown                    | Prettier  | —      | `.prettierrc.json5`, `.prettierignore` |
+| Rust                        | rustfmt   | clippy | `tauri/rustfmt.toml`                   |
 
 oxfmt does not format Markdown; Prettier does, and it is the one holding the `proseWrap: never` rule [Documentation guidelines](guidelines/documentation.md) set. Prettier is given an explicit `**/*.md` target set, so it touches nothing else.
 
 rustfmt runs at width 120, the same as oxfmt's `printWidth`, so both languages wrap at the same column. clippy runs its default lint set with every warning denied. A lint that is wrong for one place is allowed there with `#[allow(...)]` and a comment saying why; a lint that is wrong everywhere is a change to this document.
 
-`src/bindings.ts` is generated, so oxfmt, oxlint, and the `pre-commit` hook leave it as its generator wrote it.
+`src/bindings.ts` is generated, so oxfmt and oxlint list it in their `ignorePatterns`, and the `pre-commit` hook, which passes `--no-error-on-unmatched-pattern`, leaves it as its generator wrote it.
+
+## TypeScript and Vitest
+
+`tsconfig.json` is a solution with no files of its own. `pnpm typecheck` runs `tsc -b` on it, which checks the two projects it references:
+
+| Project              | Checks                                                                                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig.root.json` | The template's: the root config files and the `.template/` and `.githooks/` scripts, by Node's rules.                                                                  |
+| `tsconfig.app.json`  | The interface in `src/`: DOM and `vite/client` types, React JSX, `exactOptionalPropertyTypes`, and the `@app`, `@bindings`, `@ipc`, `@features` and `@shared` aliases. |
+
+Both extend `tsconfig.base.json`, the template's shared compiler settings, and keep their incremental state under `node_modules/.cache/`. The aliases are declared three times, in `tsconfig.app.json`, `vite.config.ts` and `vitest.config.ts`, because each tool resolves imports itself.
+
+`vitest.config.ts` runs `src/**/*.test.ts` and `src/**/*.test.tsx` under jsdom, with V8 coverage over `src/`. [Tests](specs/tests.md) owns what the suites cover.
 
 ## Generated files
 
@@ -83,22 +100,10 @@ rustfmt runs at width 120, the same as oxfmt's `printWidth`, so both languages w
 
 ## Git hooks
 
-Three hooks live in `.githooks/`, wired by `core.hooksPath`, which the `prepare` script sets on every `pnpm install`. That is a local git setting rather than a tracked one, so a fresh clone runs no hooks until it installs; doing it from `prepare` keeps a hook manager out of the dependencies. The setup step never fails an install: a tree without git reports and carries on.
+The three hooks in `.githooks/` are the template's; [Contributing](../CONTRIBUTING.md#hooks) lists what each checks, and [Workspace](workspace.md#git-hooks) records why each does that much and no more.
 
-| Hook         | Checks                                                           |
-| ------------ | ---------------------------------------------------------------- |
-| `pre-commit` | Formats and lints the staged files, re-staging what it fixed     |
-| `commit-msg` | The Conventional Commits subject `CONTRIBUTING.md` describes     |
-| `pre-push`   | Refuses a push to `main`, and a branch not named `<type>/<slug>` |
+Haku's `pre-commit` departs from the template's in one way, recorded as an exception in `.template/manifest.json`: it also runs rustfmt, with the crate's edition, over staged `.rs` files, which oxfmt cannot format. Clippy stays in `pnpm verify`, for the same reason type checking does.
 
-`pre-commit` runs oxfmt, Prettier, rustfmt, and oxlint over the staged files and nothing else. Type checking, clippy, and tests take minutes, and a hook that slow gets bypassed until it may as well not exist; `pnpm verify` is where they belong. It reads files from the working tree rather than from the index. A file that is only partly staged is never rewritten, because re-staging it would sweep in the parts deliberately left out of the commit; it is checked as it sits on disk, so a commit whose staged content is already clean can still fail.
+Each hook ignores SIGPIPE, and `.githooks/AGENTS.md` records why. The cost is that tools a hook runs inherit the ignored signal, so with output piped through something that closes early, a passing hook can fail on a write error. Failing closed is the safer direction.
 
-`commit-msg` checks the subject line and nothing else: a known type, an optional lowercase scope, an imperative lowercase subject, no trailing period, 72 characters at most. No hook can tell whether a message describes the commit honestly, so that half stays with review. Merges, reverts, and `fixup!` markers pass unchecked, because git composed them.
-
-`pre-push` reads the destination ref rather than the current branch, so it holds for a push from `main`, for an explicit refspec targeting it, and for a `--delete`. It checks the branch name because the name is often not a choice anyone made: an agent harness creates `claude/...` or `codex/...` before the agent has read a file. Deleting a remote branch passes whatever it is called, and tags are not checked.
-
-Each hook ignores SIGPIPE. Git for Windows counts a hook killed by any signal as passed, and when the caller pipes git through something that closes early, such as `head`, a hook writing its rejection is killed by SIGPIPE mid-message. Ignoring the signal leaves the hook's own verdict in charge of its exit status. It covers that case only; `.githooks/AGENTS.md` records the rest. The cost is that tools a hook runs inherit the ignored signal, so with output piped that way a passing hook can fail on a write error. Failing closed is the safer direction.
-
-`--no-verify` bypasses them: on `git commit` for the first two, on `git push` for the last. It is for the change that genuinely has to land unfixed, and using it is worth saying out loud.
-
-The hooks and their messages come from the codenhub repository, where they were written; a fix to one is worth carrying to the other.
+A fix to a hook belongs in the template, so every project that uses it gets it.

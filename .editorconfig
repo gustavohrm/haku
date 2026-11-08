@@ -1,6 +1,8 @@
 root = true
 
 [*]
+charset = utf-8
+end_of_line = lf
 indent_style = space
 indent_size = 2
 insert_final_newline = true
@@ -11,6 +13,7 @@ trim_trailing_whitespace = true
 indent_size = 4
 
 [*.md]
+# A trailing double space is a Markdown line break.
 trim_trailing_whitespace = false
 # Prose is not hard-wrapped; Prettier runs with proseWrap "never" and reads this
 # as an unlimited print width, which also keeps wide tables aligned.
