@@ -2,9 +2,9 @@
 # Refuses a push that would write to `main`, or to a branch whose name is not
 # `<type>/<slug>`.
 #
-# `main` is verified in full by CI and deployed from, so a commit that arrives
-# there without a pull request is one nobody reviewed and one that publishes
-# itself. The rule is in CONTRIBUTING.md; this is what makes it more than advice.
+# `main` is the branch CI verifies in full, so a commit that arrives there
+# without a pull request is one nobody reviewed. The rule is in CONTRIBUTING.md;
+# this is what makes it more than advice.
 #
 # The branch name is checked here because a tool often picks it before anyone
 # has read the rule: `claude/...` and `codex/...` are names nobody chose.
@@ -17,7 +17,7 @@
 set -eu
 
 # A closed stderr, as when the caller pipes git through `head`, would kill this
-# hook with SIGPIPE mid-message, and git for Windows lets a commit through a hook
+# hook with SIGPIPE mid-message, and git for Windows lets a push through a hook
 # killed that way. Ignoring the signal turns a failed write into an ordinary
 # error, so the hook's own verdict is what sets its exit status.
 trap "" PIPE
@@ -57,8 +57,8 @@ while read -r _local_ref local_sha remote_ref _remote_sha; do
   if ! printf '%s' "$branch" | grep -qE "^($TYPES)/[a-z0-9]+([.-][a-z0-9]+)*$"; then
     printf '\npre-push: refusing to push the branch `%s`.\n\n' "$branch" >&2
     printf 'Expected `<type>/<slug>`, for example:\n\n' >&2
-    printf '  feat/tab-search\n' >&2
-    printf '  fix/slot-eviction-order\n\n' >&2
+    printf '  feat/export-command\n' >&2
+    printf '  fix/build-dependency-order\n\n' >&2
     printf 'Types: %s\n\n' "$(printf '%s' "$TYPES" | tr '|' ' ')" >&2
     printf 'Rename it, then push again:\n\n' >&2
     printf '  git branch -m <type>/<slug>\n\n' >&2

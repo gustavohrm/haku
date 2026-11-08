@@ -7,13 +7,13 @@
   "scripts": {
     "prepare": "node .githooks/install.mjs",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "bindings": "cargo test --manifest-path tauri/Cargo.toml --lib ipc::tests::export_bindings -- --exact",
     "bindings:check": "node scripts/check-bindings.mjs",
     "check:release": "cargo check --manifest-path tauri/Cargo.toml --locked --release",
-    "typecheck": "tsc",
+    "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -28,39 +28,39 @@
     "lint:check:rust": "cargo clippy --manifest-path tauri/Cargo.toml --locked --all-targets -- -D warnings",
     "lint:fix": "oxlint --fix",
     "verify": "pnpm verify:web && pnpm verify:rust",
-    "verify:web": "pnpm format:check:web && pnpm lint:check:web && pnpm typecheck && pnpm test && vite build",
+    "verify:web": "pnpm format:check:web && pnpm lint:check:web && pnpm build && pnpm typecheck && pnpm test",
     "verify:rust": "pnpm format:check:rust && pnpm lint:check:rust && pnpm bindings:check && pnpm test:rust",
     "labels": "node scripts/sync-labels.mjs"
   },
   "dependencies": {
-    "@codenhub/icons": "^0.2.1",
-    "@codenhub/styles": "^0.6.0",
-    "@codenhub/theme": "^0.1.2",
-    "@codenhub/toaster": "^0.2.0",
-    "@tauri-apps/api": "^2.12.4",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "@codenhub/icons": "catalog:",
+    "@codenhub/styles": "catalog:",
+    "@codenhub/theme": "catalog:",
+    "@codenhub/toaster": "catalog:",
+    "@tauri-apps/api": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/cli": "^2.12.4",
-    "@types/node": "~24.13.6",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.2",
-    "@vitest/coverage-v8": "^4.1.12",
-    "jsdom": "^29.1.1",
-    "oxfmt": "^0.74.0",
-    "oxlint": "^1.89.0",
-    "prettier": "^3.9.10",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2",
-    "vite": "^8.3.5",
-    "vitest": "^4.1.12"
+    "@tailwindcss/vite": "catalog:",
+    "@tauri-apps/cli": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "jsdom": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "prettier": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
-    "node": ">=24.14.1 <25",
-    "pnpm": ">=11.7.0"
+    "node": ">=24.22.1 <25",
+    "pnpm": ">=12.16.1 <13"
   },
-  "packageManager": "pnpm@11.7.0"
+  "packageManager": "pnpm@12.16.1"
 }

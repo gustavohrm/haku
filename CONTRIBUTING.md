@@ -1,34 +1,49 @@
 # Contributing
 
-This document defines the contributor workflow, from a working tree through validation and review. It applies to maintainers, contributors, and AI agents.
+This document defines the contributor workflow, from a working tree through validation, review, and release. It applies to maintainers, contributors, and AI agents.
 
-[Documentation](docs/README.md) maps the architecture, guidelines, and specifications. [Tooling](docs/tooling.md) describes the commands below. [Agent instructions](AGENTS.md) contain agent-specific behavior and context guidance.
+[Documentation](docs/README.md) maps the guidelines, specifications, and references. [Tooling](docs/tooling.md) describes the commands below. [Agent instructions](AGENTS.md) contain agent-specific behavior and context guidance.
 
 ## Setup
 
-Haku builds on Windows. You need:
-
-- Node and pnpm at the versions the repository pins. With `nvm`, `nvm use` reads `.nvmrc`; pnpm installs the version `packageManager` names.
-- Rust through `rustup`. `rust-toolchain.toml` pins the version, and rustup installs it, with `clippy` and `rustfmt`, the first time cargo runs here.
-- [Tauri's Windows prerequisites](https://tauri.app/start/prerequisites/): the Microsoft C++ Build Tools and the WebView2 runtime.
-
-Then:
+The toolchain is pinned, and an install outside it fails rather than warns. With `nvm`, `nvm use` reads `.nvmrc`; pnpm installs the version `packageManager` names.
 
 ```sh
 nvm use
 pnpm install
+```
+
+`pnpm install` also points git at `.githooks/` through `core.hooksPath`, so the hooks described below start working after the first install and not before. If lifecycle scripts were disabled during the install, run `node .githooks/install.mjs`. [CI](docs/ci.md) covers why the versions are pinned where they are.
+
+<!-- project:start -->
+
+Haku builds on Windows. Beyond Node and pnpm you need:
+
+- Rust through `rustup`. `rust-toolchain.toml` pins the version, and rustup installs it, with `clippy` and `rustfmt`, the first time cargo runs here.
+- [Tauri's Windows prerequisites](https://tauri.app/start/prerequisites/): the Microsoft C++ Build Tools and the WebView2 runtime.
+
+Start the app for development with:
+
+```sh
 pnpm tauri dev
 ```
 
-The toolchain is pinned, and an install outside it fails rather than warns. `pnpm install` also points git at `.githooks/` through `core.hooksPath`, so the hooks described below start working after the first install and not before. [CI](docs/ci.md) covers why the versions are pinned where they are.
+<!-- project:end -->
 
 ## Changes
 
 - Keep each change within its requested scope and preserve unrelated work.
 - Applicable guidelines, specifications, and APPROVED or IMPLEMENTED documentation govern the change. Existing code may lag those contracts; conflicts and exceptions are resolved under the [documentation guidelines](docs/guidelines/documentation.md).
-- Update affected documentation in the same change when behavior, architecture, conventions, or decisions change. Each contract has one owning document; references point to that owner rather than repeat its requirements.
+- Update affected documentation in the same change as behavior, public API, exports, conventions, or decisions. Each contract has one owning document; references point to that owner rather than repeat its requirements.
+- Do not commit secrets, `.env` files, build artifacts, or unrelated changes.
+
+<!-- project:start -->
+
 - Change the Rust, then run `pnpm bindings`, when the IPC boundary changes. `src/bindings.ts` is generated, and `pnpm verify` fails while it is stale.
-- Do not commit secrets, build artifacts, or unrelated changes.
+- Haku is one package at the root, so a commit [scope](#scope) is not a package or app name. Use the name the code already uses for the area: an interface feature folder, such as `tabs` or `toolbar`; a Rust module, such as `browser`, `webview`, or `platform`; `ipc` for the boundary between them; `tauri` for the backend as a whole; or a repository area, such as `docs` or `ci`. For example, `fix(webview): observe a slot before its first navigation`.
+- The contracts a breaking `!` marks here are an IPC command or event, and the format of persisted settings, sessions, or history.
+
+<!-- project:end -->
 
 ## Issues
 
@@ -36,33 +51,60 @@ Defects and requests are tracked as GitHub issues, opened through the bug and fe
 
 Each issue carries one label from each group that applies:
 
-| Group     | Labels                                        | Says                                    |
-| --------- | --------------------------------------------- | --------------------------------------- |
-| `type:`   | `bug`, `feature`, `security`, `docs`, `chore` | What kind of work it is                 |
-| `area:`   | `src`, `tauri`, `docs`                        | Which part of the repository it touches |
-| `status:` | `needs-triage`, `blocked`                     | Why it is not moving, when it is not    |
+| Group     | Labels                                        | Says                                 |
+| --------- | --------------------------------------------- | ------------------------------------ |
+| `type:`   | `bug`, `feature`, `security`, `docs`, `chore` | What kind of work it is              |
+| `pkg:`    | one per workspace package, by unscoped name   | Which package it is in               |
+| `app:`    | one per app, by directory name                | Which app it is in                   |
+| `status:` | `needs-triage`, `blocked`, `upstream`         | Why it is not moving, when it is not |
 
-`.github/labels.json` holds the list. `pnpm labels` creates or updates them on GitHub through `gh`, and is run after editing the list. It never deletes a label; one that is no longer listed is reported for a maintainer to remove by hand.
+`status:upstream` means the issue waits on a change in a dependency you maintain, as [below](#a-defect-found-mid-task) describes.
+
+<!-- project:start -->
+
+Haku has no workspace packages or apps, so it has no `pkg:` or `app:` labels. It uses an `area:` group instead:
+
+| Group   | Labels                 | Says                                    |
+| ------- | ---------------------- | --------------------------------------- |
+| `area:` | `src`, `tauri`, `docs` | Which part of the repository it touches |
+
+A defect in a `@codenhub` package is filed in [codenhub/codenhub](https://github.com/codenhub/codenhub/issues), with its `found-in:external` label, and the local workaround names that issue: `// Workaround for codenhub/codenhub#123: ...`.
+<!-- project:end -->
+
+`.github/labels.json` holds the list. Unless the project derives its `pkg:` and `app:` labels, as the block below then says, add an entry in the change that adds the package or app. After editing the list, create or update the labels on GitHub through `gh`:
+
+```sh
+node -e 'for (const l of require("./.github/labels.json")) require("node:child_process").execFileSync("gh", ["label", "create", l.name, "--color", l.color, "--description", l.description, "--force"], { stdio: "inherit" })'
+```
+
+It never deletes a label: deleting one strips it from every issue that carries it, so a label that is no longer listed is removed by hand.
+
+The `type:` and `status:` labels are the same in every project started from this template, so a GitHub organization can set them as its default labels, and a new repository then starts with the labels the issue forms and Dependabot apply. Renaming a label on GitHub, rather than creating it again, keeps it on the issues that carry it.
+
+<!-- project:start -->
+
+`pnpm labels` runs the same sync from `scripts/sync-labels.mjs`, and also reports a label GitHub has that the list no longer names, for a maintainer to remove by hand.
+<!-- project:end -->
 
 ### A defect found mid-task
 
-A defect hit while working on something else is filed and worked around, not fixed on the spot. Fixing it in place mixes two subjects in one branch, for the reason the [commit](#atomic-commits) and [pull request](#pull-requests) rules already reject.
+A defect hit while working on something else is filed and worked around, not fixed on the spot. Fixing it in place mixes two subjects in one branch, for the reason the [commit](#atomic-commits) and [pull request](#pull-requests) rules already reject, and where the fix ships as a release, it forces a release in the middle of unrelated work.
 
-File it with what triage needs:
+File it with what triage needs, from the terminal:
 
 ```sh
-gh issue create --title "<what is wrong>" --label "type:bug,status:needs-triage" --body "<what happened, what was expected, and the workaround>"
+gh issue create --title "<area>: <what is wrong>" --label "type:bug,status:needs-triage" --body "<what happened, what was expected, and the workaround>"
 ```
 
-Then mark the workaround where it lives, naming the issue in full so the reference is unambiguous wherever it is read:
+Then mark the workaround where it lives, naming the issue in full as `<owner>/<repo>#<number>`, so the reference reads the same wherever it is read:
 
 ```ts
-// Workaround for gustavohrm/haku#123: <what it works around>.
+// Workaround for <owner>/<repo>#123: <what it works around>.
 ```
 
-Once the fix lands, searching for `gustavohrm/haku#123` finds every workaround to remove. A defect with no workaround blocks the task; say so, and the fix goes first, in its own pull request.
+Once the fix lands, searching for `<owner>/<repo>#123` finds every workaround to remove. A defect with no workaround blocks the task; say so, and the fix goes first, in its own pull request.
 
-A defect in a `@codenhub` package is filed in [codenhub/codenhub](https://github.com/codenhub/codenhub/issues) instead, with its `found-in:external` label, and the workaround names that issue: `// Workaround for codenhub/codenhub#123: ...`.
+A defect or gap in a dependency you also maintain is fixed upstream, not around. File it in that dependency's repository, label the local issue that waits on it `status:upstream`, and mark the workaround with the upstream issue. Once the fix is released, raise the dependency to that version and remove every workaround that names the issue.
 
 Opening an issue is outward-facing. An agent drafts it and asks before filing, as it does before pushing.
 
@@ -70,17 +112,17 @@ Opening an issue is outward-facing. An agent drafts it and asks before filing, a
 
 Work happens on a branch. Do not commit to `main`.
 
-`main` is the branch CI verifies on every push, so a commit that lands there directly is one nobody reviewed. A pre-push hook refuses to push to it, and GitHub's branch protection refuses it too, for admins as well ([CI](docs/ci.md#branch-protection)).
+`main` is the branch CI verifies in full and, in a project that deploys from it, the one that deploys, so a commit that lands there directly is one nobody reviewed. A pre-push hook refuses to push to it.
 
-The exception is real but narrow: it takes an explicit request from a maintainer, in the moment, for that specific commit. Because protection is enforced for admins, the exception means lifting it for that push and restoring it straight after. An agent must ask and be told yes. Neither a general instruction to "just fix it" nor a previous approval carries over to the next commit.
+The exception is real but narrow: it takes an explicit request from a maintainer, in the moment, for that specific commit. An agent must ask and be told yes. Neither a general instruction to "just fix it" nor a previous approval carries over to the next commit.
 
-Name the branch `<type>/<slug>`, where `<type>` is the [commit type](#type) of the work and `<slug>` is kebab-case. A version in the slug keeps its dots.
+Name the branch `<type>/<slug>`, where `<type>` is the [commit type](#type) of the work and `<slug>` is kebab-case. A version in the slug keeps its dots, as in `fix/validation-0.2-audit`.
 
 ```
-feat/tab-search
-fix/slot-eviction-order
-docs/page-observation-dialogs
-chore/repo-foundation
+feat/export-command
+fix/build-dependency-order
+docs/ci-required-checks
+chore/update-dependencies
 ```
 
 Every pushed branch follows the pattern, whoever or whatever created it. A tool that names its own branches, such as `claude/agent-branch-naming-03bee5` or `codex/fix-build-order`, does not make an exception: rename the branch with `git branch -m <type>/<slug>` before its first push. The `pre-push` hook refuses any other name.
@@ -105,15 +147,15 @@ One of `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `rever
 
 ### Scope
 
-The area the change lands in, and optional. Use the name the code already uses for it: an interface feature folder, such as `tabs` or `toolbar`; a Rust module, such as `browser`, `webview`, or `platform`; `ipc` for the boundary between them; `tauri` for the backend as a whole; or a repository area, such as `docs` or `ci`. Leave it out when the change spans several.
+The area the change lands in, and optional. For a workspace package it is the package name without its npm scope; for a package nested a level deeper, such as `packages/plugins/vite`, it is the path under `packages/`, as in `plugins/vite`. For an app it is the directory name under `apps/`. Repository-level areas use their own name, such as `ci`, `deps`, or `docs`. Leave it out when the change spans several.
 
 ### Subject
 
 Imperative mood, lowercase, no trailing period: "add", not "added" or "Adds". Aim for 50 characters and stay under 72, which the hook enforces.
 
-Describe what the change does for someone reading the log later, not which files moved. `fix(webview): observe a slot before its first navigation` says what broke and what now happens; `fix(webview): update mod.rs` says nothing a diff would not.
+Describe what the change does for someone reading the log later, not which files moved. `fix(core): build workspace dependencies before their dependents` says what broke and what now happens; `fix(core): update build.ts` says nothing a diff would not.
 
-Append `!` after the scope for a change that breaks a contract — an IPC command or event, or the format of persisted settings, sessions, or history — and say what breaks in the body.
+Append `!` after the scope for a change that breaks a contract someone relies on, such as a public API, a configuration variable, or a persisted format, and say in the body what breaks and what to do about it.
 
 ### Body
 
@@ -132,32 +174,54 @@ Formatting churn, unrelated fixes, and drive-by refactors are their own commits 
 A commit an AI agent wrote or substantially shaped MUST carry a `Co-authored-by` trailer naming the **model**, not the tool or harness it ran in:
 
 ```
-Co-authored-by: Claude Opus 5 <noreply@anthropic.com>
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
 ```
 
-`Claude Opus 5`, not `Claude Code`; the model is what produced the change, and it is what someone auditing the history needs to know. Use the model vendor's no-reply address when it publishes one.
+`Claude Opus 5.5`, not `Claude Code`; the model is what produced the change, and it is what someone auditing the history needs to know. A harness name records which client a person happened to open, which explains nothing about the commit. Use the model vendor's no-reply address when it publishes one.
 
 The human directing the work stays the commit author. The trailer is an addition to authorship, never a replacement for it.
 
 ## Validation
 
-Run scripts from the repository root. During development, narrow checks to what changed — `pnpm test <file>`, `pnpm test:rust -- <module>`. Before delivering a change, run the whole gate:
+Run scripts from the repository root. During development, narrow checks to what changed; [tooling](docs/tooling.md) lists the commands and how to narrow them. Before delivering a change, run the gate the block below names; by default, that is the whole gate:
 
 ```sh
 pnpm verify
 ```
 
-Report any step that was skipped or failed. After changing features in `tauri/Cargo.toml`, also run `pnpm check:release`, which CI runs on every pull request.
+It runs formatting, linting, the build, type checking, and tests, the same checks CI runs. Report any step that was skipped or failed.
+
+<!-- project:start -->
+
+During development, narrow checks to what changed: `pnpm test <file>`, `pnpm test:rust -- <module>`. `pnpm verify` runs a web half and a Rust half, `pnpm verify:web` and `pnpm verify:rust`, which CI runs as separate jobs on Ubuntu and Windows.
+
+After changing features in `tauri/Cargo.toml`, also run `pnpm check:release`, which CI runs on every pull request: a release build compiles code a debug build never sees.
+<!-- project:end -->
 
 ## Pull requests
 
-Every change reaches `main` through a pull request, and CI verifies it on Ubuntu and Windows.
+Every change reaches `main` through a pull request, and CI verifies it.
 
 Pushing a branch and opening a pull request are outward-facing actions. An agent asks first and does neither on its own initiative.
 
 Keep a pull request to one subject. A branch that fixes a bug and also restructures a doc is two pull requests, for the same reason a commit that does both is two commits.
 
-A pull request that resolves an issue says `Fixes #123` in its description, so merging it closes the issue.
+A pull request that resolves an issue says `Fixes #123` in its description, so merging it closes the issue. Merging is not releasing: a fix reaches users with the next release.
+
+A pull request that builds on another unmerged one targets that one's branch and names it in its description. Merge them in order, the base first. GitHub then deletes the merged branch, with the setting [CI](docs/ci.md#branch-protection) recommends, and retargets the next pull request to `main`; merged out of order or before that retarget, it lands in the other branch instead of `main`.
+
+## Releasing
+
+Releasing is a maintainer action, and it is separate from merging. Merging changes `main`; a release puts a version where people install or reach it, and a published version can be superseded but rarely taken back.
+
+Bump the version and record what users need to know in an ordinary pull request first; the release itself names a commit already on `main`.
+
+<!-- project:start -->
+
+This project has no releases yet. [First release](docs/first-release.md) records what the first one includes.
+<!-- project:end -->
+
+Pushing a release tag and deploying are outward-facing actions. An agent asks first and never does either on its own initiative.
 
 ## Hooks
 
@@ -169,4 +233,4 @@ Three hooks run locally, all from `.githooks/`:
 | `commit-msg` | The subject line shape described above                       |
 | `pre-push`   | Refuses a direct push to `main`, and a misnamed branch       |
 
-`--no-verify` bypasses them. It is for the commit that genuinely has to land unfixed, and an agent that reaches for it MUST say so in the same breath rather than quietly routing around a failing check. [Tooling](docs/tooling.md#git-hooks) describes what each hook does and why it does no more than that.
+`--no-verify` bypasses them. It is for the commit that genuinely has to land unfixed, and an agent that reaches for it MUST say so in the same breath rather than quietly routing around a failing check. [Workspace](docs/workspace.md#git-hooks) records why each hook does that much and no more.

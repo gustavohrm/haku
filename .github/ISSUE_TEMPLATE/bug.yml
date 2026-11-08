@@ -1,5 +1,5 @@
 name: Bug
-description: Haku does not behave the way it should.
+description: Something does not behave the way its documentation says.
 labels: ["type:bug", "status:needs-triage"]
 body:
   - type: markdown
@@ -7,15 +7,20 @@ body:
       value: |
         A security vulnerability is not a bug report. Report it privately, as SECURITY.md describes.
 
-        This issue is public. Remove personal data from everything you write or paste below: logs, page content, and addresses that carry tokens or account details.
+        Everyone who can read this repository can read this issue. Remove secrets, tokens, and personal data from everything you write or paste below.
   - type: input
-    id: commit
+    id: area
     attributes:
-      label: Commit
-      description: The commit you built, from `git rev-parse --short HEAD`. Haku has no releases yet.
-      placeholder: "37db5f5"
+      label: Area
+      description: The package or app it is in, if you know.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The released version, or the commit from `git rev-parse --short HEAD` when running from a checkout.
     validations:
       required: true
+  # project:start
   - type: input
     id: platform
     attributes:
@@ -24,6 +29,11 @@ body:
       placeholder: "Windows 11 24H2"
     validations:
       required: true
+  - type: markdown
+    attributes:
+      value: |
+        Page content and addresses can carry tokens or account details: remove them from logs and steps too, and name a public site that shows the problem when the page matters.
+  # project:end
   - type: textarea
     id: actual
     attributes:
@@ -39,11 +49,8 @@ body:
   - type: textarea
     id: reproduction
     attributes:
-      label: Steps to reproduce
-      description: The shortest sequence that shows it, including the sites involved if the page matters.
-      placeholder: |
-        1. Open three tabs
-        2. ...
+      label: Reproduction
+      description: The smallest code or the shortest steps that show it.
     validations:
       required: true
   - type: textarea

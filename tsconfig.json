@@ -1,32 +1,7 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "jsx": "react-jsx",
-    "types": ["vite/client", "node"],
-
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noUncheckedIndexedAccess": true,
-    "noFallthroughCasesInSwitch": true,
-    "exactOptionalPropertyTypes": true,
-    "verbatimModuleSyntax": true,
-
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "noEmit": true,
-
-    "paths": {
-      "@app/*": ["./src/app/*"],
-      "@bindings": ["./src/bindings.ts"],
-      "@ipc/*": ["./src/ipc/*"],
-      "@features/*": ["./src/features/*"],
-      "@shared/*": ["./src/shared/*"]
-    }
-  },
-  "include": ["src", "vite.config.ts", "vitest.config.ts"]
+  // The solution: `pnpm typecheck` runs `tsc -b` here, which checks every project below. It holds no files of
+  // its own, because a project that references others type-checks against their emitted declarations, and
+  // these projects emit nothing.
+  "files": [],
+  "references": [{ "path": "./tsconfig.root.json" }, { "path": "./tsconfig.app.json" }]
 }

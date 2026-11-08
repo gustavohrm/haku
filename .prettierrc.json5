@@ -1,0 +1,9 @@
+// Prettier formats Markdown only; oxfmt owns every other format. JSON5, rather than JSON, so this file can
+// hold the project block below.
+{
+  $schema: "https://json.schemastore.org/prettierrc",
+  // project:start
+  // Project options, such as `overrides` for generated or vendored Markdown.
+  // project:end
+  proseWrap: "never",
+}

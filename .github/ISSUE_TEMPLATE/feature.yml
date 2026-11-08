@@ -1,7 +1,12 @@
 name: Feature
-description: Something Haku should do that it does not do today.
+description: Something that should work and does not today, or a change to how it works.
 labels: ["type:feature", "status:needs-triage"]
 body:
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: The package or app it belongs in, if you know.
   - type: textarea
     id: problem
     attributes:
@@ -13,7 +18,7 @@ body:
     id: proposal
     attributes:
       label: Proposal
-      description: The behavior you have in mind, if any.
+      description: The API or behavior you have in mind, if any.
   - type: textarea
     id: alternatives
     attributes:
@@ -23,4 +28,6 @@ body:
     id: contracts
     attributes:
       label: Contracts touched
-      description: Which IPC commands or events, persisted settings or session formats, defaults, or limits the feature adds or changes, if any, and why each is needed.
+      description: Which public APIs, options, defaults, limits, or persisted formats the proposal adds or changes, if any, and why each is needed.
+  # project:start
+  # project:end

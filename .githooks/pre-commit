@@ -34,14 +34,16 @@ report() {
 }
 trap report EXIT
 
-git diff --cached --name-only --diff-filter=ACMR |
-  grep -E '\.(cjs|css|html|js|json|jsx|md|mjs|mts|rs|ts|tsx)$' >"$work/staged" || true
+# `core.quotePath=false` lists a path with non-ASCII characters as it is. Quoted, as
+# `"caf\303\251.md"`, it would match no extension below and go unchecked.
+git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR |
+  grep -E '\.(astro|cjs|css|cts|html|js|json|jsx|md|mjs|mts|rs|svelte|ts|tsx)$' >"$work/staged" || true
 
 if [ ! -s "$work/staged" ]; then
   exit 0
 fi
 
-git diff --name-only >"$work/unstaged" || true
+git -c core.quotePath=false diff --name-only >"$work/unstaged" || true
 grep -Fxv -f "$work/unstaged" "$work/staged" >"$work/fixable" || true
 
 # Runs a command over a newline-delimited file list, skipping an empty one.
@@ -53,44 +55,49 @@ run_on() {
   fi
 }
 
-# Splits a file list by the tool that owns each file. oxfmt does not format
-# Markdown and Prettier does, so Prettier takes the Markdown; rustfmt takes the
-# Rust; oxlint reads code only, and exits non-zero when handed nothing it can
-# parse. `src/bindings.ts` is generated and left as its generator wrote it.
-select_web() {
-  grep -Ev '\.(md|rs)$' "$1" | grep -Fxv 'src/bindings.ts' >"$2" || true
+# oxlint reads code only, and exits non-zero when handed nothing it can parse. It
+# also exits non-zero when every file it is handed matches its ignorePatterns,
+# which `--no-error-on-unmatched-pattern` turns back into a pass: committing a
+# file the lint config deliberately ignores is not a lint failure.
+select_code() {
+  grep -E '\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$' "$1" >"$2" || true
 }
+
+# oxfmt does not format Markdown; Prettier does, and skips anything .prettierignore lists.
 select_md() {
   grep -E '\.md$' "$1" >"$2" || true
 }
+
+# Rust goes to rustfmt, which finds `tauri/rustfmt.toml` from each file's
+# directory; the edition is the crate's, which rustfmt cannot read from a path
+# alone. Everything else goes to oxfmt.
 select_rust() {
   grep -E '\.rs$' "$1" >"$2" || true
 }
-select_code() {
-  grep -E '\.(cjs|js|jsx|mjs|mts|ts|tsx)$' "$1" | grep -Fxv 'src/bindings.ts' >"$2" || true
+select_web() {
+  grep -Ev '\.rs$' "$1" >"$2" || true
 }
-
-# rustfmt finds `tauri/rustfmt.toml` from each file's directory; the edition is
-# the crate's, which rustfmt cannot read from a file path alone.
 RUST_EDITION=2021
 
 if [ -s "$work/fixable" ]; then
   select_web "$work/fixable" "$work/fixable-web"
   run_on "$work/fixable-web" pnpm exec oxfmt --no-error-on-unmatched-pattern --
-  select_md "$work/fixable" "$work/fixable-md"
-  run_on "$work/fixable-md" pnpm exec prettier --write --log-level warn --
   select_rust "$work/fixable" "$work/fixable-rust"
   run_on "$work/fixable-rust" rustfmt --edition "$RUST_EDITION" --
+  select_md "$work/fixable" "$work/fixable-md"
+  run_on "$work/fixable-md" pnpm exec prettier --write --log-level warn --
   select_code "$work/fixable" "$work/fixable-code"
-  run_on "$work/fixable-code" pnpm exec oxlint --fix --deny-warnings --
-  run_on "$work/fixable" git add --
+  run_on "$work/fixable-code" pnpm exec oxlint --fix --no-error-on-unmatched-pattern --
+  # Literal pathspecs, so a name such as `app/[id]/page.tsx` is not read as a
+  # pattern that also stages the unstaged changes of `app/i/page.tsx`.
+  run_on "$work/fixable" git --literal-pathspecs add --
 fi
 
 select_web "$work/staged" "$work/web"
 run_on "$work/web" pnpm exec oxfmt --check --no-error-on-unmatched-pattern --
-select_md "$work/staged" "$work/md"
-run_on "$work/md" pnpm exec prettier --check --log-level warn --
 select_rust "$work/staged" "$work/rust"
 run_on "$work/rust" rustfmt --check --edition "$RUST_EDITION" --
+select_md "$work/staged" "$work/md"
+run_on "$work/md" pnpm exec prettier --check --log-level warn --
 select_code "$work/staged" "$work/code"
-run_on "$work/code" pnpm exec oxlint --deny-warnings --
+run_on "$work/code" pnpm exec oxlint --deny-warnings --no-error-on-unmatched-pattern --

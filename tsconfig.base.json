@@ -1,0 +1,28 @@
+{
+  // The compiler settings every project shares. A package's tsconfig.json extends this file and adds only
+  // what its runtime needs: `lib` and `types` (`["node"]` for Node.js code, `[]` for code that must run
+  // anywhere), and `jsx` for a UI package.
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    // Bundlers and Vitest resolve imports, so type-checking follows their rules rather than Node's.
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    // Type-checking only: each package's build tool emits its own output. `composite` lets the root
+    // tsconfig.json reference the project, so `tsc -b` checks every package in one run. Each project sets
+    // its own `tsBuildInfoFile` under `./node_modules/.cache/`: a path set here would resolve against this
+    // file, and every project would write the same one.
+    "composite": true,
+    "noEmit": true
+  }
+}

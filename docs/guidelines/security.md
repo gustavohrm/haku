@@ -6,9 +6,61 @@ scope: How the boundary between web pages and the application is kept in code, f
 
 # Security guidelines
 
-[Architecture § Security](../architecture.md#security) says what the boundary guarantees, and [Page observation](../specs/page-observation.md) says how Haku learns about a page without the page taking part. This document says how code keeps those guarantees, so the same problem is solved the same way everywhere. Where it and the architecture document disagree, the architecture document wins and this one is fixed. Vulnerabilities are reported as [SECURITY.md](../../SECURITY.md) describes.
+This document says how code handles secrets, untrusted input, and what leaves the process, so the same problem is solved the same way everywhere. Vulnerabilities are reported as [SECURITY.md](../../SECURITY.md) describes, never in a public issue.
+
+<!-- project:start -->
 
 Content webviews load arbitrary remote pages, and they are given nothing. The rules below keep a page out of the application, and keep the chrome's own surfaces distinct from anything a page can draw.
+
+[Architecture § Security](../architecture.md#security) says what the boundary guarantees, and [Page observation](../specs/page-observation.md) says how Haku learns about a page without the page taking part. Where this document and the architecture document disagree, the architecture document wins and this one is fixed.
+
+<!-- project:end -->
+
+## Secrets
+
+When the project stores or issues secrets:
+
+- **Random values** for anything security-relevant come from a cryptographically secure source, such as `crypto.getRandomValues` or `crypto.randomUUID`, injected where code needs to be testable. Never `Math.random`.
+- **High-entropy tokens** the project issues, such as session ids, one-time codes, reset tokens, and API keys, are stored as a digest, never as the value. A leaked database then holds nothing a client can present.
+- **Passwords** go through a memory-hard key derivation function where the runtime allows, with the algorithm and parameters stored next to each hash so they can be upgraded on the next login.
+- **Recoverable secrets**, ones the project must read back, are encrypted with an authenticated cipher, with a key id stored beside each ciphertext so the key can be rotated.
+- **Comparisons** of a secret or digest against input are constant-time.
+- **Showing a secret** happens once, in the response to the action that created it, and that response is never cached.
+- **Secrets in the repository** do not exist. Configuration reads them from the environment or a secret store; examples use obvious placeholders.
+
+## Never in logs, errors, or responses
+
+- An error message names the field, never its value.
+- An unexpected error reaches the caller as a generic failure. Its detail goes only to the log, which redacts known secret-bearing fields.
+- URLs can carry codes and tokens in their query strings. Log the path, not the full URL.
+- Page content, form values, and anything a user typed stay out of logs.
+- Where a leak would matter, a test proves it: it feeds known secrets through the flow and asserts they never appear in what was logged, returned, or stored.
+
+## Untrusted input
+
+- Every input crossing a trust boundary is validated at that boundary, before any other code sees it, and parsed into a typed value. What does not parse is rejected, not passed along.
+- Every input has a size bound: a body is read with a byte limit before parsing, and every string and collection in a schema has a maximum.
+- Files a user can edit by hand, such as settings, sessions, and caches, are untrusted input too. A file that does not parse is set aside and replaced with defaults, and every value read from one is checked as if it came from a request.
+- Do not build URLs, paths, or redirects from values a client controls, such as the `Host` or `X-Forwarded-*` headers. A redirect target comes from an allowlist and is compared exactly.
+- Do not build a query, command, or HTML by concatenating input. Use parameters, argument arrays, and escaping by default.
+
+## Web responses and sessions
+
+When the project serves web requests:
+
+- Every response goes through one place that sets the security headers, including a Content Security Policy. A route never loosens them.
+- No inline script, unless it carries a per-response nonce.
+- Authenticated pages and every response holding a secret are not cached.
+- Session cookies are `HttpOnly`, `Secure`, and `SameSite=Lax` or stricter, and `__Host-` prefixed where possible.
+- Every state-changing request uses a non-GET method and is protected against cross-site request forgery.
+- Every authorization check runs on the server, declared where the route is defined, before the handler runs.
+
+## Outbound calls and dependencies
+
+- The project calls only services it needs for the feature at hand, or that its operator configured. No telemetry, update checks, or third-party lookups without a recorded decision and, where users are affected, a way to turn them off.
+- Every dependency is a trust decision. The rule in [Coding guidelines](code.md#architecture-and-design) on adding dependencies applies with extra force to anything that runs at install time or handles secrets.
+
+<!-- project:start -->
 
 ## Capabilities
 
@@ -58,20 +110,30 @@ Content webviews load arbitrary remote pages, and they are given nothing. The ru
 - `read_json` layers a stored document over the defaults. A file that does not parse is set aside and replaced by the defaults. Nothing else in a file is trusted: `Settings::sanitized` makes a hand-edited value survivable, such as a pool capacity of zero, a stored home page must have a scheme Haku opens, and a search URL must be a web address. A restored tab whose address has any other scheme is left out of the session.
 - A draft is never written to the session file. Tabs skip it when serialised.
 
-## Secrets and logging
+## Logging
 
 - Haku stores no credentials, and it logs nothing today: `tauri/Cargo.toml` has no logging dependency. A change that adds logging keeps page content, form values, drafts and dialog text out of it.
-- History and the session hold visited URLs, which can carry tokens in their query strings. Logs take the same care, and record a path rather than a full URL.
+- History and the session hold visited URLs, which can carry tokens in their query strings.
+
+<!-- project:end -->
 
 ## Reviewing a change
 
 A change that touches any of the above names it in its pull request and adds or updates its tests. The [pull request template](../../.github/pull_request_template.md) carries the check. Ask:
 
-- Does it add or change a capability, permission, command or event? Is it named and tested?
+- Does it add a way for untrusted input to reach the code? Is that input validated and bounded at the boundary?
+- Does a secret, token, user's data, or full URL now reach a log, error, or response, other than the one that shows a new secret to its creator?
+- Does it store a secret, and is it stored as a digest or encrypted as above?
+- Does it add a permission, capability, endpoint, or outbound call? Is that named in the pull request and tested?
+- Does it read a file a user can edit, and check what it reads?
+
+<!-- project:start -->
+
+- Does it add or change an IPC command or event? Is that named in the pull request, and is the change to an existing one approved as a contract change?
 - Does each new command call `ensure_chrome` before anything else, and act only on its window unless it changes shared state by design?
 - Does a page now reach Rust, a chrome surface or a `haku://` page by a new path? That changes the boundary, so decide it first.
 - Does a new injected script record a secret, or anything a reload would not lose?
 - Is a value read back from a page parsed, and applied to its own tab only?
 - Is every dialog or page-supplied text shown with its site's host?
-- Is everything read from disk checked on read?
-- Does a log line or an error carry page content, form values or a full URL?
+
+<!-- project:end -->

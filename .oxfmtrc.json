@@ -1,13 +1,22 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  // project:start
+  "sortTailwindcss": true,
+  // project:end
   "bracketSpacing": true,
   "htmlWhitespaceSensitivity": "ignore",
-  "ignorePatterns": ["dist/**", "coverage/**", "src/bindings.ts", "tauri/target/**", "**/*.md"],
+  "ignorePatterns": [
+    // project:start
+    // Generated from Rust by `pnpm bindings`, and left as its generator writes it.
+    "src/bindings.ts",
+    "tauri/target/**",
+    // project:end
+    "**/*.md"
+  ],
   "printWidth": 120,
   "semi": true,
   "singleQuote": false,
   "sortImports": true,
   "sortPackageJson": true,
-  "sortTailwindcss": true,
   "trailingComma": "all"
 }
