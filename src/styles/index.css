@@ -7,10 +7,14 @@
 
 /* Haku's surfaces, named for their role and drawn from the palette so both
    themes follow `@codenhub/theme` without a second set of colours. The chrome
-   is one quiet plane; the active tab and the address field are raised from it. */
+   is one quiet plane; the active tab and the address field are raised from it.
+   A surface floating over the page, such as a menu or a toast, is the raised
+   one letting a little of the page through: enough to place it over the page,
+   not so much that a busy page competes with its text. */
 @theme {
   --color-chrome: var(--color-foreground);
   --color-chrome-raised: var(--color-surface);
+  --color-chrome-overlay: color-mix(in oklab, var(--color-surface) 88%, transparent);
 }
 
 /* Inter is bundled rather than taken from the system so the chrome looks and
@@ -102,6 +106,44 @@ body {
 }
 
 /*
+  The chrome is transparent wherever it paints nothing, and the page is a
+  native view beneath it. Once there are panes, the chrome's colour is painted
+  around them rather than under everything, so the curve of a page's corner is
+  antialiased over the page itself (docs/specs/chrome-layering.md). Each pane
+  paints the window around it, under every other thing in the shell; in a
+  split, each stops half-way across the divider, short of the other pane.
+*/
+:root:has(.haku-pane),
+:root:has(.haku-pane) body {
+  background: transparent;
+}
+
+.haku-pane::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: 0 0 0 100vmax var(--color-chrome);
+  pointer-events: none;
+  content: "";
+}
+
+.haku-split > .haku-pane:first-of-type::before {
+  clip-path: inset(-100vmax -3px -100vmax -100vmax);
+}
+
+.haku-split > .haku-pane:last-of-type::before {
+  clip-path: inset(-100vmax -100vmax -100vmax -3px);
+}
+
+/* A covered pane has no page beneath it: the chrome paints all of it, square,
+   and what covers it rounds over that. */
+.haku-pane:has(> [data-covered="true"])::before {
+  border-radius: 0;
+  background: var(--color-chrome);
+}
+
+/*
   The chrome covers the whole window and sits above every content webview.
   This element is the hole the page shows through, so it must never paint a
   background. The ring is drawn by the chrome above the page, which is what
@@ -137,13 +179,12 @@ dialog[data-toast-instance] .toast-dialog-container {
 }
 
 /*
-  A toast slides in and out without fading. A region over a page shows the
-  chrome, not the page, so a fading toast would blend with the chrome's grey
-  instead of with the page. Important declarations outrank the toaster's
-  animation, which still moves it.
+  A toast is a surface over the page, so it lets a little of the page through,
+  as a menu does. The toaster mixes each intent's tint into an opaque ground;
+  this keeps the tint and lets the ground through.
 */
 [data-haku-feedback] .coden-toast {
-  opacity: 1 !important;
+  background-color: color-mix(in oklab, var(--_bg) 88%, transparent);
 }
 
 /*
@@ -445,6 +486,14 @@ dialog[data-toast-instance] .toast-dialog-container {
   background: rgb(0 0 0 / 10%);
   backdrop-filter: blur(4px);
   animation: haku-address-backdrop-in var(--haku-enter) var(--haku-ease-enter) both;
+}
+
+/* Over the backdrop, which is a still image, the card is frosted glass: the
+   window shows through it, blurred further. Without the backdrop it stays
+   opaque, as the live page beneath cannot be blurred. */
+.haku-address-backdrop ~ [data-address-card] {
+  background: color-mix(in oklab, var(--color-chrome-raised) 72%, transparent);
+  backdrop-filter: blur(24px) saturate(1.2);
 }
 
 @keyframes haku-address-backdrop-in {

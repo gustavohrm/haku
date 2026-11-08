@@ -244,13 +244,13 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
   };
 
   return createPortal(
-    // Opaque and without a shadow, because the input mask cannot show
-    // either over the page.
+    // On the overlay surface, which lets a little of the page through, and
+    // without a shadow, which the input mask would cut off at its edge.
     <section
       ref={editorRef}
       aria-labelledby={titleId}
       tabIndex={-1}
-      className="bg-chrome-raised border-text/15 text-text fixed z-10 flex flex-col gap-3 rounded-(--radius-surface) border p-3 outline-none"
+      className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex flex-col gap-3 rounded-(--radius-surface) border p-3 outline-none"
       style={{ left: anchor.left, top: anchor.top, width: EDITOR_WIDTH }}
     >
       <h2 id={titleId} className="text-sm font-semibold">

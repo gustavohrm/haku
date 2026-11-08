@@ -420,7 +420,8 @@ pub fn build_window<R: tauri::Runtime>(
         // The engine's own form autofill stays off, so it stores nothing a
         // page is given. Its password saving is off by default and never
         // turned on: a password-manager extension is the route for both.
-        .general_autofill_enabled(false);
+        .general_autofill_enabled(false)
+        .background_color(tauri::window::Color(0, 0, 0, 0));
     let builder = match frame {
         Frame::Maximized => builder.maximized(true),
         Frame::Bounds(bounds) => builder

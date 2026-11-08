@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-02
+last_updated: 2026-11-08
 scope: Right-click menus over pages and over the interface, and the shared menu component they are drawn with.
 ---
 
@@ -23,7 +23,7 @@ Every menu Haku draws uses one component, `features/overlays/menu.tsx`. The site
 - **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox`, `menuitemradio` and `separator`. Choosing a native radio item, such as a spell-check language, closes the menu and hands the choice to WebView2, which keeps which item of the group is checked; the menu does not group radio items itself.
 - **Dismissal**: `useMenuDismiss`, as the site menu closes now.
 - **Placement**: opens at the pointer, down and to the right; flips left or up when it would leave the window, and then clamps to the window. A submenu opens beside its item and flips the same way.
-- **Over the page**: registered with `useOverlay`, opaque, no shadow, rounded corners cut from its own style, as [Chrome layering](chrome-layering.md#registering-an-overlay) requires. One consequence: the menu cannot extend past Haku's window, where a native menu can. In a small window a long menu is clamped and scrolls.
+- **Over the page**: registered with `useOverlay`, on the slightly translucent `chrome-overlay` surface, no shadow, rounded corners cut from its own style, as [Chrome layering](chrome-layering.md#registering-an-overlay) requires. One consequence: the menu cannot extend past Haku's window, where a native menu can. In a small window a long menu is clamped and scrolls.
 
 ## Page menus
 

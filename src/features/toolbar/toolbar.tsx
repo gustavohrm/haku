@@ -385,7 +385,7 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
           selected={selected}
           rowId={rowId}
           onChoose={choose}
-          className="border-edge absolute inset-x-0 top-full mt-1 rounded-(--radius-control) border"
+          className="bg-chrome-overlay border-edge absolute inset-x-0 top-full mt-1 rounded-(--radius-control) border"
         />
       )}
       {isCardOpen &&
@@ -398,9 +398,9 @@ function AddressField({ tab, className, floating = false }: AddressFieldProps) {
               <div ref={backdropRef} data-address-backdrop className="haku-address-backdrop" aria-hidden="true" />
             )}
             {/* Centred on the window rather than the page, which a docked
-                column would put off-centre. Opaque, edged and without a
-                shadow, as a floating bar is, since the page cannot show
-                through or around it. */}
+                column would put off-centre. Edged and without a shadow, as a
+                floating bar is. Over the backdrop it is frosted glass; the
+                stylesheet draws that, as the backdrop is its sibling. */}
             {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- The press is not handled, only kept from taking focus from the input. */}
             <form
               ref={cardRef}

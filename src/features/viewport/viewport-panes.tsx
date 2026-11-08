@@ -122,7 +122,7 @@ function Pane({
       hidden={isHidden}
       aria-label={`${isFocused ? t("split.current") : t(position === 0 ? "split.left" : "split.right")}: ${title}`}
       className={cx(
-        "flex min-h-0 min-w-0 flex-col rounded-(--haku-viewport-radius)",
+        "haku-pane relative flex min-h-0 min-w-0 flex-col rounded-(--haku-viewport-radius)",
         isSplit && isFocused && "haku-pane-focused",
       )}
       onPointerDownCapture={focus}

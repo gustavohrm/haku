@@ -367,6 +367,8 @@ describe("floating address card", () => {
     expect(backdrop()).not.toBeNull();
     // Later on the page, so drawn over it, though the backdrop arrived last.
     expect(backdrop()!.compareDocumentPosition(card()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The stylesheet frosts the card by this selector, only over the backdrop.
+    expect(card()!.matches(".haku-address-backdrop ~ [data-address-card]")).toBe(true);
     expect(backdropStore.get()?.get(1)).toBe("data:image/jpeg;base64,AA==");
 
     await act(async () => editor().blur());

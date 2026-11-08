@@ -34,7 +34,7 @@ export function SuggestionList({ id, rows, selected, rowId, onChoose, className 
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- A combobox's popup: a select cannot hang under a text input while the input keeps focus.
       role="listbox"
       aria-label={t("toolbar.suggestions")}
-      className={cx("bg-chrome-raised z-30 flex flex-col overflow-hidden py-1", className)}
+      className={cx("z-30 flex flex-col overflow-hidden py-1", className)}
     >
       {rows.map((row, index) => {
         const { icon, title, detail, bookmarked } = describe(row);

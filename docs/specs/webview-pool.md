@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-30
+last_updated: 2026-11-08
 scope: How tabs share a limited number of webviews.
 ---
 
@@ -159,7 +159,7 @@ Keeping a tab loaded is the user saying it must stay resident and running. It ra
 
 It is set from the **site menu**, which the address field's leading icon opens, alongside a warning that the tab stays in memory whatever the optimization settings say. It is not on the tab itself, so overriding the pool takes a deliberate step. A fixed tab carries a marker in the tab strip.
 
-The menu hangs over page content, so it registers with `useOverlay`. It is opaque, with no shadow, because the input mask cannot show either over the page; its rounded corners are cut into the mask from its own style. Its text starts directly under the lock glyph that opens it. It closes when the chrome loses focus: a click on the page never reaches the chrome.
+The menu hangs over page content, so it registers with `useOverlay`. It is on the slightly translucent `chrome-overlay` surface, with no shadow, because the input mask would cut one off at its edge; its rounded corners are cut into the mask from its own style. Its text starts directly under the lock glyph that opens it. It closes when the chrome loses focus: a click on the page never reaches the chrome.
 
 Below it, **Don't unload this site** adds or removes the page's host in [kept sites](tab-optimization.md#kept-sites). It overrides nothing but discarding, so it carries a plain explanation under the switch rather than a warning.
 

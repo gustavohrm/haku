@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-03
+last_updated: 2026-11-08
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -27,11 +27,23 @@ Two native operations, both in `platform/`:
 1. **Raise.** `SetWindowPos(chrome, HWND_TOP, …)` lifts the interface above every content webview. It must be re-applied whenever a content webview is created, because a new one is placed on top.
 2. **Mask.** The chrome covers the whole window, so without help it would swallow every click meant for the page. `SetWindowRgn` gives it a region equal to the window minus the union of uncovered viewport rectangles, plus any overlay currently drawn over the page. Where the chrome is not in its region its HWND is not there at all, so clicks, scrolling and hover fall through to the content webview beneath.
 
-### Why not transparency
+### Transparency with the region
 
-The obvious alternative is a transparent chrome webview on top. It was rejected on the belief that two sibling child HWNDs do not alpha-composite reliably. That belief was never measured, and the measurement below contradicts it on one machine. The decision stands for a different reason: what the interface needs over the page is mostly blur, and transparency alone cannot give it. The region approach needs no compositing at all: the chrome is either present at a pixel or absent.
+The chrome webview is also transparent: its background colour has alpha 0, so wherever its document paints nothing, the page beneath shows through. Transparency does not replace the region, it combines with it. The region still decides who takes input, because transparent pixels do not pass clicks through (see the measurements below). Transparency decides what a pixel the chrome keeps looks like: a pixel it only partly paints blends with the page beneath it. That is what lets the page's corners, overlays' edges and translucent surfaces be antialiased over the page.
 
-The cost is that anything drawn over the page must be opaque, and must register itself. That is what `features/overlays` is for.
+Anything drawn over the page must still register itself, or the region clips it away: over the page, the chrome is not there to show it or to take its clicks. That is what `features/overlays` is for.
+
+The chrome's document paints its own colour around the page, not behind everything. Once a pane exists the root and `body` are transparent, and each pane draws the chrome colour outside its own rounded box, from a pseudo-element behind it whose box-shadow spreads across the window (`.haku-pane::before` in `styles/index.css`). The curve between the page and the chrome is therefore the browser's own antialiased one. In a split, each pane's surround is clipped just past its edge toward the divider so it does not paint over the other pane's corners. A covered pane, such as an internal page, also fills its own box, because an outer box-shadow does not paint inside the box that casts it.
+
+#### Decision: transparent chrome, region for input
+
+Until 2026-11-08 the chrome was opaque and the region alone decided what showed, so anything drawn over the page had to be opaque, with hard edges. That was chosen on the belief that two sibling child HWNDs do not alpha-composite reliably, and kept after the measurement below contradicted it, because most effects wanted over the page are blurred and transparency alone cannot blur. That reasoning weighed transparency as a replacement for the region, and did not weigh it as an addition to it: kept together, transparency costs no hit-testing change and gives antialiased corners, fading toasts and translucent popovers, with nothing in the mechanism given up. The gaps listed as untested were then measured where they bore on the change, video and scaling, and did not reproduce.
+
+Rejected:
+
+- **Opaque chrome, region only.** The previous decision. Hard, stepped edges at every page corner and overlay corner, toasts that cannot fade, and no translucency.
+- **Transparency instead of the region.** Clicks do not pass through transparent pixels, so the region is needed regardless.
+- **Blurred popovers over a capture of the page.** A popover stays up while the page scrolls or plays, so a blur of a still capture visibly goes stale. The address card's frosting is accepted because its backdrop already freezes the page while it is up.
 
 #### What was measured
 
@@ -46,28 +58,33 @@ Measured on 2026-11-03 against `tauri 2.12.5` / `wry 0.57.0` / WebView2 runtime 
 | Do clicks pass through the transparent chrome?              | No. Clicks went to the chrome until a region hole was cut.                                                                                                                                                                                             | Native HWND hit testing, which the region already handles       |
 | What breaks the transparency?                               | `WS_CLIPSIBLINGS` on the content webview's container: the chrome then shows the window's background instead of the page. wry does not set it. Making the chrome a layered window does not help: a global alpha fades opaque elements too.              | Win32 clipping                                                  |
 
-Untested, and each a reason the earlier belief may have had grounds: other GPU vendors and hybrid graphics; video under a translucent overlay, which may be presented on a hardware overlay plane that bypasses ordinary composition; scaling above 100%; live window resizing; older WebView2 runtimes.
+Measured on 2026-11-08 in Haku itself, same machine (AMD Radeon RX 5500 XT), before adopting transparency:
+
+- **Video under a translucent overlay.** A `rgba(255,0,0,0.5)` menu over playing VP9 and H.264 video blended exactly with each frame, and changed with the frames; no hardware overlay plane bypassed the chrome.
+- **150% scaling.** The same blend was exact, and the page's antialiased corners and straight edges showed no fringe, including at fractional edges.
+
+Still untested: other GPU vendors and hybrid graphics; live window resizing; older WebView2 runtimes.
 
 #### What blur would take
 
-Blurring the live page needs a native effect under the interface, because no document can see another's pixels. Haku already blurs a still image of the page instead: the [address bar's card](address-bar.md) draws its backdrop over captures taken with `capture_page`, so a playing video looks paused while it is up. That suits a surface that is up briefly and covers the window, not one that stays over a page that keeps changing. Two ways to blur the live page were tried outside Haku, on the same machine:
+Blurring the live page needs a native effect under the interface, because no document can see another's pixels. Haku blurs a still image of the page instead: the [address bar's card](address-bar.md) draws its backdrop over captures taken with `capture_page`, so a playing video looks paused while it is up, and the card is frosted with `backdrop-filter` over that backdrop, which is in the chrome's own document. That suits a surface that is up briefly and covers the window, not one that stays over a page that keeps changing. Two ways to blur the live page were tried outside Haku, on the same machine:
 
 - **Composition hosting.** WebView2 renders into a DirectComposition visual instead of a child HWND (`CreateCoreWebView2CompositionController`). Two webviews in one visual tree blended correctly, and a native blur could sit between them; that blur was not tried. The host then owns input: mouse, pointer, cursor and focus are forwarded by hand. wry creates only windowed controllers (`src/webview2/mod.rs`, around line 398), so this needs wry first. [wry#1762](https://github.com/tauri-apps/wry/pull/1762) adds composition hosting as an opt-in, aimed at native content under a single webview rather than stacked webviews; it was open and unreviewed on 2026-11-03.
 - **A transparent owned popup window with the system backdrop** (`DWMSBT_TRANSIENTWINDOW`). The page beneath was really blurred. But clicking the popup deactivated the main window, which `WS_EX_NOACTIVATE` did not prevent, and while inactive the backdrop falls back to flat gray. The popup did not follow the main window without being moved on each move and resize, and the main window did not clip it.
 
-Transparency alone would serve overlays that need no blur, such as toasts that fade or antialiased edges over the page. It is not adopted, because most effects wanted over the page are blurred.
+Until one of these is available, popovers and toasts over the live page are translucent but not blurred.
 
 ### Rounded page corners
 
-The page is a native view, so CSS cannot clip it. The hole is cut in the region instead: the chrome keeps painting the corners and the page shows through the curve.
+The page is a native view, so CSS cannot clip it. The hole is cut in the region instead, and the chrome paints the corners over the page: the hole leaves out only the pixels wholly inside the curve, so the chrome keeps every pixel the curve passes through, and its surround paints them antialiased, blending with the page beneath because the chrome is transparent.
 
-The radius comes from the interface, which reads it back from its own stylesheet with `getComputedStyle`, so `--haku-viewport-radius` stays the one place that number is written. Region edges are hard rather than antialiased; softening them would mean giving up the region approach for one that depends on webview transparency. What the hard edge can do is follow the curve CSS draws: a pixel is in the region when its centre lies inside the rounded box, computed from the box's device-pixel bounds, so the edge runs through the middle of the antialiased one on all four sides. `CreateRoundRectRgn` does not do that. Its curve steps unevenly and sits up to two pixels inside the drawn one, it leaves out the last column and row, and given bounds already rounded to whole pixels it shifts the curve by up to half a pixel a different way on each side, which showed as one smooth corner beside a jagged one. The region is built from the shape's rows instead (`RoundedRect::spans`), only for rows inside the window.
+The radius comes from the interface, which reads it back from its own stylesheet with `getComputedStyle`, so `--haku-viewport-radius` stays the one place that number is written. Region edges are hard, so the region must follow the curve CSS draws, computed from the box's device-pixel bounds, on all four sides. `CreateRoundRectRgn` does not do that. Its curve steps unevenly and sits up to two pixels inside the drawn one, it leaves out the last column and row, and given bounds already rounded to whole pixels it shifts the curve by up to half a pixel a different way on each side, which showed as one smooth corner beside a jagged one. The region is built from the shape's rows instead (`RoundedRect::spans`), only for rows inside the window.
 
 A hole's bounds are the page's own: Tauri places the page by rounding its origin and its size apart, so its far edge can lie a pixel from the exact one, and a hole cut at the exact edge would leave that pixel showing neither page nor chrome. An overlay has no native view to agree with, so its bounds stay exact.
 
 Overlays are rounded the same way, from the other side. Each one is reported with the corner radius its own style computes, and added back to the region with the same rounded shape; a square patch would paint chrome over the page at a rounded overlay's corners.
 
-An overlay takes only the pixels it covers wholly, where a hole takes those whose centre it covers (`Edge` in `platform`). The chrome paints an overlay over its own background, not over the page, so a pixel an overlay's antialiased edge only partly covers is blended with that background. Over a light page those pixels showed as a dark, stepped fringe along a toast's corners. Left to the page, they give an edge that is hard but the right colour. A hole needs no such care: the chrome paints outside its curve and blends its corner with its own colour.
+Both take every pixel the curve passes through for the chrome (`Edge` in `platform`): a hole leaves out only the pixels wholly inside it (`Edge::Whole`), and an overlay adds every pixel it covers at all (`Edge::Touched`). The chrome then owns each partly covered pixel and paints it antialiased over the page. Left to the page instead, those pixels give an edge that is hard; before the chrome was transparent, that was the better choice for an overlay, because the chrome blended its edge with its own background and showed a dark, stepped fringe over a light page.
 
 ## The contract with the interface
 
@@ -99,7 +116,7 @@ Background slots use the focused pane's last measured rectangle, including when 
 
 ### Registering an overlay
 
-Anything that floats over the viewport **must** call `useOverlay`, or it will paint correctly and be completely unclickable. This is the single easiest mistake to make in this codebase.
+Anything that floats over the viewport **must** call `useOverlay`, or the region clips it away and the page shows where it should be. This is the single easiest mistake to make in this codebase.
 
 ```tsx
 const ref = useRef<HTMLDivElement>(null);
@@ -112,7 +129,7 @@ An element that animates away once it closes stays registered, followed the same
 
 A cover over the whole viewport needs no overlay of its own. `useChromeLayout` measures all assigned pane surfaces together, including each pane's covered state. Internal pages, crashed-page notices and previews keep only their own pane solid. Split pane controls and the 5 CSS-pixel divider sit outside the measured page holes. The whole-interface failure screen covers every assignment. A preview over a reloading page uses the same per-pane cover ([Tab optimization § Previews](tab-optimization.md#previews)).
 
-Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its own and registers each toast and open dialog in it as they appear, resize and animate. A toast is registered where it is painted, with its own corners, not as its stack, which is square and spans the gaps between toasts. Toasts slide without changing the DOM, so they are measured every frame while any is shown, and they do not fade: the region under a toast shows the chrome, not the page, so a fading toast would blend with the chrome. Show notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
+Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its own and registers each toast and open dialog in it as they appear, resize and animate. A toast is registered where it is painted, with its own corners, not as its stack, which is square and spans the gaps between toasts. Toasts slide without changing the DOM, so they are measured every frame while any is shown. A toast fades, and its surface is a little translucent: the chrome is transparent, so both blend with the page beneath. Show notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
 
 ## Platforms
 

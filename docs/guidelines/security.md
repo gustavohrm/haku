@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-10-31
+last_updated: 2026-11-08
 scope: How the boundary between web pages and the application is kept in code, for anyone writing or reviewing a change.
 ---
 
@@ -41,7 +41,7 @@ Content webviews load arbitrary remote pages, and they are given nothing. The ru
 
 - The chrome draws every dialog a page opens, titled with the requesting site's host, so a page cannot pass its text off as Haku's. [Page observation § Page dialogs](../specs/page-observation.md#page-dialogs) describes the flow.
 - Anything that removes a page first answers its pending dialog: a tab closed, navigated, reloaded, or losing its slot. A dialog is never stranded.
-- A page is a native view below the chrome, so it cannot paint over the chrome, and what the chrome draws over a page is opaque. [Chrome layering](../specs/chrome-layering.md) describes the mechanism, and [First release § What the chrome can draw over a page](../first-release.md#what-the-chrome-can-draw-over-a-page) lists the limits.
+- A page is a native view below the chrome, so it cannot paint over the chrome, and it never reads the chrome's pixels: what the chrome draws over a page may let the page show through, but never the other way. [Chrome layering](../specs/chrome-layering.md) describes the mechanism, and [First release § What the chrome can draw over a page](../first-release.md#what-the-chrome-can-draw-over-a-page) lists the limits.
 
 ## Haku's own pages
 

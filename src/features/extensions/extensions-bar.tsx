@@ -122,8 +122,9 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
         <i className="ic-blocks ic-sm" aria-hidden="true" />
       </button>
 
-      {/* Opaque and without a shadow, because the input mask cannot show
-          either over the page. Its rounded corners are cut into the mask from
+      {/* On the overlay surface, which lets a little of the page through, and
+          without a shadow, which the input mask would cut off at its edge. Its
+          rounded corners are cut into the mask from
           its own style. */}
       {menuAt &&
         createPortal(
@@ -132,7 +133,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
             id={menuId}
             aria-label={t("extensions.menu")}
             tabIndex={-1}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1 outline-none"
+            className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1 outline-none"
             style={{ right: menuAt.right, top: menuAt.top }}
           >
             <h2 className="text-text-secondary px-2 pt-1.5 pb-1 text-xs font-medium">{t("extensions.menu")}</h2>
