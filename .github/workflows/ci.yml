@@ -37,6 +37,9 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         # project:start
+        # No later step pushes or calls the API, and the template fetch is public, so the token is not left on disk.
+        with:
+          persist-credentials: false
         # project:end
 
       - name: Set up the workspace
@@ -89,6 +92,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Node is needed here too: `bindings:check` is a Node script, and the
       # release check compiles the interface bundle into the binary.
