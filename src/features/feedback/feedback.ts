@@ -19,6 +19,8 @@ import { t } from "@shared/i18n";
 
 /** A failure repeated within this window is shown once. */
 const REPEAT_WINDOW_MS = 5_000;
+/** The toaster's toast stacks, one per position. */
+const STACKS = "[data-toast-container]";
 
 let instance: Toaster | null = null;
 const lastShown = new Map<string, number>();
@@ -91,9 +93,11 @@ export function reportUnexpected(error: unknown): void {
 /**
  * Keeps whatever the toaster shows registered as an overlay.
  *
- * Each direct child of the container is a toast stack or a dialog. A dialog is
+ * The container holds the toast stacks, the dialogs, and the hidden regions
+ * toasts are announced through, which are never registered. A dialog is
  * registered while it is open and re-measured as it changes size or finishes
- * animating.
+ * animating. While a dialog is open the toaster moves the stacks into it, so
+ * they are found anywhere in the container.
  *
  * A stack is not registered itself: it is square and spans the gaps between
  * its toasts, so the chrome would show at the toasts' rounded corners and
@@ -130,15 +134,14 @@ function trackAsOverlays(container: HTMLElement): void {
         observed.add(element);
         resize.observe(element);
       }
-      if (element instanceof HTMLDialogElement) {
-        if (element.open) {
-          show(element, overlayOf(element));
-        }
-        continue;
+      if (element instanceof HTMLDialogElement && element.open) {
+        show(element, overlayOf(element));
       }
-      for (const toast of element.children) {
+    }
+    for (const stack of container.querySelectorAll(STACKS)) {
+      for (const toast of stack.children) {
         hasToasts = true;
-        show(toast, toastOverlay(element, toast));
+        show(toast, toastOverlay(stack, toast));
       }
     }
     for (const id of registered) {
