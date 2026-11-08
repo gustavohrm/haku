@@ -40,8 +40,9 @@ interface MenuProps {
  *
  * It takes focus when it opens and moves through its items from the
  * keyboard, as [Context menus § The menu component] describes. Each level is
- * registered as an overlay, so it stays clickable over the page, and is
- * opaque, with no shadow, because nothing translucent can be drawn over it.
+ * registered as an overlay, so it stays clickable over the page. It is on the
+ * overlay surface, which lets a little of the page through, with no shadow,
+ * which the input mask would cut off at its edge.
  * Focus goes back to where it was when the menu closes from inside it.
  *
  * [Context menus § The menu component]: ../../../docs/specs/context-menus.md#the-menu-component
@@ -223,7 +224,7 @@ function MenuList({ items, anchor, label, level, focusFirst, onChosen, onBack }:
         aria-label={label}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="bg-chrome-raised border-text/10 text-text fixed z-20 flex max-w-72 min-w-40 flex-col overflow-y-auto rounded-(--radius-control) border p-1 outline-none"
+        className="bg-chrome-overlay border-text/10 text-text fixed z-20 flex max-w-72 min-w-40 flex-col overflow-y-auto rounded-(--radius-control) border p-1 outline-none"
         style={{
           maxHeight: `calc(100vh - ${2 * MENU_EDGE}px)`,
           ...(position === null ? { left: 0, top: 0, visibility: "hidden" } : { left: position.x, top: position.y }),

@@ -754,18 +754,20 @@ pub fn set_input_mask<R: tauri::Runtime>(
         };
         let region = CreateRectRgn(0, 0, client.right, client.bottom);
         // A rounded hole is what gives the page rounded corners: the chrome
-        // keeps painting the corner, and the page shows through the curve.
+        // keeps every pixel along the curve and paints the corner over the
+        // page, antialiased, since it is transparent where it paints nothing.
         for pane in &viewports {
-            let hole = shape_region(*pane, Edge::Centre, window);
+            let hole = shape_region(*pane, Edge::Whole, window);
             CombineRgn(Some(region), Some(region), Some(hole), RGN_DIFF);
             let _ = DeleteObject(hole.into());
         }
 
         // A rounded overlay is added back rounded for the same reason the other
         // way round: a square patch would paint chrome over the page at its
-        // corners.
+        // corners. It takes every pixel it touches, so its antialiased edge
+        // blends with the page.
         for overlay in &overlays {
-            let patch = shape_region(*overlay, Edge::Whole, window);
+            let patch = shape_region(*overlay, Edge::Touched, window);
             CombineRgn(Some(region), Some(region), Some(patch), RGN_OR);
             let _ = DeleteObject(patch.into());
         }
@@ -2434,10 +2436,10 @@ mod tests {
     fn a_shape_region_covers_its_last_column_and_row() {
         use windows::Win32::Graphics::Gdi::PtInRegion;
         for (radius, edge) in [
-            (0.0, Edge::Centre),
-            (8.0, Edge::Centre),
             (0.0, Edge::Whole),
             (8.0, Edge::Whole),
+            (0.0, Edge::Touched),
+            (8.0, Edge::Touched),
         ] {
             let shape = RoundedRect {
                 left: 0.0,

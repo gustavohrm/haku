@@ -343,13 +343,13 @@ function BarForm({ tree, target, at, hold, onDone }: BarFormProps) {
   useMenuDismiss(true, onDone, formRef, null);
   const left = Math.max(4, Math.min(at.x, document.documentElement.clientWidth - FORM_WIDTH - 4));
   return createPortal(
-    // Opaque and without a shadow, because the input mask cannot show
-    // either over the page.
+    // On the overlay surface, which lets a little of the page through, and
+    // without a shadow, which the input mask would cut off at its edge.
     <section
       ref={formRef}
       aria-label={t("bookmarks.menu")}
       tabIndex={-1}
-      className="bg-chrome-raised border-text/15 text-text fixed z-10 rounded-(--radius-surface) border outline-none"
+      className="bg-chrome-overlay border-text/15 text-text fixed z-10 rounded-(--radius-surface) border outline-none"
       style={{ left, top: at.y, width: FORM_WIDTH }}
     >
       <BookmarkForm tree={tree} target={target} onDone={onDone} />

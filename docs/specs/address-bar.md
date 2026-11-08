@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-11-02
+last_updated: 2026-11-08
 scope: The address bar's two layouts, inline and floating; its suggestions from history, bookmarks, open tabs and the search engine; search engines, their presets, custom engines and keywords.
 ---
 
@@ -20,7 +20,7 @@ The address field is a plain input. Three things are missing:
 
 Confirmed by the maintainer on 2026-11-02:
 
-1. The floating layout is Zen's: focusing the address opens a wide card centred horizontally over the window, in its top third, with the input on top and the suggestions inside the same card below it. Escape or a click outside closes it. The page behind is not dimmed; the chrome cannot draw translucency ([Chrome layering § Why not transparency](chrome-layering.md#why-not-transparency)).
+1. The floating layout is Zen's: focusing the address opens a wide card centred horizontally over the window, in its top third, with the input on top and the suggestions inside the same card below it. Escape or a click outside closes it. The page behind is not dimmed.
 2. With the toolbar in the sidebar, the floating layout is enforced. With the toolbar on top it is optional.
 3. Suggestions come from history, bookmarks and open tabs, and, as an option, from the search engine.
 4. Search engines ship as presets, custom engines can be added, and each engine has a keyword that searches it once.
@@ -51,7 +51,7 @@ Approved on 2026-11-02 as recommended.
 **Floating** keeps the field where it is at rest, showing the address as now. Focusing it, by click, Ctrl+L, Alt+D, F6 or Ctrl+T, opens the card:
 
 - Centred horizontally on the window, its top edge at 20% of the window's height, `min(48rem, 100vw − 2 × 3rem)` wide. It covers the page and, where they overlap, the bars; centring on the page instead would put it off-centre in the window whenever a column is docked.
-- An opaque card on `chrome-raised`, edged 1 px, radius as a floating bar's card, no shadow, as [Appearance § Bars](appearance.md#bars) draws one.
+- A card on `chrome-raised`, edged 1 px, radius as a floating bar's card, no shadow, as [Appearance § Bars](appearance.md#bars) draws one. Over the backdrop it is frosted glass: `chrome-raised` at 72% over a 24 px blur of the backdrop, which is the page's still capture, so the blur never goes stale. Without a backdrop it is opaque ([Chrome layering § What blur would take](chrome-layering.md#what-blur-would-take)).
 - The input on top, then the suggestions. The site menu, zoom and star stay on the field at rest, not in the card: they act on the page, and the card is for going somewhere else.
 - Opens and closes at once, with no motion: it is a field taking focus, not a bar arriving.
 - Behind it, the window is blurred 4 px and darkened 10%, so the card has the focus. The chrome cannot draw over a page, only in its place, so each shown live page is captured (`capture_page`) and the backdrop goes up over the captures, covering the window and registered as an overlay. It comes in over the enter duration rather than at once, so the blur does not snap, and at once with reduced motion. It goes up only once every shown live page has a capture, within 250 ms each: a page left out would show as a plain surface, and a backdrop arriving later would land while the user is typing. Without it the card shows over the live page. Pressing it closes the card, and the page behind does not take the press. While it is up, the page is a still image: a playing video looks paused until the card closes.

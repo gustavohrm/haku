@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-02
+last_updated: 2026-11-08
 scope: The layout settings of "Appearance is data" — where the tabs, the sidebar and the toolbar go, and whether the bars take space — and how the shell applies them.
 ---
 
@@ -105,7 +105,7 @@ A floating bar is shown while any of these holds, and hidden otherwise:
 
 A shown bar is a card: opaque, on the `chrome` surface, inset from the window's edges by the frame's gap, rounded with the radius the page shares, edged all round with 1 px, and with no shadow, which the page would cover. Over an unknown page a border is what separates it ([Code guidelines § Styling](../guidelines/code.md#styling)). Its window controls take its corner's radius, so their hover does not square it off.
 
-Hidden, the card waits just past its edge of the window, where the shell clips it; it is moved, not removed, so it stays in the tab order. Shown, it slides in from that edge in 180 ms, easing out, and leaves the same way in 120 ms, easing in. It registers itself with `useOverlay` while shown and while it leaves, and `useOverlay` measures it every frame while it moves ([Chrome layering § Registering an overlay](chrome-layering.md#registering-an-overlay)), so the region the page is cut from follows it. Under reduced motion it appears and leaves at once. It never fades: anything drawn over the page is opaque.
+Hidden, the card waits just past its edge of the window, where the shell clips it; it is moved, not removed, so it stays in the tab order. Shown, it slides in from that edge in 180 ms, easing out, and leaves the same way in 120 ms, easing in. It registers itself with `useOverlay` while shown and while it leaves, and `useOverlay` measures it every frame while it moves ([Chrome layering § Registering an overlay](chrome-layering.md#registering-an-overlay)), so the region the page is cut from follows it. Under reduced motion it appears and leaves at once. It never fades: the bar is opaque.
 
 With horizontal tabs, the tab row and the toolbar float together from the top edge. With vertical tabs, the column floats too, as one more bar: the toolbar from the top edge, the column from its side's edge, each shown on its own. The column runs the window's full height, as it does with the toolbar in it, so it keeps one shape whichever bar shows; where the two cards overlap, the one shown last is on top, since it is the one the pointer or the keyboard just reached for. With the toolbar in the column, the column is the only bar, full height, from its side's edge. The same setting governs every bar, since a docked column beside floating toolbar would keep most of the space floating was chosen to give the page.
 
@@ -115,7 +115,7 @@ Reversed: bars appeared and left without animation, because a moving overlay was
 
 Rejected:
 
-- **Fading the bar in.** A translucent bar over the page cannot be drawn ([Chrome layering § Why not transparency](chrome-layering.md#why-not-transparency)).
+- **Fading the bar in.** Rejected while a translucent bar over the page could not be drawn. Since 2026-11-08 it can ([Chrome layering § Transparency with the region](chrome-layering.md#transparency-with-the-region)); that change did not revisit it, so the bar still slides.
 - **Showing a bar as soon as the pointer reaches the edge.** Pages put their own controls at the window's edges too, and a bar pulled over them by a pointer on its way there hides what the pointer was going for.
 - **Showing a floating bar on every keyboard shortcut**, such as Ctrl+Tab. A shortcut that changes the page shows its result in the page; the bar shows when focus or a dialog puts something in it.
 - **A docked column with floating toolbar,** or the reverse, as separate settings. [First release](../first-release.md#appearance-is-data) has one Bars axis; splitting it is a later decision if a preset needs it.

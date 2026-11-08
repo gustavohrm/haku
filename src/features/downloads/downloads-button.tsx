@@ -61,8 +61,8 @@ export function DownloadsButton() {
       >
         <i className={cx("ic-download ic-sm", running && "text-accent")} aria-hidden="true" />
       </button>
-      {/* Opaque and without a shadow, because the input mask cannot show
-          either over the page. */}
+      {/* On the overlay surface, which lets a little of the page through, and
+          without a shadow, which the input mask would cut off at its edge. */}
       {anchor &&
         createPortal(
           <section
@@ -70,7 +70,7 @@ export function DownloadsButton() {
             id={listId}
             aria-label={t("downloads.title")}
             tabIndex={-1}
-            className="bg-chrome-raised border-text/15 text-text fixed z-10 flex w-96 flex-col rounded-(--radius-surface) border py-1 outline-none"
+            className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex w-96 flex-col rounded-(--radius-surface) border py-1 outline-none"
             style={{ right: anchor.right, top: anchor.top }}
           >
             <ul className="flex max-h-96 flex-col overflow-auto">
