@@ -31,7 +31,7 @@ Two native operations, both in `platform/`:
 
 The chrome webview is also transparent: its background colour has alpha 0, so wherever its document paints nothing, the page beneath shows through. Transparency does not replace the region, it combines with it. The region still decides who takes input, because transparent pixels do not pass clicks through (see the measurements below). Transparency decides what a pixel the chrome keeps looks like: a pixel it only partly paints blends with the page beneath it. That is what lets the page's corners, overlays' edges and translucent surfaces be antialiased over the page.
 
-Anything drawn over the page must still register itself, or it paints and cannot be clicked. That is what `features/overlays` is for.
+Anything drawn over the page must still register itself, or the region clips it away: over the page, the chrome is not there to show it or to take its clicks. That is what `features/overlays` is for.
 
 The chrome's document paints its own colour around the page, not behind everything. Once a pane exists the root and `body` are transparent, and each pane draws the chrome colour outside its own rounded box, from a pseudo-element behind it whose box-shadow spreads across the window (`.haku-pane::before` in `styles/index.css`). The curve between the page and the chrome is therefore the browser's own antialiased one. In a split, each pane's surround is clipped just past its edge toward the divider so it does not paint over the other pane's corners. A covered pane, such as an internal page, also fills its own box, because an outer box-shadow does not paint inside the box that casts it.
 
@@ -76,7 +76,7 @@ Until one of these is available, popovers and toasts over the live page are tran
 
 ### Rounded page corners
 
-The page is a native view, so CSS cannot clip it. The hole is cut in the region instead, and the chrome paints the corners over the page: the hole leaves out every pixel the curve passes through, and the chrome's surround paints them antialiased, blending with the page beneath because the chrome is transparent.
+The page is a native view, so CSS cannot clip it. The hole is cut in the region instead, and the chrome paints the corners over the page: the hole leaves out only the pixels wholly inside the curve, so the chrome keeps every pixel the curve passes through, and its surround paints them antialiased, blending with the page beneath because the chrome is transparent.
 
 The radius comes from the interface, which reads it back from its own stylesheet with `getComputedStyle`, so `--haku-viewport-radius` stays the one place that number is written. Region edges are hard, so the region must follow the curve CSS draws, computed from the box's device-pixel bounds, on all four sides. `CreateRoundRectRgn` does not do that. Its curve steps unevenly and sits up to two pixels inside the drawn one, it leaves out the last column and row, and given bounds already rounded to whole pixels it shifts the curve by up to half a pixel a different way on each side, which showed as one smooth corner beside a jagged one. The region is built from the shape's rows instead (`RoundedRect::spans`), only for rows inside the window.
 
@@ -116,7 +116,7 @@ Background slots use the focused pane's last measured rectangle, including when 
 
 ### Registering an overlay
 
-Anything that floats over the viewport **must** call `useOverlay`, or it will paint correctly and be completely unclickable. This is the single easiest mistake to make in this codebase.
+Anything that floats over the viewport **must** call `useOverlay`, or the region clips it away and the page shows where it should be. This is the single easiest mistake to make in this codebase.
 
 ```tsx
 const ref = useRef<HTMLDivElement>(null);

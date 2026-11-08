@@ -133,7 +133,7 @@ Favicons and tab previews follow [Page observation](specs/page-observation.md): 
 
 The [Chrome layering](specs/chrome-layering.md) mechanism sets limits every appearance must respect:
 
-- Anything over the page may be **translucent**, with **antialiased edges**, but not **blurred**, and casts **no shadow** past its own box: the chrome is transparent, but cannot see the page's pixels, and a shadow outside the overlay's region is cut off. The one blur is the address card's, over a still capture ([Chrome layering § Transparency with the region](specs/chrome-layering.md#transparency-with-the-region)).
+- Anything over the page may be **translucent**, with **antialiased edges**, but not **blurred**, and an overlay casts **no shadow** past its own box: the chrome is transparent, but cannot see the page's pixels, and a shadow outside the overlay's region is cut off. The one blur is the address card's, over a still capture ([Chrome layering § Transparency with the region](specs/chrome-layering.md#transparency-with-the-region)).
 - A rounded overlay needs a rounded region, cut the same way as the viewport's corners. **Implemented**: an overlay's radius is read from its own style; see [Chrome layering](specs/chrome-layering.md#rounded-page-corners).
 - A bar that floats over the page and reveals on hover keeps a thin strip at the window edge inside the chrome's region. Otherwise the page owns those pixels and the chrome never sees the pointer arrive.
 
