@@ -6,27 +6,27 @@ packages:
 # Every direct dependency's version is declared once, here, and package.json refers to it as `catalog:`, so
 # the workspace can never declare two versions of one dependency by accident. A new third-party dependency adds its version here.
 catalog:
-  "@codenhub/icons": ^0.2.1
-  "@codenhub/styles": ^0.6.0
-  "@codenhub/theme": ^0.1.2
-  "@codenhub/toaster": ^0.2.0
-  "@tailwindcss/vite": ^4.3.3
+  "@codenhub/icons": ^0.3.0
+  "@codenhub/styles": ^0.7.0
+  "@codenhub/theme": ^0.2.2
+  "@codenhub/toaster": ^0.4.0
+  "@tailwindcss/vite": ^4.3.4
   "@tauri-apps/api": ^2.12.4
   "@tauri-apps/cli": ^2.12.4
   "@types/node": ~24.19.2
   "@types/react": ^19.3.0
   "@types/react-dom": ^19.3.0
-  "@vitejs/plugin-react": ^6.1.2
+  "@vitejs/plugin-react": ^6.2.1
   "@vitest/coverage-v8": ^4.1.12
   jsdom: ^29.1.1
-  oxfmt: ^0.74.0
-  oxlint: ^1.89.0
+  oxfmt: ^0.76.0
+  oxlint: ^1.91.0
   prettier: ^3.9.10
   react: ^19.3.1
   react-dom: ^19.3.1
-  tailwindcss: ^4.3.3
+  tailwindcss: ^4.3.4
   typescript: ^7.0.2
-  vite: ^8.3.5
+  vite: ^8.3.6
   vitest: ^4.1.12
 
 # Supply-chain rules, applied to every install, local and in CI alike (docs/ci.md, "Dependency installs").
