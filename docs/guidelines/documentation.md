@@ -120,11 +120,7 @@ A roadmap, when the project keeps one, records durable direction: current focus,
 
 Every document is listed in [`docs/README.md`](../README.md). Adding, moving, or deleting one updates that index in the same change.
 
-<!-- project:start -->
-
 Haku's root `docs/` also holds [the architecture overview](../architecture.md), [the first release's scope](../first-release.md), and [the assets reference](../assets.md). Its specs cover the product's behavior, such as how the webview pool works and how errors are represented, as well as the repository's own contracts.
-
-<!-- project:end -->
 
 ## Agent instructions
 

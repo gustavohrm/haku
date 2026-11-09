@@ -10,8 +10,6 @@ scope: Index of the project documentation.
 
 Every document in `docs/` is listed here. Adding, moving, or deleting one updates this index in the same change.
 
-<!-- project:start -->
-
 Start with [Architecture](architecture.md).
 
 ## Overview
@@ -21,8 +19,6 @@ Start with [Architecture](architecture.md).
 | [Architecture](architecture.md)   | What goes where and why. Start here.                         |
 | [First release](first-release.md) | Release scope and the structural decisions features rest on. |
 
-<!-- project:end -->
-
 ## Guidelines
 
 | Document                                     | Contains                                                                                        |
@@ -31,13 +27,9 @@ Start with [Architecture](architecture.md).
 | [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, layout, and the writing voice. |
 | [Security](guidelines/security.md)           | Secrets, untrusted input, what stays out of logs, and reviewing a change.                       |
 
-<!-- project:start -->
-
 | Document                     | Contains                                                               |
 | ---------------------------- | ---------------------------------------------------------------------- |
 | [Brand](guidelines/brand.md) | Name, logo, wordmark, colours and typefaces: how to use them, and why. |
-
-<!-- project:end -->
 
 ## Repository references
 
@@ -47,21 +39,15 @@ Start with [Architecture](architecture.md).
 | [Tooling](tooling.md)     | How the scripts are implemented, the TypeScript and Vitest configuration, narrowing a run, and adding a package. |
 | [CI](ci.md)               | The pinned toolchain, the verification jobs, and dependency updates.                                             |
 
-<!-- project:start -->
-
 | Document            | Contains                                                                                                                 |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | [Assets](assets.md) | Brand artwork, fonts and app icon sources under `assets/`, the icons generated into `tauri/icons/`, and how to use them. |
-
-<!-- project:end -->
 
 ## Specifications
 
 | Document                | Contains                                                          |
 | ----------------------- | ----------------------------------------------------------------- |
 | [Tests](specs/tests.md) | Test categories, locations, configuration, scripts, and coverage. |
-
-<!-- project:start -->
 
 | Document                                         | Contains                                                      |
 | ------------------------------------------------ | ------------------------------------------------------------- |
@@ -86,5 +72,3 @@ Start with [Architecture](architecture.md).
 | [Bookmarks](specs/bookmarks.md)                  | Saving pages, folders, the bar, import and export.            |
 | [History](specs/history.md)                      | What is recorded, rules, filters, deleting, storage.          |
 | [Address bar](specs/address-bar.md)              | Inline and floating layouts, suggestions, search engines.     |
-
-<!-- project:end -->

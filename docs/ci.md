@@ -37,15 +37,12 @@ Workspace setup, pnpm, Node.js and a `--frozen-lockfile` install, lives in the c
 
 ## The workflow
 
-<!-- project:start -->
-
 | Job      | Runner           | Runs                                                                                                  |
 | -------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| `Verify` | `ubuntu-latest`  | `pnpm verify:web`, then the `Template conformance` and `Working tree is clean` steps                  |
+| `Verify` | `ubuntu-latest`  | `pnpm verify:web`, then the `Working tree is clean` step                                              |
 | `Rust`   | `windows-latest` | `pnpm verify:rust`, then `pnpm build` and `pnpm check:release`, then the `Working tree is clean` step |
 
 `Verify` runs the web half of `pnpm verify` and `Rust` the other half; together they run all of it, in parallel. The repository is one application, so there is no change-based selection: a check that skips half of it on a pull request lets the other half reach `main` unverified.
-<!-- project:end -->
 
 By default there is no change-based selection: every run checks the whole workspace. A check that skips part of the workspace on a pull request lets that part reach `main` unverified, and a selection has to be maintained and can be wrong in ways a green run hides. A project whose full run grows too slow to wait for adds selection then, under three rules:
 
@@ -53,13 +50,9 @@ By default there is no change-based selection: every run checks the whole worksp
 - **A change to `.github/` runs everything.** A workflow or the setup action belongs to no package, so a selection by changed package selects nothing, and the run passes without exercising the change it was opened for ([codenhub/codenhub@3d9bfe8a](https://github.com/codenhub/codenhub/commit/3d9bfe8a)).
 - **The run asserts the ref it compares against.** A selection that compares against the base branch needs that ref in the checkout (`fetch-depth: 0`), and the job checks the ref exists before selecting: a tool that falls back to working-tree changes when the ref is missing would, in CI, check nothing and report success.
 
-`Template conformance` runs `node .template/check.mjs`, which fails when a file the template owns has drifted from the commit the project last synced with; [the template conventions](../.template/README.md#checking) list what it checks. It is a step of `Verify` rather than part of `pnpm verify`, because it needs the network and `package.json` is the project's own: a script added there would not reach a project that already exists. It runs the same way locally.
-
 `Working tree is clean` fails when a check has left a tracked or untracked file changed. A check that writes has changed what it was checking, so it is reported rather than passing.
 
 Runs for the same pull request cancel each other, because only the newest push is worth a verdict. A merge-queue run or a push to `main` never cancels: each is the authoritative check of a commit. The `merge_group` trigger never fires in a repository without a merge queue. A project that requires one removes the `push` trigger, which sits in a project block for that reason: the queue lands the exact commit it checked, so a push run would only repeat a passed check. The workflow's token is read-only (`permissions: contents: read`); a job that needs more asks for it on that job alone.
-
-<!-- project:start -->
 
 ### The Rust job
 
@@ -85,7 +78,6 @@ The `Rust` job builds debug and test profiles with `debug = "line-tables-only"`,
 ### Cargo updates
 
 `.github/dependabot.yml` also covers the Cargo dependencies, grouped like npm. The exception is the crates `tauri`, `tauri-build`, `windows` and `webview2-com`, which share a group of their own, majors included, so their available updates arrive in one pull request. The npm `@tauri-apps` packages are not in it. Haku's WebView2 code has to use the same `windows` and `webview2-com` versions as Tauri's runtime. The group only coordinates; it does not guarantee a build. A Tauri update can still arrive without the matching `windows` and `webview2-com` versions, and then needs them raised by hand in the same pull request.
-<!-- project:end -->
 
 ## Changing the workflow
 
@@ -136,8 +128,6 @@ Binding the checks to the GitHub Actions app stops any other integration from re
 
 Turn on "Automatically delete head branches" in the repository's general settings too; it is available on every plan. Deleting a merged branch is what makes GitHub retarget a pull request built on it to that branch's own base. With the branch left behind, the next pull request merges into it and never reaches `main`.
 
-<!-- project:start -->
-
 `main`'s protection differs from the recommendation in three ways:
 
 | Setting                | Value                                                          |
@@ -149,15 +139,10 @@ Turn on "Automatically delete head branches" in the repository's general setting
 `Rust` is required because it is half of `pnpm verify`. Up-to-date branches are not required: Haku has one contributor, and rebasing every branch before each merge would buy little. The web job was named `Web` before the template adoption; the required check on GitHub has to name `Verify` now, or every pull request waits on a check that never reports.
 
 Admin enforcement also covers a weakness of the `pre-push` hook on Windows: git for Windows lets a push through when the hook is killed by a signal (`.githooks/AGENTS.md`). The cost is that the narrow exception in `CONTRIBUTING.md` for a direct commit to `main` means lifting the protection for that push and restoring it straight after.
-<!-- project:end -->
 
 ## Other workflows
 
 The template's CI verifies; it does not deploy, release or publish. A project that does adds a workflow of its own and documents it here.
 
-<!-- project:start -->
-
 - **Releases.** Nothing builds, signs, or publishes installers. `pnpm tauri build` runs from a maintainer's machine.
 - **Interface tests in a real webview.** Vitest runs the interface under jsdom; nothing drives the built app end to end.
-
-<!-- project:end -->

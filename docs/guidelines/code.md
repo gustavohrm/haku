@@ -31,11 +31,7 @@ Name by domain intent. Avoid names that say only the type or the mechanism, such
 - Do not add compatibility layers unless there is a real consumer, persisted data, shipped behavior, or explicit requirement that needs one.
 - Do not add a dependency unless simple in-house code is clearly worse.
 
-<!-- project:start -->
-
 [Architecture](../architecture.md) records Haku's layout, its layers and their dependency direction, the threading model, and the IPC boundary between the interface and Rust. [Architecture § Dependencies](../architecture.md#dependencies) applies the dependency rule above to runtime dependencies and says what it covers. [Errors](../specs/errors.md) defines how a failure is represented and shown.
-
-<!-- project:end -->
 
 ### Fix it upstream
 
@@ -136,21 +132,15 @@ An export needed only to compose entrypoints SHOULD stay out of public entrypoin
 
 When a change touches a package's `exports`, its exported symbols, or its observable behavior or failures, it updates the TSDoc and every README or document describing them in the same change. oxlint checks the structure of the tags. Whether every export is documented, and how well, is a review responsibility unless the project enforces it, as the block below records.
 
-<!-- project:start -->
-
 Haku publishes no package, so these rules apply as for a private package. Public Rust items carry rustdoc, and a public function returning `Result` documents its failure conditions in an `# Errors` section.
 
 `src/bindings.ts` is generated from Rust by `pnpm bindings`. Never edit it.
-
-<!-- project:end -->
 
 ## Formatting, linting, and type checking
 
 - Code MUST pass `pnpm verify`. [Workspace](../workspace.md#root-scripts) lists what it runs; while working, `pnpm format:check`, `pnpm lint:check`, and `pnpm typecheck` run its parts on their own.
 - oxfmt formats code and JSON, and Prettier formats Markdown. Do not fight the formatter's output.
 - Lint rules are enforceable project policy. Change the rule, or add a scoped override with its reason recorded, rather than ignoring it broadly. A local suppression comment says why it is there.
-
-<!-- project:start -->
 
 Haku has a second language, Rust, in `tauri/`. `rustfmt` formats it and `clippy` lints it, failing on any warning, as `pnpm verify` runs them. A local `#[allow(...)]` carries a comment saying why.
 
@@ -180,5 +170,3 @@ Haku has a second language, Rust, in `tauri/`. `rustfmt` formats it and `clippy`
 ## Test names
 
 A test is named after the behavior it checks, as a sentence, such as `it("names no reason when the engine gave none")`, rather than a camelCase identifier. Where Rust tests live is in the [testing specification](../specs/tests.md#rust).
-
-<!-- project:end -->

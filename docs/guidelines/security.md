@@ -8,13 +8,9 @@ scope: How the boundary between web pages and the application is kept in code, f
 
 This document says how code handles secrets, untrusted input, and what leaves the process, so the same problem is solved the same way everywhere. Vulnerabilities are reported as [SECURITY.md](../../SECURITY.md) describes, never in a public issue.
 
-<!-- project:start -->
-
 Content webviews load arbitrary remote pages, and they are given nothing. The rules below keep a page out of the application, and keep the chrome's own surfaces distinct from anything a page can draw.
 
 [Architecture § Security](../architecture.md#security) says what the boundary guarantees, and [Page observation](../specs/page-observation.md) says how Haku learns about a page without the page taking part. Where this document and the architecture document disagree, the architecture document wins and this one is fixed.
-
-<!-- project:end -->
 
 ## Secrets
 
@@ -59,8 +55,6 @@ When the project serves web requests:
 
 - The project calls only services it needs for the feature at hand, or that its operator configured. No telemetry, update checks, or third-party lookups without a recorded decision and, where users are affected, a way to turn them off.
 - Every dependency is a trust decision. The rule in [Coding guidelines](code.md#architecture-and-design) on adding dependencies applies with extra force to anything that runs at install time or handles secrets.
-
-<!-- project:start -->
 
 ## Capabilities
 
@@ -115,8 +109,6 @@ When the project serves web requests:
 - Haku stores no credentials, and it logs nothing today: `tauri/Cargo.toml` has no logging dependency. A change that adds logging keeps page content, form values, drafts and dialog text out of it.
 - History and the session hold visited URLs, which can carry tokens in their query strings.
 
-<!-- project:end -->
-
 ## Reviewing a change
 
 A change that touches any of the above names it in its pull request and adds or updates its tests. The [pull request template](../../.github/pull_request_template.md) carries the check. Ask:
@@ -127,13 +119,9 @@ A change that touches any of the above names it in its pull request and adds or 
 - Does it add a permission, capability, endpoint, or outbound call? Is that named in the pull request and tested?
 - Does it read a file a user can edit, and check what it reads?
 
-<!-- project:start -->
-
 - Does it add or change an IPC command or event? Is that named in the pull request, and is the change to an existing one approved as a contract change?
 - Does each new command call `ensure_chrome` before anything else, and act only on its window unless it changes shared state by design?
 - Does a page now reach Rust, a chrome surface or a `haku://` page by a new path? That changes the boundary, so decide it first.
 - Does a new injected script record a secret, or anything a reload would not lose?
 - Is a value read back from a page parsed, and applied to its own tab only?
 - Is every dialog or page-supplied text shown with its site's host?
-
-<!-- project:end -->

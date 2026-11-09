@@ -28,8 +28,6 @@ This document is the workspace's contract: the names of the root scripts and wha
 
 Keep these names as they are: CI, the git hooks and the agent instructions call them by name. A script that only some projects need, such as `dev` or an end-to-end suite, is the project's to add.
 
-<!-- project:start -->
-
 | Script                   | Guarantees                                                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
 | `pnpm dev`               | Vite alone, serving the interface on port 1420.                                          |
@@ -49,7 +47,6 @@ Keep these names as they are: CI, the git hooks and the agent instructions call 
 | `pnpm labels`            | The GitHub labels match `.github/labels.json`.                                           |
 
 `format:check`, `format:fix` and `lint:check` cover Rust too, through rustfmt and clippy. `pnpm verify` is `verify:web`, then `verify:rust`: the template's order for everything but Rust, then the Rust checks and `bindings:check`. Each half runs on the CI runner it needs ([CI](ci.md)), and together they run every step of the contract.
-<!-- project:end -->
 
 ## Configuration
 
@@ -67,8 +64,6 @@ Keep these names as they are: CI, the git hooks and the agent instructions call 
 
 The TypeScript and Vitest configurations depend on how the project runs its checks; [Tooling](tooling.md) describes them.
 
-<!-- project:start -->
-
 | File                    | Configures                                                                                                                                                            |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm-workspace.yaml`   | `packages: [.]`: Haku is one package at the repository root, not a workspace of `apps/*` and `packages/*`. [Tooling](tooling.md#one-package-at-the-root) records why. |
@@ -78,8 +73,6 @@ The TypeScript and Vitest configurations depend on how the project runs its chec
 | `tauri/tauri.conf.json` | The app: its bundle, and the dev and build commands that run `pnpm dev` and `pnpm build`.                                                                             |
 | `vite.config.ts`        | The interface bundle, the dev server ports, and the path aliases, which `tsconfig.app.json` and `vitest.config.ts` repeat.                                            |
 
-<!-- project:end -->
-
 ### Two formatters
 
 oxfmt formats everything it understands except Markdown; Prettier formats only Markdown. oxfmt is far faster and agrees with Prettier's output for code, but its Markdown support does not yet match Prettier's, and the documentation is where formatting churn costs the most review time. `.oxfmtrc.json` ignores `**/*.md`, and the scripts hand Prettier `**/*.md` explicitly, so neither formatter touches the other's files.
@@ -88,10 +81,7 @@ oxfmt formats everything it understands except Markdown; Prettier formats only M
 
 Every third-party dependency version is declared once, in the catalog in `pnpm-workspace.yaml`, and referred to as `catalog:` in each `package.json`. The workspace therefore cannot hold two versions of one dependency by accident, and an upgrade is a one-line change that Dependabot can propose ([CI](ci.md#dependency-updates)). A workspace package depends on another as `workspace:*`, and a `peerDependencies` range says what a consumer may install, so neither is a catalog entry.
 
-<!-- project:start -->
-
 Rust dependencies are declared in `tauri/Cargo.toml` and locked in `tauri/Cargo.lock`; the catalog holds the npm ones only.
-<!-- project:end -->
 
 ## Git hooks
 
