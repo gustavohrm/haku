@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
-scope: Durable project documentation under `docs/`, including this document.
+last_updated: 2026-11-09
+scope: How documentation under `docs/` is structured, maintained, interpreted, and written, including this document.
 ---
 
 # Documentation guidelines

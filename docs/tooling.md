@@ -100,9 +100,9 @@ Both extend `tsconfig.base.json`, the template's shared compiler settings, and k
 
 ## Git hooks
 
-The three hooks in `.githooks/` are the template's; [Contributing](../CONTRIBUTING.md#hooks) lists what each checks, and [Workspace](workspace.md#git-hooks) records why each does that much and no more.
+The three hooks in `.githooks/` came from the template; [Contributing](../CONTRIBUTING.md#hooks) lists what each checks, and [Workspace](workspace.md#git-hooks) records why each does that much and no more.
 
-Haku's `pre-commit` departs from the template's in one way: it also runs rustfmt, with the crate's edition, over staged `.rs` files, which oxfmt cannot format. Clippy stays in `pnpm verify`, for the same reason type checking does.
+`pre-commit` is a stack-neutral dispatcher that sources `.githooks/profile.sh` for its checks: oxfmt, Prettier for Markdown, and oxlint, as the template's Node profile has them, and rustfmt, with the crate's edition, over staged `.rs` files, which oxfmt cannot format. Clippy stays in `pnpm verify`, for the same reason type checking does.
 
 Each hook ignores SIGPIPE, and `.githooks/AGENTS.md` records why. The cost is that tools a hook runs inherit the ignored signal, so with output piped through something that closes early, a passing hook can fail on a write error. Failing closed is the safer direction.
 

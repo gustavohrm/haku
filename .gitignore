@@ -21,7 +21,10 @@ playwright-report
 .env.*
 !.env.example
 
-# AI agents: local settings, sessions, and worktrees.
+# AI agents: every agent directory is ignored, including the settings and skills a tool treats as
+# shared. Contributors use different harnesses, skills, and settings, so committing one person's setup
+# would impose it on everyone else. AGENTS.md holds the shared instructions; a harness that does not read it
+# by default, such as Gemini CLI, is pointed at it in each contributor's own settings.
 .agents
 .antigravity
 .claude

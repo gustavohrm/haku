@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-11-08
+last_updated: 2026-11-09
 scope: Coding conventions for every package and app in the workspace.
 ---
 
@@ -85,7 +85,7 @@ Exceptions: framework callbacks, test helpers, tiny local functions, and APIs wh
 
 ## Inputs, failures, and state
 
-Most review findings that hold up are about these, not about style: the [review study in codenhub/codenhub](https://github.com/codenhub/codenhub/blob/main/packages/skills/docs/internal/coding-skill-research.md) records the evidence.
+Most review findings that hold up are about these, not about style: a [study of the review threads in codenhub/codenhub](https://github.com/codenhub/codenhub/blob/37b44e7adc31f628c94fb9ff8bd257c869f64996/packages/skills/docs/internal/coding-skill-research.md), a monorepo whose code agents wrote, records the evidence.
 
 - Validate input from outside the code's control after it is converted, against the limits of what consumes it: `--timeout 1e308` passes "positive number" and becomes an infinite timer. Reject empty, whitespace-only, NaN, Infinity, and partial numbers such as `10s`.
 - When required input is missing or matches nothing, fail with a message naming it. A run whose required input was absent never reports success.
@@ -97,7 +97,7 @@ Most review findings that hold up are about these, not about style: the [review 
 ## Testing
 
 - Test behavior, edge cases, and error paths, not just the happy path.
-- One behavior per test, with a descriptive name (`shouldReturnEmptyWhenNull`).
+- One behavior per test, named by the behavior it proves, as a sentence (`returns an empty list when the input is null`).
 - Unit tests sit next to the code they test.
 - Mock the network, timers, and browser APIs. Test code whose job is file or database access against a real temporary directory or database where practical, and mock them elsewhere. Pure logic is tested directly.
 - Give each behavior decision a test that fails when the decision is reversed, and see a new test fail before keeping it.
@@ -106,7 +106,7 @@ Most review findings that hold up are about these, not about style: the [review 
 - Prefer observable behavior to implementation details.
 - A change in behavior changes its tests in the same change.
 
-Mocking the filesystem and storage everywhere was the earlier rule. It was narrowed because a mock answers only what the test tells it, so it cannot show the containment, symlink, and stale-output bugs recorded in codenhub/codenhub#24, codenhub/codenhub#25, and codenhub/codenhub#293; a real temporary directory does.
+Mocking the filesystem and storage everywhere was the earlier rule. It was narrowed because a mock answers only what the test tells it, so it cannot show the containment, symlink, and stale-output bugs found in review threads on [codenhub/codenhub#24](https://github.com/codenhub/codenhub/pull/24#discussion_r3875960231), [#25](https://github.com/codenhub/codenhub/pull/25#discussion_r3888570403), and [#293](https://github.com/codenhub/codenhub/pull/293#discussion_r4304630356); a real temporary directory does.
 
 The [testing specification](../specs/tests.md) defines the test categories, configuration, scripts, and coverage target.
 
@@ -130,7 +130,7 @@ Every symbol exported from a published package's entrypoint, through `package.js
 
 An export needed only to compose entrypoints SHOULD stay out of public entrypoints. When one cannot, mark it `@internal`.
 
-When a change touches a package's `exports`, its exported symbols, or its observable behavior or failures, it updates the TSDoc and every README or document describing them in the same change. oxlint checks the structure of the tags. Whether every export is documented, and how well, is a review responsibility unless the project enforces it, as the block below records.
+When a change touches a package's `exports`, its exported symbols, or its observable behavior or failures, it updates the TSDoc and every README or document describing them in the same change. oxlint checks the structure of the tags. Whether every export is documented, and how well, is a review responsibility unless the project enforces it.
 
 Haku publishes no package, so these rules apply as for a private package. Public Rust items carry rustdoc, and a public function returning `Result` documents its failure conditions in an `# Errors` section.
 

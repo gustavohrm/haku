@@ -1,10 +1,13 @@
-# Weekly update pull requests, labelled with the repository's own `type:chore`.
+# Weekly update pull requests, labelled with the repository's own `type:chore` rather than labels Dependabot
+# would create. npm updates arrive as catalog changes in pnpm-workspace.yaml, with the lockfile.
 #
-# The groups take minor and patch updates only, so one week is one review per ecosystem. The exception is
-# the Cargo `tauri` group below, which takes majors too: updating Tauri without the `windows` and
-# `webview2-com` versions its runtime uses breaks the build, so their updates are proposed together. A major update
-# arrives as a pull request of its own, because it is a decision (it may need code changes) rather than
-# upkeep, and a group that mixes one in cannot be merged until the major is dealt with.
+# The groups take minor and patch updates only, so one week is one grouped pull request per directory:
+# Dependabot groups each listed directory on its own, so the actions can arrive as two pull requests. A
+# major update arrives as a pull request of its own, because it is a decision (it may need code changes)
+# rather than upkeep, and a group that mixes one in cannot be merged until the major is dealt with. The
+# exception is the Cargo `tauri` group below, which takes majors too: updating Tauri without the `windows`
+# and `webview2-com` versions its runtime uses breaks the build, so their updates are proposed together.
+# `docs/ci.md`, "Pinning third-party actions", records why the actions are updated this way.
 version: 2
 updates:
   - package-ecosystem: github-actions

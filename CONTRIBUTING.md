@@ -60,7 +60,7 @@ Haku has no workspace packages or apps, so it has no `pkg:` or `app:` labels. It
 
 A defect in a `@codenhub` package is filed in [codenhub/codenhub](https://github.com/codenhub/codenhub/issues), with its `found-in:external` label, and the local workaround names that issue: `// Workaround for codenhub/codenhub#123: ...`.
 
-`.github/labels.json` holds the list. Unless the project derives its `pkg:` and `app:` labels, as the block below then says, add an entry in the change that adds the package or app. After editing the list, create or update the labels on GitHub through `gh`:
+`.github/labels.json` holds the list. After editing the list, create or update the labels on GitHub through `gh`:
 
 ```sh
 node -e 'for (const l of require("./.github/labels.json")) require("node:child_process").execFileSync("gh", ["label", "create", l.name, "--color", l.color, "--description", l.description, "--force"], { stdio: "inherit" })'
@@ -68,7 +68,7 @@ node -e 'for (const l of require("./.github/labels.json")) require("node:child_p
 
 It never deletes a label: deleting one strips it from every issue that carries it, so a label that is no longer listed is removed by hand.
 
-The `type:` and `status:` labels are the same in every project started from this template, so a GitHub organization can set them as its default labels, and a new repository then starts with the labels the issue forms and Dependabot apply. Renaming a label on GitHub, rather than creating it again, keeps it on the issues that carry it.
+The `type:` and `status:` labels do not depend on the project, so a GitHub organization can set them as its default labels, and a new repository then starts with the labels the issue forms and Dependabot apply. Renaming a label on GitHub, rather than creating it again, keeps it on the issues that carry it.
 
 `pnpm labels` runs the same sync from `scripts/sync-labels.mjs`, and also reports a label GitHub has that the list no longer names, for a maintainer to remove by hand.
 
@@ -133,7 +133,7 @@ One of `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `rever
 
 ### Scope
 
-The area the change lands in, and optional. For a workspace package it is the package name without its npm scope; for a package nested a level deeper, such as `packages/plugins/vite`, it is the path under `packages/`, as in `plugins/vite`. For an app it is the directory name under `apps/`. Repository-level areas use their own name, such as `ci`, `deps`, or `docs`. Leave it out when the change spans several.
+The area the change lands in, and optional. In a workspace, each member the project declares is an area: its scope is the member's name without a namespace such as an npm scope, and for a member nested a level deeper than its kind, such as `packages/plugins/vite`, the path below that level, as in `plugins/vite`. Repository-level areas use their own name, such as `ci`, `deps`, or `docs`. Leave it out when the change spans several.
 
 ### Subject
 
@@ -169,7 +169,7 @@ The human directing the work stays the commit author. The trailer is an addition
 
 ## Validation
 
-Run scripts from the repository root. During development, narrow checks to what changed; [tooling](docs/tooling.md) lists the commands and how to narrow them. Before delivering a change, run the gate the block below names; by default, that is the whole gate:
+Run scripts from the repository root. During development, narrow checks to what changed; [tooling](docs/tooling.md) lists the commands and how to narrow them. Before delivering a change, run the gate this section names; unless it names a narrower one, that is the whole gate:
 
 ```sh
 pnpm verify
@@ -213,4 +213,4 @@ Three hooks run locally, all from `.githooks/`:
 | `commit-msg` | The subject line shape described above                       |
 | `pre-push`   | Refuses a direct push to `main`, and a misnamed branch       |
 
-`--no-verify` bypasses them. It is for the commit that genuinely has to land unfixed, and an agent that reaches for it MUST say so in the same breath rather than quietly routing around a failing check. [Workspace](docs/workspace.md#git-hooks) records why each hook does that much and no more.
+`--no-verify` bypasses them: on `git commit` for the first two, on `git push` for the last. It is for the commit that genuinely has to land unfixed, and an agent that reaches for it MUST say so in the same breath rather than quietly routing around a failing check. [Workspace](docs/workspace.md#git-hooks) records why each hook does that much and no more.
