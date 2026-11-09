@@ -1,6 +1,5 @@
 {
-  // The repository's own code outside the workspace packages: the root config files, `scripts/`, and the
-  // template's JavaScript in `.githooks/`, which `checkJs` holds to its JSDoc types.
+  // The repository's own code outside the workspace packages: the root config files and `scripts/`.
   "extends": "./tsconfig.base.json",
   // Node.js runs these files directly, with type stripping and no bundler, so they are checked by Node's rules:
   // its types, NodeNext resolution, and relative imports written with the file's own extension, `.ts` or
@@ -14,5 +13,5 @@
     "checkJs": true,
     "tsBuildInfoFile": "./node_modules/.cache/tsconfig.root.tsbuildinfo"
   },
-  "include": ["*.ts", "*.mjs", "scripts/**/*.ts", "scripts/**/*.mjs", ".githooks/*.mjs"]
+  "include": ["*.ts", "*.mjs", "scripts/**/*.ts", "scripts/**/*.mjs"]
 }
