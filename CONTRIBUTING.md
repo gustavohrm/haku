@@ -133,7 +133,7 @@ One of `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `rever
 
 ### Scope
 
-The area the change lands in, and optional. In a workspace, each member the project declares is an area: its scope is the member's name without a namespace such as an npm scope, and for a member nested a level deeper than its kind, such as `packages/plugins/vite`, the path below that level, as in `plugins/vite`. Repository-level areas use their own name, such as `ci`, `deps`, or `docs`. Leave it out when the change spans several.
+The area the change lands in, and optional. In a workspace, each member the project declares is an area: its scope is the member's name without a namespace such as an npm scope, and for a member nested a level deeper than its kind, such as `packages/plugins/vite`, the path below that level, as in `plugins/vite`. Repository-level areas use their own name, such as `ci`, `deps`, or `docs`. Leave it out when the change spans several. Haku declares only the root package, which takes no scope: its areas, listed under [Changes](#changes), are the scopes.
 
 ### Subject
 

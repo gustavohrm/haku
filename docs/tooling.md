@@ -83,7 +83,7 @@ rustfmt runs at width 120, the same as oxfmt's `printWidth`, so both languages w
 
 | Project              | Checks                                                                                                                                                                 |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig.root.json` | The template's: the root config files and the `.githooks/` scripts, by Node's rules.                                                                                   |
+| `tsconfig.root.json` | The template's: the root config files and the `scripts/` files, `.ts` and `.mjs`, by Node's rules.                                                                     |
 | `tsconfig.app.json`  | The interface in `src/`: DOM and `vite/client` types, React JSX, `exactOptionalPropertyTypes`, and the `@app`, `@bindings`, `@ipc`, `@features` and `@shared` aliases. |
 
 Both extend `tsconfig.base.json`, the template's shared compiler settings, and keep their incremental state under `node_modules/.cache/`. The aliases are declared three times, in `tsconfig.app.json`, `vite.config.ts` and `vitest.config.ts`, because each tool resolves imports itself.

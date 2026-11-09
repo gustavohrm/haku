@@ -4,7 +4,7 @@
   "bracketSpacing": true,
   "htmlWhitespaceSensitivity": "ignore",
   "ignorePatterns": [
-    // Committed paths to leave unformatted. oxfmt already skips what .gitignore and .prettierignore list.
+    // Paths to leave unformatted. oxfmt also skips what .gitignore and .prettierignore list.
     // Generated from Rust by `pnpm bindings`, and left as its generator writes it.
     "src/bindings.ts",
     "tauri/target/**",
