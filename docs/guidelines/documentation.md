@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
 last_updated: 2026-11-09
-scope: How documentation under `docs/` is structured, maintained, interpreted, and written, including this document.
+scope: How documentation under `docs/` is structured, maintained, interpreted, and written, including this document, and the voice of the project's other writing, such as READMEs, issues, and pull request descriptions.
 ---
 
 # Documentation guidelines
