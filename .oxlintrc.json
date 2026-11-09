@@ -1,10 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "ignorePatterns": [
-    // project:start
     "src/bindings.ts",
     "tauri/target/**",
-    // project:end
     "**/dist/**",
     "**/coverage/**",
     "**/test-results/**",
@@ -16,9 +14,7 @@
   },
   "plugins": ["typescript", "oxc", "jsdoc", "unicorn", "promise", "vitest"],
   "rules": {
-    // project:start
     "vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "expectErr"] }],
-    // project:end
     "curly": ["error", "all"],
     "eqeqeq": ["error", "always"],
     "jsdoc/check-access": "error",
@@ -48,7 +44,6 @@
     "vitest/require-mock-type-parameters": "off"
   },
   "overrides": [
-    // project:start
     // The interface is React; the template's plugin list is framework-neutral.
     {
       "files": ["**/*.ts", "**/*.tsx"],
@@ -59,7 +54,6 @@
         "react/rules-of-hooks": "error"
       }
     },
-    // project:end
     {
       "files": [".githooks/**", "**/scripts/**", "**/*.test.ts", "**/*.test.tsx"],
       "rules": {

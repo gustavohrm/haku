@@ -20,7 +20,6 @@ body:
       description: The released version, or the commit from `git rev-parse --short HEAD` when running from a checkout.
     validations:
       required: true
-  # project:start
   - type: input
     id: platform
     attributes:
@@ -33,7 +32,6 @@ body:
     attributes:
       value: |
         Page content and addresses can carry tokens or account details: remove them from logs and steps too, and name a public site that shows the problem when the page matters.
-  # project:end
   - type: textarea
     id: actual
     attributes:

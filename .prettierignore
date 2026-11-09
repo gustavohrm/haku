@@ -10,8 +10,6 @@
 **/test-results/
 **/playwright-report/
 
-# project:start
 # Rust build output and Tauri's generated files.
 tauri/target/
 tauri/gen/
-# project:end

@@ -83,7 +83,7 @@ rustfmt runs at width 120, the same as oxfmt's `printWidth`, so both languages w
 
 | Project              | Checks                                                                                                                                                                 |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig.root.json` | The template's: the root config files and the `.template/` and `.githooks/` scripts, by Node's rules.                                                                  |
+| `tsconfig.root.json` | The template's: the root config files and the `scripts/` files, `.ts` and `.mjs`, by Node's rules.                                                                     |
 | `tsconfig.app.json`  | The interface in `src/`: DOM and `vite/client` types, React JSX, `exactOptionalPropertyTypes`, and the `@app`, `@bindings`, `@ipc`, `@features` and `@shared` aliases. |
 
 Both extend `tsconfig.base.json`, the template's shared compiler settings, and keep their incremental state under `node_modules/.cache/`. The aliases are declared three times, in `tsconfig.app.json`, `vite.config.ts` and `vitest.config.ts`, because each tool resolves imports itself.
@@ -100,9 +100,9 @@ Both extend `tsconfig.base.json`, the template's shared compiler settings, and k
 
 ## Git hooks
 
-The three hooks in `.githooks/` are the template's; [Contributing](../CONTRIBUTING.md#hooks) lists what each checks, and [Workspace](workspace.md#git-hooks) records why each does that much and no more.
+The three hooks in `.githooks/` came from the template; [Contributing](../CONTRIBUTING.md#hooks) lists what each checks, and [Workspace](workspace.md#git-hooks) records why each does that much and no more.
 
-Haku's `pre-commit` departs from the template's in one way, recorded as an exception in `.template/manifest.json`: it also runs rustfmt, with the crate's edition, over staged `.rs` files, which oxfmt cannot format. Clippy stays in `pnpm verify`, for the same reason type checking does.
+`pre-commit` is a stack-neutral dispatcher that sources `.githooks/profile.sh` for its checks: oxfmt, Prettier for Markdown, and oxlint, as the template's Node profile has them, and rustfmt, with the crate's edition, over staged `.rs` files, which oxfmt cannot format. Clippy stays in `pnpm verify`, for the same reason type checking does.
 
 Each hook ignores SIGPIPE, and `.githooks/AGENTS.md` records why. The cost is that tools a hook runs inherit the ignored signal, so with output piped through something that closes early, a passing hook can fail on a write error. Failing closed is the safer direction.
 

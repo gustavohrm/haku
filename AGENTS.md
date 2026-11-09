@@ -1,11 +1,8 @@
 # Agent instructions
 
-<!-- project:start -->
-
 Haku is a lightweight desktop browser: Tauri v2 with a Rust backend, and a React 19 interface built with Vite. Its distinguishing idea is that tabs and webviews are not the same thing — a small pool of real webviews is shared between any number of tabs.
 
 Start with [`docs/architecture.md`](docs/architecture.md) before changing anything.
-<!-- project:end -->
 
 This repository is docs-first. [`docs/README.md`](docs/README.md) indexes every document. [`CONTRIBUTING.md`](CONTRIBUTING.md) is the workflow every change follows, and [`docs/tooling.md`](docs/tooling.md) lists the commands. Before delivering a change, run the gate [`CONTRIBUTING.md`](CONTRIBUTING.md#validation) names, `pnpm verify` unless the project narrows it.
 
@@ -15,7 +12,6 @@ This repository is docs-first. [`docs/README.md`](docs/README.md) indexes every 
 - Ask when different interpretations would lead to different work. Do not settle an unstated choice about behavior, public API, a security property, or a recorded decision by assuming it. Do everything independent of the answer first, then ask at the point the answer is needed.
 - Keep changes small and within the requested scope. Preserve unrelated work.
 - A defect found while working on something else is filed and worked around, not fixed on the spot, as [`CONTRIBUTING.md`](CONTRIBUTING.md#a-defect-found-mid-task) describes. That includes a defect in a dependency you also maintain: the fix belongs in that dependency's repository.
-- Files listed in `.template/manifest.json` come from a shared template, and the manifest says which parts the project owns. Before changing one, or when asked to sync with the template, read [`.template/README.md`](.template/README.md); `node .template/check.mjs` reports drift.
 - Never put a secret, token, password, or personal data in a log, an error, a test snapshot, a commit, or a message to the user, including test values you generate. [`docs/guidelines/security.md`](docs/guidelines/security.md) has the rest.
 - Report failing checks, skipped steps, and unfinished work plainly, with the output that shows it. Never describe a partial result as complete.
 - Close by listing material judgment calls and assumptions so they can be confirmed or reversed.
@@ -29,14 +25,10 @@ This repository is docs-first. [`docs/README.md`](docs/README.md) indexes every 
 
 ## Project specifics
 
-<!-- project:start -->
-
 - **The IPC boundary is a contract.** An IPC command or event, a capability, and a persisted setting or session format are contracts like an export or an option: adding or changing one is a decision, presented and approved before it is made, and an unstated choice about one is asked, not assumed.
 - **`src/bindings.ts` is generated from Rust.** The Rust in `tauri/` is the source; never edit the file by hand, and regenerate it with `pnpm bindings` when the boundary changes. `pnpm bindings:check` fails when it is stale.
 - **Scoped instructions.** Today the scoped `AGENTS.md` files are [`src/AGENTS.md`](src/AGENTS.md), [`tauri/AGENTS.md`](tauri/AGENTS.md), and [`.githooks/AGENTS.md`](.githooks/AGENTS.md).
 - **Narrowing.** During development run `pnpm test <file>` and `pnpm test:rust -- <module>`; `pnpm verify` runs the web half and the Rust half, and `pnpm verify:web` or `pnpm verify:rust` runs one.
-
-<!-- project:end -->
 
 ## Knowledge
 

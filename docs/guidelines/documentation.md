@@ -1,7 +1,7 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
-scope: Durable project documentation under `docs/`, including this document.
+last_updated: 2026-11-09
+scope: How documentation under `docs/` is structured, maintained, interpreted, and written, including this document, and the voice of the project's other writing, such as READMEs, issues, and pull request descriptions.
 ---
 
 # Documentation guidelines
@@ -120,11 +120,7 @@ A roadmap, when the project keeps one, records durable direction: current focus,
 
 Every document is listed in [`docs/README.md`](../README.md). Adding, moving, or deleting one updates that index in the same change.
 
-<!-- project:start -->
-
 Haku's root `docs/` also holds [the architecture overview](../architecture.md), [the first release's scope](../first-release.md), and [the assets reference](../assets.md). Its specs cover the product's behavior, such as how the webview pool works and how errors are represented, as well as the repository's own contracts.
-
-<!-- project:end -->
 
 ## Agent instructions
 

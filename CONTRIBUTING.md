@@ -13,9 +13,7 @@ nvm use
 pnpm install
 ```
 
-`pnpm install` also points git at `.githooks/` through `core.hooksPath`, so the hooks described below start working after the first install and not before. If lifecycle scripts were disabled during the install, run `node .githooks/install.mjs`. [CI](docs/ci.md) covers why the versions are pinned where they are.
-
-<!-- project:start -->
+`pnpm install` also points git at `.githooks/` through `core.hooksPath`, so the hooks described below start working after the first install and not before. If lifecycle scripts were disabled during the install, run `git config core.hooksPath .githooks`. [CI](docs/ci.md) covers why the versions are pinned where they are.
 
 Haku builds on Windows. Beyond Node and pnpm you need:
 
@@ -28,8 +26,6 @@ Start the app for development with:
 pnpm tauri dev
 ```
 
-<!-- project:end -->
-
 ## Changes
 
 - Keep each change within its requested scope and preserve unrelated work.
@@ -37,13 +33,9 @@ pnpm tauri dev
 - Update affected documentation in the same change as behavior, public API, exports, conventions, or decisions. Each contract has one owning document; references point to that owner rather than repeat its requirements.
 - Do not commit secrets, `.env` files, build artifacts, or unrelated changes.
 
-<!-- project:start -->
-
 - Change the Rust, then run `pnpm bindings`, when the IPC boundary changes. `src/bindings.ts` is generated, and `pnpm verify` fails while it is stale.
 - Haku is one package at the root, so a commit [scope](#scope) is not a package or app name. Use the name the code already uses for the area: an interface feature folder, such as `tabs` or `toolbar`; a Rust module, such as `browser`, `webview`, or `platform`; `ipc` for the boundary between them; `tauri` for the backend as a whole; or a repository area, such as `docs` or `ci`. For example, `fix(webview): observe a slot before its first navigation`.
 - The contracts a breaking `!` marks here are an IPC command or event, and the format of persisted settings, sessions, or history.
-
-<!-- project:end -->
 
 ## Issues
 
@@ -60,8 +52,6 @@ Each issue carries one label from each group that applies:
 
 `status:upstream` means the issue waits on a change in a dependency you maintain, as [below](#a-defect-found-mid-task) describes.
 
-<!-- project:start -->
-
 Haku has no workspace packages or apps, so it has no `pkg:` or `app:` labels. It uses an `area:` group instead:
 
 | Group   | Labels                 | Says                                    |
@@ -69,9 +59,8 @@ Haku has no workspace packages or apps, so it has no `pkg:` or `app:` labels. It
 | `area:` | `src`, `tauri`, `docs` | Which part of the repository it touches |
 
 A defect in a `@codenhub` package is filed in [codenhub/codenhub](https://github.com/codenhub/codenhub/issues), with its `found-in:external` label, and the local workaround names that issue: `// Workaround for codenhub/codenhub#123: ...`.
-<!-- project:end -->
 
-`.github/labels.json` holds the list. Unless the project derives its `pkg:` and `app:` labels, as the block below then says, add an entry in the change that adds the package or app. After editing the list, create or update the labels on GitHub through `gh`:
+`.github/labels.json` holds the list. After editing the list, create or update the labels on GitHub through `gh`:
 
 ```sh
 node -e 'for (const l of require("./.github/labels.json")) require("node:child_process").execFileSync("gh", ["label", "create", l.name, "--color", l.color, "--description", l.description, "--force"], { stdio: "inherit" })'
@@ -79,12 +68,9 @@ node -e 'for (const l of require("./.github/labels.json")) require("node:child_p
 
 It never deletes a label: deleting one strips it from every issue that carries it, so a label that is no longer listed is removed by hand.
 
-The `type:` and `status:` labels are the same in every project started from this template, so a GitHub organization can set them as its default labels, and a new repository then starts with the labels the issue forms and Dependabot apply. Renaming a label on GitHub, rather than creating it again, keeps it on the issues that carry it.
-
-<!-- project:start -->
+The `type:` and `status:` labels do not depend on the project, so a GitHub organization can set them as its default labels, and a new repository then starts with the labels the issue forms and Dependabot apply. Renaming a label on GitHub, rather than creating it again, keeps it on the issues that carry it.
 
 `pnpm labels` runs the same sync from `scripts/sync-labels.mjs`, and also reports a label GitHub has that the list no longer names, for a maintainer to remove by hand.
-<!-- project:end -->
 
 ### A defect found mid-task
 
@@ -147,7 +133,7 @@ One of `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `rever
 
 ### Scope
 
-The area the change lands in, and optional. For a workspace package it is the package name without its npm scope; for a package nested a level deeper, such as `packages/plugins/vite`, it is the path under `packages/`, as in `plugins/vite`. For an app it is the directory name under `apps/`. Repository-level areas use their own name, such as `ci`, `deps`, or `docs`. Leave it out when the change spans several.
+The area the change lands in, and optional. In a workspace, each member the project declares is an area: its scope is the member's name without a namespace such as an npm scope, and for a member nested a level deeper than its kind, such as `packages/plugins/vite`, the path below that level, as in `plugins/vite`. Repository-level areas use their own name, such as `ci`, `deps`, or `docs`. Leave it out when the change spans several. Haku declares only the root package, which takes no scope: its areas, listed under [Changes](#changes), are the scopes.
 
 ### Subject
 
@@ -183,7 +169,7 @@ The human directing the work stays the commit author. The trailer is an addition
 
 ## Validation
 
-Run scripts from the repository root. During development, narrow checks to what changed; [tooling](docs/tooling.md) lists the commands and how to narrow them. Before delivering a change, run the gate the block below names; by default, that is the whole gate:
+Run scripts from the repository root. During development, narrow checks to what changed; [tooling](docs/tooling.md) lists the commands and how to narrow them. Before delivering a change, run the gate this section names; unless it names a narrower one, that is the whole gate:
 
 ```sh
 pnpm verify
@@ -191,12 +177,9 @@ pnpm verify
 
 It runs formatting, linting, the build, type checking, and tests, the same checks CI runs. Report any step that was skipped or failed.
 
-<!-- project:start -->
-
 During development, narrow checks to what changed: `pnpm test <file>`, `pnpm test:rust -- <module>`. `pnpm verify` runs a web half and a Rust half, `pnpm verify:web` and `pnpm verify:rust`, which CI runs as separate jobs on Ubuntu and Windows.
 
 After changing features in `tauri/Cargo.toml`, also run `pnpm check:release`, which CI runs on every pull request: a release build compiles code a debug build never sees.
-<!-- project:end -->
 
 ## Pull requests
 
@@ -216,10 +199,7 @@ Releasing is a maintainer action, and it is separate from merging. Merging chang
 
 Bump the version and record what users need to know in an ordinary pull request first; the release itself names a commit already on `main`.
 
-<!-- project:start -->
-
 This project has no releases yet. [First release](docs/first-release.md) records what the first one includes.
-<!-- project:end -->
 
 Pushing a release tag and deploying are outward-facing actions. An agent asks first and never does either on its own initiative.
 
@@ -233,4 +213,4 @@ Three hooks run locally, all from `.githooks/`:
 | `commit-msg` | The subject line shape described above                       |
 | `pre-push`   | Refuses a direct push to `main`, and a misnamed branch       |
 
-`--no-verify` bypasses them. It is for the commit that genuinely has to land unfixed, and an agent that reaches for it MUST say so in the same breath rather than quietly routing around a failing check. [Workspace](docs/workspace.md#git-hooks) records why each hook does that much and no more.
+`--no-verify` bypasses them: on `git commit` for the first two, on `git push` for the last. It is for the commit that genuinely has to land unfixed, and an agent that reaches for it MUST say so in the same breath rather than quietly routing around a failing check. [Workspace](docs/workspace.md#git-hooks) records why each hook does that much and no more.

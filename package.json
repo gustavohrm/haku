@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "prepare": "node .githooks/install.mjs",
+    "prepare": "git config core.hooksPath .githooks || echo Skipped git hook setup",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

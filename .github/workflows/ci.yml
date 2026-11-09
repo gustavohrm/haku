@@ -4,12 +4,10 @@ on:
   pull_request:
   # A merge queue's check of the merge result before it lands. It never fires in a repository without a queue.
   merge_group:
-  # project:start
   # The full check after a merge. A project that requires a merge queue removes this trigger: the queue lands the
   # exact commit it checked, so a push run would only repeat a passed check.
   push:
     branches: [main]
-  # project:end
 
 # A pull request pushed to again abandons the run it superseded; a merge-queue run or a push to `main` keeps every
 # run, because each is the authoritative check of a commit.
@@ -20,46 +18,29 @@ concurrency:
 permissions:
   contents: read
 
-# project:start
-# project:end
-
 jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    # project:start
     # The interface and its tooling are platform-independent, so they run on the
     # fastest and cheapest runner; Rust runs in its own job below. `docs/ci.md`
     # explains the split.
     timeout-minutes: 15
-    # project:end
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        # project:start
-        # No later step pushes or calls the API, and the template fetch is public, so the token is not left on disk.
+        # No later step pushes or calls the API, so the token is not left on disk.
         with:
           persist-credentials: false
-        # project:end
 
       - name: Set up the workspace
         uses: ./.github/actions/setup
 
-      # project:start
-      # project:end
-
       # The same command a contributor runs: format, lint, build, typecheck and test, stopping at the first
       # failure. A step only CI can run is a step nobody can reproduce before pushing.
       - name: Verify
-        # project:start
         # The web half of `pnpm verify`; the Rust job runs the other half.
         run: pnpm verify:web
-        # project:end
-
-      # The project's files against the template commit it last synced with, as .template/README.md describes.
-      # It needs the network to fetch the template, and writes nothing.
-      - name: Template conformance
-        run: node .template/check.mjs
 
       # A check that writes a file has changed what it was checking, so the run fails. `--untracked-files=all`
       # lists a new file, not only the directory that holds it.
@@ -73,7 +54,6 @@ jobs:
           fi
         shell: bash
 
-  # project:start
   # Windows is the one platform with a native layer; the macOS and Linux layers
   # are stubs, and Linux would also need WebKitGTK's system libraries to build at
   # all. Rust is verified where Haku actually runs.
@@ -136,4 +116,3 @@ jobs:
             exit 1
           fi
         shell: bash
-  # project:end

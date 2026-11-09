@@ -13,6 +13,15 @@ import { readFileSync } from "node:fs";
 
 const LABELS_PATH = ".github/labels.json";
 
+/** @typedef {{ name: string, color: string, description: string }} Label */
+
+/**
+ * Runs `gh` and returns its standard output.
+ *
+ * @param {string[]} args - The arguments after `gh`.
+ * @returns {string} What `gh` wrote to standard output.
+ * @throws {Error} When `gh` cannot start or exits non-zero.
+ */
 function gh(args) {
   const result = spawnSync("gh", args, { encoding: "utf8", shell: false });
   if (result.error !== undefined || result.status !== 0) {
@@ -22,6 +31,7 @@ function gh(args) {
 }
 
 const repository = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).trim();
+/** @type {Label[]} */
 const labels = JSON.parse(readFileSync(LABELS_PATH, "utf8"));
 
 for (const label of labels) {
@@ -41,6 +51,7 @@ for (const label of labels) {
 }
 
 const listed = new Set(labels.map((label) => label.name));
+/** @type {{ name: string }[]} */
 const existing = JSON.parse(gh(["label", "list", "--repo", repository, "--limit", "200", "--json", "name"]));
 const unlisted = existing.map((label) => label.name).filter((name) => !listed.has(name));
 
