@@ -237,6 +237,15 @@ it("uses a generic icon in private windows even when state supplies a favicon", 
   expect(host.querySelector(".ic-globe")).not.toBeNull();
 });
 
+it("marks a kept-loaded tab with an anchor, not the pin pinned extensions use", async () => {
+  const tabs = [{ ...tab(1), fixed: true }, tab(2)];
+  await act(async () => browserStore.set({ ...initial, tabs, splits: [] }));
+  const kept = host.querySelectorAll(".ic-anchor");
+  expect(kept).toHaveLength(1);
+  expect(kept[0]!.getAttribute("aria-label")).toBe("Kept loaded");
+  expect(host.querySelector(".ic-pin")).toBeNull();
+});
+
 async function renderVertical() {
   await act(async () => root.render(<TabStrip layout="vertical" />));
   const units = host.querySelectorAll<HTMLElement>("[data-tab-unit]");

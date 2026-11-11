@@ -167,7 +167,7 @@ export function FindBar({ tab, request, onClose }: FindBarProps) {
     <search
       ref={rootRef}
       aria-label={t("find.label")}
-      className="haku-bar bg-chrome-overlay border-text/15 text-text absolute top-2 right-2 z-10 flex w-80 max-w-[calc(100%-1rem)] items-center gap-1 rounded-(--radius-surface) border py-1 pr-1 pl-2.5"
+      className="haku-bar haku-overlay absolute top-2 right-2 z-10 flex w-80 max-w-[calc(100%-1rem)] items-center gap-1 py-1 pr-1 pl-2.5"
     >
       <input
         ref={inputRef}

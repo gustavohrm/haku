@@ -7,8 +7,7 @@ export function NewTabPage() {
     return <PrivateNewTabPage />;
   }
   return (
-    <div className="bg-background grid h-full place-content-center gap-2 text-center select-text">
-      <h1 className="text-title">{t("newTab.title")}</h1>
+    <div className="bg-background grid h-full place-content-center text-center select-text">
       <p className="text-text-secondary">{t("newTab.prompt")}</p>
     </div>
   );

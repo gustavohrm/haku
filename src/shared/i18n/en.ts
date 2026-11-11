@@ -368,7 +368,7 @@ export const en = {
   "private.extensions": "Extensions do not run in private windows.",
   "menu.openLinkPrivateWindow": "Open link in private window",
   "newTab.title": "New tab",
-  "newTab.prompt": "Type an address or a search in the address field.",
+  "newTab.prompt": "Type an address or a search in the address bar.",
 
   "history.title": "History",
   "history.empty": "Nothing here yet.",

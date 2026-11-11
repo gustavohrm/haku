@@ -183,13 +183,47 @@ describe("tabMenu", () => {
     expect(find(items, "duplicate")).toMatchObject({ disabled: true });
   });
 
-  it("toggles keeping the tab loaded", () => {
+  it("warns what keeping a tab loaded costs before keeping it", () => {
+    const acts = tabActions();
+    const items = tabMenu(tab(1), [tab(1)], acts);
+    expect(find(items, "keep")).toMatchObject({
+      kind: "checkbox",
+      checked: false,
+      confirm: { message: expect.stringContaining("stays in memory"), action: "Keep loaded" },
+    });
+    expect(find(items, "keep")).not.toHaveProperty("confirm.destructive");
+    select(find(items, "keep"));
+    expect(acts.setFixed).toHaveBeenCalledWith(1, true);
+  });
+
+  it("stops keeping a tab loaded without asking", () => {
     const fixed = { ...tab(1), fixed: true };
     const acts = tabActions();
     const items = tabMenu(fixed, [fixed], acts);
     expect(find(items, "keep")).toMatchObject({ kind: "checkbox", checked: true });
+    expect(find(items, "keep")).not.toHaveProperty("confirm");
     select(find(items, "keep"));
     expect(acts.setFixed).toHaveBeenCalledWith(1, false);
+  });
+
+  it("groups the split items apart from both the tab's own items and closing", () => {
+    const tabs = [tab(1), tab(2)];
+    const paired = tabMenu(tabs[0]!, tabs, tabActions(), { active: 1, splits: [{ tabs: [1, 2], ratio: 0.5 }] });
+    const unpaired = tabMenu(tabs[0]!, tabs, tabActions());
+    // Inspect interface, appended in development, comes after these.
+    expect(ids(paired).slice(0, 10)).toEqual([
+      "reload",
+      "duplicate",
+      "keep",
+      "separator:split",
+      "split",
+      "separate",
+      "separator:close",
+      "close",
+      "closeOthers",
+      "closeRight",
+    ]);
+    expect(ids(unpaired).slice(3, 6)).toEqual(["separator:split", "split", "separator:close"]);
   });
 
   it("gives every item its own id, since the menu keys its rows by id", () => {
