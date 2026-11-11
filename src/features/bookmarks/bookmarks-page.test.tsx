@@ -233,7 +233,7 @@ describe("BookmarksPage", () => {
     expect(remove.confirm?.message).toBe("Remove “Docs” and the 2 bookmarks in it? This can't be undone.");
   });
 
-  it("names a folder's chevron Expand or Collapse, apart from the folder", async () => {
+  it("names a folder's chevron Expand or Collapse and its folder, apart from the folder's own button", async () => {
     await render();
     const chevrons = () =>
       [...container.querySelectorAll<HTMLButtonElement>("nav button[aria-expanded]")].map((chevron) => [
@@ -242,12 +242,12 @@ describe("BookmarksPage", () => {
       ]);
     // Bookmarks bar, Docs inside it, and Other bookmarks.
     expect(chevrons()).toEqual([
-      ["Collapse", "true"],
-      ["Expand", "false"],
-      ["Collapse", "true"],
+      ["Collapse: Bookmarks bar", "true"],
+      ["Expand: Docs", "false"],
+      ["Collapse: Other bookmarks", "true"],
     ]);
     await click(container.querySelectorAll("nav button[aria-expanded]")[1]!);
-    expect(chevrons()[1]).toEqual(["Collapse", "true"]);
+    expect(chevrons()[1]).toEqual(["Collapse: Docs", "true"]);
   });
 
   it("shows the generic icon for every link in a private window", async () => {

@@ -23,6 +23,7 @@ import { createPortal } from "react-dom";
 import { barActions, barRowMenu, folderItems, nodeItems } from "./bar-menus";
 import { BookmarkForm, type FormTarget } from "./bookmark-form";
 import { bookmarkMenu } from "./bookmark-menu";
+import { EDITOR_WIDTH } from "./bookmark-star";
 import { Favicon } from "./favicon";
 import { childrenOf, displayTitle, isFolder, urlOf } from "./tree";
 
@@ -338,9 +339,6 @@ interface BarFormProps {
   onDone: () => void;
 }
 
-/** The width of the bar's form, in pixels, so it can be kept inside the window: the star's editor's. */
-const FORM_WIDTH = 320;
-
 /**
  * The form the bar's menus open, for **Add page…**, **Add folder…** and
  * **Edit…**: the bookmarks page's form, in a popover where the menu was,
@@ -360,7 +358,7 @@ function BarForm({ tree, target, at, hold, onDone }: BarFormProps) {
     field?.focus();
     field?.select();
   }, []);
-  const left = Math.max(4, Math.min(at.x, document.documentElement.clientWidth - FORM_WIDTH - 4));
+  const left = Math.max(4, Math.min(at.x, document.documentElement.clientWidth - EDITOR_WIDTH - 4));
   return createPortal(
     // On the overlay surface, opaque, and
     // without a shadow, which the input mask would cut off at its edge.
@@ -369,7 +367,7 @@ function BarForm({ tree, target, at, hold, onDone }: BarFormProps) {
       aria-label={t("bookmarks.menu")}
       tabIndex={-1}
       className="haku-overlay fixed z-10 p-2 outline-none"
-      style={{ left, top: at.y, width: FORM_WIDTH }}
+      style={{ left, top: at.y, width: EDITOR_WIDTH }}
     >
       <BookmarkForm tree={tree} target={target} layout="popover" dismissRef={dismissRef} onDone={onDone} />
     </section>,

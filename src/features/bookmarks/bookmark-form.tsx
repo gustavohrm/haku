@@ -55,24 +55,33 @@ export function BookmarkForm({ tree, target, layout, dismissRef, onDone }: Bookm
   const [saving, setSaving] = useState(false);
   const missingAddress = isLink && address.trim() === "";
 
-  const dismiss = () => {
+  const dismiss = async () => {
     const changed = title !== initial.title || address !== initial.address;
     // An empty address is not saved, as Save is disabled without one.
     if (layout === "popover" && target.kind === "edit" && changed && !missingAddress) {
-      void commands.updateBookmark(target.id, title.trim(), isLink ? addressOf(address) : null);
+      if (saving) {
+        return;
+      }
+      setSaving(true);
+      const result = await commands.updateBookmark(target.id, title.trim(), isLink ? addressOf(address) : null);
+      setSaving(false);
+      // Refused, as an address Rust will not keep is: the form stays, as it does when Save is refused.
+      if (result.status !== "ok") {
+        return;
+      }
     }
     onDone();
   };
   useLayoutEffect(() => {
     if (dismissRef) {
-      dismissRef.current = dismiss;
+      dismissRef.current = () => void dismiss();
     }
   });
 
   const dismissOnEscape = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.stopPropagation();
-      dismiss();
+      void dismiss();
     }
   };
 

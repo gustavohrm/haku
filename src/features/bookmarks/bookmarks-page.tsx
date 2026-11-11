@@ -385,7 +385,8 @@ function FolderTree({ tree, open, dropInto, onOpen, onContextMenu }: FolderTreeP
             <button
               type="button"
               className="btn icon ghost p-xs shrink-0 [--ui-radius:var(--radius-small)]"
-              aria-label={shown ? t("bookmarks.collapse") : t("bookmarks.expand")}
+              // Named for its folder: a tree of several would otherwise read "Expand" over and over.
+              aria-label={`${shown ? t("bookmarks.collapse") : t("bookmarks.expand")}: ${displayTitle(tree, folder)}`}
               aria-expanded={shown}
               onClick={() => toggle(folder.id, shown)}
             >

@@ -6,7 +6,7 @@ import type { MenuItem } from "@features/overlays/menu-model";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
-import { useBookmarks } from "@ipc/hooks";
+import { useBookmarks, useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -29,8 +29,8 @@ interface Anchor {
   top: number;
 }
 
-/** The editor's width, in pixels, so it can be kept inside the window. */
-const EDITOR_WIDTH = 320;
+/** The editor's width, in pixels, so it can be kept inside the window. The bar's form takes the same. */
+export const EDITOR_WIDTH = 320;
 /** The least room left between the editor and the window's edges. */
 const EDGE = 4;
 
@@ -167,6 +167,7 @@ interface BookmarkEditorProps {
  * **Manage bookmarks**.
  */
 function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: BookmarkEditorProps) {
+  const { private: isPrivate } = useBrowserState();
   const located = locate(tree, id);
   const [name, setName] = useState(located?.node.title ?? "");
   const nameRef = useRef(name);
@@ -181,6 +182,9 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
   const choosingRef = useRef(false);
   const editorRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set when the new folder's field closes, so the folder button that takes
+  // its place takes its focus too.
+  const refocusFolder = useRef(false);
 
   useOverlay(editorRef, true);
   useBarHold("toolbar", true);
@@ -265,11 +269,17 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
     });
   };
 
+  const closeFolderName = () => {
+    refocusFolder.current = true;
+    setFolderName(null);
+  };
+
+  // A refused folder keeps its field, with the name typed, to try again.
   const createFolder = async () => {
     const title = folderName?.trim() || t("bookmarks.newFolder");
-    setFolderName(null);
     const created = await commands.addBookmarkFolder(parent.id, null, title);
     if (created.status === "ok") {
+      closeFolderName();
       await commands.moveBookmark(id, created.data, null);
     }
   };
@@ -292,7 +302,8 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
     >
       <form className="flex flex-col gap-1.5" onSubmit={done}>
         <span className="input-group soft edgeless unadorned">
-          <Favicon key={url ?? ""} url={url} small />
+          {/* The generic icon in a private window: fetching the site's would send the ordinary profile's cookies. */}
+          <Favicon key={url ?? ""} url={isPrivate ? null : url} small />
           <input
             ref={inputRef}
             className="ipt"
@@ -305,6 +316,12 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
         </span>
         {folderName === null ? (
           <button
+            ref={(button) => {
+              if (button && refocusFolder.current) {
+                refocusFolder.current = false;
+                button.focus();
+              }
+            }}
             type="button"
             className="btn soft edgeless justify-start gap-2"
             aria-haspopup="menu"
@@ -335,7 +352,7 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
                   void createFolder();
                 } else if (event.key === "Escape") {
                   event.stopPropagation();
-                  setFolderName(null);
+                  closeFolderName();
                 }
               }}
             />
