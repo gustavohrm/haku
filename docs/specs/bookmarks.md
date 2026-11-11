@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-02
+last_updated: 2026-11-11
 scope: Saving pages as bookmarks, organising them in folders, the bookmarks bar, the bookmarks page, and importing and exporting them.
 ---
 
@@ -36,7 +36,9 @@ The address field shows a star for the focused tab's page, filled when its URL i
 - On a page that is not bookmarked, adds a link with the page's title and URL to the folder used last, the bar at first, and opens the bookmark editor anchored to the star. The folder used last is the one a link was last added to or moved into, from anywhere: the star, the editor's folder menu, or `haku://bookmarks`. Moving a folder does not change it.
 - On a bookmarked page, opens the editor on its most recently added bookmark.
 
-The editor is a popover with the title, the folder (a menu of the tree), **Remove**, **More…** (opens the link's folder in `haku://bookmarks`, in a new tab), and **Done**. Changes apply as they are made: a folder chosen moves the link at once, and the title is kept when the editor closes, however it closes, so a title is not written on every keystroke. Esc or clicking away closes it; **Remove** removes the link and closes it. Internal pages (`haku://`) and pages with no URL show no star and ignore Ctrl+D, since there is nothing durable to return to. A popup window has no address field, so no star, and ignores Ctrl+D too, as it ignores the split and duplicate shortcuts ([Shortcuts](shortcuts.md)).
+The editor is a popover with no heading, laid out as the [interface guidelines](../guidelines/interface.md#popovers-and-panels) describe: the title, in a field led by the page's icon; the folder, a button led by a folder icon; then **Remove**, quiet, on the left, and **Done** on the right. The folder button opens a menu of the tree, ending, after a separator, with **New folder…** and **Manage bookmarks**. **New folder…** turns the folder button into a name field in place: Enter adds a folder of that name, **New folder** when it is left empty, inside the current folder, and moves the link into it; Esc goes back to the button without closing the editor. **Manage bookmarks** opens the link's folder in `haku://bookmarks`, in a new tab, and closes the editor. Changes apply as they are made: a folder chosen moves the link at once, and the title is kept when the editor closes, however it closes, so a title is not written on every keystroke. Esc or clicking away closes it; **Remove** removes the link and closes it. Internal pages (`haku://`) and pages with no URL show no star and ignore Ctrl+D, since there is nothing durable to return to. A popup window has no address field, so no star, and ignores Ctrl+D too, as it ignores the split and duplicate shortcuts ([Shortcuts](shortcuts.md)).
+
+Until 2026-11-11 the editor had a **Bookmark** heading, labels over both fields, and a **More…** button for what **Manage bookmarks** now does. The maintainer chose the current layout on that date for being quieter: the heading repeated what the star had just said, and three boxed buttons competed with **Done**.
 
 ### The bookmarks bar
 
@@ -74,7 +76,7 @@ With floating bars the bookmarks bar floats with the toolbar, as part of the sam
 - The folder tree on the left, the selected folder's contents on the right, and a search field that searches every bookmark's title and URL, showing matches with their folder.
 - Create a folder, add a link, rename, edit, delete, and move, by drag and drop in either pane or by **Move to…** in an item's menu.
 - **Import…** and **Export…** in the page's header ([Import and export](#import-and-export)).
-- `haku://bookmarks?folder=<id>` opens a folder, so **More…** and the bar's folder menus can link into it. An id that names no folder opens **Bookmarks bar**.
+- `haku://bookmarks?folder=<id>` opens a folder, so the editor's **Manage bookmarks** and the bar's folder menus can link into it. An id that names no folder opens **Bookmarks bar**.
 - A link opens as it does on the bar: in this tab, or with middle-click or Ctrl+click in a new background tab, and with Shift+click in a new window. Its menu, on right-click or its actions button, holds **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Move to** and **Delete**.
 - A name and an address are edited in a form in place of the row; an address typed without a scheme, such as `example.com`, is taken as `https://`.
 

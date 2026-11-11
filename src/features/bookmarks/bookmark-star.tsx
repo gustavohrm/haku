@@ -2,6 +2,7 @@ import { type BookmarkId, type Bookmarks, events, type TabId } from "@bindings";
 import { useBarHold } from "@features/bars/holds";
 import { interfaceMenu } from "@features/context-menu/items";
 import { openMenu } from "@features/context-menu/store";
+import type { MenuItem } from "@features/overlays/menu-model";
 import { MENU_GAP, useMenuDismiss } from "@features/overlays/use-menu-dismiss";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { commands } from "@ipc/commands";
@@ -9,11 +10,12 @@ import { useBookmarks } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { folderUrl } from "./bookmarks-url";
-import { displayTitle, listFolders, locate, newestLinkTo } from "./tree";
+import { Favicon } from "./favicon";
+import { displayTitle, listFolders, locate, newestLinkTo, urlOf } from "./tree";
 
 interface BookmarkStarProps {
   tab: TabId;
@@ -158,9 +160,11 @@ interface BookmarkEditorProps {
 }
 
 /**
- * The popover editing one bookmark: its name, its folder, **Remove**,
- * **More…** and **Done**. A folder chosen moves it at once; the name is kept
- * when the editor closes, however it closes, and Remove alone discards it.
+ * The popover editing one bookmark: its name, its folder, **Remove** and
+ * **Done**. A folder chosen moves it at once; the name is kept when the
+ * editor closes, however it closes, and Remove alone discards it. The folder
+ * menu ends with **New folder…**, which names a folder in place, and
+ * **Manage bookmarks**.
  */
 function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: BookmarkEditorProps) {
   const located = locate(tree, id);
@@ -169,14 +173,14 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
   useEffect(() => {
     nameRef.current = name;
   }, [name]);
+  // A new folder's name while one is being named, in place of the folder.
+  const [folderName, setFolderName] = useState<string | null>(null);
   const savedRef = useRef(located?.node.title ?? "");
   const removedRef = useRef(false);
   // While the folder menu is open, a click in it is not a click away.
   const choosingRef = useRef(false);
   const editorRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const titleId = useId();
-  const nameId = useId();
 
   useOverlay(editorRef, true);
   useBarHold("toolbar", true);
@@ -216,26 +220,58 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
     return null;
   }
   const parent = located.parent;
+  const url = urlOf(located.node);
+  const folderTitle = displayTitle(tree, parent);
 
   const chooseFolder = (button: HTMLElement) => {
     const box = button.getBoundingClientRect();
     choosingRef.current = true;
+    const folders: MenuItem[] = listFolders(tree).map(({ folder, path }) => ({
+      kind: "radio",
+      id: `folder:${folder.id}`,
+      label: path.join(" › "),
+      checked: folder.id === parent.id,
+      onSelect: () => void commands.moveBookmark(id, folder.id, null),
+    }));
     openMenu({
       at: { x: box.left, y: box.bottom + MENU_GAP },
       label: t("bookmarks.folder"),
-      items: interfaceMenu(
-        listFolders(tree).map(({ folder, path }) => ({
-          kind: "radio" as const,
-          id: `folder:${folder.id}`,
-          label: path.join(" › "),
-          checked: folder.id === parent.id,
-          onSelect: () => void commands.moveBookmark(id, folder.id, null),
-        })),
-      ),
+      items: interfaceMenu([
+        ...folders,
+        { kind: "separator", id: "separator:newFolder" },
+        {
+          kind: "command",
+          id: "newFolder",
+          label: t("bookmarks.editor.newFolder"),
+          icon: "ic-folder-plus",
+          onSelect: () => setFolderName(""),
+        },
+        {
+          kind: "command",
+          id: "manage",
+          label: t("bookmarks.bar.manage"),
+          icon: "ic-bookmark",
+          onSelect: () => {
+            // Chosen from the menu, so not a click away: close it here.
+            choosingRef.current = false;
+            close();
+            void commands.openTab(folderUrl(parent.id), true, "other");
+          },
+        },
+      ]),
       onClose: () => {
         choosingRef.current = false;
       },
     });
+  };
+
+  const createFolder = async () => {
+    const title = folderName?.trim() || t("bookmarks.newFolder");
+    setFolderName(null);
+    const created = await commands.addBookmarkFolder(parent.id, null, title);
+    if (created.status === "ok") {
+      await commands.moveBookmark(id, created.data, null);
+    }
   };
 
   const done = (event: FormEvent) => {
@@ -244,49 +280,71 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
   };
 
   return createPortal(
-    // On the overlay surface, which lets a little of the page through, and
-    // without a shadow, which the input mask would cut off at its edge.
+    // On the overlay surface, opaque, and without a shadow, which the input
+    // mask would cut off at its edge. No heading: the star that opened it
+    // already says what it edits.
     <section
       ref={editorRef}
-      aria-labelledby={titleId}
+      aria-label={t("bookmarks.editor.title")}
       tabIndex={-1}
-      className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex flex-col gap-3 rounded-(--radius-surface) border p-3 outline-none"
+      className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex flex-col rounded-(--radius-surface) border p-2 outline-none"
       style={{ left: anchor.left, top: anchor.top, width: EDITOR_WIDTH }}
     >
-      <h2 id={titleId} className="text-sm font-semibold">
-        {t("bookmarks.editor.title")}
-      </h2>
-      <form className="flex flex-col gap-3" onSubmit={done}>
-        <label htmlFor={nameId} className="flex flex-col gap-1 text-xs">
-          {t("bookmarks.name")}
-          <span className="input-group soft edgeless unadorned">
-            <input
-              ref={inputRef}
-              id={nameId}
-              className="ipt"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              spellCheck={false}
-              autoComplete="off"
-            />
-          </span>
-        </label>
-        <div className="flex flex-col gap-1 text-xs">
-          {t("bookmarks.folder")}
+      <form className="flex flex-col gap-1.5" onSubmit={done}>
+        <span className="input-group soft edgeless unadorned">
+          <Favicon key={url ?? ""} url={url} small />
+          <input
+            ref={inputRef}
+            className="ipt"
+            aria-label={t("bookmarks.name")}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </span>
+        {folderName === null ? (
           <button
             type="button"
-            className="btn soft edgeless justify-between"
+            className="btn soft edgeless justify-start gap-2"
             aria-haspopup="menu"
+            aria-label={`${t("bookmarks.folder")}: ${folderTitle}`}
             onClick={(event) => chooseFolder(event.currentTarget)}
           >
-            <span className="truncate">{displayTitle(tree, parent)}</span>
-            <i className="ic-chevron-down ic-sm shrink-0" aria-hidden="true" />
+            <i className="ic-folder ic-sm text-text-secondary shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-left">{folderTitle}</span>
+            <i className="ic-chevron-down ic-sm text-text-secondary shrink-0" aria-hidden="true" />
           </button>
-        </div>
-        <div className="flex items-center gap-2">
+        ) : (
+          <span className="input-group soft edgeless unadorned">
+            <i className="ic-folder-plus ic-sm text-text-secondary shrink-0" aria-hidden="true" />
+            <input
+              className="ipt"
+              aria-label={t("bookmarks.editor.folderName")}
+              placeholder={t("bookmarks.newFolder")}
+              value={folderName}
+              spellCheck={false}
+              autoComplete="off"
+              // oxlint-disable-next-line jsx-a11y/no-autofocus -- It replaces the folder button the user just asked to name a folder from.
+              autoFocus
+              onChange={(event) => setFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                // Its own Enter and Esc: the editor's would close the editor.
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void createFolder();
+                } else if (event.key === "Escape") {
+                  event.stopPropagation();
+                  setFolderName(null);
+                }
+              }}
+            />
+          </span>
+        )}
+        <div className="mt-1.5 flex items-center gap-2">
           <button
             type="button"
-            className="btn ghost edged"
+            className="btn ghost"
             onClick={() => {
               removedRef.current = true;
               onClose();
@@ -294,16 +352,6 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
             }}
           >
             {t("bookmarks.remove")}
-          </button>
-          <button
-            type="button"
-            className="btn ghost edged"
-            onClick={() => {
-              close();
-              void commands.openTab(folderUrl(parent.id), true, "other");
-            }}
-          >
-            {t("bookmarks.more")}
           </button>
           <button type="submit" className="btn ml-auto">
             {t("bookmarks.done")}
