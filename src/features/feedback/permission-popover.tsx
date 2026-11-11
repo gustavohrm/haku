@@ -112,8 +112,8 @@ function Prompt({ request, isPrivate, onAnswer }: PromptProps) {
       aria-labelledby={titleId}
       aria-describedby={messageId}
       onKeyDown={onKeyDown}
-      // Narrower in a window narrower than it, such as a small popup, so its buttons stay inside.
-      className="haku-overlay fixed z-10 flex w-80 max-w-[calc(100vw-8px)] flex-col gap-2 p-2"
+      // Narrower and scrolling in a window smaller than it, such as a small popup, so its buttons stay in reach.
+      className="haku-overlay fixed z-10 flex max-h-[calc(100vh-8px)] w-80 max-w-[calc(100vw-8px)] flex-col gap-2 overflow-y-auto p-2"
       style={position === null ? { left: 0, top: 0, visibility: "hidden" } : { left: position.x, top: position.y }}
     >
       <div className="flex items-start gap-2">

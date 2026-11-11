@@ -359,8 +359,17 @@ function AddRuleForm() {
     }
   };
 
+  // Counts asked for so far: one that answers after the rule was edited is for a rule no longer shown.
+  const asks = useRef(0);
+  const edited = () => {
+    asks.current += 1;
+    setOffer(null);
+  };
+
   const submit = async () => {
     setError(null);
+    asks.current += 1;
+    const asked = asks.current;
     const rule: HistoryRule = { pattern, action };
     if (action !== "never") {
       await save(rule, false);
@@ -368,6 +377,9 @@ function AddRuleForm() {
     }
     // Counting compiles the pattern, so an invalid one is refused here, before anything is stored.
     const counted = await commands.countHistory(filterOf({ include: [rule.pattern] }));
+    if (asked !== asks.current) {
+      return;
+    }
     if (counted.status === "error") {
       fail(counted.error);
     } else if (counted.data === 0) {
@@ -408,7 +420,7 @@ function AddRuleForm() {
             onChange={(event) => {
               setValue(event.target.value);
               setError(null);
-              setOffer(null);
+              edited();
               if (event.target.value.trim() === "") {
                 setChosenKind(null);
               }
@@ -424,7 +436,7 @@ function AddRuleForm() {
                 if (isKind(next)) {
                   setChosenKind(next);
                   setError(null);
-                  setOffer(null);
+                  edited();
                 }
               }}
             >
@@ -451,7 +463,7 @@ function AddRuleForm() {
                       if (isAction(option)) {
                         setAction(option);
                         // The offer was for the rule as it was: it is asked again for this one.
-                        setOffer(null);
+                        edited();
                       }
                     }}
                   />

@@ -312,7 +312,8 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
   const field = "ipt soft edgeless";
   // Esc anywhere in the form closes it unsaved, as it abandons a draft elsewhere in settings.
   const cancelOnEscape = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") {
+    // Not while saving: the save would then close whichever editor is open by the time it ends.
+    if (event.key === "Escape" && !saving) {
       event.preventDefault();
       onDone();
     }
@@ -388,7 +389,7 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <button type="button" className="btn ghost" onClick={onDone}>
+        <button type="button" className="btn ghost" disabled={saving} onClick={onDone}>
           {t("dialog.cancel")}
         </button>
         <button type="submit" className="btn" disabled={saving || (!preset && draft.url.trim() === "")}>

@@ -149,6 +149,20 @@ describe("HistoryRulesControl", () => {
     expect(stored).not.toHaveBeenCalled();
   });
 
+  it("drops a count that answers after the action was changed", async () => {
+    let answer: (result: { status: "ok"; data: number }) => void = () => {};
+    countHistory.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+
+    await type("bank.test");
+    await submit();
+    await act(async () => container.querySelector<HTMLInputElement>("input[type=radio][value=always]")!.click());
+    await act(async () => answer({ status: "ok", data: 42 }));
+
+    expect(container.textContent).not.toContain("42 recorded visits match this rule.");
+    expect(stored).not.toHaveBeenCalled();
+  });
+
   it("adds a rule at the top with the action chosen, replacing one with the same pattern", async () => {
     stored.mockResolvedValue({ status: "ok", data: {} as Settings });
     render(HistoryRulesControl, { historyRules: [] }, vi.fn());

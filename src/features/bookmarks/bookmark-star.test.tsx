@@ -225,9 +225,15 @@ describe("BookmarkStar", () => {
     await act(async () => menuItems().find((item) => item.id === "newFolder")!.onSelect!());
 
     const field = () => editor()!.querySelector<HTMLInputElement>('input[aria-label="New folder name"]');
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      set.call(field(), "Recipes");
+      field()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     await act(async () => field()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
 
-    expect(field()).not.toBeNull();
+    expect(commands.addBookmarkFolder).toHaveBeenCalledWith(expect.anything(), null, "Recipes");
+    expect(field()?.value).toBe("Recipes");
     expect(commands.moveBookmark).not.toHaveBeenCalled();
   });
 
