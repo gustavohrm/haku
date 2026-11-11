@@ -24,13 +24,14 @@ export const TRANSITIONS: Record<Transition, TranslationKey> = {
   other: "history.transition.other",
 };
 
-export const PATTERN_KINDS: Record<Exclude<UrlPatternKind, "page">, TranslationKey> = {
+export const PATTERN_KINDS: Record<UrlPatternKind, TranslationKey> = {
   site: "history.pattern.site",
+  page: "history.pattern.page",
   wildcard: "history.pattern.wildcard",
   regex: "history.pattern.regex",
 };
 
-/** Names a pattern for a chip: a site as itself, anything else with its kind. */
+/** Names a pattern for a chip: a site or a page as itself, anything else with its kind. */
 export function describePattern(pattern: UrlPattern): string {
   return pattern.kind === "site" || pattern.kind === "page"
     ? pattern.value

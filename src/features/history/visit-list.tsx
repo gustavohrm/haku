@@ -2,11 +2,12 @@ import { type TabId } from "@bindings";
 import { Favicon } from "@features/bookmarks/favicon";
 import { openMenu } from "@features/context-menu/store";
 import { commands } from "@ipc/commands";
+import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { type DayGroup, type VisitRow } from "./group";
-import { counted, siteRuleFor } from "./history-actions";
+import { counted, countVisits, siteFilter, siteRuleFor } from "./history-actions";
 import { addDays, startOfDay, TRANSITIONS } from "./page-filter";
 import { rowMenu } from "./row-menu";
 
@@ -94,6 +95,10 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
   const [open, setOpen] = useState(false);
   const ids = row.visits.map((visit) => visit.id);
   const checked = ids.every((id) => selected.has(id));
+  // Once anything is selected, every row shows its checkbox; until then a
+  // row shows it, and its actions, only on hover or focus.
+  const reveal = "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100";
+  const selecting = selected.size > 0;
   const name = row.title || row.url;
   const newest = row.visits[0]?.visitedAt ?? 0;
 
@@ -104,30 +109,38 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
       void commands.navigateTab(tabId, row.url, "other");
     }
   };
-  // Asks which rule decides the page as the menu opens, so it names the rule
-  // as it is now rather than as it was when the list loaded.
+  // Asks which rule decides the page, and how much of its site is recorded,
+  // as the menu opens, so it says both as they are now rather than as they
+  // were when the list loaded.
   const showMenu = async (at: { x: number; y: number }) => {
-    const siteRule = isPrivate || row.host === "" ? null : await siteRuleFor(row.url, row.host);
-    openMenu({ at, label: name, items: rowMenu(row, { isPrivate, siteRule, showSite }) });
+    const hasSite = row.host !== "";
+    const [siteRule, siteVisits] = await Promise.all([
+      isPrivate || !hasSite ? null : siteRuleFor(row.url, row.host),
+      hasSite ? countVisits(siteFilter(row.host)) : null,
+    ]);
+    openMenu({ at, label: name, items: rowMenu(row, { isPrivate, siteRule, siteVisits, showSite }) });
   };
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Right-click opens the row's menu; its actions button opens the same from the keyboard.
     <li
-      className="hover:bg-text/6 rounded-(--radius-control)"
+      className="group hover:bg-text/6 rounded-(--radius-control)"
       onContextMenu={(event) => {
         event.preventDefault();
         void showMenu({ x: event.clientX, y: event.clientY });
       }}
     >
       <div className="flex items-center gap-3 px-3 py-1.5">
-        <input
-          type="checkbox"
-          className="checkbox"
-          aria-label={t("history.row.select").replace("{page}", () => name)}
-          checked={checked}
-          onChange={(event) => onSelect(ids, event.target.checked)}
-        />
+        {/* Hidden from a wrapper, which the checkbox's own styles cannot outrank. */}
+        <span className={cx("flex", !selecting && reveal)}>
+          <input
+            type="checkbox"
+            className="checkbox"
+            aria-label={t("history.row.select").replace("{page}", () => name)}
+            checked={checked}
+            onChange={(event) => onSelect(ids, event.target.checked)}
+          />
+        </span>
         <Favicon key={row.url} url={isPrivate ? null : row.url} />
         <button
           type="button"
@@ -160,7 +173,7 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
         </time>
         <button
           type="button"
-          className="btn icon ghost size-7"
+          className={cx("btn icon ghost size-7", reveal)}
           aria-label={t("history.row.actions").replace("{page}", () => name)}
           title={t("history.row.actions").replace("{page}", () => name)}
           aria-haspopup="menu"

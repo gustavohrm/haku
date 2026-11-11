@@ -1,6 +1,7 @@
-import { type Transition, type UrlPattern } from "@bindings";
+import { type Transition, type UrlPattern, type UrlPatternKind } from "@bindings";
 import { openMenu } from "@features/context-menu/store";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
+import { guessPattern } from "@features/settings/rule-pattern";
 import { t } from "@shared/i18n";
 import { useId, useState } from "react";
 
@@ -24,7 +25,7 @@ function isWhen(value: string): value is When {
   return value in WHENS;
 }
 
-function isPatternKind(value: string): value is keyof typeof PATTERN_KINDS {
+function isPatternKind(value: string): value is UrlPatternKind {
   return value in PATTERN_KINDS;
 }
 
@@ -194,72 +195,83 @@ export function HistoryFilters({ filter, onChange }: FiltersProps) {
   );
 }
 
-/** Adds a site or address pattern to show, or to leave out. */
+/**
+ * Adds a site or address pattern to show, or with **Hide** to leave out, from
+ * one field. Its kind is guessed from what is typed, as the history rules
+ * form guesses it, and shown as a tag that can be changed.
+ * [Interface guidelines § Forms](../../../docs/guidelines/interface.md#forms).
+ */
 function AddressFilterForm({ onAdd }: { onAdd: (mode: "include" | "exclude", pattern: UrlPattern) => void }) {
-  const [mode, setMode] = useState<"include" | "exclude">("include");
-  const [kind, setKind] = useState<keyof typeof PATTERN_KINDS>("site");
+  const [hide, setHide] = useState(false);
   const [value, setValue] = useState("");
-  const modeId = useId();
-  const kindId = useId();
+  // A kind chosen by hand, which the guess no longer replaces.
+  const [chosenKind, setChosenKind] = useState<UrlPatternKind | null>(null);
   const valueId = useId();
+
+  const guessed = guessPattern(value);
+  const pattern: UrlPattern =
+    chosenKind === null || chosenKind === guessed.kind ? guessed : { kind: chosenKind, value: value.trim() };
+  const typing = value.trim() !== "";
+
   return (
     <form
       className="flex flex-wrap items-center gap-2"
       aria-label={t("history.addressFilter")}
       onSubmit={(event) => {
         event.preventDefault();
-        const trimmed = value.trim();
-        if (trimmed !== "") {
-          onAdd(mode, { kind, value: trimmed });
+        if (pattern.value !== "") {
+          onAdd(hide ? "exclude" : "include", pattern);
         }
       }}
     >
-      <label htmlFor={modeId} className="sr-only">
-        {t("history.addressFilter.mode")}
-      </label>
-      <select
-        id={modeId}
-        className="select soft edgeless"
-        value={mode}
-        onChange={(event) => setMode(event.target.value === "exclude" ? "exclude" : "include")}
+      <span className="input-group soft edgeless min-w-56 flex-1">
+        <label htmlFor={valueId} className="sr-only">
+          {t("history.addressFilter.value")}
+        </label>
+        <input
+          id={valueId}
+          type="text"
+          className="ipt font-mono"
+          placeholder={t("history.addressFilter.placeholder")}
+          spellCheck={false}
+          autoComplete="off"
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            if (event.target.value.trim() === "") {
+              setChosenKind(null);
+            }
+          }}
+        />
+        {typing && (
+          <select
+            className="text-text-secondary shrink-0 cursor-pointer rounded-(--radius-small) border-0 bg-transparent text-xs"
+            aria-label={t("history.addressFilter.kind")}
+            value={pattern.kind}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (isPatternKind(next)) {
+                setChosenKind(next);
+              }
+            }}
+          >
+            {Object.entries(PATTERN_KINDS).map(([option, label]) => (
+              <option key={option} value={option}>
+                {t(label)}
+              </option>
+            ))}
+          </select>
+        )}
+      </span>
+      <button
+        type="button"
+        className={hide ? "btn soft" : "btn ghost"}
+        aria-pressed={hide}
+        onClick={() => setHide((current) => !current)}
       >
-        <option value="include">{t("history.addressFilter.include")}</option>
-        <option value="exclude">{t("history.addressFilter.exclude")}</option>
-      </select>
-      <label htmlFor={kindId} className="sr-only">
-        {t("history.addressFilter.kind")}
-      </label>
-      <select
-        id={kindId}
-        className="select soft edgeless"
-        value={kind}
-        onChange={(event) => {
-          const next = event.target.value;
-          if (isPatternKind(next)) {
-            setKind(next);
-          }
-        }}
-      >
-        {Object.entries(PATTERN_KINDS).map(([option, label]) => (
-          <option key={option} value={option}>
-            {t(label)}
-          </option>
-        ))}
-      </select>
-      <label htmlFor={valueId} className="sr-only">
-        {t("history.addressFilter.value")}
-      </label>
-      <input
-        id={valueId}
-        type="text"
-        className="ipt soft edgeless min-w-40 flex-1 font-mono"
-        placeholder={kind === "site" ? "example.com" : kind === "wildcard" ? "*/issues/*" : "/issues/\\d+$"}
-        spellCheck={false}
-        autoComplete="off"
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-      />
-      <button type="submit" className="btn soft edgeless" disabled={value.trim() === ""}>
+        {t("history.addressFilter.exclude")}
+      </button>
+      <button type="submit" className="btn soft edgeless" disabled={!typing}>
         {t("history.addressFilter.add")}
       </button>
     </form>

@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-30
+last_updated: 2026-11-11
 scope: Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a discarded tab gets back when it reloads.
 ---
 
@@ -179,7 +179,7 @@ Performance no longer means _Discard: never_. That combination is still availabl
 
 ### Kept sites
 
-The site menu gains a second option under _Keep loaded_: **Don't unload this site**. It adds or removes the tab's host in `kept_sites`. A tab on a listed host has loss Work, whatever the page reports.
+The site menu gains a second option under _Keep loaded_: **Keep this site loaded** (named **Don't unload this site** until 2026-11-11, renamed to match **Sites kept loaded** in settings). It adds or removes the tab's host in `kept_sites`. Like _Keep loaded_, turning it on warns first, in place, and turning it off asks nothing ([Webview pool § Fixed tabs](webview-pool.md#fixed-tabs)). A tab on a listed host has loss Work, whatever the page reports.
 
 It is the remedy for a page whose loss Haku cannot see. It differs from _Keep loaded_ in two ways: it applies to every tab on the host, now and later, and it keeps the page without keeping it running.
 
