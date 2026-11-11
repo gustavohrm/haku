@@ -56,6 +56,12 @@ describe("DownloadsPage", () => {
     expect(commands.resumeDownload).toHaveBeenCalledWith(1);
   });
 
+  it("draws Clear finished as a quiet button, not an outlined one", async () => {
+    listed.downloads = [download({ state: "completed" })];
+    await act(async () => root.render(<DownloadsPage />));
+    expect([...(clear()?.classList ?? [])]).toEqual(["btn", "ghost"]);
+  });
+
   it("clears finished downloads only once one has ended", async () => {
     listed.downloads = [download()];
     await act(async () => root.render(<DownloadsPage />));

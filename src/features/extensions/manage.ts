@@ -1,4 +1,4 @@
-import { type Extension, type ExtensionSource } from "@bindings";
+import { type ExtensionSource } from "@bindings";
 import { feedback } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { t } from "@shared/i18n";
@@ -9,7 +9,7 @@ import { useSyncExternalStore } from "react";
  *
  * Rust serializes the changes anyway; this keeps their buttons disabled while
  * one runs, wherever they are, so a second click does not queue a second
- * picker or a second confirmation behind the first.
+ * picker or a second uninstall behind the first.
  * [Extensions § Settings](../../../docs/specs/extensions.md#settings).
  */
 
@@ -74,35 +74,19 @@ export async function addExtension(source: ExtensionSource): Promise<void> {
 }
 
 /**
- * Asks to confirm, then uninstalls an extension with what it stored, or
- * deletes a folder that failed to install.
+ * Uninstalls an extension with what it stored, or deletes a folder that
+ * failed to install. Settings asks on the extension's row first. A failure is
+ * reported by the command.
  *
  * @param folder - The extension's folder.
- * @param extension - The installed extension, or `null` for a folder that failed to install.
  */
-export async function removeExtension(folder: string, extension: Extension | null): Promise<void> {
+export async function uninstallExtension(folder: string): Promise<void> {
   if (busy !== null) {
     return;
   }
   setBusy(folder);
   try {
-    const confirmed: unknown = await feedback().dialog.confirm(
-      extension === null
-        ? t("extensions.remove.failedMessage").replace("{folder}", folder)
-        : t("extensions.remove.message").replace("{name}", extension.name),
-      {
-        title:
-          extension === null
-            ? t("extensions.remove.failedTitle")
-            : t("extensions.remove.title").replace("{name}", extension.name),
-        type: "error",
-        confirmLabel: extension === null ? t("extensions.remove.failedConfirm") : t("extensions.remove.confirm"),
-        cancelLabel: t("dialog.cancel"),
-      },
-    );
-    if (confirmed === true) {
-      await commands.removeExtension(folder);
-    }
+    await commands.removeExtension(folder);
   } finally {
     setBusy(null);
   }

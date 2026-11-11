@@ -131,3 +131,29 @@ it("moves a pin from its context menu", async () => {
   const first = openMenu.mock.calls[1]![0].items as { id: string; disabled?: boolean }[];
   expect(first.find((item) => item.id === "left")!.disabled).toBe(true);
 });
+
+it("opens a panel drawn with the overlay recipe, with no heading repeating its button", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Extensions"]')!.click());
+
+  const panel = document.querySelector<HTMLElement>('section[aria-label="Extensions"]')!;
+  expect(panel.classList).toContain("haku-overlay");
+  expect(panel.classList).toContain("p-1");
+  expect(panel.querySelector("h2")).toBeNull();
+  const rows = [...panel.querySelectorAll(".haku-row")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    "Extension a",
+    "Extension b",
+    "Extension c",
+    "Manage extensions",
+  ]);
+  for (const row of rows) {
+    expect(row.classList).toContain("min-h-8");
+  }
+});

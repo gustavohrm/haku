@@ -26,6 +26,11 @@ const ACTIONS: Record<DownloadAction, { icon: string; label: TranslationKey; run
 /**
  * One download: its name, where it stands, and what can be done to it.
  *
+ * A finished file opens from its name, the largest target in the row, and
+ * **Show in folder** shows on the row's hover or focus. What a running,
+ * paused or failed download offers stays in view: it is why the row is being
+ * looked at ([Interface guidelines § Lists](../../../docs/guidelines/interface.md#lists)).
+ *
  * Opening the file, or its folder, is asked of Rust, which only opens a path
  * it recorded for this download. Re-rendered only when its own download
  * changed, so a running download redraws one entry of a long list.
@@ -34,17 +39,31 @@ export const DownloadItem = memo(function DownloadItem({ download }: { download:
   const share = progressShare(download);
   const name = fileName(download);
   const failed = download.state === "failed";
+  const actions = actionsFor(download);
+  const opens = actions.includes("open");
 
   return (
-    <li className="flex items-center gap-3 px-3 py-2">
+    <li className="haku-row group min-h-8 py-1.5">
       <i className="ic-file ic-sm text-text-secondary shrink-0" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span
-          className={cx("truncate font-medium", download.state === "cancelled" && "text-text-secondary line-through")}
-          title={download.path}
-        >
-          {name}
-        </span>
+        {opens ? (
+          <button
+            type="button"
+            className="truncate text-left font-medium hover:underline focus-visible:underline"
+            aria-label={`${t("downloads.open")}: ${name}`}
+            title={download.path}
+            onClick={() => ACTIONS.open.run(download)}
+          >
+            {name}
+          </button>
+        ) : (
+          <span
+            className={cx("truncate font-medium", download.state === "cancelled" && "text-text-secondary line-through")}
+            title={download.path}
+          >
+            {name}
+          </span>
+        )}
         {(share !== null || download.state === "inProgress") && (
           <div
             // The design system draws `.progress` on a box with its fill as a
@@ -64,13 +83,20 @@ export const DownloadItem = memo(function DownloadItem({ download }: { download:
         </span>
       </div>
       <div className="flex shrink-0 gap-0.5">
-        {actionsFor(download).map((action) => {
+        {actions.map((action) => {
+          if (action === "open") {
+            return null;
+          }
           const { icon, label, run } = ACTIONS[action];
           return (
             <button
               key={action}
               type="button"
-              className="btn icon ghost"
+              // Show in folder is never what the row is about, so it waits for the row's hover or focus.
+              className={cx(
+                "btn icon ghost",
+                action === "show" && "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+              )}
               aria-label={`${t(label)}: ${name}`}
               title={t(label)}
               onClick={() => run(download)}

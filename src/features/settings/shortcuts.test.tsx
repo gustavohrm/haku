@@ -128,6 +128,26 @@ describe("ShortcutControl", () => {
     expect(container.querySelector('[aria-label="Reset to the default keys"]')).not.toBeNull();
   });
 
+  it("shows a chord's remove button and Add only on the row's hover or focus, and Reset always", () => {
+    render("find", async () => null, { find: ["Ctrl+G"] });
+    const onHover = ["opacity-0", "group-hover/setting:opacity-100", "group-focus-within/setting:opacity-100"];
+
+    expect(button("Remove Ctrl+G").classList).toContain(onHover[0]);
+    for (const name of onHover) {
+      expect(button("Add a shortcut").classList).toContain(name);
+    }
+    expect(button("Reset to the default keys").classList).not.toContain("opacity-0");
+  });
+
+  it("keeps Add in view while it records", async () => {
+    answers();
+    render("reload", async () => null);
+
+    await act(async () => button("Add a shortcut").click());
+
+    expect(button("Press a shortcut…").classList).not.toContain("opacity-0");
+  });
+
   it("offers Reset to an action that lost a default to another action", () => {
     keymapStore.set([
       { shortcut: "newTab", chords: [], defaults: ["Ctrl+T"] },
@@ -282,31 +302,83 @@ describe("ShortcutControl", () => {
 });
 
 describe("ResetAllControl", () => {
-  it("is disabled until a shortcut is changed, then clears every change", () => {
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    const { Control } = SHORTCUT_GROUPS[0]!.rows[0]!;
-    const update = vi.fn<UpdateSettings>(async () => null);
-    const render = (shortcuts: Settings["shortcuts"]) =>
-      act(() =>
-        root.render(
-          <Control
-            settings={settings(shortcuts)}
-            update={update}
-            id="c"
-            labelId="l"
-            describedBy={undefined}
-            disabled={false}
-          />,
-        ),
-      );
+  let container: HTMLDivElement;
+  let root: Root;
+  const update = vi.fn<UpdateSettings>(async () => null);
 
-    render({});
-    expect(container.querySelector("button")!.disabled).toBe(true);
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    keymapStore.set([
+      { shortcut: "newTab", chords: ["Ctrl+T"], defaults: ["Ctrl+T"] },
+      { shortcut: "reload", chords: [], defaults: ["Ctrl+R", "F5"] },
+      { shortcut: "find", chords: ["Ctrl+G"], defaults: ["Ctrl+F"] },
+    ]);
+    update.mockClear();
+  });
 
-    render({ reload: [] });
-    act(() => container.querySelector("button")!.click());
-    expect(update).toHaveBeenCalledWith({ shortcuts: {} });
+  afterEach(() => {
     act(() => root.unmount());
+    container.remove();
+  });
+
+  const render = (shortcuts: Settings["shortcuts"]) => {
+    const { Control } = SHORTCUT_GROUPS[0]!.rows[0]!;
+    act(() =>
+      root.render(
+        <Control
+          settings={settings(shortcuts)}
+          update={update}
+          id="c"
+          labelId="l"
+          describedBy={undefined}
+          disabled={false}
+        />,
+      ),
+    );
+  };
+  const button = (name: string) =>
+    [...container.querySelectorAll("button")].find((element) => element.textContent === name)!;
+
+  it("is disabled until a shortcut is changed", () => {
+    render({});
+    expect(button("Reset all").disabled).toBe(true);
+  });
+
+  it("asks in place how many changed shortcuts it resets, then clears every change", () => {
+    render({ reload: [], find: ["Ctrl+G"] });
+
+    act(() => button("Reset all").click());
+    expect(update).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Reset 2 changed shortcuts?");
+    expect(document.activeElement).toBe(button("Cancel"));
+
+    act(() => button("Reset all").click());
+    expect(update).toHaveBeenCalledWith({ shortcuts: {} });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("says one changed shortcut in the singular", () => {
+    keymapStore.set([{ shortcut: "reload", chords: [], defaults: ["Ctrl+R", "F5"] }]);
+    render({ reload: [] });
+
+    act(() => button("Reset all").click());
+    expect(container.textContent).toContain("Reset 1 changed shortcut?");
+  });
+
+  it("keeps every change on Cancel or Esc, and gives focus back to Reset all", () => {
+    render({ reload: [] });
+
+    act(() => button("Reset all").click());
+    act(() => button("Cancel").click());
+    expect(document.activeElement).toBe(button("Reset all"));
+
+    act(() => button("Reset all").click());
+    act(() => {
+      button("Cancel")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(update).not.toHaveBeenCalled();
   });
 });

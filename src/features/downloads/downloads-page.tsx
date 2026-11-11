@@ -18,12 +18,7 @@ export function DownloadsPage() {
     <InternalPage
       title={t("downloads.title")}
       actions={
-        <button
-          type="button"
-          className="btn ghost edged"
-          disabled={!ended}
-          onClick={() => void commands.clearDownloads()}
-        >
+        <button type="button" className="btn ghost" disabled={!ended} onClick={() => void commands.clearDownloads()}>
           {t("downloads.clear")}
         </button>
       }

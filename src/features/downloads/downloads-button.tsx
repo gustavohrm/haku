@@ -70,7 +70,7 @@ export function DownloadsButton() {
             id={listId}
             aria-label={t("downloads.title")}
             tabIndex={-1}
-            className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex w-96 flex-col rounded-(--radius-surface) border py-1 outline-none"
+            className="haku-overlay fixed z-10 flex w-96 flex-col p-1 outline-none"
             style={{ right: anchor.right, top: anchor.top }}
           >
             <ul className="flex max-h-96 flex-col overflow-auto">
@@ -78,15 +78,16 @@ export function DownloadsButton() {
                 <DownloadItem key={download.id} download={download} />
               ))}
             </ul>
+            <hr className="border-text/10 mx-1 my-1" />
             <button
               type="button"
-              className="btn ghost mx-1 justify-start"
+              className="haku-row min-h-8"
               onClick={() => {
                 close();
                 void commands.openTab(DOWNLOADS_URL, true, "other");
               }}
             >
-              {t("downloads.all")}
+              {t("downloads.manage")}
             </button>
           </section>,
           document.body,

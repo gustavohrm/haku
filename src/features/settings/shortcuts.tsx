@@ -2,8 +2,9 @@ import { type ChordRefusal, type KeyBinding, type Settings, type Shortcut } from
 import { commands } from "@ipc/commands";
 import { useKeymap } from "@ipc/hooks";
 import { keymapStore } from "@ipc/store";
+import { cx } from "@shared/class-names";
 import { t, type TranslationKey } from "@shared/i18n";
-import { useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { type ControlProps, type SettingGroup, type SettingRowDefinition } from "./types";
 
@@ -151,8 +152,18 @@ const REFUSALS: Record<ChordRefusal, TranslationKey> = {
 };
 
 /**
+ * Shown only on the setting row's hover or focus, so about 35 rows read as
+ * actions and their keys rather than as a wall of buttons
+ * ([Interface guidelines § Lists](../../../docs/guidelines/interface.md#lists)).
+ * The row is the `group/setting` that `SettingRow` draws.
+ */
+const ON_ROW_HOVER = "opacity-0 group-focus-within/setting:opacity-100 group-hover/setting:opacity-100";
+
+/**
  * An action's chords, each with a remove button, then Add and, once the
- * action differs from its defaults, Reset.
+ * action differs from its defaults, Reset. Remove and Add show on the row's
+ * hover or focus; Reset stays in view, since it also says the action was
+ * changed, and so does Add while it records.
  *
  * Add asks Rust for the next chord pressed, since a bound chord never reaches
  * the interface. A refused chord is shown and recording goes on; a chord
@@ -245,7 +256,7 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
               <kbd className="font-sans">{chord}</kbd>
               <button
                 type="button"
-                className="btn icon ghost p-xs [--ui-radius:var(--radius-small)]"
+                className={cx("btn icon ghost p-xs [--ui-radius:var(--radius-small)]", ON_ROW_HOVER)}
                 aria-label={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
                 title={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
                 onClick={() => void update((current) => withoutChord(current, keymapStore.get(), shortcut, chord))}
@@ -257,7 +268,7 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
         </ul>
         <button
           type="button"
-          className="btn soft edgeless gap-2"
+          className={cx("btn soft edgeless gap-2", recording.kind !== "waiting" && ON_ROW_HOVER)}
           aria-label={
             recording.kind === "waiting" ? t("settings.shortcuts.recording") : t("settings.shortcuts.addLabel")
           }
@@ -323,15 +334,72 @@ function shortcutRow(shortcut: Shortcut, title: TranslationKey): SettingRowDefin
   return { id: `shortcut-${shortcut}`, title, labelsControl: false, Control };
 }
 
+/**
+ * Reset all, which asks in place first, saying how many actions it puts back:
+ * it has no undo, and the changes it drops may have taken a while to make.
+ * The count is of the actions showing Reset.
+ */
 function ResetAllControl({ id, describedBy, settings, update }: ControlProps) {
+  const keymap = useKeymap();
+  const [asking, setAsking] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const resetRef = useRef<HTMLButtonElement>(null);
+  // Focus follows the question, and goes back to Reset all once it is answered.
+  const answered = useRef(false);
+
+  useEffect(() => {
+    if (asking) {
+      cancelRef.current?.focus();
+    } else if (answered.current) {
+      answered.current = false;
+      resetRef.current?.focus();
+    }
+  }, [asking]);
+
+  const answer = (reset: boolean) => {
+    answered.current = true;
+    setAsking(false);
+    if (reset) {
+      void update({ shortcuts: {} });
+    }
+  };
+
+  const onEscape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      answer(false);
+    }
+  };
+
+  if (asking) {
+    const count = (Object.keys(ACTIONS) as Shortcut[]).filter((shortcut) =>
+      isChanged(settings, keymap, shortcut),
+    ).length;
+    return (
+      <div role="alert" className="flex flex-wrap items-center justify-end gap-2 text-sm">
+        <p>
+          {count === 1
+            ? t("settings.shortcuts.resetAll.confirm.one")
+            : t("settings.shortcuts.resetAll.confirm.many").replace("{count}", count.toLocaleString())}
+        </p>
+        <button ref={cancelRef} type="button" className="btn ghost" onClick={() => answer(false)} onKeyDown={onEscape}>
+          {t("settings.shortcuts.cancel")}
+        </button>
+        <button type="button" className="btn destructive" onClick={() => answer(true)} onKeyDown={onEscape}>
+          {t("settings.shortcuts.resetAll.button")}
+        </button>
+      </div>
+    );
+  }
   return (
     <button
+      ref={resetRef}
       id={id}
       type="button"
       className="btn soft edgeless gap-2"
       aria-describedby={describedBy}
       disabled={Object.keys(settings.shortcuts).length === 0}
-      onClick={() => void update({ shortcuts: {} })}
+      onClick={() => setAsking(true)}
     >
       <i className="ic-rotate-ccw ic-sm" aria-hidden="true" />
       {t("settings.shortcuts.resetAll.button")}
