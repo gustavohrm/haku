@@ -89,7 +89,7 @@ A page can neither call these commands nor name a file: the commands are chrome-
 - **`haku://downloads`**: every listed download of the window's profile, the same entries and actions, and **Clear finished**.
 - An entry re-renders only when its own download changed, so a running download redraws one entry however many are listed.
 - Actions by state: in progress: pause, cancel; paused: resume, cancel; completed: open, show in folder; failed: retry and cancel when it can resume, otherwise show in folder; cancelled: none.
-- A completed file opens from its name. **Show in folder** shows on the entry's hover or focus; every other action stays in view, since it is what the entry is being looked at for ([Interface guidelines § Lists](../guidelines/interface.md#lists)).
+- A completed file opens from its name, and its **Show in folder** shows on the entry's hover or focus. Every other action stays in view, since it is what the entry is being looked at for, including **Show in folder** on a failed download that cannot be retried, where it is the only one ([Interface guidelines § Lists](../guidelines/interface.md#lists)).
 
 ## Rejected alternatives
 

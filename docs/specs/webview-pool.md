@@ -82,7 +82,7 @@ The **Optimization** section of settings holds four values, and the site menu a 
 | Background memory       | megabytes            | The [budget](tab-optimization.md#the-budget) for kept tabs (`kept_memory_mb`). |
 | Freeze background tabs  | never, smart, always | Whether a background tab still in a slot is frozen.                            |
 | Discard background tabs | never, smart, always | Whether Haku discards a background tab on its own accord.                      |
-| Kept sites              | a list of hosts      | [Keep this site loaded](tab-optimization.md#kept-sites), from the site menu.   |
+| Sites kept loaded       | a list of hosts      | [Keep this site loaded](tab-optimization.md#kept-sites), from the site menu.   |
 
 _Discard: always_ makes the first three meaningless, so it disables them, each with a tooltip saying why. The tooltip hangs off a wrapping element, because a disabled control receives no pointer events.
 

@@ -51,13 +51,13 @@ Approved by the maintainer on 2026-11-11. Code that predates it is legacy until 
 
 ### Glossary
 
-| Word                      | Means                                                                                                                                              | Not                             |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Remove**                | Take an entry out of a list the person keeps: a bookmark or a folder of them, a rule, a search engine, a kept site, a saved decision.              | Delete, Forget, Stop keeping    |
-| **Delete**                | Destroy records Haku made, which cannot be brought back: visits, or everything from one site.                                                      | Remove, Clear                   |
-| **Clear**                 | Delete a whole set at once, such as finished downloads or a time range of history.                                                                 | Delete all                      |
-| **Uninstall**             | Take an extension out of Haku, whether it works or failed to load.                                                                                 | Remove                          |
-| **address bar**           | Where an address or a search is typed.                                                                                                             | address field, URL bar, omnibox |
-| **kept loaded**           | A tab, or every tab of a site, that is never unloaded to save memory: **Keep this tab loaded**, **Keep this site loaded**.                         | pinned, don't unload            |
-| **Manage …**              | The item at the end of a menu or panel that opens where its things are managed: **Manage bookmarks**, **Manage downloads**, **Manage extensions**. | More…, Show all …               |
-| **This can't be undone.** | The one way to say so.                                                                                                                             | cannot                          |
+| Word                      | Means                                                                                                                                                  | Not                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| **Remove**                | Take an entry out of a list the person keeps: a bookmark or a folder of them, a rule, a search engine, a kept site, a saved decision.                  | Delete, Forget, Stop keeping    |
+| **Delete**                | Destroy records Haku made, which cannot be brought back, picked out by the person: chosen visits, those a filter matches, or everything from one site. | Remove, Clear                   |
+| **Clear**                 | Empty a whole standing set at once, with nothing picked out of it: finished downloads, or history back to a point in time.                             | Delete all                      |
+| **Uninstall**             | Take an extension out of Haku, whether it works or failed to load.                                                                                     | Remove                          |
+| **address bar**           | Where an address or a search is typed.                                                                                                                 | address field, URL bar, omnibox |
+| **kept loaded**           | A tab, or every tab of a site, that is never unloaded to save memory: **Keep this tab loaded**, **Keep this site loaded**.                             | pinned, don't unload            |
+| **Manage …**              | The item at the end of a menu or panel that opens where its things are managed: **Manage bookmarks**, **Manage downloads**, **Manage extensions**.     | More…, Show all …               |
+| **This can't be undone.** | The one way to say so.                                                                                                                                 | cannot                          |
