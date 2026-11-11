@@ -92,7 +92,7 @@ export function nodeItems(tree: Bookmarks, nodes: readonly BookmarkNode[], actio
 
 /**
  * The column's **Bookmarks** button: the bar's contents, then **Other
- * bookmarks** as a submenu and **Manage bookmarks**.
+ * bookmarks** as a submenu and, after a separator, **Manage bookmarks**.
  */
 export function bookmarksButtonMenu(tree: Bookmarks, actions: BarActions): MenuItem[] {
   const bar = nodeItems(tree, childrenOf(tree.bar), actions);
@@ -106,6 +106,7 @@ export function bookmarksButtonMenu(tree: Bookmarks, actions: BarActions): MenuI
       label: displayTitle(tree, tree.other),
       items: folderItems(tree, tree.other, actions),
     },
+    { kind: "separator", id: "separator:manage" },
     { kind: "command", id: "manage", label: t("bookmarks.bar.manage"), onSelect: actions.manage },
   ]);
 }
@@ -126,12 +127,13 @@ const SHOWN: { value: BookmarksBar; label: "bookmarks.bar.always" | "bookmarks.b
 
 /**
  * The row's own menu, opened on its empty space: adding to the bar, when it
- * shows, as the setting's three choices, and the bookmarks page.
+ * shows, as the setting's three choices, and, after a separator, the
+ * bookmarks page.
  */
 export function barRowMenu(shown: BookmarksBar, actions: RowActions): MenuItem[] {
   return interfaceMenu([
-    { kind: "command", id: "addLink", label: t("bookmarks.bar.addPage"), onSelect: () => actions.add("addLink") },
-    { kind: "command", id: "addFolder", label: t("bookmarks.bar.addFolder"), onSelect: () => actions.add("addFolder") },
+    { kind: "command", id: "addLink", label: t("bookmarks.addPage"), onSelect: () => actions.add("addLink") },
+    { kind: "command", id: "addFolder", label: t("bookmarks.addFolder"), onSelect: () => actions.add("addFolder") },
     { kind: "separator", id: "separator:show" },
     {
       kind: "submenu",
@@ -145,6 +147,7 @@ export function barRowMenu(shown: BookmarksBar, actions: RowActions): MenuItem[]
         onSelect: () => actions.setShown(value),
       })),
     },
+    { kind: "separator", id: "separator:manage" },
     { kind: "command", id: "manage", label: t("bookmarks.bar.manage"), onSelect: actions.manage },
   ]);
 }

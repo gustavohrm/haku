@@ -8,7 +8,16 @@ import { useBookmarks, useBrowserState, useSettings } from "@ipc/hooks";
 import { updateSettings } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { memo, useCallback, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { barActions, barRowMenu, folderItems, nodeItems } from "./bar-menus";
@@ -329,18 +338,28 @@ interface BarFormProps {
   onDone: () => void;
 }
 
-/** The width of the bar's form, in pixels, so it can be kept inside the window. */
-const FORM_WIDTH = 384;
+/** The width of the bar's form, in pixels, so it can be kept inside the window: the star's editor's. */
+const FORM_WIDTH = 320;
 
 /**
  * The form the bar's menus open, for **Add page…**, **Add folder…** and
- * **Edit…**: the bookmarks page's form, in a popover where the menu was.
+ * **Edit…**: the bookmarks page's form, in a popover where the menu was,
+ * laid out as the star's editor is. Escape or a click away keeps an edit and
+ * discards an addition.
  */
 function BarForm({ tree, target, at, hold, onDone }: BarFormProps) {
   const formRef = useRef<HTMLElement>(null);
+  const dismissRef = useRef<(() => void) | null>(null);
   useOverlay(formRef, true);
   useBarHold(hold, true);
-  useMenuDismiss(true, onDone, formRef, null);
+  const dismiss = useCallback(() => (dismissRef.current ?? onDone)(), [onDone]);
+  useMenuDismiss(true, dismiss, formRef, null);
+  // After the dismiss hook has focused the popover, so the name is typed into.
+  useEffect(() => {
+    const field = formRef.current?.querySelector("input");
+    field?.focus();
+    field?.select();
+  }, []);
   const left = Math.max(4, Math.min(at.x, document.documentElement.clientWidth - FORM_WIDTH - 4));
   return createPortal(
     // On the overlay surface, opaque, and
@@ -349,10 +368,10 @@ function BarForm({ tree, target, at, hold, onDone }: BarFormProps) {
       ref={formRef}
       aria-label={t("bookmarks.menu")}
       tabIndex={-1}
-      className="bg-chrome-overlay border-text/15 text-text fixed z-10 rounded-(--radius-surface) border outline-none [&>form]:bg-transparent"
+      className="haku-overlay fixed z-10 p-2 outline-none"
       style={{ left, top: at.y, width: FORM_WIDTH }}
     >
-      <BookmarkForm tree={tree} target={target} onDone={onDone} />
+      <BookmarkForm tree={tree} target={target} layout="popover" dismissRef={dismissRef} onDone={onDone} />
     </section>,
     document.body,
   );

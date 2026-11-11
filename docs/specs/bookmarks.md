@@ -31,12 +31,12 @@ Chrome's third root, **Mobile bookmarks**, is not kept: Haku has no sync, so it 
 
 ### Bookmarking a page
 
-The address field shows a star for the focused tab's page, filled when its URL is bookmarked. Clicking it, or **Bookmark this tab** (Ctrl+D):
+The address bar shows a star for the focused tab's page, filled when its URL is bookmarked. Clicking it, or **Bookmark this tab** (Ctrl+D):
 
 - On a page that is not bookmarked, adds a link with the page's title and URL to the folder used last, the bar at first, and opens the bookmark editor anchored to the star. The folder used last is the one a link was last added to or moved into, from anywhere: the star, the editor's folder menu, or `haku://bookmarks`. Moving a folder does not change it.
 - On a bookmarked page, opens the editor on its most recently added bookmark.
 
-The editor is a popover with no heading, laid out as the [interface guidelines](../guidelines/interface.md#popovers-and-panels) describe: the title, in a field led by the page's icon; the folder, a button led by a folder icon; then **Remove**, quiet, on the left, and **Done** on the right. The folder button opens a menu of the tree, ending, after a separator, with **New folder…** and **Manage bookmarks**. **New folder…** turns the folder button into a name field in place: Enter adds a folder of that name, **New folder** when it is left empty, inside the current folder, and moves the link into it; Esc goes back to the button without closing the editor. **Manage bookmarks** opens the link's folder in `haku://bookmarks`, in a new tab, and closes the editor. Changes apply as they are made: a folder chosen moves the link at once, and the title is kept when the editor closes, however it closes, so a title is not written on every keystroke. Esc or clicking away closes it; **Remove** removes the link and closes it. Internal pages (`haku://`) and pages with no URL show no star and ignore Ctrl+D, since there is nothing durable to return to. A popup window has no address field, so no star, and ignores Ctrl+D too, as it ignores the split and duplicate shortcuts ([Shortcuts](shortcuts.md)).
+The editor is a popover with no heading, laid out as the [interface guidelines](../guidelines/interface.md#popovers-and-panels) describe: the title, in a field led by the page's icon; the folder, a button led by a folder icon; then **Remove**, quiet, on the left, and **Done** on the right. The folder button opens a menu of the tree, ending, after a separator, with **New folder…** and **Manage bookmarks**. **New folder…** turns the folder button into a name field in place: Enter adds a folder of that name, **New folder** when it is left empty, inside the current folder, and moves the link into it; Esc goes back to the button without closing the editor. **Manage bookmarks** opens the link's folder in `haku://bookmarks`, in a new tab, and closes the editor. Changes apply as they are made: a folder chosen moves the link at once, and the title is kept when the editor closes, however it closes, so a title is not written on every keystroke. Esc or clicking away closes it; **Remove** removes the link and closes it. Internal pages (`haku://`) and pages with no URL show no star and ignore Ctrl+D, since there is nothing durable to return to. A popup window has no address bar, so no star, and ignores Ctrl+D too, as it ignores the split and duplicate shortcuts ([Shortcuts](shortcuts.md)).
 
 Until 2026-11-11 the editor had a **Bookmark** heading, labels over both fields, and a **More…** button for what **Manage bookmarks** now does. The maintainer chose the current layout on that date for being quieter: the heading repeated what the star had just said, and three boxed buttons competed with **Done**.
 
@@ -46,7 +46,7 @@ A row under the toolbar showing the bar root's contents: links as an icon and ti
 
 - A link opens in the focused tab; middle-click or Ctrl+click opens it in a new background tab, Shift+click in a new window.
 - A folder opens a menu of its contents, with subfolders as submenus and, at the end, **Open all (N)**, which opens its links in new tabs. N counts the folder's own links, not those in its subfolders, and the tabs open in the background in the folder's order. An empty folder's menu says so. A link chosen from a menu opens in the focused tab.
-- A right-click opens the item's menu, the one a bookmark has on `haku://bookmarks`: **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Move to**, **Delete**; and, on the row itself, **Add page…**, **Add folder…**, **Show bookmarks bar**, **Manage bookmarks**. **Show bookmarks bar** is a submenu of the setting's three choices, so the row's menu sets any of them. **Edit…**, **Add page…** and **Add folder…** open the bookmarks page's form in a popover where the menu was; **Add page…** adds to the end of the bar and starts empty.
+- A right-click opens the item's menu, the one a bookmark has on `haku://bookmarks`: **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Move to**, **Remove**; and, on the row itself, **Add page…**, **Add folder…**, **Show bookmarks bar**, then, after a separator, **Manage bookmarks**. **Show bookmarks bar** is a submenu of the setting's three choices, so the row's menu sets any of them. **Remove** on a folder that holds anything asks first where the menu was ([Removing](#the-bookmarks-page)). **Edit…**, **Add page…** and **Add folder…** open the bookmarks page's form in a popover where the menu was, laid out as the star's editor is: the name, led by the link's icon or a folder icon, and for a link the address, led by a link icon, stacked, without visible labels; then **Cancel**, quiet, on the left, and **Save** on the right. **Add page…** adds to the end of the bar and starts empty. Esc or clicking away keeps an edit, as the star's editor does, and discards a page or folder being added, which would otherwise be added half-typed.
 
 **Showing it.** A setting, `bookmarksBar`, with three values, settable from `haku://settings/appearance` and from the row's menu:
 
@@ -62,10 +62,10 @@ With floating bars the bookmarks bar floats with the toolbar, as part of the sam
 
 **With the toolbar in the tab column** (`toolbarPlacement: sidebar`) there is no top row to sit under, so the user chooses where bookmarks go, with a second setting, `sidebarBookmarks` (decided 2026-11-02):
 
-| Value    | Where                                                                                                                                                                                                                             |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `row`    | The bar as above, as a row of its own across the top of the page area, beside the column. `bookmarksBar` governs it as it governs the bar under the toolbar. With floating bars it floats from the top edge, as a bar of its own. |
-| `button` | A **Bookmarks** button in the column's foot row, beside the extensions and settings. It opens a menu of the bar root: its links, its folders as submenus, then **Other bookmarks** as a submenu and **Manage bookmarks**.         |
+| Value    | Where                                                                                                                                                                                                                                         |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `row`    | The bar as above, as a row of its own across the top of the page area, beside the column. `bookmarksBar` governs it as it governs the bar under the toolbar. With floating bars it floats from the top edge, as a bar of its own.             |
+| `button` | A **Bookmarks** button in the column's foot row, beside the extensions and settings. It opens a menu of the bar root: its links, its folders as submenus, then **Other bookmarks** as a submenu and, after a separator, **Manage bookmarks**. |
 
 `sidebarBookmarks` is shown in Appearance beside **Toolbar**, and disabled, still showing what is stored, while the toolbar is on top, as **Sidebar** and **Toolbar** are while the tabs are horizontal ([Appearance § Settings page](appearance.md#settings-page)). `button` is the default: the toolbar is in the column to give the page the window's full height, and a row above the page would take some back on every new-tab page. Under `button` the button is always shown, `bookmarksBar` has no effect and is disabled in Appearance, and Ctrl+Shift+B opens the button's menu, since there is no row to show or hide.
 
@@ -74,15 +74,17 @@ With floating bars the bookmarks bar floats with the toolbar, as part of the sam
 `haku://bookmarks` (**Manage bookmarks**, Ctrl+Shift+O), an [internal page](../architecture.md#internal-pages):
 
 - The folder tree on the left, the selected folder's contents on the right, and a search field that searches every bookmark's title and URL, showing matches with their folder.
-- Create a folder, add a link, rename, edit, delete, and move, by drag and drop in either pane or by **Move to…** in an item's menu.
-- **Import…** and **Export…** in the page's header ([Import and export](#import-and-export)).
+- Create a folder, add a link, rename, edit, remove, and move, by drag and drop in either pane or by **Move to…** in an item's menu.
+- **Add page…** and **Add folder…** as quiet buttons in the page's header, each opening the form at the end of the list, where the new item goes; **Import…** and **Export…** in the header's (…) menu beside them ([Import and export](#import-and-export)).
 - `haku://bookmarks?folder=<id>` opens a folder, so the editor's **Manage bookmarks** and the bar's folder menus can link into it. An id that names no folder opens **Bookmarks bar**.
-- A link opens as it does on the bar: in this tab, or with middle-click or Ctrl+click in a new background tab, and with Shift+click in a new window. Its menu, on right-click or its actions button, holds **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Move to** and **Delete**.
-- A name and an address are edited in a form in place of the row; an address typed without a scheme, such as `example.com`, is taken as `https://`.
+- A link opens as it does on the bar: in this tab, or with middle-click or Ctrl+click in a new background tab, and with Shift+click in a new window. Its menu, on right-click or its actions button, holds **Open in new tab**, **Open in new window**, **Open in private window** (ordinary windows only), **Edit…**, **Move to** and **Remove**.
+- A name and an address are edited in a form in place of the row, one line tall: the two fields and **Save**. Enter saves and Esc discards. An address typed without a scheme, such as `example.com`, is taken as `https://`.
 
 Dragging is pointer-driven, as the tab strip's is, not HTML drag and drop: enabling HTML drops in the chrome lets an external drop navigate it ([`tauri/AGENTS.md`](../../tauri/AGENTS.md)). Dragging a link out of a page onto the bar is therefore not supported.
 
-**Deleting.** Deleting a link or an empty folder happens at once. Deleting a folder that holds anything asks first, naming how many bookmarks it holds, because there is no undo.
+**Removing.** Removing a link or an empty folder happens at once. Removing a folder that holds anything asks first, naming how many bookmarks go with it, because there is no undo. It asks on the folder's row when it was started from one, with **Cancel**, focused, and **Remove**; from a menu with no row to ask in, on the bar or in the folder tree, the menu turns into the question where it was ([Interface guidelines § Forms](../guidelines/interface.md#forms)).
+
+Until 2026-11-11 the action was **Delete** here and in the bar's menus but **Remove** in the star's editor, a folder's confirmation was a dialog, the bar's form had visible labels and discarded an edit on Esc, the page's add form opened above the list, and **Import…** and **Export…** were outlined buttons beside **Add page** and **Add folder**. The maintainer approved the current behaviour on that date, following the [interface guidelines](../guidelines/interface.md): one word for one effect, confirming in place, and adding at the end of the list.
 
 ### Icons
 
@@ -92,7 +94,7 @@ The cost: a site that serves no icon at `/favicon.ico` shows the generic one, in
 
 ### Private windows
 
-Bookmarks are shared with private windows, which can see, open, add, edit and delete them, as in Chrome. A bookmark is something the user chose to keep, not a record of browsing, so adding one from a private window is the user writing it deliberately, unlike a visit or a site setting ([Settings page § Sections](settings-page.md#sections)). Opening a bookmark from a private window opens it in that private window.
+Bookmarks are shared with private windows, which can see, open, add, edit and remove them, as in Chrome. A bookmark is something the user chose to keep, not a record of browsing, so adding one from a private window is the user writing it deliberately, unlike a visit or a site setting ([Settings page § Sections](settings-page.md#sections)). Opening a bookmark from a private window opens it in that private window.
 
 ### Import and export
 
@@ -130,7 +132,7 @@ Bookmarks are owned by Rust: the types and the URL rule in `model/bookmark.rs`, 
   - `import_bookmarks()` and `export_bookmarks()` open the file dialog for the calling window. They return `null` when the dialog is cancelled; `import_bookmarks` otherwise returns `{ links, folders, skipped }`, and `export_bookmarks` returns `{ links, folders }`, the roots aside. Export's result was left open here at first; `{ links, folders }` was added on 2026-11-02, with the maintainer's approval, since a bare success and a cancel would both read `null`. A file over the size limit, or one that is not a bookmark file, is an `Unsupported` error.
 - **Refusals.** A command naming an id that does not exist, a root where a root may not go, or a link URL of a scheme Haku would not import is an `Unsupported` error ([Errors](errors.md)), shown as a toast through `@ipc/commands`.
 - **Keymap.** Three new actions, with Chrome's defaults: `bookmarkTab` (Ctrl+D), `toggleBookmarksBar` (Ctrl+Shift+B), `openBookmarks` (Ctrl+Shift+O), in the Page and Windows groups of [Shortcuts](shortcuts.md#the-keymap). None is refused by its rules.
-- **Settings.** `bookmarksBar` (`always`, `newTab`, `never`; default `newTab`) and `sidebarBookmarks` (`row`, `button`; default `button`), both read leniently as the appearance enums are ([Appearance § Settings](appearance.md#settings)). The folder used last is kept in the bookmarks database, not in settings, because it names a bookmark id and is meaningless without that database. When that folder has since been deleted, the next bookmark goes to **Bookmarks bar**.
+- **Settings.** `bookmarksBar` (`always`, `newTab`, `never`; default `newTab`) and `sidebarBookmarks` (`row`, `button`; default `button`), both read leniently as the appearance enums are ([Appearance § Settings](appearance.md#settings)). The folder used last is kept in the bookmarks database, not in settings, because it names a bookmark id and is meaningless without that database. When that folder has since been removed, the next bookmark goes to **Bookmarks bar**.
 
 The whole tree in every event was chosen because bookmarks change only when the user does something, never on a timer, so the per-progress cost that ended whole lists for downloads (issue #75) does not apply. The cost is recorded under [Measurements](#measurements).
 
@@ -138,12 +140,12 @@ The whole tree in every event was chosen because bookmarks change only when the 
 
 `bookmarks.sqlite`, beside `history.sqlite`, with its own migrations, opened, set aside when corrupt and kept in memory when it cannot be opened, as history is. The user is then told once, through [`FailureReported`](errors.md#failures-no-command-is-waiting-on), that bookmarks could not be opened and changes made in this run will not be kept.
 
-A file of its own rather than a table in `history.sqlite`, which [Downloads](downloads.md#rejected-alternatives) chose for downloads because they are, like history, records of what was fetched that grow alike and are kept alike. Bookmarks are none of those: they are the user's own work, small, kept until the user deletes them, and must survive clearing history and a history database set aside as corrupt. A separate file also lets a user back it up or copy it alone.
+A file of its own rather than a table in `history.sqlite`, which [Downloads](downloads.md#rejected-alternatives) chose for downloads because they are, like history, records of what was fetched that grow alike and are kept alike. Bookmarks are none of those: they are the user's own work, small, kept until the user removes them, and must survive clearing history and a history database set aside as corrupt. A separate file also lets a user back it up or copy it alone.
 
 ## Interface
 
 - `src/features/bookmarks/`: the bar, the editor popover, `haku://bookmarks`, and the store over `BookmarksChanged`.
-- The star sits at the end of the address field, beside the zoom level when one shows ([Zoom](zoom.md#behaviour)).
+- The star sits at the end of the address bar, beside the zoom level when one shows ([Zoom](zoom.md#behaviour)).
 - Overlays — the editor, folder menus, the » menu — register with `useOverlay` and use the menu component ([Chrome layering](chrome-layering.md#registering-an-overlay), [Context menus](context-menus.md#the-menu-component)).
 - A bar item re-renders only when its own node changed, so editing one bookmark does not redraw the bar.
 
@@ -182,16 +184,16 @@ The bar draws only its root's own items: a folder's menu is built when it opens,
 
 - **One free-form tree with a folder flagged as the bar.** More flexible, but every import from Chrome, Edge or Helium, which all use fixed roots, would need translating, and export back would too. Settled 2026-11-02.
 - **Importing from installed browsers' profiles.** Reading Chrome's, Edge's and Helium's `Bookmarks` JSON from disk saves the user an export, but needs per-browser profile discovery and a second parser, and every one of those browsers exports the HTML file. Settled 2026-11-02; can be added later on top of the same import path.
-- **Merging an import into existing folders.** Two bookmarks of one URL are allowed, so a merge would have to decide which copy's folder wins; a dated folder of its own is reversible by deleting it.
+- **Merging an import into existing folders.** Two bookmarks of one URL are allowed, so a merge would have to decide which copy's folder wins; a dated folder of its own is reversible by removing it.
 - **A table in `history.sqlite`.** See [Storage](#storage).
 - **Storing imported icons.** It keeps the reference file's 68 icons, but stores about 1 kB a link and sends it in every `BookmarksChanged`, for icons the favicon cache will replace. Decided 2026-11-02.
 - **New-tab shortcuts now.** See the opening paragraph.
-- **Undo for deletion.** It needs either the removed subtree held by the interface and sent back, which lets the interface write arbitrary trees, or removed rows kept in the database. A confirmation before deleting a non-empty folder covers the costly case.
+- **Undo for removal.** It needs either the removed subtree held by the interface and sent back, which lets the interface write arbitrary trees, or removed rows kept in the database. A confirmation before removing a non-empty folder covers the costly case.
 
 ## Testing
 
 - `model/bookmark.rs`: which URLs may be bookmarked, and the shape the interface receives.
 - `storage/bookmarks_db.rs`: the migration, adding, moving, refusing a move into a descendant, removing a folder with its contents, the roots' refusals, positions kept dense and in order across moves and removals, a corrupt file set aside, the in-memory fallback; later, the folder used last and an import's transaction rolling back.
 - The parser and writer (`storage/bookmarks_html.rs`): the reference file's structure, from a generated file of the same shape so the maintainer's own stays out of the repository, and from the file itself in an ignored test run with `HAKU_BOOKMARKS_FILE` set (82 links, 34 folders, the bar's contents arriving in **Bookmarks bar**), Firefox's and Edge's exports, skipped schemes counted, the size refusal, flattening below 64 levels, escaping, a round trip of export then import giving the same tree, for a tree no deeper than the import's 64-level limit.
-- The interface with Vitest: the star's state and the editor, the bar's overflow menu and folder menus, `haku://bookmarks` search and editing, the delete confirmation.
+- The interface with Vitest: the star's state and the editor, the bar's overflow menu and folder menus, `haku://bookmarks` search and editing, the remove confirmation.
 - In the app: importing the reference file, using the bar and the page, exporting and importing the export into Chrome.

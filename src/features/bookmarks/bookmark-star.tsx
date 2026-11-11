@@ -35,7 +35,7 @@ const EDITOR_WIDTH = 320;
 const EDGE = 4;
 
 /**
- * The address field's star: filled while the page is bookmarked, and the
+ * The address bar's star: filled while the page is bookmarked, and the
  * editor it opens on the page's bookmark. Ctrl+D, pressed in Rust, opens the
  * same editor through `BookmarkEditRequested`.
  * [Bookmarks § Bookmarking a page](../../../docs/specs/bookmarks.md#bookmarking-a-page).
@@ -287,7 +287,7 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
       ref={editorRef}
       aria-label={t("bookmarks.editor.title")}
       tabIndex={-1}
-      className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex flex-col rounded-(--radius-surface) border p-2 outline-none"
+      className="haku-overlay fixed z-10 flex flex-col p-2 outline-none"
       style={{ left: anchor.left, top: anchor.top, width: EDITOR_WIDTH }}
     >
       <form className="flex flex-col gap-1.5" onSubmit={done}>
