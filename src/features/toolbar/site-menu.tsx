@@ -133,6 +133,8 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
               />
               {!isPrivate && host !== null && (
                 <KeepSwitch
+                  // Per site, so a question asked about one is not answered for the next after a navigation.
+                  key={host}
                   label={t("site.keepSite")}
                   help={t("site.keepSite.help")}
                   warning={t("site.keepSite.warning")}
@@ -347,9 +349,10 @@ function RuleActions({ host, url, siteRule, run }: RuleActionsProps) {
       return;
     }
     const count = await countVisits(siteFilter(host));
-    if (count === 0) {
+    // Uncounted, as the history row's menu has it: the rule is added, and nothing is offered for deletion.
+    if (count === null || count === 0) {
       await neverRecordSite(host, false);
-    } else if (count !== null) {
+    } else {
       setOffer(count);
     }
   };

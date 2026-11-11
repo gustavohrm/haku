@@ -3,7 +3,7 @@ import { Favicon } from "@features/bookmarks/favicon";
 import { openMenu } from "@features/context-menu/store";
 import { t } from "@shared/i18n";
 
-import { counted, countVisits, siteFilter, siteRuleFor } from "./history-actions";
+import { counted, countVisits, forLatestMenu, siteFilter, siteRuleFor } from "./history-actions";
 import { siteItems } from "./row-menu";
 
 interface SiteListProps {
@@ -38,10 +38,13 @@ function SiteRow({ site, isPrivate, showSite }: { site: HistorySite } & Omit<Sit
   // as the menu opens, so it says both as they are now.
   const showMenu = async (at: { x: number; y: number }) => {
     const url = `https://${site.host}/`;
-    const [siteRule, siteVisits] = await Promise.all([
-      isPrivate ? null : siteRuleFor(url, site.host),
-      countVisits(siteFilter(site.host)),
-    ]);
+    const loaded = await forLatestMenu(() =>
+      Promise.all([isPrivate ? null : siteRuleFor(url, site.host), countVisits(siteFilter(site.host))]),
+    );
+    if (loaded === null) {
+      return;
+    }
+    const [siteRule, siteVisits] = loaded;
     openMenu({ at, label: site.host, items: siteItems(site.host, url, { isPrivate, siteRule, siteVisits }) });
   };
 

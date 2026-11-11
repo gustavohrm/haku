@@ -7,7 +7,7 @@ import { t } from "@shared/i18n";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { type DayGroup, type VisitRow } from "./group";
-import { counted, countVisits, siteFilter, siteRuleFor } from "./history-actions";
+import { counted, countVisits, forLatestMenu, siteFilter, siteRuleFor } from "./history-actions";
 import { addDays, startOfDay, TRANSITIONS } from "./page-filter";
 import { rowMenu } from "./row-menu";
 
@@ -114,10 +114,16 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
   // were when the list loaded.
   const showMenu = async (at: { x: number; y: number }) => {
     const hasSite = row.host !== "";
-    const [siteRule, siteVisits] = await Promise.all([
-      isPrivate || !hasSite ? null : siteRuleFor(row.url, row.host),
-      hasSite ? countVisits(siteFilter(row.host)) : null,
-    ]);
+    const loaded = await forLatestMenu(() =>
+      Promise.all([
+        isPrivate || !hasSite ? null : siteRuleFor(row.url, row.host),
+        hasSite ? countVisits(siteFilter(row.host)) : null,
+      ]),
+    );
+    if (loaded === null) {
+      return;
+    }
+    const [siteRule, siteVisits] = loaded;
     openMenu({ at, label: name, items: rowMenu(row, { isPrivate, siteRule, siteVisits, showSite }) });
   };
 

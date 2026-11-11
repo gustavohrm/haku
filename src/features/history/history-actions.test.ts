@@ -24,6 +24,7 @@ import { filterOf } from "./filter";
 import { type VisitRow } from "./group";
 import {
   clearMenu,
+  forLatestMenu,
   countVisits,
   deleteNow,
   neverRecordOffer,
@@ -165,13 +166,24 @@ describe("recordSiteAgain", () => {
   });
 });
 
+describe("forLatestMenu", () => {
+  it("gives what the latest menu loaded, and nothing to one asked for before it", async () => {
+    let answerFirst: (value: string) => void = () => {};
+    const first = forLatestMenu(() => new Promise<string>((resolve) => (answerFirst = resolve)));
+    const second = forLatestMenu(async () => "second");
+    answerFirst("first");
+    expect(await second).toBe("second");
+    expect(await first).toBeNull();
+  });
+});
+
 describe("clearMenu", () => {
   const HOUR = 60 * 60 * 1000;
 
-  it("counts each range from when the menu opens, and deletes from how far back it reaches", async () => {
+  it("counts each range from when the menu opens, and deletes what it counted: from how far back it reaches, to then", async () => {
     count(4);
     const items = await clearMenu(10_000_000);
-    expect(commands.countHistory).toHaveBeenCalledWith(filterOf({ from: 10_000_000 - HOUR }));
+    expect(commands.countHistory).toHaveBeenCalledWith(filterOf({ from: 10_000_000 - HOUR, to: 10_000_000 }));
     const hour = command(items, "hour");
     expect(hour.confirm).toEqual({
       message: "4 visits will be deleted. This can't be undone.",
@@ -179,9 +191,11 @@ describe("clearMenu", () => {
       destructive: true,
     });
     hour.onSelect();
-    await vi.waitFor(() => expect(commands.deleteHistory).toHaveBeenCalledWith(filterOf({ from: 10_000_000 - HOUR })));
+    await vi.waitFor(() =>
+      expect(commands.deleteHistory).toHaveBeenCalledWith(filterOf({ from: 10_000_000 - HOUR, to: 10_000_000 })),
+    );
     command(items, "all").onSelect();
-    await vi.waitFor(() => expect(commands.deleteHistory).toHaveBeenLastCalledWith(filterOf({})));
+    await vi.waitFor(() => expect(commands.deleteHistory).toHaveBeenLastCalledWith(filterOf({ to: 10_000_000 })));
   });
 
   it("asks nothing and deletes nothing for a range with no visit", async () => {

@@ -43,6 +43,21 @@ export async function countVisits(filter: HistoryFilter): Promise<number | null>
   return result.status === "ok" ? result.data : null;
 }
 
+let menusAsked = 0;
+
+/**
+ * Loads what a menu about to open says, for the latest menu asked for only:
+ * a slower answer for an earlier row must not open its menu over a later one.
+ *
+ * @returns What `load` gave, or `null` when another menu was asked for meanwhile.
+ */
+export async function forLatestMenu<T>(load: () => Promise<T>): Promise<T | null> {
+  menusAsked += 1;
+  const asked = menusAsked;
+  const loaded = await load();
+  return asked === menusAsked ? loaded : null;
+}
+
 /**
  * The question a step that deletes `count` visits asks where it started:
  * what goes, and **Delete N visits**. A menu takes it as an item's `confirm`.
@@ -228,7 +243,9 @@ export const CLEAR_RANGES: { id: string; label: TranslationKey; reach: number | 
 /**
  * Clear browsing history's menu: one item per range, each asking where the
  * menu was, with how many visits it deletes, counted as the menu opens. A
- * range with nothing in it says so instead, and one whose count failed, which
+ * range ends when the menu opens, so the question deletes the visits it
+ * counted and none recorded while it waits. A range with nothing in it says
+ * so instead, and one whose count failed, which
  * the command wrapper reported, is disabled. Downloads stay.
  *
  * @param now - When the menu opens, which every range reaches back from.
@@ -236,7 +253,7 @@ export const CLEAR_RANGES: { id: string; label: TranslationKey; reach: number | 
 export async function clearMenu(now: number = Date.now()): Promise<MenuItem[]> {
   return Promise.all(
     CLEAR_RANGES.map(async ({ id, label, reach }): Promise<MenuItem> => {
-      const filter = filterOf({ from: reach === null ? null : now - reach });
+      const filter = filterOf({ from: reach === null ? null : now - reach, to: now });
       const count = await countVisits(filter);
       return {
         kind: "command",

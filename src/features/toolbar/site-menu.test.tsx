@@ -144,6 +144,26 @@ describe("SiteMenu", () => {
     expect(tryUpdateSettings).toHaveBeenCalledOnce();
   });
 
+  it("never records the site and deletes nothing when the offer is answered Only from now on", async () => {
+    commands.countHistory.mockResolvedValue({ status: "ok", data: 3 });
+    await open();
+    await vi.waitFor(() => expect(button("Never record this site…")).toBeDefined());
+    await click(button("Never record this site…"));
+    await click(button("Only from now on"));
+    await vi.waitFor(() => expect(tryUpdateSettings).toHaveBeenCalledOnce());
+    expect(commands.deleteHistory).not.toHaveBeenCalled();
+  });
+
+  it("never records the site, offering nothing to delete, when the visits could not be counted", async () => {
+    commands.countHistory.mockResolvedValue({ status: "error", data: null });
+    await open();
+    await vi.waitFor(() => expect(button("Never record this site…")).toBeDefined());
+    await click(button("Never record this site…"));
+    await vi.waitFor(() => expect(tryUpdateSettings).toHaveBeenCalledOnce());
+    expect(menu().querySelector("[role=alert]")).toBeNull();
+    expect(commands.deleteHistory).not.toHaveBeenCalled();
+  });
+
   it("never records the site at once, with the menu still open, when nothing is recorded", async () => {
     await open();
     await vi.waitFor(() => expect(button("Never record this site…")).toBeDefined());

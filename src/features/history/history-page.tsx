@@ -17,6 +17,7 @@ import {
   deleteConfirmation,
   deleteNow,
   deleteVisits,
+  forLatestMenu,
   HISTORY_SETTINGS_URL,
 } from "./history-actions";
 import { HistoryFilters } from "./history-filters";
@@ -54,35 +55,62 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
   // Read when the filter changes, not on every render, so "today" does not
   // become a new query each time the page draws.
   const [now, setNow] = useState(Date.now);
-  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [picked, setSelected] = useState<ReadonlySet<number>>(new Set());
   // Delete all matching, while it asks: the filter as it was counted, and the count.
   const [deleting, setDeleting] = useState<{ filter: HistoryFilter; count: number } | null>(null);
+  // Counts asked for so far: one that answers after the filter changed is dropped.
+  const counts = useRef(0);
+  // Set when the question is answered, so the button that takes its place takes its focus.
+  const refocusDelete = useRef(false);
 
   const settled = useSettled(filter);
   const query = useMemo(() => toHistoryFilter(settled, now), [settled, now]);
   const visits = useVisits(query);
   const sites = useSites(query);
   const groups = useMemo(() => groupByDay(visits.items), [visits.items]);
+  // Only what is still listed: a selected visit deleted from its own menu is no longer selected.
+  const selected = useMemo(() => {
+    if (picked.size === 0) {
+      return picked;
+    }
+    const listed = new Set(visits.items.map((visit) => visit.id));
+    return new Set([...picked].filter((id) => listed.has(id)));
+  }, [picked, visits.items]);
 
   const changeFilter = (next: PageFilter) => {
     setFilter(next);
     setNow(Date.now());
     setSelected(new Set());
     setDeleting(null);
+    counts.current += 1;
   };
   const showSite = useCallback((host: string) => {
     setFilter((current) => withPattern(current, "include", { kind: "site", value: host }));
     setNow(Date.now());
     setSelected(new Set());
     setDeleting(null);
+    counts.current += 1;
     setView("visits");
   }, []);
   const askToDeleteMatching = async () => {
-    const count = await countVisits(query);
+    // The filter as it shows, not as it was last searched: text typed a moment ago counts.
+    if (!isFiltered(filter)) {
+      return;
+    }
+    const at = Date.now();
+    const shown = toHistoryFilter(filter, now);
+    // Ending now, so the question deletes the visits it counted and none recorded while it waits.
+    const bounded = { ...shown, to: shown.to === null ? at : Math.min(shown.to, at) };
+    counts.current += 1;
+    const asked = counts.current;
+    const count = await countVisits(bounded);
+    if (asked !== counts.current) {
+      return;
+    }
     if (count === 0) {
       feedback().info(t("history.delete.none"));
     } else if (count !== null) {
-      setDeleting({ filter: query, count });
+      setDeleting({ filter: bounded, count });
     }
   };
   const select = (ids: number[], on: boolean) =>
@@ -114,7 +142,10 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
             aria-haspopup="menu"
             onClick={async (event) => {
               const box = event.currentTarget.getBoundingClientRect();
-              const items = await clearMenu();
+              const items = await forLatestMenu(() => clearMenu());
+              if (items === null) {
+                return;
+              }
               openMenu({ at: { x: box.left, y: box.bottom + MENU_GAP }, label: t("history.clear.title"), items });
             }}
           >
@@ -166,6 +197,7 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
             <DeleteQuestion
               count={deleting.count}
               onAnswer={(yes) => {
+                refocusDelete.current = true;
                 setDeleting(null);
                 if (yes) {
                   void deleteNow(deleting.filter);
@@ -174,7 +206,17 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
             />
           ) : (
             isFiltered(settled) && (
-              <button type="button" className="btn ghost" onClick={() => void askToDeleteMatching()}>
+              <button
+                ref={(button) => {
+                  if (button && refocusDelete.current) {
+                    refocusDelete.current = false;
+                    button.focus();
+                  }
+                }}
+                type="button"
+                className="btn ghost"
+                onClick={() => void askToDeleteMatching()}
+              >
                 {t("history.deleteMatching")}
               </button>
             )

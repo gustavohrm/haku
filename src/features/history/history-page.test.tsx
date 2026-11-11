@@ -194,12 +194,25 @@ describe("HistoryPage", () => {
     expect(document.activeElement).toBe(button("Cancel"));
     await click(button("Cancel"));
     expect(commands.deleteHistory).not.toHaveBeenCalled();
-    expect(button("Delete all matching…")).toBeDefined();
+    expect(document.activeElement).toBe(button("Delete all matching…"));
 
     await click(button("Delete all matching…"));
     await click(button("Delete 5 visits"));
-    expect(commands.deleteHistory).toHaveBeenCalledWith(lastFilter());
+    // What was counted: the filter shown, ending when it was counted.
+    const counted = (commands.countHistory.mock.calls.at(-1) as unknown as [HistoryFilter])[0];
+    expect(counted).toEqual({ ...lastFilter(), to: expect.any(Number) });
+    expect(commands.deleteHistory).toHaveBeenCalledWith(counted);
     expect(button("Delete 5 visits")).toBeUndefined();
+  });
+
+  it("drops a count that answers after the filter changed", async () => {
+    let answer: (result: { status: string; data: unknown }) => void = () => {};
+    commands.countHistory.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    await render("haku://history?site=a.com");
+    await click(button("Delete all matching…"));
+    await click(button("Clear filters"));
+    await act(async () => answer({ status: "ok", data: 5 }));
+    expect(container.querySelector("[role=alert]")).toBeNull();
   });
 
   it("says there is nothing to delete rather than asking, when nothing matches", async () => {
