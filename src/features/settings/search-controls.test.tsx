@@ -172,6 +172,27 @@ describe("SearchEnginesControl", () => {
     expect(restored.customSearchEngines).toEqual([engine("mine")]);
   });
 
+  it("puts the default back too when the engine an edit dropped was the default", async () => {
+    engines.mockReturnValue([listed("duckduckgo", true), listed("mine", false)]);
+    const current = { ...SETTINGS, searchEngine: "mine", customSearchEngines: [engine("mine")] } as Settings;
+    // As Rust answers: the engine dropped, and the default moved off it.
+    const dropped = { ...current, searchEngine: "duckduckgo", customSearchEngines: [] } as Settings;
+    stored.mockImplementation(async (change) => {
+      change(current);
+      return { status: "ok", data: dropped };
+    });
+    const update = vi.fn<UpdateSettings>(async () => null);
+    render(SearchEnginesControl, update, current);
+
+    await act(async () => button("Edit engine", 1)!.click());
+    await fill("https://example.com/search?q=%s", "javascript:alert(1)");
+    await submit();
+
+    const restored = (update.mock.calls[0]![0] as (s: Settings) => Settings)(dropped);
+    expect(restored.customSearchEngines).toEqual([engine("mine")]);
+    expect(restored.searchEngine).toBe("mine");
+  });
+
   it("says why an engine whose address cannot search was not added", async () => {
     engines.mockReturnValue([listed("duckduckgo", true)]);
     stored.mockResolvedValue({ status: "ok", data: SETTINGS as Settings });
@@ -191,7 +212,8 @@ describe("SearchEnginesControl", () => {
       const added = next.customSearchEngines.map((each) => ({ ...each, keyword: null }));
       return { status: "ok", data: { ...next, customSearchEngines: added } };
     });
-    render(SearchEnginesControl, vi.fn());
+    const update = vi.fn<UpdateSettings>(async () => null);
+    render(SearchEnginesControl, update);
 
     await act(async () => buttonByText("Add search engine")!.click());
     await fill("Name", "Wiki");
@@ -203,5 +225,15 @@ describe("SearchEnginesControl", () => {
     expect(sent).toMatchObject({ name: "Wiki", url: "https://wiki.test/?q=%s", keyword: "@d" });
     expect(sent?.id).toMatch(/^custom-/);
     expect(container.querySelector("[role=alert]")?.textContent).toContain("“@d” is already used");
+    // Taken back out, so saving again with another keyword adds one engine, not a second.
+    const undone = (update.mock.calls[0]![0] as (s: Settings) => Settings)({
+      ...SETTINGS,
+      customSearchEngines: [sent!],
+    } as Settings);
+    expect(undone.customSearchEngines).toEqual([]);
+    expect(container.querySelector('input[placeholder="Keyword"]')?.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      container.querySelector('input[placeholder="https://example.com/search?q=%s"]')?.getAttribute("aria-invalid"),
+    ).toBe("false");
   });
 });

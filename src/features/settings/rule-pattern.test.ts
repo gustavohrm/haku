@@ -16,6 +16,15 @@ describe("guessPattern", () => {
     expect(guessPattern("https://example.com/?q=1")).toEqual({ kind: "page", value: "https://example.com/?q=1" });
   });
 
+  it("reads an address ending in a bare ? or # as a page, not as its whole site", () => {
+    expect(guessPattern("https://example.com/?")).toEqual({ kind: "page", value: "https://example.com/?" });
+    expect(guessPattern("https://example.com/#")).toEqual({ kind: "page", value: "https://example.com/#" });
+  });
+
+  it("reads an address without its scheme as a site, since a page without one would match nothing", () => {
+    expect(guessPattern("example.com/private")).toEqual({ kind: "site", value: "example.com/private" });
+  });
+
   it("reads anything with a star as a wildcard", () => {
     expect(guessPattern("*://*.bank.com/*")).toEqual({ kind: "wildcard", value: "*://*.bank.com/*" });
     expect(guessPattern("*token=*")).toEqual({ kind: "wildcard", value: "*token=*" });

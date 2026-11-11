@@ -132,8 +132,8 @@ describe("ShortcutControl", () => {
     render("find", async () => null, { find: ["Ctrl+G"] });
     const onHover = ["opacity-0", "group-hover/setting:opacity-100", "group-focus-within/setting:opacity-100"];
 
-    expect(button("Remove Ctrl+G").classList).toContain(onHover[0]);
     for (const name of onHover) {
+      expect(button("Remove Ctrl+G").classList).toContain(name);
       expect(button("Add a shortcut").classList).toContain(name);
     }
     expect(button("Reset to the default keys").classList).not.toContain("opacity-0");

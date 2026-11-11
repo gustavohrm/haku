@@ -70,7 +70,7 @@ describe("ExtensionsControl", () => {
     );
   const chooseUninstall = () => {
     act(() => button("More for Reader")!.click());
-    const request = openMenu.mock.calls[0]![0] as MenuRequest;
+    const request = openMenu.mock.calls.at(-1)![0] as MenuRequest;
     const item = request.items.find((candidate) => candidate.kind !== "separator" && candidate.id === "uninstall");
     act(() => (item as { onSelect: () => void }).onSelect());
   };

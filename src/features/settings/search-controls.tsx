@@ -229,13 +229,31 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
     url: listed?.engine.url ?? "",
     keyword: listed?.engine.keyword ?? "",
   });
-  const [message, setMessage] = useState<string | null>(null);
+  // What Rust refused, and the field it is about.
+  const [refused, setRefused] = useState<{ field: "url" | "keyword"; text: string } | null>(null);
+  const message = refused?.text ?? null;
+  const setMessage = (text: string | null, field: "url" | "keyword" = "url") =>
+    setRefused(text === null ? null : { field, text });
+  const [saving, setSaving] = useState(false);
   const set = (field: keyof EngineDraft) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setDraft((current) => ({ ...current, [field]: event.target.value }));
     setMessage(null);
   };
 
   const save = async () => {
+    // One save at a time: a second, before the first is stored, would add a new engine twice.
+    if (saving) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await store();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const store = async () => {
     setMessage(null);
     const keyword = draft.keyword.trim() === "" ? null : draft.keyword.trim();
     const engine: SearchEngine = {
@@ -244,11 +262,16 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
       url: preset ? (listed?.engine.url ?? "") : draft.url.trim(),
       keyword,
     };
-    const result = await tryUpdateSettings((current) =>
-      listed === null
+    // The edited engine's place, and whether it was the default, to put both back if Rust drops it.
+    let place = -1;
+    let wasDefault = false;
+    const result = await tryUpdateSettings((current) => {
+      place = current.customSearchEngines.findIndex((other) => other.id === engine.id);
+      wasDefault = current.searchEngine === engine.id;
+      return listed === null
         ? { ...current, customSearchEngines: [...current.customSearchEngines, engine] }
-        : withEngine(current, listed, engine),
-    );
+        : withEngine(current, listed, engine);
+    });
     if (result === null) {
       return;
     }
@@ -259,20 +282,35 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
     if (!preset && !result.data.customSearchEngines.some((other) => other.id === engine.id)) {
       if (listed !== null) {
         const original = listed.engine;
-        await update((current) => ({ ...current, customSearchEngines: [...current.customSearchEngines, original] }));
+        await update((current) => ({
+          ...current,
+          customSearchEngines: current.customSearchEngines.toSpliced(Math.max(place, 0), 0, original),
+          // Rust moved the default off the engine it dropped.
+          searchEngine: wasDefault ? original.id : current.searchEngine,
+        }));
       }
       setMessage(t("settings.searchEngines.invalidUrl"));
       return;
     }
     if (keyword !== null && keptKeyword(result.data, listed, engine.id, keyword) !== keyword) {
-      setMessage(t("settings.searchEngines.keywordTaken").replace("{keyword}", () => keyword));
+      if (listed === null) {
+        // Not added until its keyword is free: saving again would add a second, and Cancel would leave this one.
+        await update((current) => ({
+          ...current,
+          customSearchEngines: current.customSearchEngines.filter((other) => other.id !== engine.id),
+        }));
+      }
+      setMessage(
+        t("settings.searchEngines.keywordTaken").replace("{keyword}", () => keyword),
+        "keyword",
+      );
       return;
     }
     onDone();
   };
 
   const field = "ipt soft edgeless";
-  // Esc in any field closes the form unsaved, as it abandons a draft elsewhere in settings.
+  // Esc anywhere in the form closes it unsaved, as it abandons a draft elsewhere in settings.
   const cancelOnEscape = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -280,9 +318,11 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
     }
   };
   return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc closes the form from any control in it, its buttons included.
     <form
       className="bg-text/5 flex flex-col gap-2 rounded-(--radius-control) p-2"
       aria-label={listed === null ? t("settings.searchEngines.add") : listed.engine.name}
+      onKeyDown={cancelOnEscape}
       onSubmit={(event) => {
         event.preventDefault();
         void save();
@@ -302,7 +342,6 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
               className={`${field} w-36`}
               placeholder={t("settings.searchEngines.name")}
               autoComplete="off"
-              onKeyDown={cancelOnEscape}
               // oxlint-disable-next-line jsx-a11y/no-autofocus -- The form opens because the user asked to edit or add an engine.
               autoFocus
               value={draft.name}
@@ -318,9 +357,8 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
               placeholder="https://example.com/search?q=%s"
               spellCheck={false}
               autoComplete="off"
-              onKeyDown={cancelOnEscape}
-              aria-invalid={message !== null}
-              aria-describedby={message === null ? undefined : messageId}
+              aria-invalid={refused?.field === "url"}
+              aria-describedby={refused?.field === "url" ? messageId : undefined}
               value={draft.url}
               onChange={set("url")}
             />
@@ -336,7 +374,8 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
           placeholder={t("settings.searchEngines.keywordField")}
           spellCheck={false}
           autoComplete="off"
-          onKeyDown={cancelOnEscape}
+          aria-invalid={refused?.field === "keyword"}
+          aria-describedby={refused?.field === "keyword" ? messageId : undefined}
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- A preset's form opens to edit its keyword, its one field.
           autoFocus={preset}
           value={draft.keyword}
@@ -352,7 +391,7 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
         <button type="button" className="btn ghost" onClick={onDone}>
           {t("dialog.cancel")}
         </button>
-        <button type="submit" className="btn" disabled={!preset && draft.url.trim() === ""}>
+        <button type="submit" className="btn" disabled={saving || (!preset && draft.url.trim() === "")}>
           {listed === null ? t("settings.searchEngines.addSubmit") : t("settings.searchEngines.save")}
         </button>
       </div>

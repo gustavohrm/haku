@@ -128,6 +128,27 @@ describe("HistoryRulesControl", () => {
     expect(container.querySelector("form fieldset")).not.toBeNull();
   });
 
+  it("does nothing on Enter in the empty field", async () => {
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+    await submit();
+    expect(countHistory).not.toHaveBeenCalled();
+    expect(stored).not.toHaveBeenCalled();
+    expect(container.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("withdraws the offer to delete when the action is changed, so the rule shown is the one saved", async () => {
+    countHistory.mockResolvedValue({ status: "ok", data: 42 });
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+
+    await type("bank.test");
+    await submit();
+    expect(container.textContent).toContain("42 recorded visits match this rule.");
+
+    await act(async () => container.querySelector<HTMLInputElement>("input[type=radio][value=always]")!.click());
+    expect(container.textContent).not.toContain("42 recorded visits match this rule.");
+    expect(stored).not.toHaveBeenCalled();
+  });
+
   it("adds a rule at the top with the action chosen, replacing one with the same pattern", async () => {
     stored.mockResolvedValue({ status: "ok", data: {} as Settings });
     render(HistoryRulesControl, { historyRules: [] }, vi.fn());

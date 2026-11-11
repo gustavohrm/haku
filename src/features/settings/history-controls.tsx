@@ -232,6 +232,10 @@ export function HistoryRulesControl({ labelId, describedBy, settings, update }: 
                     }
                   }}
                   onPointerDown={(event) => {
+                    // The main button alone drags: a right-button drag must not reorder.
+                    if (event.button !== 0) {
+                      return;
+                    }
                     event.currentTarget.setPointerCapture(event.pointerId);
                     setDrag({ from: index, to: index, pointerId: event.pointerId });
                   }}
@@ -379,7 +383,10 @@ function AddRuleForm() {
       aria-label={t("settings.historyRules.add")}
       onSubmit={(event) => {
         event.preventDefault();
-        void submit();
+        // Enter in the empty field submits too, with no button to stop it.
+        if (typing) {
+          void submit();
+        }
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -417,6 +424,7 @@ function AddRuleForm() {
                 if (isKind(next)) {
                   setChosenKind(next);
                   setError(null);
+                  setOffer(null);
                 }
               }}
             >
@@ -442,6 +450,8 @@ function AddRuleForm() {
                     onChange={() => {
                       if (isAction(option)) {
                         setAction(option);
+                        // The offer was for the rule as it was: it is asked again for this one.
+                        setOffer(null);
                       }
                     }}
                   />

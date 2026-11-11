@@ -680,7 +680,21 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
   const ids = useId();
   // The folder whose row asks whether to uninstall it.
   const [asking, setAsking] = useState<string | null>(null);
+  // The button the question was asked from, which takes focus back when the answer is Cancel.
+  const askedFrom = useRef<HTMLElement | null>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (asking === null && refocus.current) {
+      refocus.current = false;
+      askedFrom.current?.focus();
+    }
+  }, [asking]);
+  const ask = (folder: string, from: HTMLElement) => {
+    askedFrom.current = from;
+    setAsking(folder);
+  };
   const answer = (folder: string, uninstall: boolean) => {
+    refocus.current = !uninstall;
     setAsking(null);
     if (uninstall) {
       void uninstallExtension(folder);
@@ -755,7 +769,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
           label: t("settings.extensions.uninstall"),
           icon: "ic-trash-2",
           disabled: change !== null,
-          onSelect: () => setAsking(extension.folder),
+          onSelect: () => ask(extension.folder, button),
         },
       ],
     });
@@ -861,7 +875,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
                     className="btn soft edgeless"
                     aria-describedby={`${ids}-failed-${index}`}
                     disabled={change !== null || asking === failed.folder}
-                    onClick={() => setAsking(failed.folder)}
+                    onClick={(event) => ask(failed.folder, event.currentTarget)}
                   >
                     {change === failed.folder ? t("settings.extensions.removing") : t("settings.extensions.uninstall")}
                   </button>

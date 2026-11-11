@@ -3,8 +3,10 @@ import { type UrlPattern } from "@bindings";
 /**
  * Which kind of pattern `typed` most likely is, so a rule can be added
  * without choosing one first: `/…/` is a regular expression, without its
- * slashes; anything with `*` a wildcard; an address with a path, query or
- * fragment a page; anything else a site. The guess is shown, and can be
+ * slashes; anything with `*` a wildcard; a full address, with its scheme, that
+ * has a path, query or fragment a page; anything else a site. Without a
+ * scheme, `example.com/private` is a site: a page is matched whole, so one
+ * without its scheme would match nothing. The guess is shown, and can be
  * changed, before the rule is saved.
  * [History § Rules](../../../docs/specs/history.md#rules).
  */
@@ -19,7 +21,8 @@ export function guessPattern(typed: string): UrlPattern {
   if (value.includes("://")) {
     try {
       const url = new URL(value);
-      if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+      // A bare `?` or `#` parses to nothing, but still names one address.
+      if (url.pathname !== "/" || value.includes("?") || value.includes("#")) {
         return { kind: "page", value };
       }
     } catch {
