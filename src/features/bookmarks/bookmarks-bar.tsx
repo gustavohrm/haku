@@ -343,7 +343,7 @@ function BarForm({ tree, target, at, hold, onDone }: BarFormProps) {
   useMenuDismiss(true, onDone, formRef, null);
   const left = Math.max(4, Math.min(at.x, document.documentElement.clientWidth - FORM_WIDTH - 4));
   return createPortal(
-    // On the overlay surface, which lets a little of the page through, and
+    // On the overlay surface, opaque, and
     // without a shadow, which the input mask would cut off at its edge.
     <section
       ref={formRef}

@@ -101,8 +101,7 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
 
       {/*
         Portalled out of the address field: inside its <label>, any click in
-        the menu would focus the field. On the overlay surface, which lets a
-        little of the page through, and without a shadow, which the input mask
+        the menu would focus the field. On the opaque overlay surface, and without a shadow, which the input mask
         would cut off at its edge. Its rounded corners are cut into the mask
         from its own style.
       */}

@@ -61,7 +61,7 @@ export function DownloadsButton() {
       >
         <i className={cx("ic-download ic-sm", running && "text-accent")} aria-hidden="true" />
       </button>
-      {/* On the overlay surface, which lets a little of the page through, and
+      {/* On the overlay surface, opaque, and
           without a shadow, which the input mask would cut off at its edge. */}
       {anchor &&
         createPortal(

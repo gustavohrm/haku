@@ -122,7 +122,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
         <i className="ic-blocks ic-sm" aria-hidden="true" />
       </button>
 
-      {/* On the overlay surface, which lets a little of the page through, and
+      {/* On the overlay surface, opaque, and
           without a shadow, which the input mask would cut off at its edge. Its
           rounded corners are cut into the mask from
           its own style. */}

@@ -9,12 +9,13 @@
    themes follow `@codenhub/theme` without a second set of colours. The chrome
    is one quiet plane; the active tab and the address field are raised from it.
    A surface floating over the page, such as a menu or a toast, is the raised
-   one letting a little of the page through: enough to place it over the page,
-   not so much that a busy page competes with its text. */
+   one, opaque: without a blur, a page showing through competes with its text
+   (docs/specs/chrome-layering.md#flat-surfaces-over-the-page). A surface that
+   needs to be translucent says so where it is drawn. */
 @theme {
   --color-chrome: var(--color-foreground);
   --color-chrome-raised: var(--color-surface);
-  --color-chrome-overlay: color-mix(in oklab, var(--color-surface) 88%, transparent);
+  --color-chrome-overlay: var(--color-surface);
 }
 
 /* Inter is bundled rather than taken from the system so the chrome looks and
@@ -176,15 +177,6 @@ dialog[data-toast-instance] .toast-dialog-container {
 */
 [data-toast-instance] {
   --default-font-family: var(--font-default);
-}
-
-/*
-  A toast is a surface over the page, so it lets a little of the page through,
-  as a menu does. The toaster mixes each intent's tint into an opaque ground;
-  this keeps the tint and lets the ground through.
-*/
-[data-haku-feedback] .coden-toast {
-  background-color: color-mix(in oklab, var(--_bg) 88%, transparent);
 }
 
 /*

@@ -41,7 +41,7 @@ interface MenuProps {
  * It takes focus when it opens and moves through its items from the
  * keyboard, as [Context menus § The menu component] describes. Each level is
  * registered as an overlay, so it stays clickable over the page. It is on the
- * overlay surface, which lets a little of the page through, with no shadow,
+ * opaque overlay surface, with no shadow,
  * which the input mask would cut off at its edge.
  * Focus goes back to where it was when the menu closes from inside it.
  *
@@ -125,7 +125,10 @@ function MenuList({ items, anchor, label, level, focusFirst, onChosen, onBack }:
     }
     const size = { width: list.offsetWidth, height: list.offsetHeight };
     const bounds = { width: window.innerWidth, height: window.innerHeight };
-    setPosition("at" in anchor ? placeAtPoint(anchor.at, size, bounds) : placeBeside(anchor.beside, size, bounds));
+    const inset = list.clientTop + (Number.parseFloat(getComputedStyle(list).paddingTop) || 0);
+    setPosition(
+      "at" in anchor ? placeAtPoint(anchor.at, size, bounds) : placeBeside(anchor.beside, size, bounds, inset),
+    );
   }, [anchor]);
 
   useEffect(() => {

@@ -68,11 +68,16 @@ export function placeAtPoint(at: Point, size: Size, bounds: Size): Point {
 /**
  * Where a submenu goes: beside its item, level with its top, flipped to the
  * other side or upwards where it would leave the window, then clamped to it.
+ *
+ * `inset` is a menu's border and padding, which every level shares. Moved out
+ * by it, the submenu's first row is level with the item and its edge meets
+ * the parent menu's, rather than its box being level with the item and its
+ * rows starting below it.
  */
-export function placeBeside(item: Box, size: Size, bounds: Size): Point {
+export function placeBeside(item: Box, size: Size, bounds: Size, inset = 0): Point {
   return {
-    x: placeAxis(item.right, item.left - size.width, size.width, bounds.width),
-    y: placeAxis(item.top, item.bottom - size.height, size.height, bounds.height),
+    x: placeAxis(item.right + inset, item.left - inset - size.width, size.width, bounds.width),
+    y: placeAxis(item.top - inset, item.bottom + inset - size.height, size.height, bounds.height),
   };
 }
 

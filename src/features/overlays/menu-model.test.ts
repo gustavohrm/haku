@@ -64,6 +64,17 @@ describe("placeBeside", () => {
     const low = { left: 100, top: 540, right: 300, bottom: 570 };
     expect(placeBeside(low, menu, window)).toEqual({ x: 300, y: 470 });
   });
+
+  // A menu's rows sit inside its border and padding, so a submenu placed by
+  // its outer edge would put its first row that much below the item.
+  it("lines its first row up with the item, and its edge with the parent's, past its inset", () => {
+    expect(placeBeside(item, menu, window, 5)).toEqual({ x: 305, y: 35 });
+  });
+
+  it("keeps the inset when it flips left or up", () => {
+    const corner = { left: 500, top: 540, right: 700, bottom: 570 };
+    expect(placeBeside(corner, menu, window, 5)).toEqual({ x: 295, y: 475 });
+  });
 });
 
 describe("stepIndex", () => {

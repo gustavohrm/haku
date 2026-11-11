@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
+last_updated: 2026-11-11
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -72,7 +72,20 @@ Blurring the live page needs a native effect under the interface, because no doc
 - **Composition hosting.** WebView2 renders into a DirectComposition visual instead of a child HWND (`CreateCoreWebView2CompositionController`). Two webviews in one visual tree blended correctly, and a native blur could sit between them; that blur was not tried. The host then owns input: mouse, pointer, cursor and focus are forwarded by hand. wry creates only windowed controllers (`src/webview2/mod.rs`, around line 398), so this needs wry first. [wry#1762](https://github.com/tauri-apps/wry/pull/1762) adds composition hosting as an opt-in, aimed at native content under a single webview rather than stacked webviews; it was open and unreviewed on 2026-11-03.
 - **A transparent owned popup window with the system backdrop** (`DWMSBT_TRANSIENTWINDOW`). The page beneath was really blurred. But clicking the popup deactivated the main window, which `WS_EX_NOACTIVATE` did not prevent, and while inactive the backdrop falls back to flat gray. The popup did not follow the main window without being moved on each move and resize, and the main window did not clip it.
 
-Until one of these is available, popovers and toasts over the live page are translucent but not blurred.
+Until one of these is available, nothing over the live page is blurred.
+
+#### Flat surfaces over the page
+
+Menus, popovers, panels and toasts over the live page are opaque: they use the `chrome-overlay` surface, which is the raised surface with no transparency. A surface that is translucent is an exception and says why where it is drawn, as the address card's frosting over its still backdrop does.
+
+Decided by the maintainer on 2026-11-11, reversing the translucent default chosen with transparency on 2026-11-08. That choice weighed translucency as what placed a surface over the page. It did not weigh legibility: without a blur, a busy or high-contrast page shows through as sharp shapes behind the text, and menus and the bookmark editor were hard to read over such pages. The border and rounded corners already place a surface over the page.
+
+Rejected:
+
+- **Translucent by default, at 88% opacity.** The previous default, and less legible over busy pages.
+- **Translucent only over calm pages.** Haku cannot see the page's pixels, so it cannot tell which pages are calm.
+
+Transparency itself stays: it is what antialiases the page's corners and the overlays' edges, and what lets a toast fade.
 
 ### Rounded page corners
 
