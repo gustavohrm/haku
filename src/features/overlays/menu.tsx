@@ -1,4 +1,5 @@
 import { cx } from "@shared/class-names";
+import { t } from "@shared/i18n";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 
@@ -13,13 +14,17 @@ import {
   stepIndex,
   type Box,
   type ChoosableItem,
+  type MenuConfirmation,
   type MenuItem,
   type Point,
 } from "./menu-model";
 import { useMenuDismiss } from "./use-menu-dismiss";
 import { useOverlay } from "./use-overlay";
 
-export type { MenuItem } from "./menu-model";
+export type { MenuConfirmation, MenuItem } from "./menu-model";
+
+/** An item that runs something, as opposed to opening a submenu. */
+type RunnableItem = Extract<ChoosableItem, { onSelect: () => void }>;
 
 interface MenuProps {
   items: readonly MenuItem[];
@@ -44,6 +49,8 @@ interface MenuProps {
  * opaque overlay surface, with no shadow,
  * which the input mask would cut off at its edge.
  * Focus goes back to where it was when the menu closes from inside it.
+ * An item with a `confirm` turns the menu into that question where it was,
+ * and runs only once it is answered; Escape or a click away answers no.
  *
  * [Context menus § The menu component]: ../../../docs/specs/context-menus.md#the-menu-component
  */
@@ -58,6 +65,7 @@ export function Menu({ items, at, label, onClose }: MenuProps) {
     [onClose],
   );
   useMenuDismiss(true, close, rootRef, null);
+  const [confirming, setConfirming] = useState<(RunnableItem & { confirm: MenuConfirmation }) | null>(null);
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -76,7 +84,29 @@ export function Menu({ items, at, label, onClose }: MenuProps) {
     // Contents only: it gives the levels one element to be outside of, and
     // takes no space of its own.
     <div ref={rootRef} className="contents">
-      <MenuList items={items} anchor={{ at }} label={label} level={0} focusFirst={false} onChosen={() => close(true)} />
+      {confirming ? (
+        <MenuQuestion
+          at={at}
+          label={confirming.label}
+          confirm={confirming.confirm}
+          onAnswer={(yes) => {
+            if (yes) {
+              confirming.onSelect();
+            }
+            close(true);
+          }}
+        />
+      ) : (
+        <MenuList
+          items={items}
+          anchor={{ at }}
+          label={label}
+          level={0}
+          focusFirst={false}
+          onChosen={() => close(true)}
+          onConfirm={setConfirming}
+        />
+      )}
     </div>,
     document.body,
   );
@@ -93,6 +123,8 @@ interface MenuListProps {
   focusFirst: boolean;
   /** An item was chosen; the whole menu closes. */
   onChosen: () => void;
+  /** An item that asks first was chosen; the menu turns into its question. */
+  onConfirm: (item: RunnableItem & { confirm: MenuConfirmation }) => void;
   /** Closes this level only, back to its parent's item. */
   onBack?: () => void;
 }
@@ -106,7 +138,7 @@ interface OpenSubmenu {
 }
 
 /** One level of a menu: the top one, or a submenu beside its item. */
-function MenuList({ items, anchor, label, level, focusFirst, onChosen, onBack }: MenuListProps) {
+function MenuList({ items, anchor, label, level, focusFirst, onChosen, onConfirm, onBack }: MenuListProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [position, setPosition] = useState<Point | null>(null);
@@ -155,6 +187,10 @@ function MenuList({ items, anchor, label, level, focusFirst, onChosen, onBack }:
     }
     if (item.kind === "submenu") {
       setSubmenu({ index, focusFirst: fromKeyboard, row: itemRefs.current[index] ?? null });
+      return;
+    }
+    if (item.confirm) {
+      onConfirm({ ...item, confirm: item.confirm });
       return;
     }
     item.onSelect();
@@ -227,7 +263,7 @@ function MenuList({ items, anchor, label, level, focusFirst, onChosen, onBack }:
         aria-label={label}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="bg-chrome-overlay border-text/10 text-text fixed z-20 flex max-w-72 min-w-40 flex-col overflow-y-auto rounded-(--radius-control) border p-1 outline-none"
+        className="haku-overlay fixed z-20 flex max-w-72 min-w-40 flex-col overflow-y-auto p-1 outline-none"
         style={{
           maxHeight: `calc(100vh - ${2 * MENU_EDGE}px)`,
           ...(position === null ? { left: 0, top: 0, visibility: "hidden" } : { left: position.x, top: position.y }),
@@ -269,6 +305,7 @@ function MenuList({ items, anchor, label, level, focusFirst, onChosen, onBack }:
           level={level + 1}
           focusFirst={submenu.focusFirst}
           onChosen={onChosen}
+          onConfirm={onConfirm}
           onBack={closeSubmenu}
         />
       )}
@@ -282,11 +319,12 @@ interface SubmenuProps {
   level: number;
   focusFirst: boolean;
   onChosen: () => void;
+  onConfirm: MenuListProps["onConfirm"];
   onBack: () => void;
 }
 
 /** A submenu, placed beside the row that opened it. */
-function Submenu({ item, row, level, focusFirst, onChosen, onBack }: SubmenuProps) {
+function Submenu({ item, row, level, focusFirst, onChosen, onConfirm, onBack }: SubmenuProps) {
   // Read once: a submenu stays where it opened.
   const [anchor] = useState<Anchor | null>(() => {
     const rect = row?.getBoundingClientRect();
@@ -303,8 +341,73 @@ function Submenu({ item, row, level, focusFirst, onChosen, onBack }: SubmenuProp
       level={level}
       focusFirst={focusFirst}
       onChosen={onChosen}
+      onConfirm={onConfirm}
       onBack={onBack}
     />
+  );
+}
+
+interface MenuQuestionProps {
+  at: Point;
+  /** The item that asked, which names the question. */
+  label: string;
+  confirm: MenuConfirmation;
+  onAnswer: (yes: boolean) => void;
+}
+
+/**
+ * The question an item asks before it runs, drawn where the menu was. Focus
+ * starts on the safe answer when going ahead destroys something.
+ */
+function MenuQuestion({ at, label, confirm, onAnswer }: MenuQuestionProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const actionRef = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState<Point | null>(null);
+  const messageId = useId();
+
+  useOverlay(ref, position !== null);
+
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (box) {
+      const size = { width: box.offsetWidth, height: box.offsetHeight };
+      setPosition(placeAtPoint(at, size, { width: window.innerWidth, height: window.innerHeight }));
+    }
+  }, [at]);
+
+  useEffect(() => {
+    if (position !== null) {
+      (confirm.destructive ? cancelRef : actionRef).current?.focus();
+    }
+  }, [position, confirm.destructive]);
+
+  return (
+    <div
+      ref={ref}
+      role="alertdialog"
+      aria-label={label}
+      aria-describedby={messageId}
+      className="haku-overlay fixed z-20 flex w-72 flex-col gap-2 p-2"
+      style={position === null ? { left: 0, top: 0, visibility: "hidden" } : { left: position.x, top: position.y }}
+    >
+      <p id={messageId} className="px-1 pt-1">
+        {confirm.message}
+      </p>
+      <div className="flex justify-end gap-2">
+        <button ref={cancelRef} type="button" className="btn ghost sm" onClick={() => onAnswer(false)}>
+          {t("dialog.cancel")}
+        </button>
+        <button
+          ref={actionRef}
+          type="button"
+          className={cx("btn sm", confirm.destructive && "destructive")}
+          onClick={() => onAnswer(true)}
+        >
+          {confirm.action}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -344,6 +447,8 @@ function MenuRow({ ref, id, item, highlighted, expanded, showsMarks, onHover, on
       aria-haspopup={item.kind === "submenu" ? "menu" : undefined}
       aria-expanded={item.kind === "submenu" ? expanded : undefined}
       className={cx(
+        // The recipe's row without its hover: a menu highlights the one active
+        // row, which the pointer and the keyboard both move.
         "flex min-h-6 shrink-0 items-center gap-2 rounded-(--radius-small) px-2 text-left outline-none",
         (highlighted || expanded) && "bg-text/8",
         item.disabled && "text-text-secondary opacity-60",

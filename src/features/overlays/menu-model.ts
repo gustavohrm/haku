@@ -16,9 +16,21 @@ interface ItemBase {
   disabledReason?: string | undefined;
 }
 
+/**
+ * A question the menu asks where it was, before an item that needs one runs:
+ * [Interface guidelines § Forms](../../../docs/guidelines/interface.md#forms).
+ */
+export interface MenuConfirmation {
+  /** What will happen, such as what goes and what it costs. */
+  message: string;
+  /** The button that goes ahead, named for what it does. */
+  action: string;
+  destructive?: boolean;
+}
+
 export type MenuItem =
-  | (ItemBase & { kind: "command"; onSelect: () => void })
-  | (ItemBase & { kind: "checkbox" | "radio"; checked: boolean; onSelect: () => void })
+  | (ItemBase & { kind: "command"; onSelect: () => void; confirm?: MenuConfirmation })
+  | (ItemBase & { kind: "checkbox" | "radio"; checked: boolean; onSelect: () => void; confirm?: MenuConfirmation })
   | (ItemBase & { kind: "submenu"; items: readonly MenuItem[] })
   | { kind: "separator"; id: string };
 

@@ -18,6 +18,20 @@
   --color-chrome-overlay: var(--color-surface);
 }
 
+/* The one surface every menu, popover and panel over the page is drawn on,
+   and the one row drawn in it. Padding and row height are left to the user,
+   so a utility added beside them never competes with the recipe for the same
+   property: a menu adds `p-1` and rows of `min-h-6`, a panel `p-1` and rows
+   of `min-h-8`, a form `p-2`. A menu draws its rows' highlight itself, since
+   the keyboard moves it too. docs/guidelines/code.md#styling. */
+@utility haku-overlay {
+  @apply bg-chrome-overlay border-text/10 text-text rounded-(--radius-control) border;
+}
+
+@utility haku-row {
+  @apply hover:bg-text/8 focus-visible:bg-text/8 flex shrink-0 items-center gap-2 rounded-(--radius-small) px-2 text-left outline-none;
+}
+
 /* Inter is bundled rather than taken from the system so the chrome looks and
    measures the same on every platform: the bars are sized to its metrics. The
    file is local, so blocking until it loads never shows the fallback's

@@ -165,6 +165,56 @@ describe("Menu", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  describe("an item that asks first", () => {
+    const asking: MenuItem[] = [
+      {
+        ...command("delete", "Delete"),
+        confirm: { message: "Delete 3 bookmarks?", action: "Delete", destructive: true },
+      },
+    ];
+    const question = () => document.querySelector('[role="alertdialog"]');
+    const answer = async (name: string) => {
+      const button = [...(question()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === name);
+      await act(async () => button?.click());
+    };
+
+    it("turns the menu into its question where it was, without running", async () => {
+      await render(asking);
+      await press("ArrowDown");
+      await press("Enter");
+      expect(menus().length).toBe(0);
+      expect(question()?.textContent).toContain("Delete 3 bookmarks?");
+      expect(question()?.getAttribute("aria-label")).toBe("Delete");
+      expect(chosen).toEqual([]);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("starts on Cancel when going ahead destroys something", async () => {
+      await render(asking);
+      await press("ArrowDown");
+      await press("Enter");
+      expect(focused()).toBe("Cancel");
+    });
+
+    it("runs the item once it is answered yes, then closes", async () => {
+      await render(asking);
+      await press("ArrowDown");
+      await press("Enter");
+      await answer("Delete");
+      expect(chosen).toEqual(["delete"]);
+      expect(onClose).toHaveBeenCalledExactlyOnceWith(true);
+    });
+
+    it("closes without running on Cancel", async () => {
+      await render(asking);
+      await press("ArrowDown");
+      await press("Enter");
+      await answer("Cancel");
+      expect(chosen).toEqual([]);
+      expect(onClose).toHaveBeenCalledExactlyOnceWith(true);
+    });
+  });
+
   it("closes with Escape at the top level, from inside", async () => {
     await render();
     await press("Escape");

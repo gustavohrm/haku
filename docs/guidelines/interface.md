@@ -12,7 +12,7 @@ Approved by the maintainer on 2026-11-11. Code that predates it is legacy until 
 
 ## Surfaces
 
-- **Flat.** A menu, popover, panel or toast is opaque, on the `chrome-overlay` surface, with a thin border and no shadow. Without a blur, a page showing through competes with the text ([Chrome layering § Flat surfaces over the page](../specs/chrome-layering.md#flat-surfaces-over-the-page)). A translucent surface is an exception, and says why where it is drawn.
+- **Flat.** A menu, popover, panel or toast is opaque, drawn with the one overlay recipe ([Code guidelines § Styling](code.md#styling)): the `chrome-overlay` surface, a thin border and no shadow. Without a blur, a page showing through competes with the text ([Chrome layering § Flat surfaces over the page](../specs/chrome-layering.md#flat-surfaces-over-the-page)). A translucent surface is an exception, and says why where it is drawn.
 - **One surface per task.** A popover does not open a second popover for one of its fields; a menu anchored to the field is fine, since it closes as soon as a choice is made.
 
 ## Popovers and panels
@@ -36,7 +36,8 @@ Approved by the maintainer on 2026-11-11. Code that predates it is legacy until 
 
 - **Ask for the least.** When what was typed shows which kind of value it is, Haku decides and shows its guess as a small, changeable tag, instead of asking first.
 - **Validate when saving**, and say what is wrong under the field it concerns, in the field's own words. Never drop an input silently.
-- **Confirm in place.** A destructive step that needs confirming asks in the form or row it started from, saying exactly what will go, such as how many visits. A dialog is for a question that cannot wait for the row, such as one from a page.
+- **Confirm in place.** A destructive step that needs confirming asks in the form or row it started from, saying exactly what will go, such as how many visits. A step started from a menu, with no row to ask in, asks where the menu was: the menu turns into the question, and Esc or a click away answers no ([Context menus § The menu component](../specs/context-menus.md#the-menu-component)). A dialog is for a question that cannot wait for the row, such as one from a page.
+- **Warn before a costly choice.** A choice whose cost is not visible when it is made, such as keeping a tab loaded, which holds its memory until it is turned off, says what it costs and asks before it takes effect, wherever it is made from. Turning it back off asks nothing.
 
 ## Menus
 
@@ -46,4 +47,17 @@ Approved by the maintainer on 2026-11-11. Code that predates it is legacy until 
 ## Wording
 
 - Labels are short and say what happens: **Remove**, not **Remove this bookmark from your bookmarks**. A description says what is not obvious, such as what is sent and to whom.
-- Name things the same everywhere: an action called **Remove** in one place is not **Delete** in another for the same effect.
+- Name things the same everywhere: an action called **Remove** in one place is not **Delete** in another for the same effect. The glossary below is the list to check against.
+
+### Glossary
+
+| Word                      | Means                                                                                                                                              | Not                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **Remove**                | Take an entry out of a list the person keeps: a bookmark or a folder of them, a rule, a search engine, a kept site, a saved decision.              | Delete, Forget, Stop keeping    |
+| **Delete**                | Destroy records Haku made, which cannot be brought back: visits, or everything from one site.                                                      | Remove, Clear                   |
+| **Clear**                 | Delete a whole set at once, such as finished downloads or a time range of history.                                                                 | Delete all                      |
+| **Uninstall**             | Take an extension out of Haku, whether it works or failed to load.                                                                                 | Remove                          |
+| **address bar**           | Where an address or a search is typed.                                                                                                             | address field, URL bar, omnibox |
+| **kept loaded**           | A tab, or every tab of a site, that is never unloaded to save memory: **Keep this tab loaded**, **Keep this site loaded**.                         | pinned, don't unload            |
+| **Manage …**              | The item at the end of a menu or panel that opens where its things are managed: **Manage bookmarks**, **Manage downloads**, **Manage extensions**. | More…, Show all …               |
+| **This can't be undone.** | The one way to say so.                                                                                                                             | cannot                          |
