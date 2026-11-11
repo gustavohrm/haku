@@ -2,15 +2,16 @@ import { type ListedSearchEngine, type SearchEngine, type Settings } from "@bind
 import { useSearchEngines } from "@features/search/use-search-engines";
 import { describeError } from "@ipc/result";
 import { tryUpdateSettings } from "@ipc/store";
+import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useId, useState } from "react";
 
-import { DraftInput } from "./draft-input";
 import { type ControlProps, type UpdateSettings } from "./types";
 
 /*
-  Search engines: which one searches go to, the list of presets and custom
-  engines with their keywords, and the form that adds one.
+  Search engines: one list of every engine, which marks the default, edits an
+  engine in place and adds one from a button, as the interface guidelines
+  describe for lists.
   [Address bar § Settings page](../../../docs/specs/address-bar.md#settings-page).
 */
 
@@ -28,85 +29,96 @@ export function SearchSuggestionsControl({ id, describedBy, settings, update }: 
   );
 }
 
-/** The engine searches go to, from the engines that show. */
-export function SearchEngineControl({ id, describedBy, settings, update }: ControlProps) {
-  const engines = useSearchEngines();
-  const shown = (engines ?? []).filter((listed) => !listed.hidden);
-  return (
-    <select
-      id={id}
-      className="select soft edgeless w-44"
-      aria-describedby={describedBy}
-      value={settings.searchEngine}
-      disabled={engines === null}
-      onChange={(event) => void update({ searchEngine: event.target.value })}
-    >
-      {shown.map(({ engine }) => (
-        <option key={engine.id} value={engine.id}>
-          {engine.name}
-        </option>
-      ))}
-    </select>
-  );
+/** What an engine's editor holds: a preset edits only its keyword. */
+interface EngineDraft {
+  name: string;
+  url: string;
+  keyword: string;
 }
 
-/** A preset's keyword as stored, or a custom engine's. */
-function withKeyword(current: Settings, listed: ListedSearchEngine, keyword: string): Settings {
-  if (listed.preset) {
-    return { ...current, presetKeywords: { ...current.presetKeywords, [listed.engine.id]: keyword.trim() } };
-  }
-  return {
-    ...current,
-    customSearchEngines: current.customSearchEngines.map((engine) =>
-      engine.id === listed.engine.id ? { ...engine, keyword: keyword.trim() === "" ? null : keyword.trim() } : engine,
-    ),
-  };
-}
-
-/**
- * The keyword `stored` keeps for an engine after `typed` was sent. A preset
- * keyword equal to the preset's own is not stored, so it is what was typed.
- */
-function storedKeyword(stored: Settings, listed: ListedSearchEngine, typed: string): string {
-  if (listed.preset) {
-    return stored.presetKeywords[listed.engine.id] ?? typed.trim();
-  }
-  return stored.customSearchEngines.find((engine) => engine.id === listed.engine.id)?.keyword ?? "";
-}
+/** Which row is open as a form: an engine's, the new engine's, or none. */
+type Editing = { id: string } | "new" | null;
 
 /**
  * Every engine with its keyword, which searches it once when typed before a
- * query. Presets are hidden rather than removed, since their addresses are
- * Haku's; custom engines are removed. The default engine can be neither.
+ * query. The default is marked, and any other shown engine can become it.
+ * Presets are hidden rather than removed, since their addresses are Haku's,
+ * and hidden ones fold away; custom engines are removed. The default engine
+ * can be neither.
  */
 export function SearchEnginesControl({ labelId, describedBy, settings, update }: ControlProps) {
   const engines = useSearchEngines();
+  const [editing, setEditing] = useState<Editing>(null);
+  const [showHidden, setShowHidden] = useState(false);
+  const hiddenId = useId();
   if (engines === null) {
     return null;
   }
+  const shown = engines.filter((listed) => !listed.hidden);
+  const hidden = engines.filter((listed) => listed.hidden);
+
+  const row = (listed: ListedSearchEngine) =>
+    editing !== null && editing !== "new" && editing.id === listed.engine.id ? (
+      <li key={listed.engine.id}>
+        <EngineEditor listed={listed} onDone={() => setEditing(null)} update={update} />
+      </li>
+    ) : (
+      <EngineRow
+        key={listed.engine.id}
+        listed={listed}
+        isDefault={listed.engine.id === settings.searchEngine}
+        update={update}
+        onEdit={() => setEditing({ id: listed.engine.id })}
+      />
+    );
+
   return (
-    <div className="flex flex-col gap-3">
-      <ul className="flex flex-col gap-1" aria-labelledby={labelId} aria-describedby={describedBy}>
-        {engines.map((listed) => (
-          <EngineRow key={listed.engine.id} listed={listed} settings={settings} update={update} />
-        ))}
+    <div className="flex flex-col gap-1">
+      <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+        {shown.map(row)}
       </ul>
-      <AddEngineForm />
+      {hidden.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="btn ghost justify-start gap-2 self-start"
+            aria-expanded={showHidden}
+            aria-controls={hiddenId}
+            onClick={() => setShowHidden((open) => !open)}
+          >
+            <i className={cx("ic-sm", showHidden ? "ic-chevron-down" : "ic-chevron-right")} aria-hidden="true" />
+            {t("settings.searchEngines.hidden").replace("{count}", String(hidden.length))}
+          </button>
+          {showHidden && (
+            <ul id={hiddenId} className="flex flex-col" aria-label={t("settings.searchEngines.hiddenList")}>
+              {hidden.map(row)}
+            </ul>
+          )}
+        </>
+      )}
+      {editing === "new" ? (
+        <EngineEditor listed={null} onDone={() => setEditing(null)} update={update} />
+      ) : (
+        <button type="button" className="btn ghost justify-start gap-2 self-start" onClick={() => setEditing("new")}>
+          <i className="ic-plus ic-sm" aria-hidden="true" />
+          {t("settings.searchEngines.add")}
+        </button>
+      )}
     </div>
   );
 }
 
 interface EngineRowProps {
   listed: ListedSearchEngine;
-  settings: Settings;
+  isDefault: boolean;
   update: UpdateSettings;
+  onEdit: () => void;
 }
 
-function EngineRow({ listed, settings, update }: EngineRowProps) {
+/** One engine as a line: its name, its keyword and whether it is the default, with its actions on hover. */
+function EngineRow({ listed, isDefault, update, onEdit }: EngineRowProps) {
   const nameId = useId();
-  const keywordId = useId();
   const { engine, preset, hidden } = listed;
-  const isDefault = engine.id === settings.searchEngine;
 
   const toggleHidden = () =>
     void update((current) => ({
@@ -121,82 +133,122 @@ function EngineRow({ listed, settings, update }: EngineRowProps) {
       customSearchEngines: current.customSearchEngines.filter((other) => other.id !== engine.id),
     }));
 
-  const action = !preset
-    ? { label: t("settings.searchEngines.remove"), icon: "ic-x", run: remove }
+  const last = !preset
+    ? { label: t("settings.searchEngines.remove"), icon: "ic-trash", run: remove }
     : hidden
       ? { label: t("settings.searchEngines.show"), icon: "ic-eye", run: toggleHidden }
       : { label: t("settings.searchEngines.hide"), icon: "ic-eye-off", run: toggleHidden };
 
   return (
-    <li className="flex items-center gap-2">
+    <li className="group hover:bg-text/5 flex min-h-9 items-center gap-2 rounded-(--radius-control) px-2">
       <span id={nameId} className="flex min-w-0 flex-1 items-baseline gap-2">
-        <span className={hidden ? "text-text-secondary truncate" : "truncate"}>{engine.name}</span>
-        {!preset && (
-          <span className="text-text-secondary truncate font-mono text-sm" title={engine.url}>
-            {engine.url}
-          </span>
-        )}
+        <span className={cx("truncate", hidden && "text-text-secondary")}>{engine.name}</span>
+        {engine.keyword && <span className="text-text-secondary shrink-0 font-mono text-sm">{engine.keyword}</span>}
         {isDefault && (
-          <span className="text-text-secondary shrink-0 text-sm">{t("settings.searchEngines.default")}</span>
+          <span className="bg-text/10 shrink-0 rounded-full px-2 text-xs">{t("settings.searchEngines.default")}</span>
         )}
       </span>
-      <label htmlFor={keywordId} className="sr-only">
-        {t("settings.searchEngines.keyword").replace("{engine}", () => engine.name)}
-      </label>
-      <DraftInput
-        id={keywordId}
-        type="text"
-        className="w-24 font-mono"
-        aria-describedby={nameId}
-        value={engine.keyword ?? ""}
-        onCommit={async (next) => {
-          const stored = await update((current) => withKeyword(current, listed, next));
-          return stored === null ? null : storedKeyword(stored, listed, next);
-        }}
-      />
-      <button
-        type="button"
-        className="btn icon ghost"
-        aria-label={action.label}
-        aria-describedby={nameId}
-        title={isDefault ? t("settings.searchEngines.isDefault") : action.label}
-        disabled={isDefault}
-        onClick={action.run}
-      >
-        <i className={`${action.icon} ic-sm`} aria-hidden="true" />
-      </button>
+      <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+        {!isDefault && !hidden && (
+          <button
+            type="button"
+            className="btn ghost sm"
+            aria-describedby={nameId}
+            onClick={() => void update({ searchEngine: engine.id })}
+          >
+            {t("settings.searchEngines.makeDefault")}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn icon ghost"
+          aria-label={t("settings.searchEngines.edit")}
+          aria-describedby={nameId}
+          title={t("settings.searchEngines.edit")}
+          onClick={onEdit}
+        >
+          <i className="ic-pencil ic-sm" aria-hidden="true" />
+        </button>
+        {!isDefault && (
+          <button
+            type="button"
+            className="btn icon ghost"
+            aria-label={last.label}
+            aria-describedby={nameId}
+            title={last.label}
+            onClick={last.run}
+          >
+            <i className={`${last.icon} ic-sm`} aria-hidden="true" />
+          </button>
+        )}
+      </span>
     </li>
   );
 }
 
+/** A preset's keyword as stored, or a custom engine's whole entry. */
+function withEngine(current: Settings, listed: ListedSearchEngine, next: SearchEngine): Settings {
+  if (listed.preset) {
+    return { ...current, presetKeywords: { ...current.presetKeywords, [listed.engine.id]: next.keyword ?? "" } };
+  }
+  return {
+    ...current,
+    customSearchEngines: current.customSearchEngines.map((engine) => (engine.id === next.id ? next : engine)),
+  };
+}
+
+/** The keyword `stored` kept for `id`, a preset's or a custom engine's. */
+function keptKeyword(stored: Settings, listed: ListedSearchEngine | null, id: string, sent: string | null) {
+  if (listed?.preset) {
+    return stored.presetKeywords[id] ?? sent;
+  }
+  return stored.customSearchEngines.find((engine) => engine.id === id)?.keyword ?? null;
+}
+
+interface EngineEditorProps {
+  /** The engine edited, or `null` for a new one. */
+  listed: ListedSearchEngine | null;
+  update: UpdateSettings;
+  onDone: () => void;
+}
+
 /**
- * Adds a custom engine at the end. Rust drops one whose address cannot
- * search, and a keyword another engine has, so either is said under the form
- * rather than vanishing.
+ * An engine opened in place, or the new engine's form. A preset edits only its
+ * keyword. Rust drops an engine whose address cannot search, and a keyword
+ * another engine has, so either is said under the form rather than vanishing;
+ * an edit Rust dropped is put back as it was.
  */
-function AddEngineForm() {
+function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
   const nameId = useId();
   const urlId = useId();
   const keywordId = useId();
   const messageId = useId();
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [keyword, setKeyword] = useState("");
+  const preset = listed?.preset ?? false;
+  const [draft, setDraft] = useState<EngineDraft>({
+    name: listed?.engine.name ?? "",
+    url: listed?.engine.url ?? "",
+    keyword: listed?.engine.keyword ?? "",
+  });
   const [message, setMessage] = useState<string | null>(null);
-
-  const submit = async () => {
+  const set = (field: keyof EngineDraft) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    setDraft((current) => ({ ...current, [field]: event.target.value }));
     setMessage(null);
+  };
+
+  const save = async () => {
+    setMessage(null);
+    const keyword = draft.keyword.trim() === "" ? null : draft.keyword.trim();
     const engine: SearchEngine = {
-      id: `custom-${crypto.randomUUID()}`,
-      name: name.trim(),
-      url: url.trim(),
-      suggestUrl: null,
-      keyword: keyword.trim() === "" ? null : keyword.trim(),
+      ...(listed?.engine ?? { id: `custom-${crypto.randomUUID()}`, suggestUrl: null }),
+      name: preset ? (listed?.engine.name ?? "") : draft.name.trim(),
+      url: preset ? (listed?.engine.url ?? "") : draft.url.trim(),
+      keyword,
     };
-    const result = await tryUpdateSettings((current) => ({
-      ...current,
-      customSearchEngines: [...current.customSearchEngines, engine],
-    }));
+    const result = await tryUpdateSettings((current) =>
+      listed === null
+        ? { ...current, customSearchEngines: [...current.customSearchEngines, engine] }
+        : withEngine(current, listed, engine),
+    );
     if (result === null) {
       return;
     }
@@ -204,81 +256,106 @@ function AddEngineForm() {
       setMessage(describeError(result.error));
       return;
     }
-    const stored = result.data.customSearchEngines.find((other) => other.id === engine.id);
-    if (stored === undefined) {
+    if (!preset && !result.data.customSearchEngines.some((other) => other.id === engine.id)) {
+      if (listed !== null) {
+        const original = listed.engine;
+        await update((current) => ({ ...current, customSearchEngines: [...current.customSearchEngines, original] }));
+      }
       setMessage(t("settings.searchEngines.invalidUrl"));
       return;
     }
-    setName("");
-    setUrl("");
-    setKeyword("");
-    if (engine.keyword !== null && stored.keyword === null) {
-      setMessage(t("settings.searchEngines.keywordTaken").replace("{keyword}", () => engine.keyword ?? ""));
+    if (keyword !== null && keptKeyword(result.data, listed, engine.id, keyword) !== keyword) {
+      setMessage(t("settings.searchEngines.keywordTaken").replace("{keyword}", () => keyword));
+      return;
     }
+    onDone();
   };
 
+  const field = "ipt soft edgeless";
+  // Esc in any field closes the form unsaved, as it abandons a draft elsewhere in settings.
+  const cancelOnEscape = (event: React.KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onDone();
+    }
+  };
   return (
     <form
-      className="flex flex-col gap-2"
-      aria-label={t("settings.searchEngines.add")}
+      className="bg-text/5 flex flex-col gap-2 rounded-(--radius-control) p-2"
+      aria-label={listed === null ? t("settings.searchEngines.add") : listed.engine.name}
       onSubmit={(event) => {
         event.preventDefault();
-        void submit();
+        void save();
       }}
     >
       <div className="flex flex-wrap gap-2">
-        <label htmlFor={nameId} className="sr-only">
-          {t("settings.searchEngines.name")}
-        </label>
-        <input
-          id={nameId}
-          type="text"
-          className="ipt soft edgeless w-36"
-          placeholder={t("settings.searchEngines.name")}
-          autoComplete="off"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <label htmlFor={urlId} className="sr-only">
-          {t("settings.searchEngines.url")}
-        </label>
-        <input
-          id={urlId}
-          type="text"
-          className="ipt soft edgeless min-w-48 flex-1 font-mono"
-          placeholder="https://example.com/search?q=%s"
-          spellCheck={false}
-          autoComplete="off"
-          aria-invalid={message !== null}
-          aria-describedby={message === null ? undefined : messageId}
-          value={url}
-          onChange={(event) => {
-            setUrl(event.target.value);
-            setMessage(null);
-          }}
-        />
+        {preset ? (
+          <span className="flex min-w-36 flex-1 items-center px-1">{listed?.engine.name}</span>
+        ) : (
+          <>
+            <label htmlFor={nameId} className="sr-only">
+              {t("settings.searchEngines.name")}
+            </label>
+            <input
+              id={nameId}
+              type="text"
+              className={`${field} w-36`}
+              placeholder={t("settings.searchEngines.name")}
+              autoComplete="off"
+              onKeyDown={cancelOnEscape}
+              // oxlint-disable-next-line jsx-a11y/no-autofocus -- The form opens because the user asked to edit or add an engine.
+              autoFocus
+              value={draft.name}
+              onChange={set("name")}
+            />
+            <label htmlFor={urlId} className="sr-only">
+              {t("settings.searchEngines.url")}
+            </label>
+            <input
+              id={urlId}
+              type="text"
+              className={`${field} min-w-48 flex-1 font-mono`}
+              placeholder="https://example.com/search?q=%s"
+              spellCheck={false}
+              autoComplete="off"
+              onKeyDown={cancelOnEscape}
+              aria-invalid={message !== null}
+              aria-describedby={message === null ? undefined : messageId}
+              value={draft.url}
+              onChange={set("url")}
+            />
+          </>
+        )}
         <label htmlFor={keywordId} className="sr-only">
           {t("settings.searchEngines.keywordField")}
         </label>
         <input
           id={keywordId}
           type="text"
-          className="ipt soft edgeless w-24 font-mono"
+          className={`${field} w-24 font-mono`}
           placeholder={t("settings.searchEngines.keywordField")}
           spellCheck={false}
           autoComplete="off"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
+          onKeyDown={cancelOnEscape}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- A preset's form opens to edit its keyword, its one field.
+          autoFocus={preset}
+          value={draft.keyword}
+          onChange={set("keyword")}
         />
-        <button type="submit" className="btn soft edgeless" disabled={url.trim() === ""}>
-          {t("settings.searchEngines.add")}
-        </button>
       </div>
       {message !== null && (
         <p id={messageId} role="alert" className="text-destructive text-sm">
           {message}
         </p>
       )}
+      <div className="flex justify-end gap-2">
+        <button type="button" className="btn ghost" onClick={onDone}>
+          {t("dialog.cancel")}
+        </button>
+        <button type="submit" className="btn" disabled={!preset && draft.url.trim() === ""}>
+          {listed === null ? t("settings.searchEngines.addSubmit") : t("settings.searchEngines.save")}
+        </button>
+      </div>
     </form>
   );
 }

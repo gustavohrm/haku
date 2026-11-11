@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-02
+last_updated: 2026-11-11
 scope: What browsing history records, the rules and switches that stop it, how it is searched, filtered and deleted, and its storage.
 ---
 
@@ -81,11 +81,15 @@ Both are on the history page, at the top: the switch, and **Pause until restart*
 | `addressOnly` | Recorded with an empty title, and never retitled. The list shows its address. For mail, chat and documents. |
 | `always`      | Recorded, whatever later rules say. The exception to a broader rule.                                        |
 
-The **first matching rule decides**; a visit no rule matches is recorded. A new rule goes to the top, from the site menu, a history row or settings, so the newest decision wins. Rules are reordered with move up and move down in settings.
+The **first matching rule decides**; a visit no rule matches is recorded. A new rule goes to the top, from the site menu, a history row or settings, so the newest decision wins. Rules are reordered in settings by dragging, or with the arrow keys on a rule's handle.
 
 Rules apply to visits recorded from then on. Adding a `never` rule shows how many existing visits match it, and offers to delete them in the same step: **Never record and delete 42 visits**, or **Only from now on**. Nothing is deleted without that choice. Turning recording off or pausing it overrides `always`: the switch is the user's broadest statement.
 
-Rules are managed in **Settings → Browsing → History**: add (pattern kind, pattern, action), reorder, remove. An invalid pattern is refused when it is saved, with the reason under the field.
+Rules are managed in **Settings → Browsing → History**, as a list laid out as the [interface guidelines](../guidelines/interface.md#lists) describe. Each rule is one line: a drag handle, its pattern with its kind muted beside it, its action as a select that changes it in place, and **Remove**; the handle and **Remove** show on hover or focus. Changing an action in place does not offer to delete matching visits; only adding a `never` rule does.
+
+A rule is added from one field, **Add a site or address…**. The pattern's kind is guessed from what is typed and shown as a tag inside the field, which can be changed: `/…/` is a regular expression, without its slashes; anything with `*` is a wildcard; an address with a path, query or fragment is a page; anything else is a site. Once something is typed, the action follows as three choices, **Never record** first, and **Add rule**. An invalid pattern is refused when it is saved, with the reason under the field. The offer to delete matching visits appears in place, under the field.
+
+Until 2026-11-11 a rule was added by choosing its kind, typing the pattern and choosing its action, from two selects around the field, and reordered with up and down buttons on every rule. The maintainer chose the current list on that date: what is typed almost always says its kind, and the buttons on every line made the list hard to read.
 
 From a private window, the site menu's rule action is hidden and `set_settings` refuses a rule that was not there before, as it refuses a newly kept site ([Settings page § Sections](settings-page.md#sections)): writing the host to disk would record the private visit the rule was meant to hide. Removing rules works anywhere.
 

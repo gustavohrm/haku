@@ -61,7 +61,7 @@ describe("searchSettings", () => {
     expect(ids("dark mode")).toContain("theme");
     expect(ids("sidebar")).toContain("tabLayout");
     expect(ids("auto-hide")).toContain("barLayout");
-    expect(ids("duckduckgo")).toContain("searchEngine");
+    expect(ids("duckduckgo")).toContain("searchEngines");
   });
 
   it("needs every word to match, in any order", () => {
