@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-11-08
+last_updated: 2026-11-11
 scope: The address bar's two layouts, inline and floating; its suggestions from history, bookmarks, open tabs and the search engine; search engines, their presets, custom engines and keywords.
 ---
 
@@ -105,8 +105,10 @@ The default engine is used for searches typed without a keyword, for the context
 ### Settings page
 
 - **Appearance → Address bar**, after Toolbar: icon buttons for inline and floating. Disabled while the toolbar is in the sidebar, still showing what is stored, as Sidebar and Toolbar are while the tabs are horizontal; its description says the sidebar always floats it.
-- **Browsing → Search engine** replaces the search URL field: a select of the visible engines.
-- **Browsing → Search engines**: one row per engine with its name, editable keyword, and hide (presets) or remove (custom), then **Add search engine** opening a form of name, URL and keyword. The default cannot be hidden or removed.
+- **Browsing → Search engines**, a list laid out as the [interface guidelines](../guidelines/interface.md#lists) describe. Each shown engine is one line: its name, its keyword muted, and a **Default** badge on the default. On hover or focus a line offers **Make default**, **Edit**, and **Hide** (presets) or **Remove** (custom); the default cannot be hidden or removed. **Edit** opens the line in place as a form: a custom engine's name, URL and keyword, or a preset's keyword alone, since its name and address are Haku's. Hidden presets fold under **Hidden engines (N)**, where each offers **Show**. **Add search engine**, after the list, opens the same form empty. An address that cannot search, or a keyword another engine has, is said under the form; an edit Rust drops for its address is put back as it was.
+
+  Until 2026-11-11 the default was a separate **Search engine** select above the list, every line had an open keyword field, and the add form was always shown. The maintainer chose the single list on that date: the default is a property of an engine, and fields and forms on screen when nobody is editing made the list hard to read.
+
 - **Browsing → Search suggestions**: the switch for [E](#approved-decisions), with a description saying what is sent and to whom.
 
 ## Contract

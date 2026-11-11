@@ -115,7 +115,7 @@ export function TabItem({ tab, active, pairPosition = -1, layout = "horizontal",
         )}
         {tab.fixed && (
           <i
-            className="ic-pin ic-xs text-text-secondary shrink-0"
+            className="ic-anchor ic-xs text-text-secondary shrink-0"
             title={t("tabs.fixed")}
             aria-label={t("tabs.fixed")}
           />

@@ -11,15 +11,19 @@ const { commands, state, openMenu, requests } = vi.hoisted(() => {
       updateBookmark: vi.fn(() => ok()),
       moveBookmark: vi.fn(() => ok()),
       removeBookmark: vi.fn(() => ok()),
+      addBookmarkFolder: vi.fn(() => ok(21)),
       openTab: vi.fn(() => ok()),
     },
-    state: { tree: null as Bookmarks | null },
+    state: { tree: null as Bookmarks | null, private: false },
     openMenu: vi.fn(),
     requests: { handler: null as ((event: { payload: BookmarkEditRequested }) => void) | null },
   };
 });
 vi.mock("@ipc/commands", () => ({ commands }));
-vi.mock("@ipc/hooks", () => ({ useBookmarks: () => state.tree }));
+vi.mock("@ipc/hooks", () => ({
+  useBookmarks: () => state.tree,
+  useBrowserState: () => ({ private: state.private }),
+}));
 vi.mock("@features/context-menu/store", () => ({ openMenu }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({}) }));
 vi.mock("@bindings", () => ({
@@ -162,14 +166,86 @@ describe("BookmarkStar", () => {
     expect(commands.moveBookmark).toHaveBeenCalledExactlyOnceWith(8, 4, null);
   });
 
-  it("opens the bookmark's folder on the bookmarks page for More…", async () => {
+  const folderButton = () => editor()!.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+  const menuItems = () => (openMenu.mock.lastCall![0] as { items: { id: string; onSelect?: () => void }[] }).items;
+
+  it("opens the bookmark's folder on the bookmarks page from the folder menu's Manage bookmarks", async () => {
     await render("https://developer.mozilla.org/");
     commands.bookmarkTab.mockResolvedValueOnce({ status: "ok", data: { id: 7, added: false } });
     await act(async () => star().click());
-    await act(async () => button("More…").click());
+    await act(async () => folderButton().click());
+    // After the folders, before what a development build adds.
+    const ids = menuItems().map((item) => item.id);
+    expect(ids.slice(ids.indexOf("separator:newFolder"), ids.indexOf("manage") + 1)).toEqual([
+      "separator:newFolder",
+      "newFolder",
+      "manage",
+    ]);
+    await act(async () => menuItems().find((item) => item.id === "manage")!.onSelect!());
 
     expect(commands.openTab).toHaveBeenCalledExactlyOnceWith("haku://bookmarks?folder=3", true, "other");
     expect(editor()).toBeNull();
+  });
+
+  it("names a new folder in place, and moves the bookmark into it", async () => {
+    await render("https://haku.test/");
+    await act(async () => star().click());
+    await act(async () => button("Bookmarks bar").click());
+    await act(async () => menuItems().find((item) => item.id === "newFolder")!.onSelect!());
+
+    const field = editor()!.querySelector<HTMLInputElement>('input[aria-label="New folder name"]')!;
+    await type(field, "Reading");
+    await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+
+    expect(commands.addBookmarkFolder).toHaveBeenCalledExactlyOnceWith(1, null, "Reading");
+    expect(commands.moveBookmark).toHaveBeenCalledExactlyOnceWith(8, 21, null);
+    expect(editor()).not.toBeNull();
+  });
+
+  it("goes back to the folder on Esc while naming one, without closing", async () => {
+    await render("https://haku.test/");
+    await act(async () => star().click());
+    await act(async () => button("Bookmarks bar").click());
+    await act(async () => menuItems().find((item) => item.id === "newFolder")!.onSelect!());
+
+    const field = editor()!.querySelector<HTMLInputElement>('input[aria-label="New folder name"]')!;
+    await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+
+    expect(editor()).not.toBeNull();
+    expect(button("Bookmarks bar")).toBeDefined();
+    expect(document.activeElement).toBe(button("Bookmarks bar"));
+    expect(commands.addBookmarkFolder).not.toHaveBeenCalled();
+  });
+
+  it("keeps the new folder's name in its field when the folder is refused", async () => {
+    commands.addBookmarkFolder.mockResolvedValueOnce({ status: "error", data: null } as never);
+    await render("https://haku.test/");
+    await act(async () => star().click());
+    await act(async () => button("Bookmarks bar").click());
+    await act(async () => menuItems().find((item) => item.id === "newFolder")!.onSelect!());
+
+    const field = () => editor()!.querySelector<HTMLInputElement>('input[aria-label="New folder name"]');
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      set.call(field(), "Recipes");
+      field()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => field()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+
+    expect(commands.addBookmarkFolder).toHaveBeenCalledWith(expect.anything(), null, "Recipes");
+    expect(field()?.value).toBe("Recipes");
+    expect(commands.moveBookmark).not.toHaveBeenCalled();
+  });
+
+  it("shows the generic icon in a private window, fetching none from the site", async () => {
+    state.private = true;
+    try {
+      await render("https://haku.test/");
+      await act(async () => star().click());
+      expect(editor()!.querySelector("img")).toBeNull();
+    } finally {
+      state.private = false;
+    }
   });
 
   it("opens the editor for Ctrl+D on this tab only", async () => {

@@ -84,19 +84,40 @@ describe("DownloadsButton", () => {
     expect(barHoldStore.get().toolbar).toBe(0);
   });
 
-  it("opens a completed file, or its folder, through Rust", async () => {
+  it("opens a completed file from its name, or its folder, through Rust", async () => {
     listed.downloads = [download({ state: "completed" })];
     await act(async () => root.render(<DownloadsButton />));
     await act(async () => button()?.click());
 
-    await act(async () =>
-      list()?.querySelector<HTMLButtonElement>('[aria-label="Open file: report (1).pdf"]')?.click(),
-    );
+    const name = list()?.querySelector<HTMLButtonElement>('[aria-label="Open file: report (1).pdf"]');
+    expect(name?.textContent).toBe("report (1).pdf");
+    await act(async () => name?.click());
     await act(async () =>
       list()?.querySelector<HTMLButtonElement>('[aria-label="Show in folder: report (1).pdf"]')?.click(),
     );
     expect(commands.openDownload).toHaveBeenCalledWith(1);
     expect(commands.showDownload).toHaveBeenCalledWith(1);
+  });
+
+  it("shows Show in folder on the row's hover or focus", async () => {
+    listed.downloads = [download({ state: "completed" })];
+    await act(async () => root.render(<DownloadsButton />));
+    await act(async () => button()?.click());
+
+    const show = list()?.querySelector('[aria-label="Show in folder: report (1).pdf"]');
+    expect(show?.classList).toContain("opacity-0");
+    expect(show?.classList).toContain("group-hover:opacity-100");
+    expect(show?.classList).toContain("group-focus-within:opacity-100");
+  });
+
+  it("keeps a running download's Pause and Cancel in view", async () => {
+    listed.downloads = [download()];
+    await act(async () => root.render(<DownloadsButton />));
+    await act(async () => button()?.click());
+
+    for (const label of ["Pause: report (1).pdf", "Cancel: report (1).pdf"]) {
+      expect(list()?.querySelector(`[aria-label="${label}"]`)?.classList).not.toContain("opacity-0");
+    }
   });
 
   it("shows a failure in the download's own entry", async () => {
@@ -108,15 +129,15 @@ describe("DownloadsButton", () => {
     expect(list()?.querySelector('[aria-label="Retry: report (1).pdf"]')).toBeNull();
   });
 
-  it("leads to the page that lists every download", async () => {
+  it("ends with Manage downloads after a separator, which opens the downloads page", async () => {
     listed.downloads = [download()];
     await act(async () => root.render(<DownloadsButton />));
     await act(async () => button()?.click());
 
-    const all = [...(list()?.querySelectorAll("button") ?? [])].find(
-      (item) => item.textContent === "Show all downloads",
-    );
-    await act(async () => all?.click());
+    const manage = list()?.lastElementChild;
+    expect(manage?.textContent).toBe("Manage downloads");
+    expect(manage?.previousElementSibling?.tagName).toBe("HR");
+    await act(async () => (manage as HTMLButtonElement).click());
     expect(commands.openTab).toHaveBeenCalledWith("haku://downloads", true, "other");
     expect(list()).toBeNull();
   });

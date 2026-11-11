@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-01
+last_updated: 2026-11-11
 scope: What happens when a page asks for a permission, such as the camera or location, and how decisions are kept.
 ---
 
@@ -14,7 +14,9 @@ A page asks for a permission with an API such as `getUserMedia` or `Notification
 
 ## Behaviour
 
-**Asking.** The interface asks with a dialog titled with the requesting origin, as [page dialogs](page-observation.md#page-dialogs) are titled with their host: "_https://meet.example_ wants to use your camera", with **Allow** and **Block**. Only the focused tab's request is shown. A background tab's request waits, and its strip item shows the same **Dialog waiting** badge as a page dialog. A page dialog on the same tab is shown first.
+**Asking.** The interface asks in a popover at the site menu's button, titled with the requesting origin, as [page dialogs](page-observation.md#page-dialogs) are titled with their host: "_https://meet.example_ wants to use your camera", with **Block**, **Allow**, and a close button named **Not now**. The popover does not block the window: the tabs, the toolbar and the page stay usable while it waits, and it takes no focus when it appears, so a key pressed for the page cannot answer it. A click elsewhere leaves it open; it goes once answered, or when the request is withdrawn. While it is shown, a floating toolbar stays on screen, as for a page dialog.
+
+Where it opens follows the toolbar. Across the top, it opens under the site menu's glyph, as the site menu does, kept inside the window. In a vertical sidebar it opens beside the sidebar, over the page, level with the address bar, on the page's side: under the glyph it would cover the tabs, and from a sidebar on the right it would run off the window. With no site menu on screen, as in fullscreen, it opens at the top centre of the window. Only the focused tab's request is shown. A background tab's request waits, and its strip item shows the same **Dialog waiting** badge as a page dialog. A page dialog on the same tab is shown first.
 
 **Answering.**
 
@@ -22,7 +24,7 @@ A page asks for a permission with an API such as `getUserMedia` or `Notification
 | ------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | Allow                    | Granted      | Stored for the origin and kind                                                                                            |
 | Block                    | Denied       | Stored for the origin and kind                                                                                            |
-| Escape, or closing it    | Denied       | Not stored. Denied without asking in that tab until the user reloads or navigates it                                      |
+| Not now, or Escape in it | Denied       | Not stored. Denied without asking in that tab until the user reloads or navigates it                                      |
 | The page goes away first | Denied       | Nothing. Closing the tab, navigating or reloading it from Haku, the page leaving the request's origin, or losing its slot |
 
 A request whose origin and kind already have a decision is answered at once, without a dialog. Two requests for the same origin and kind that wait together are answered by the first answer, in whichever tabs of the window's profile they wait.
@@ -30,6 +32,8 @@ A request whose origin and kind already have a decision is answered at once, wit
 **Private windows.** A stored Block applies, ahead of any answer given in the private session; a stored Allow does not. Decisions made in a private window are kept in memory for the private session only and forgotten when it ends, as private visits never write a site-derived setting ([Settings page § Sections](settings-page.md#sections)).
 
 **Reviewing.** `haku://settings/browsing` lists stored decisions under **Site permissions**, by origin, and removes them one at a time. The next request from that origin asks again.
+
+Until 2026-11-11 the request was asked with a modal dialog, which blocked the whole window, tabs included, until it was answered: a site asking for notifications as it loaded held up everything else. The maintainer approved the popover on that date. Rejected: keeping the dialog, for that reason; and asking inside the site menu, which closes on a click elsewhere, as a question that needs an answer must not ([Interface guidelines § Popovers and panels](../guidelines/interface.md#popovers-and-panels)).
 
 ## Kinds
 
@@ -72,7 +76,7 @@ An answer to a request that is no longer shown is ignored, as for dialogs. An Al
 
 **Origins.** A decision is keyed by the origin WebView2 reports for the request, `scheme://host[:port]` as `URL.origin` gives it, so `http` and `https` are separate. A frame embedded from another origin, with the permission delegated to it by `allow=`, is decided as the page that embeds it, as in Chromium: it shares the page's decision and never asks under its own name. Checked on 2026-11-01: a `127.0.0.1` frame inside a `localhost` page was granted location from `localhost`'s Allow, with no prompt. Haku writes stored origins in the same form, lowercased and without a default port, so `HTTPS://A.test:443` is kept as `https://a.test`, and one that is not an `http` or `https` origin is dropped; a stored entry that cannot be read is dropped rather than failing the whole settings file.
 
-**The interface.** `features/feedback` shows the request through `feedback().dialog.confirm`. The toaster resolves Cancel and Escape to the same `false`, so the hook tells them apart by the dialog's `cancel` event, which only Escape raises. The hook gives its dialog a class naming the request, and counts a `cancel` only on that dialog, so Escape on a dialog the toaster shows first is not read as this request's answer. `isWaiting` puts a request on the same footing as a page dialog for the strip badge and for floating bars.
+**The interface.** `features/feedback/permission-popover.tsx` shows the request, anchored at the button the site menu marks with `data-site-menu`, and placed by `placePrompt`. It answers **Allow**, **Block**, or `dismiss` for **Not now** and Escape, and hides an answered request until Rust takes it off the tab, so it cannot be answered twice. `isWaiting` puts a request on the same footing as a page dialog for the strip badge and for floating bars.
 
 ## Decisions
 
@@ -81,7 +85,7 @@ Chosen by the maintainer on 2026-11-01.
 - **Haku stores decisions, not the engine.** The engine's store cannot be listed in settings, tested without the engine, or kept apart for private windows. `SavesInProfile` is turned off so there is one store.
 - **Origin, not host.** Permissions are origin-scoped in every browser; a grant on `https` must not reach `http`. Kept sites stay keyed by host, on purpose.
 - **Allow and Block, both remembered; Escape remembered for the tab's page only.** "Allow once" would add a third button and a lifetime to track. Remembering a dismissal for the page stops it from asking again in a loop without storing an answer the user never gave, and the user ends it by reloading. Until 2026-11-01 a dismissal lasted until Haku quit; that did not weigh an accidental Escape, which left a site without the camera until a restart, with nothing listed in settings to undo it (decided by the maintainer on 2026-11-01).
-- **A field of its own, not a `DialogKind`.** A permission request does not pause the page, its answer is stored, and it can be withdrawn by a navigation; folding it into `PageDialog` would blur those. It shares the dialog's presentation and badge instead.
+- **A field of its own, not a `DialogKind`.** A permission request does not pause the page, its answer is stored, and it can be withdrawn by a navigation; folding it into `PageDialog` would blur those. It shares the dialog's badge instead.
 - **Multiple automatic downloads ask Haku.** This reverses [Downloads](downloads.md), which left that prompt to the engine.
 
 ## Known limits

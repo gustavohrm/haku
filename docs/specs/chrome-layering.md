@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
+last_updated: 2026-11-11
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -72,7 +72,20 @@ Blurring the live page needs a native effect under the interface, because no doc
 - **Composition hosting.** WebView2 renders into a DirectComposition visual instead of a child HWND (`CreateCoreWebView2CompositionController`). Two webviews in one visual tree blended correctly, and a native blur could sit between them; that blur was not tried. The host then owns input: mouse, pointer, cursor and focus are forwarded by hand. wry creates only windowed controllers (`src/webview2/mod.rs`, around line 398), so this needs wry first. [wry#1762](https://github.com/tauri-apps/wry/pull/1762) adds composition hosting as an opt-in, aimed at native content under a single webview rather than stacked webviews; it was open and unreviewed on 2026-11-03.
 - **A transparent owned popup window with the system backdrop** (`DWMSBT_TRANSIENTWINDOW`). The page beneath was really blurred. But clicking the popup deactivated the main window, which `WS_EX_NOACTIVATE` did not prevent, and while inactive the backdrop falls back to flat gray. The popup did not follow the main window without being moved on each move and resize, and the main window did not clip it.
 
-Until one of these is available, popovers and toasts over the live page are translucent but not blurred.
+Until one of these is available, nothing over the live page is blurred.
+
+#### Flat surfaces over the page
+
+Menus, popovers, panels and toasts over the live page are opaque: they use the `chrome-overlay` surface, which is the raised surface with no transparency. A surface that is translucent is an exception and says why where it is drawn, as the address card's frosting over its still backdrop does.
+
+Decided by the maintainer on 2026-11-11, reversing the translucent default chosen with transparency on 2026-11-08. That choice weighed translucency as what placed a surface over the page. It did not weigh legibility: without a blur, a busy or high-contrast page shows through as sharp shapes behind the text, and menus and the bookmark editor were hard to read over such pages. The border and rounded corners already place a surface over the page.
+
+Rejected:
+
+- **Translucent by default, at 88% opacity.** The previous default, and less legible over busy pages.
+- **Translucent only over calm pages.** Haku cannot see the page's pixels, so it cannot tell which pages are calm.
+
+Transparency itself stays: it is what antialiases the page's corners and the overlays' edges, and what lets a toast fade.
 
 ### Rounded page corners
 
@@ -129,7 +142,7 @@ An element that animates away once it closes stays registered, followed the same
 
 A cover over the whole viewport needs no overlay of its own. `useChromeLayout` measures all assigned pane surfaces together, including each pane's covered state. Internal pages, crashed-page notices and previews keep only their own pane solid. Split pane controls and the 5 CSS-pixel divider sit outside the measured page holes. The whole-interface failure screen covers every assignment. A preview over a reloading page uses the same per-pane cover ([Tab optimization § Previews](tab-optimization.md#previews)).
 
-Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its own and registers each toast and open dialog in it as they appear, resize and animate. A toast is registered where it is painted, with its own corners, not as its stack, which is square and spans the gaps between toasts. Toasts slide without changing the DOM, so they are measured every frame while any is shown. A toast fades, and its surface is a little translucent: the chrome is transparent, so both blend with the page beneath. Show notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
+Toasts and dialogs are the exception that proves the rule: they are created by `@codenhub/toaster`, not by a component, so there is no ref to hand `useOverlay`. `features/feedback` gives the toaster a container of its own and registers each toast and open dialog in it as they appear, resize and animate. A toast is registered where it is painted, with its own corners, not as its stack, which is square and spans the gaps between toasts. Toasts slide without changing the DOM, so they are measured every frame while any is shown. A toast fades as it comes and goes: the chrome is transparent, so it blends with the page beneath while it does. Shown, its surface is opaque, as [every surface over the page is](#flat-surfaces-over-the-page). Show notifications through `feedback()` and they are handled; a second toaster instance, or `alert()`, would not be.
 
 ## Platforms
 

@@ -57,7 +57,12 @@ export function SettingRow({ row, context }: SettingRowProps) {
 
   return (
     <div
-      className={cx("flex gap-x-6 gap-y-2 px-4 py-3", row.wide ? "flex-col" : "items-center justify-between")}
+      // A named group, so a control can show actions on the row's hover or
+      // focus without answering to a list's own `group` inside it.
+      className={cx(
+        "group/setting flex gap-x-6 gap-y-2 px-4 py-3",
+        row.wide ? "flex-col" : "items-center justify-between",
+      )}
       data-setting={row.id}
     >
       <Text>

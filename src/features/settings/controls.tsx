@@ -13,7 +13,7 @@ import {
 } from "@bindings";
 import { openMenu } from "@features/context-menu/store";
 import { ExtensionIcon } from "@features/extensions/extension-icon";
-import { ADDING, addExtension, removeExtension, useExtensionChange } from "@features/extensions/manage";
+import { ADDING, addExtension, uninstallExtension, useExtensionChange } from "@features/extensions/manage";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { permissionName } from "@features/feedback/permission-prompt";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
@@ -24,7 +24,7 @@ import { applySettingsPreset } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t, type TranslationKey } from "@shared/i18n";
 import { getVersion } from "@tauri-apps/api/app";
-import { useEffect, useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 
 import { DraftInput } from "./draft-input";
 import { type ControlProps } from "./types";
@@ -453,6 +453,32 @@ function PolicySelect({ id, describedBy, disabled, value, onChange }: PolicySele
 }
 
 /**
+ * A row of a list of entries kept in settings, whose Remove shows on the
+ * row's hover or focus, as the history rules list's does
+ * ([Interface guidelines § Lists](../../../docs/guidelines/interface.md#lists)).
+ */
+const ENTRY_ROW = "group hover:bg-text/5 flex min-h-9 items-center gap-2 rounded-(--radius-control) ps-2 pe-1";
+
+/**
+ * Removes the entry its row describes. Its name is **Remove** for every list;
+ * the entry it is described by says what goes.
+ */
+function RemoveButton({ describedBy, onRemove }: { describedBy: string; onRemove: () => void }) {
+  return (
+    <button
+      type="button"
+      className="btn icon ghost opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+      aria-label={t("settings.remove")}
+      aria-describedby={describedBy}
+      title={t("settings.remove")}
+      onClick={onRemove}
+    >
+      <i className="ic-trash ic-sm" aria-hidden="true" />
+    </button>
+  );
+}
+
+/**
  * Sites kept loaded from the site menu, which is otherwise the only place to
  * undo one: by visiting each site again.
  */
@@ -464,23 +490,17 @@ export function KeptSitesControl({ labelId, describedBy, settings, update }: Con
   return (
     <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
       {sites.map((site) => (
-        <li key={site} className="flex items-center gap-2">
+        <li key={site} className={ENTRY_ROW}>
           {/* The button is described by the site, so it reads as "Remove, example.com". */}
           <span id={`kept-site-${site}`} className="min-w-0 flex-1 truncate">
             {site}
           </span>
-          <button
-            type="button"
-            className="btn icon ghost"
-            aria-label={t("settings.keptSites.remove")}
-            aria-describedby={`kept-site-${site}`}
-            title={t("settings.keptSites.remove")}
-            onClick={() =>
+          <RemoveButton
+            describedBy={`kept-site-${site}`}
+            onRemove={() =>
               void update((current) => ({ ...current, keptSites: current.keptSites.filter((kept) => kept !== site) }))
             }
-          >
-            <i className="ic-x ic-sm" aria-hidden="true" />
-          </button>
+          />
         </li>
       ))}
     </ul>
@@ -502,21 +522,17 @@ export function SitePermissionsControl({ labelId, describedBy, settings, update 
         const id = `site-permission-${origin}-${kind}`;
         const decided = state === "allow" ? "settings.sitePermissions.allowed" : "settings.sitePermissions.blocked";
         return (
-          <li key={`${origin} ${kind}`} className="flex items-center gap-2">
-            {/* The button is described by the decision, so it reads as "Forget, example.com, Camera: allowed". */}
+          <li key={`${origin} ${kind}`} className={ENTRY_ROW}>
+            {/* The button is described by the decision, so it reads as "Remove, example.com, Camera: allowed". */}
             <span id={id} className="flex min-w-0 flex-1 gap-2">
               <span className="truncate" title={origin}>
                 {origin}
               </span>
               <span className="text-text-secondary shrink-0">{t(decided).replace("{kind}", permissionName(kind))}</span>
             </span>
-            <button
-              type="button"
-              className="btn icon ghost"
-              aria-label={t("settings.sitePermissions.remove")}
-              aria-describedby={id}
-              title={t("settings.sitePermissions.remove")}
-              onClick={() =>
+            <RemoveButton
+              describedBy={id}
+              onRemove={() =>
                 void update((current) => ({
                   ...current,
                   sitePermissions: current.sitePermissions.filter(
@@ -524,9 +540,7 @@ export function SitePermissionsControl({ labelId, describedBy, settings, update 
                   ),
                 }))
               }
-            >
-              <i className="ic-x ic-sm" aria-hidden="true" />
-            </button>
+            />
           </li>
         );
       })}
@@ -548,29 +562,23 @@ export function SiteZoomControl({ labelId, describedBy, settings, update }: Cont
       {levels.map(({ host, percent }) => {
         const id = `site-zoom-${host}`;
         return (
-          <li key={host} className="flex items-center gap-2">
-            {/* The button is described by the level, so it reads as "Reset, example.com, 125%". */}
+          <li key={host} className={ENTRY_ROW}>
+            {/* The button is described by the level, so it reads as "Remove, example.com, 125%". */}
             <span id={id} className="flex min-w-0 flex-1 gap-2">
               <span className="truncate" title={host}>
                 {host}
               </span>
               <span className="text-text-secondary shrink-0">{`${percent}%`}</span>
             </span>
-            <button
-              type="button"
-              className="btn icon ghost"
-              aria-label={t("settings.siteZoom.remove")}
-              aria-describedby={id}
-              title={t("settings.siteZoom.remove")}
-              onClick={() =>
+            <RemoveButton
+              describedBy={id}
+              onRemove={() =>
                 void update((current) => ({
                   ...current,
                   siteZoom: current.siteZoom.filter((other) => other.host !== host),
                 }))
               }
-            >
-              <i className="ic-x ic-sm" aria-hidden="true" />
-            </button>
+            />
           </li>
         );
       })}
@@ -624,10 +632,74 @@ export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
   );
 }
 
+/**
+ * The question **Uninstall…** asks on the row it was chosen from, before
+ * anything is deleted: what goes, then Cancel and Uninstall. Focus moves to
+ * Cancel, and Esc answers no.
+ * [Interface guidelines § Forms](../../../docs/guidelines/interface.md#forms).
+ */
+function UninstallQuestion({
+  message,
+  busy,
+  onAnswer,
+}: {
+  message: string;
+  busy: boolean;
+  onAnswer: (uninstall: boolean) => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancelRef.current?.focus(), []);
+  const onEscape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onAnswer(false);
+    }
+  };
+  return (
+    <div role="alert" className="flex flex-wrap items-center justify-end gap-2 pb-2 text-sm">
+      <p className="min-w-0 flex-1 text-right">{message}</p>
+      <button ref={cancelRef} type="button" className="btn ghost" onClick={() => onAnswer(false)} onKeyDown={onEscape}>
+        {t("dialog.cancel")}
+      </button>
+      <button
+        type="button"
+        className="btn destructive"
+        disabled={busy}
+        onClick={() => onAnswer(true)}
+        onKeyDown={onEscape}
+      >
+        {t("extensions.uninstall.confirm")}
+      </button>
+    </div>
+  );
+}
+
 export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
   const extensions = useExtensions();
   const change = useExtensionChange();
   const ids = useId();
+  // The folder whose row asks whether to uninstall it.
+  const [asking, setAsking] = useState<string | null>(null);
+  // The button the question was asked from, which takes focus back when the answer is Cancel.
+  const askedFrom = useRef<HTMLElement | null>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (asking === null && refocus.current) {
+      refocus.current = false;
+      askedFrom.current?.focus();
+    }
+  }, [asking]);
+  const ask = (folder: string, from: HTMLElement) => {
+    askedFrom.current = from;
+    setAsking(folder);
+  };
+  const answer = (folder: string, uninstall: boolean) => {
+    refocus.current = !uninstall;
+    setAsking(null);
+    if (uninstall) {
+      void uninstallExtension(folder);
+    }
+  };
   const disabled = settings.disabledExtensions;
   const pinned = settings.pinnedExtensions;
 
@@ -697,7 +769,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
           label: t("settings.extensions.uninstall"),
           icon: "ic-trash-2",
           disabled: change !== null,
-          onSelect: () => void removeExtension(extension.folder, extension),
+          onSelect: () => ask(extension.folder, button),
         },
       ],
     });
@@ -738,35 +810,44 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
               isOn && pinned.includes(extension.id) && t("settings.extensions.pinned"),
             ].filter(Boolean);
             return (
-              <li key={extension.folder} className="flex min-h-12 items-center gap-3" aria-busy={isRemoving}>
-                <span className={cx("grid size-8 shrink-0 place-items-center", !isOn && "opacity-40 grayscale")}>
-                  <ExtensionIcon extension={extension} large />
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span id={nameId} className={cx("truncate", !isOn && "text-text-secondary")}>
-                    {extension.name}
+              <li key={extension.folder} className="flex flex-col" aria-busy={isRemoving}>
+                <div className="flex min-h-12 items-center gap-3">
+                  <span className={cx("grid size-8 shrink-0 place-items-center", !isOn && "opacity-40 grayscale")}>
+                    <ExtensionIcon extension={extension} large />
                   </span>
-                  <span className="text-text-secondary truncate text-sm tabular-nums">{details.join(" · ")}</span>
-                </span>
-                <input
-                  type="checkbox"
-                  className="switch"
-                  aria-labelledby={nameId}
-                  checked={isOn}
-                  disabled={isRemoving}
-                  onChange={(event) => setEnabled(extension.id, event.target.checked)}
-                />
-                <button
-                  type="button"
-                  className="btn icon ghost"
-                  aria-label={t("settings.extensions.actions").replace("{name}", extension.name)}
-                  aria-haspopup="menu"
-                  title={t("settings.extensions.actions").replace("{name}", extension.name)}
-                  disabled={isRemoving}
-                  onClick={(event) => openActions(extension, event.currentTarget)}
-                >
-                  <i className="ic-ellipsis ic-sm" aria-hidden="true" />
-                </button>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span id={nameId} className={cx("truncate", !isOn && "text-text-secondary")}>
+                      {extension.name}
+                    </span>
+                    <span className="text-text-secondary truncate text-sm tabular-nums">{details.join(" · ")}</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="switch"
+                    aria-labelledby={nameId}
+                    checked={isOn}
+                    disabled={isRemoving}
+                    onChange={(event) => setEnabled(extension.id, event.target.checked)}
+                  />
+                  <button
+                    type="button"
+                    className="btn icon ghost"
+                    aria-label={t("settings.extensions.actions").replace("{name}", extension.name)}
+                    aria-haspopup="menu"
+                    title={t("settings.extensions.actions").replace("{name}", extension.name)}
+                    disabled={isRemoving}
+                    onClick={(event) => openActions(extension, event.currentTarget)}
+                  >
+                    <i className="ic-ellipsis ic-sm" aria-hidden="true" />
+                  </button>
+                </div>
+                {asking === extension.folder && (
+                  <UninstallQuestion
+                    message={t("extensions.uninstall.message")}
+                    busy={change !== null}
+                    onAnswer={(uninstall) => answer(extension.folder, uninstall)}
+                  />
+                )}
               </li>
             );
           })}
@@ -778,25 +859,34 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
           <h3 className="text-text-secondary text-sm font-medium">{t("settings.extensions.failed")}</h3>
           <ul className="flex flex-col gap-1">
             {extensions.failed.map((failed, index) => (
-              <li key={failed.folder} className="flex min-h-12 items-center gap-3" aria-busy={change === failed.folder}>
-                <span className="grid size-8 shrink-0 place-items-center">
-                  <i className="ic-triangle-alert ic-md text-destructive" aria-hidden="true" />
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span id={`${ids}-failed-${index}`} className="truncate">
-                    {failed.folder}
+              <li key={failed.folder} className="flex flex-col" aria-busy={change === failed.folder}>
+                <div className="flex min-h-12 items-center gap-3">
+                  <span className="grid size-8 shrink-0 place-items-center">
+                    <i className="ic-triangle-alert ic-md text-destructive" aria-hidden="true" />
                   </span>
-                  <span className="text-text-secondary text-sm break-words">{describeError(failed.error)}</span>
-                </span>
-                <button
-                  type="button"
-                  className="btn soft edgeless"
-                  aria-describedby={`${ids}-failed-${index}`}
-                  disabled={change !== null}
-                  onClick={() => void removeExtension(failed.folder, null)}
-                >
-                  {t("settings.extensions.remove")}
-                </button>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span id={`${ids}-failed-${index}`} className="truncate">
+                      {failed.folder}
+                    </span>
+                    <span className="text-text-secondary text-sm break-words">{describeError(failed.error)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn soft edgeless"
+                    aria-describedby={`${ids}-failed-${index}`}
+                    disabled={change !== null || asking === failed.folder}
+                    onClick={(event) => ask(failed.folder, event.currentTarget)}
+                  >
+                    {change === failed.folder ? t("settings.extensions.removing") : t("settings.extensions.uninstall")}
+                  </button>
+                </div>
+                {asking === failed.folder && (
+                  <UninstallQuestion
+                    message={t("extensions.uninstall.failedMessage").replace("{folder}", () => failed.folder)}
+                    busy={change !== null}
+                    onAnswer={(uninstall) => answer(failed.folder, uninstall)}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -853,7 +943,7 @@ function OpenPage({ id, describedBy, url }: { id: string; describedBy: string | 
     <button
       id={id}
       type="button"
-      className="btn"
+      className="btn soft edgeless"
       aria-describedby={describedBy}
       onClick={() => void commands.openTab(url, true, "other")}
     >

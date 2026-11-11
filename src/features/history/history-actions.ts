@@ -1,6 +1,6 @@
 import { type HistoryFilter, type HistoryRule, type UrlPattern } from "@bindings";
 import { feedback, reportUnexpected } from "@features/feedback/feedback";
-import { type MenuItem } from "@features/overlays/menu-model";
+import { type MenuConfirmation, type MenuItem } from "@features/overlays/menu-model";
 import { commands } from "@ipc/commands";
 import { unwrap } from "@ipc/result";
 import { tryUpdateSettings } from "@ipc/store";
@@ -33,34 +33,41 @@ export function counted(count: number, one: TranslationKey, many: TranslationKey
 }
 
 /**
- * Deletes what a filter covers, after a confirmation that says how many
- * visits go. Nothing is asked, or deleted, when the filter covers none.
+ * How many visits a filter covers, for a confirmation that says so.
  *
- * @param filter - What to delete.
- * @param title - The confirmation's title.
- * @returns Whether anything was deleted.
+ * @returns The count, or `null` when it could not be read; the command
+ * wrapper has already reported why.
  */
-export async function confirmDelete(filter: HistoryFilter, title: string): Promise<boolean> {
-  try {
-    const count = await unwrap(commands.countHistory(filter));
-    if (count === 0) {
-      feedback().info(t("history.delete.none"));
-      return false;
-    }
-    const confirmed: unknown = await feedback().dialog.confirm(
-      counted(count, "history.delete.confirm.one", "history.delete.confirm.many"),
-      { title, type: "error", confirmLabel: t("history.delete"), cancelLabel: t("dialog.cancel") },
-    );
-    if (confirmed !== true) {
-      return false;
-    }
-    await unwrap(commands.deleteHistory(filter));
-    announce();
-    return true;
-  } catch (error) {
-    reportUnexpected(error);
-    return false;
-  }
+export async function countVisits(filter: HistoryFilter): Promise<number | null> {
+  const result = await commands.countHistory(filter);
+  return result.status === "ok" ? result.data : null;
+}
+
+let menusAsked = 0;
+
+/**
+ * Loads what a menu about to open says, for the latest menu asked for only:
+ * a slower answer for an earlier row must not open its menu over a later one.
+ *
+ * @returns What `load` gave, or `null` when another menu was asked for meanwhile.
+ */
+export async function forLatestMenu<T>(load: () => Promise<T>): Promise<T | null> {
+  menusAsked += 1;
+  const asked = menusAsked;
+  const loaded = await load();
+  return asked === menusAsked ? loaded : null;
+}
+
+/**
+ * The question a step that deletes `count` visits asks where it started:
+ * what goes, and **Delete N visits**. A menu takes it as an item's `confirm`.
+ */
+export function deleteConfirmation(count: number): Required<MenuConfirmation> {
+  return {
+    message: counted(count, "history.delete.confirm.one", "history.delete.confirm.many"),
+    action: counted(count, "history.delete.count.one", "history.delete.count.many"),
+    destructive: true,
+  };
 }
 
 /**
@@ -78,8 +85,9 @@ export async function deleteVisits(ids: number[]): Promise<void> {
 }
 
 /**
- * Deletes what a filter covers at once, without asking, for an action whose
- * own name says exactly what goes, such as deleting every visit to one page.
+ * Deletes what a filter covers at once, without asking here: for an action
+ * whose own name says exactly what goes, such as deleting every visit to one
+ * page, or one that has already asked, with {@link deleteConfirmation}.
  */
 export async function deleteNow(filter: HistoryFilter): Promise<void> {
   try {
@@ -90,16 +98,27 @@ export async function deleteNow(filter: HistoryFilter): Promise<void> {
   }
 }
 
+const siteRule = (host: string): UrlPattern => ({ kind: "site", value: host });
+const isNeverRuleFor = (host: string) => (rule: HistoryRule) =>
+  rule.action === "never" && samePattern(rule.pattern, siteRule(host));
+
+/** The filter covering every visit to `host` and its subdomains. */
+export function siteFilter(host: string): HistoryFilter {
+  return filterOf({ include: [siteRule(host)] });
+}
+
 /**
- * Adds a rule never to record `host`, at the top so it decides first, then,
- * when visits to it are already recorded, offers to delete them; dismissing
- * the offer keeps them. Choosing the menu item is the decision to stop
- * recording; only deleting asks. [History § Rules](../../../docs/specs/history.md#rules).
+ * Adds a rule never to record `host`, at the top so it decides first, then
+ * deletes the visits to it already recorded when that was chosen. The choice
+ * is offered before, where the item was, with {@link neverRecordOffer}, as
+ * the settings form offers it; nothing is deleted without it.
+ * [History § Rules](../../../docs/specs/history.md#rules).
  *
  * @param host - The site never to record.
+ * @param deleteRecorded - Whether to delete the visits already recorded.
  */
-export async function neverRecordSite(host: string): Promise<void> {
-  const pattern: UrlPattern = { kind: "site", value: host };
+export async function neverRecordSite(host: string, deleteRecorded: boolean): Promise<void> {
+  const pattern = siteRule(host);
   const stored = await tryUpdateSettings((current) => ({
     ...current,
     historyRules: [
@@ -110,37 +129,30 @@ export async function neverRecordSite(host: string): Promise<void> {
   if (stored?.status !== "ok") {
     return;
   }
-  try {
-    const filter = filterOf({ include: [pattern] });
-    const count = await unwrap(commands.countHistory(filter));
-    if (count === 0) {
-      feedback().success(t("history.neverRecord.done").replace("{site}", () => host));
-      return;
-    }
-    const confirmed: unknown = await feedback().dialog.confirm(
-      counted(count, "history.neverRecord.offer.one", "history.neverRecord.offer.many"),
-      {
-        title: t("history.neverRecord.title").replace("{site}", () => host),
-        type: "error",
-        confirmLabel: counted(count, "history.neverRecord.delete.one", "history.neverRecord.delete.many"),
-        cancelLabel: t("history.neverRecord.keep"),
-      },
-    );
-    if (confirmed === true) {
-      await unwrap(commands.deleteHistory(filter));
-      announce();
-    }
-  } catch (error) {
-    reportUnexpected(error);
+  feedback().success(t("history.neverRecord.done").replace("{site}", () => host));
+  if (deleteRecorded) {
+    await deleteNow(siteFilter(host));
   }
+}
+
+/**
+ * The offer to delete the `count` visits already recorded, worded as the
+ * settings form words it for a new `never` rule: what is recorded, then
+ * **Only from now on** or **Never record and delete N visits**.
+ */
+export function neverRecordOffer(count: number): { message: string; keep: string; delete: string } {
+  return {
+    message: counted(count, "settings.historyRules.offer.one", "settings.historyRules.offer.many"),
+    keep: t("settings.historyRules.offer.keep"),
+    delete: counted(count, "settings.historyRules.offer.delete.one", "settings.historyRules.offer.delete.many"),
+  };
 }
 
 /** Where the history settings are: the Browsing section, at the History group's first row. */
 export const HISTORY_SETTINGS_URL = "haku://settings/browsing#historyEnabled";
 
-const siteRule = (host: string): UrlPattern => ({ kind: "site", value: host });
-const isNeverRuleFor = (host: string) => (rule: HistoryRule) =>
-  rule.action === "never" && samePattern(rule.pattern, siteRule(host));
+/** The history rules in settings, where a rule that stops a site is changed. */
+export const HISTORY_RULES_URL = "haku://settings/browsing#historyRules";
 
 /**
  * What the rules say about a site, from the rule that decides its page:
@@ -229,17 +241,28 @@ export const CLEAR_RANGES: { id: string; label: TranslationKey; reach: number | 
 ];
 
 /**
- * Clear browsing history's menu: one item per range, each confirming how
- * many visits it deletes. Downloads stay.
+ * Clear browsing history's menu: one item per range, each asking where the
+ * menu was, with how many visits it deletes, counted as the menu opens. A
+ * range ends when the menu opens, so the question deletes the visits it
+ * counted and none recorded while it waits. A range with nothing in it says
+ * so instead, and one whose count failed, which
+ * the command wrapper reported, is disabled. Downloads stay.
  *
- * @param now - Read when a range is chosen, not when the menu opens.
+ * @param now - When the menu opens, which every range reaches back from.
  */
-export function clearMenu(now: () => number = Date.now): MenuItem[] {
-  return CLEAR_RANGES.map(({ id, label, reach }) => ({
-    kind: "command",
-    id,
-    label: t(label),
-    onSelect: () =>
-      void confirmDelete(filterOf({ from: reach === null ? null : now() - reach }), t("history.clear.title")),
-  }));
+export async function clearMenu(now: number = Date.now()): Promise<MenuItem[]> {
+  return Promise.all(
+    CLEAR_RANGES.map(async ({ id, label, reach }): Promise<MenuItem> => {
+      const filter = filterOf({ from: reach === null ? null : now - reach, to: now });
+      const count = await countVisits(filter);
+      return {
+        kind: "command",
+        id,
+        label: t(label),
+        disabled: count === null,
+        ...(count !== null && count > 0 && { confirm: deleteConfirmation(count) }),
+        onSelect: () => (count === 0 ? feedback().info(t("history.delete.none")) : void deleteNow(filter)),
+      };
+    }),
+  );
 }

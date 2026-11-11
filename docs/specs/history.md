@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-02
+last_updated: 2026-11-11
 scope: What browsing history records, the rules and switches that stop it, how it is searched, filtered and deleted, and its storage.
 ---
 
@@ -55,8 +55,8 @@ How the visit was reached:
 
 | Transition    | When                                                                                                                       |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `typed`       | The address field, when the input resolved to an address.                                                                  |
-| `search`      | The address field, when the input resolved to a search; or a context menu's search for the selected text.                  |
+| `typed`       | The address bar, when the input resolved to an address.                                                                    |
+| `search`      | The address bar, when the input resolved to a search; or a context menu's search for the selected text.                    |
 | `bookmark`    | A bookmark, from the bar, the star's menu, the sidebar or `haku://bookmarks`.                                              |
 | `link`        | A link or pushed route in the page, a link opened in a new tab or window, or a page's popup.                               |
 | `backForward` | Back or forward, from a button, a shortcut, a mouse button or the page.                                                    |
@@ -69,7 +69,7 @@ How the visit was reached:
 - **The switch**, `Settings.historyEnabled`, on by default. Turning it off stops recording until it is turned back on, across restarts. Existing history stays.
 - **Pause**, until Haku restarts or recording is resumed. It is not a setting: `BrowserState.historyPaused`, so every window shows it at once and nothing persists it.
 
-Both are on the history page, at the top: the switch, and **Pause until restart** beside it. The switch is also a row in **Settings → Browsing → History**. While recording is off or paused, the history page says so in a banner with the way to resume, and the site menu says **History is off** or **History is paused**.
+Both are on the history page, at the top: the switch, and **Pause until restart** beside it, which hides while history is paused, so the banner's **Resume** is the only one. The switch is also a row in **Settings → Browsing → History**. While recording is off or paused, the history page says so in a banner with the way to resume, and the site menu says **History is off** or **History is paused**.
 
 ### Rules
 
@@ -81,11 +81,15 @@ Both are on the history page, at the top: the switch, and **Pause until restart*
 | `addressOnly` | Recorded with an empty title, and never retitled. The list shows its address. For mail, chat and documents. |
 | `always`      | Recorded, whatever later rules say. The exception to a broader rule.                                        |
 
-The **first matching rule decides**; a visit no rule matches is recorded. A new rule goes to the top, from the site menu, a history row or settings, so the newest decision wins. Rules are reordered with move up and move down in settings.
+The **first matching rule decides**; a visit no rule matches is recorded. A new rule goes to the top, from the site menu, a history row or settings, so the newest decision wins. Rules are reordered in settings by dragging, or with the arrow keys on a rule's handle.
 
 Rules apply to visits recorded from then on. Adding a `never` rule shows how many existing visits match it, and offers to delete them in the same step: **Never record and delete 42 visits**, or **Only from now on**. Nothing is deleted without that choice. Turning recording off or pausing it overrides `always`: the switch is the user's broadest statement.
 
-Rules are managed in **Settings → Browsing → History**: add (pattern kind, pattern, action), reorder, remove. An invalid pattern is refused when it is saved, with the reason under the field.
+Rules are managed in **Settings → Browsing → History**, as a list laid out as the [interface guidelines](../guidelines/interface.md#lists) describe. Each rule is one line: a drag handle, its pattern with its kind muted beside it, its action as a select that changes it in place, and **Remove**; the handle and **Remove** show on hover or focus. Changing an action in place does not offer to delete matching visits; only adding a `never` rule does.
+
+A rule is added from one field, **Add a site or address…**. The pattern's kind is guessed from what is typed and shown as a tag inside the field, which can be changed: `/…/` is a regular expression, without its slashes; anything with `*` is a wildcard; a full address, with its scheme, that has a path, query or fragment is a page; anything else is a site. An address typed without its scheme, such as `example.com/private`, is read as its site: a page is matched whole, so one without its scheme would match nothing. Once something is typed, the action follows as three choices, **Never record** first, then **Address only** and **Always record**, beside the **Add rule** button. An invalid pattern is refused when it is saved, with the reason under the field. The offer to delete matching visits appears in place, under the field.
+
+Until 2026-11-11 a rule was added by choosing its kind, typing the pattern and choosing its action, from two selects around the field, and reordered with up and down buttons on every rule. The maintainer chose the current list on that date: what is typed almost always says its kind, and the buttons on every line made the list hard to read.
 
 From a private window, the site menu's rule action is hidden and `set_settings` refuses a rule that was not there before, as it refuses a newly kept site ([Settings page § Sections](settings-page.md#sections)): writing the host to disk would record the private visit the rule was meant to hide. Removing rules works anywhere.
 
@@ -110,30 +114,31 @@ Limits, so a pattern cannot make every visit slow: at most 2,000 characters, and
 
 `haku://history`, drawn by the chrome as today.
 
-- **Header:** the recording switch and pause, **Clear browsing history…**, and **History settings**, which opens `haku://settings/browsing#historyEnabled`, where the rules are kept. Below it, the search field with the filters, then a view toggle, **Visits** or **Sites**, beside the delete actions. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
+- **Header:** the recording switch and pause, **Clear browsing history…** as a quiet button, and **History settings**, which opens `haku://settings/browsing#historyEnabled`, where the rules are kept. Below it, the search field with the filters, then a view toggle, **Visits** or **Sites**, beside the delete actions. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
 - **Filters**, beside the search field:
   - **Text**, matched against title and address.
   - **When:** today, yesterday, last 7 days, last 30 days, or a custom range.
-  - **Sites**, to include or exclude.
-  - **Pattern**, a wildcard or regular expression matched against the address.
+  - **Filter by address**, a site, page, wildcard or regular expression to show, or with **Hide** to leave out. It is one field whose kind is guessed from what is typed, as the rules' field guesses it ([Rules](#rules)), and shown as a tag that can be changed; **Hide** is a toggle beside it.
   - **Reached by**, one or more transitions.
 
-  Active filters show as removable chips. **Delete all matching…** acts on exactly the current filter, after a confirmation that says how many visits it removes.
+  Active filters show as removable chips. **Delete all matching…** acts on exactly the current filter. It asks in place of the button, saying how many visits go, with **Delete N visits** and **Cancel**.
 
 - **Visits view:** grouped under day headings, newest first; repeat visits to a page within a day are one row with a count, which expands to each time. More loads as the list scrolls.
-- **Sites view:** one row per host with its visit count and last visit, under the same filter. A row opens the visits view filtered to it.
-- **Rows:** activate opens the page in this tab; middle click or Ctrl+click opens a new tab. Checkboxes select rows; with a selection, the header offers **Delete selected**. A row's menu offers Open in new tab, Copy link, **More from this site**, Delete, **Delete all visits to this page**, **Delete everything from this site…** and **Never record this site…**, or **Record this site again** when the site already has a `never` rule of its own.
-- **Clear browsing history…** offers the last hour, last day, last 7 days, last 4 weeks or all time. It deletes visits only; downloads stay, as [Downloads](downloads.md#storage) already says.
+- **Sites view:** one row per host with its visit count and last visit, under the same filter. A row opens the visits view filtered to it. Its menu, from a right-click or an actions button shown on hover or focus, holds the site items of a visit row's menu: **Delete everything from this site…** and **Never record this site**, or what takes its place.
+- **Rows:** activate opens the page in this tab; middle click or Ctrl+click opens a new tab. Checkboxes select rows; with a selection, the header offers **Delete selected**. A row shows its checkbox and actions button on hover or focus, and every row shows its checkbox once any is selected. A row's menu offers Open in new tab, Copy link, **More from this site**, Delete, **Delete all visits to this page**, **Delete everything from this site…** and **Never record this site**, or **Record this site again** when the site already has a `never` rule of its own. **Delete everything from this site…** asks where the menu was, with the count. **Never record this site** opens the same two choices as the rules' field, **Only from now on** or **Never record and delete N visits**; with nothing recorded it adds the rule at once.
+- **Clear browsing history…** offers the last hour, last day, last 7 days, last 4 weeks or all time. Each range is counted as the menu opens, and asks where the menu was how many visits it deletes. It deletes visits only; downloads stay, as [Downloads](downloads.md#storage) already says.
+
+Until 2026-11-11 these confirmations were dialogs, the address filter asked for show or hide and a kind before the pattern, and every row showed its checkbox and actions. The maintainer chose the current page on that date, following the [interface guidelines](../guidelines/interface.md): a confirmation asks where the step started, a form asks for the least, and a list stays quiet until a row is pointed at.
 
 The filter lives in the page, not in the address: a query is a moment, not a place, and the address would gain a back entry per keystroke, as [Settings page § Search](settings-page.md#search) decided. An address the page is opened with is read once: `haku://history?q=<text>` and `haku://history?site=<host>`.
 
 ### Elsewhere
 
 - **Ctrl+H** opens `haku://history` in a new tab: a new shortcut action, `openHistory`, in the same group as `openBookmarks`.
-- **The site menu**, for a web page in an ordinary window, gains **Show history for this site**, which opens `haku://history?site=<host>`, and **Never record this site…**, which adds a `site` rule at the top and makes the same offer to delete. Both say the rule can be undone, and where.
+- **The site menu**, for a web page in an ordinary window, gains **Show history for this site**, which opens `haku://history?site=<host>`, and **Never record this site…**, which adds a `site` rule at the top. When visits to the site are already recorded, it first makes the same offer to delete as the rules' field, in place under the item and in the same words, and the menu stays open. Both say the rule can be undone, and where.
 - **Both menus ask `history_rule_for` which rule decides the page,** so they match it exactly as recording does, wildcards and regular expressions included, rather than repeating the matcher in the interface:
   - The site's own `never` rule, a `site` rule for exactly its host: **Record this site again** takes the place of **Never record this site…**. It removes that rule only. When another rule still stops the site, its confirmation names that rule; otherwise it says the site is recorded again.
-  - Another `never` rule: the menu names it, as "Not recorded: rule `*.bank.com/*`". The site menu offers **Edit history rules**, which opens the rules in settings; a row's menu shows the same text, disabled. Adding a rule beneath one that already stops the site would change nothing.
+  - Another `never` rule: the menu names it, as "Not recorded: rule `*.bank.com/*`". The site menu offers **Edit history rules**, which opens the rules in settings at `haku://settings/browsing#historyRules`; a row's menu offers the same item in place of Never record. Adding a rule beneath one that already stops the site would change nothing.
   - Another rule, `addressOnly` or `always`: the site menu names it beside **Never record this site…**, whose rule goes on top and so takes over.
   - No rule, or the question failing: **Never record this site…**.
 

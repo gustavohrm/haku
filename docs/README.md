@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
+last_updated: 2026-11-11
 scope: Index of the project documentation.
 ---
 
@@ -26,6 +26,7 @@ Start with [Architecture](architecture.md).
 | [Code](guidelines/code.md)                   | Naming, design, TypeScript, async and errors, testing practices, and documentation in code.     |
 | [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, layout, and the writing voice. |
 | [Security](guidelines/security.md)           | Secrets, untrusted input, what stays out of logs, and reviewing a change.                       |
+| [Interface](guidelines/interface.md)         | Surfaces, popovers, lists, forms and menus: how the interface is laid out and how flows behave. |
 
 | Document                     | Contains                                                               |
 | ---------------------------- | ---------------------------------------------------------------------- |

@@ -1,6 +1,5 @@
 import type { BookmarkId, BookmarkNode, Bookmarks } from "@bindings";
 import { interfaceMenu } from "@features/context-menu/items";
-import { feedback } from "@features/feedback/feedback";
 import type { MenuItem } from "@features/overlays/menu-model";
 import { commands } from "@ipc/commands";
 import { t } from "@shared/i18n";
@@ -10,14 +9,24 @@ import { contains, countLinks, displayTitle, isFolder, listFolders, locate, urlO
 export interface BookmarkMenuActions {
   isPrivate: boolean;
   edit: (id: BookmarkId) => void;
+  /**
+   * Asks on the bookmark's row before a folder that holds anything is
+   * removed, where the menu was opened from a row. Without it, the menu asks
+   * in its own place.
+   */
+  confirmInRow?: (id: BookmarkId) => void;
 }
 
 /**
- * A bookmark's menu on `haku://bookmarks`: opening a link elsewhere, editing,
- * moving to another folder, and deleting.
+ * A bookmark's menu, on `haku://bookmarks` and the bookmarks bar: opening a
+ * link elsewhere, editing, moving to another folder, and removing.
  *
  * **Move to** lists every folder by its path, leaving out the one the node is
  * in, and, for a folder, itself and the folders inside it, which Rust refuses.
+ *
+ * **Remove** takes a link or an empty folder at once. A folder that holds
+ * anything asks first, naming how many bookmarks go with it, since there is
+ * no undo: on its row when there is one, or where the menu was.
  */
 export function bookmarkMenu(tree: Bookmarks, node: BookmarkNode, actions: BookmarkMenuActions): MenuItem[] {
   const url = urlOf(node);
@@ -51,6 +60,8 @@ export function bookmarkMenu(tree: Bookmarks, node: BookmarkNode, actions: Bookm
   const destinations = listFolders(tree).filter(
     ({ folder }) => folder.id !== parent && !(isFolder(node) && contains(node, folder.id)),
   );
+  const question = removeQuestion(tree, node);
+  const { confirmInRow } = actions;
   items.push(
     {
       kind: "command",
@@ -70,40 +81,36 @@ export function bookmarkMenu(tree: Bookmarks, node: BookmarkNode, actions: Bookm
         onSelect: () => void commands.moveBookmark(node.id, folder.id, null),
       })),
     },
-    { kind: "separator", id: "separator:delete" },
-    {
-      kind: "command",
-      id: "delete",
-      label: t("bookmarks.delete"),
-      onSelect: () => void deleteBookmark(tree, node),
-    },
+    { kind: "separator", id: "separator:remove" },
+    question !== null && confirmInRow
+      ? { kind: "command", id: "remove", label: t("bookmarks.remove"), onSelect: () => confirmInRow(node.id) }
+      : {
+          kind: "command",
+          id: "remove",
+          label: t("bookmarks.remove"),
+          ...(question === null
+            ? {}
+            : { confirm: { message: question, action: t("bookmarks.remove"), destructive: true } }),
+          onSelect: () => void commands.removeBookmark(node.id),
+        },
   );
   return interfaceMenu(items);
 }
 
 /**
- * Deletes a bookmark. A link or an empty folder goes at once; a folder that
- * holds anything asks first, naming how many bookmarks go with it, since
- * there is no undo.
+ * What removing a bookmark asks first: nothing for a link or an empty folder,
+ * and for a folder that holds anything, how many bookmarks go with it.
  */
-export async function deleteBookmark(tree: Bookmarks, node: BookmarkNode): Promise<void> {
-  if (isFolder(node) && node.kind.folder.children.length > 0) {
-    const count = countLinks(node);
-    const message =
-      count === 0
-        ? t("bookmarks.deleteFolder.foldersOnly")
-        : count === 1
-          ? t("bookmarks.deleteFolder.one")
-          : t("bookmarks.deleteFolder.many").replace("{count}", count.toLocaleString());
-    const confirmed: unknown = await feedback().dialog.confirm(message, {
-      title: t("bookmarks.deleteFolder.title").replace("{name}", () => displayTitle(tree, node)),
-      type: "error",
-      confirmLabel: t("bookmarks.delete"),
-      cancelLabel: t("dialog.cancel"),
-    });
-    if (confirmed !== true) {
-      return;
-    }
+export function removeQuestion(tree: Bookmarks, node: BookmarkNode): string | null {
+  if (!isFolder(node) || node.kind.folder.children.length === 0) {
+    return null;
   }
-  await commands.removeBookmark(node.id);
+  const count = countLinks(node);
+  const question =
+    count === 0
+      ? t("bookmarks.removeFolder.foldersOnly")
+      : count === 1
+        ? t("bookmarks.removeFolder.one")
+        : t("bookmarks.removeFolder.many").replace("{count}", count.toLocaleString());
+  return question.replace("{name}", () => displayTitle(tree, node));
 }

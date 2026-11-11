@@ -63,10 +63,10 @@ describe("nodeItems", () => {
 });
 
 describe("bookmarksButtonMenu", () => {
-  it("lists the bar, then Other bookmarks and Manage bookmarks", () => {
+  it("lists the bar, then Other bookmarks, and Manage bookmarks after a separator", () => {
     const act = actions();
     const items = bookmarksButtonMenu(sampleTree(), act);
-    expect(ids(items)).toEqual(["folder:3", "link:8", "separator:other", "other", "manage"]);
+    expect(ids(items)).toEqual(["folder:3", "link:8", "separator:other", "other", "separator:manage", "manage"]);
     expect(ids(submenu(items, "other"))).toEqual(["folder:4"]);
     choose(items, "manage");
     expect(act.manage).toHaveBeenCalledOnce();
@@ -74,15 +74,19 @@ describe("bookmarksButtonMenu", () => {
 });
 
 describe("barRowMenu", () => {
-  it("adds to the bar, offers the three choices of when it shows, and manages", () => {
+  it("adds to the bar, offers the three choices of when it shows, and manages after a separator", () => {
     const row = { add: vi.fn(), setShown: vi.fn(), manage: vi.fn() };
     const items = barRowMenu("newTab", row);
-    expect(ids(items)).toEqual(["addLink", "addFolder", "separator:show", "show", "manage"]);
+    expect(ids(items)).toEqual(["addLink", "addFolder", "separator:show", "show", "separator:manage", "manage"]);
 
     const show = submenu(items, "show");
     expect(show.map((item) => item.kind === "radio" && item.checked)).toEqual([false, true, false]);
     choose(show, "never");
     expect(row.setShown).toHaveBeenCalledExactlyOnceWith("never");
+    expect(items.slice(0, 2).map((item) => item.kind !== "separator" && item.label)).toEqual([
+      "Add page…",
+      "Add folder…",
+    ]);
     choose(items, "addFolder");
     expect(row.add).toHaveBeenCalledExactlyOnceWith("addFolder");
   });

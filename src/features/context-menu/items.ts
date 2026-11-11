@@ -113,9 +113,12 @@ export function tabMenu(
       id: "keep",
       label: t("menu.keepLoaded"),
       checked: tab.fixed,
+      // Keeping a tab loaded holds its memory until it is turned off, so it
+      // warns first; turning it off asks nothing.
+      ...(tab.fixed ? {} : { confirm: { message: t("site.keepLoaded.warning"), action: t("menu.keepLoaded") } }),
       onSelect: () => actions.setFixed(tab.id, !tab.fixed),
     },
-    separator("close"),
+    separator("split"),
     {
       kind: "command",
       id: "split",
@@ -135,6 +138,7 @@ export function tabMenu(
           },
         ]
       : []),
+    separator("close"),
     {
       kind: "command",
       id: "close",

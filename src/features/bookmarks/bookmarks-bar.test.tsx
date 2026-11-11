@@ -11,6 +11,9 @@ const { commands, state, openMenu, updateSettings, drawn } = vi.hoisted(() => {
       navigateTab: vi.fn(() => ok()),
       openTab: vi.fn(() => ok()),
       openWindow: vi.fn(() => ok()),
+      updateBookmark: vi.fn(() => ok()),
+      addBookmark: vi.fn(() => ok()),
+      addBookmarkFolder: vi.fn(() => ok()),
     },
     state: { tree: null as Bookmarks | null },
     openMenu: vi.fn(() => () => {}),
@@ -204,5 +207,113 @@ describe("BookmarksBar", () => {
     state.tree = { ...state.tree, bar: { ...state.tree.bar } };
     await render();
     expect(drawn).toEqual([]);
+  });
+  describe("form", () => {
+    const choose = async (id: string) => {
+      const entry = lastMenu().items.find((candidate) => candidate.id === id);
+      if (entry?.kind !== "command") {
+        throw new Error(`no ${id}`);
+      }
+      await act(async () => entry.onSelect());
+    };
+    const editHaku = async () => {
+      await render();
+      await act(async () => {
+        item("Haku").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      });
+      await choose("edit");
+    };
+    const addToBar = async (id: "addLink" | "addFolder") => {
+      await render();
+      await act(async () => {
+        container
+          .querySelector("[data-bookmarks-bar]")!
+          .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      });
+      await choose(id);
+    };
+    const form = () => document.querySelector<HTMLFormElement>("section form");
+    const field = (name: string) => document.querySelector<HTMLInputElement>(`section input[aria-label="${name}"]`)!;
+    const type = async (input: HTMLInputElement, value: string) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      await act(async () => {
+        set.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    const escape = (target: Element) =>
+      act(async () => {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+    const clickAway = () =>
+      act(async () => {
+        document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      });
+
+    beforeEach(() => vi.stubGlobal("PointerEvent", MouseEvent));
+
+    it("names its fields without visible labels, and puts Cancel on the left of Save", async () => {
+      await editHaku();
+      expect(field("Name").value).toBe("Haku");
+      expect(field("Address").value).toBe("https://haku.test/");
+      expect(form()!.querySelector("label")).toBeNull();
+      expect([...form()!.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Cancel", "Save"]);
+    });
+
+    it("keeps an edit when Escape closes it", async () => {
+      await editHaku();
+      await type(field("Name"), "Haku home");
+      await escape(field("Name"));
+      expect(commands.updateBookmark).toHaveBeenCalledExactlyOnceWith(8, "Haku home", "https://haku.test/");
+      expect(form()).toBeNull();
+    });
+
+    it("keeps an edit when a click away closes it, and writes nothing when nothing changed", async () => {
+      await editHaku();
+      await clickAway();
+      expect(form()).toBeNull();
+      expect(commands.updateBookmark).not.toHaveBeenCalled();
+
+      await act(async () => {
+        item("Haku").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      });
+      await choose("edit");
+      await type(field("Address"), "haku.test/new");
+      await clickAway();
+      expect(commands.updateBookmark).toHaveBeenCalledExactlyOnceWith(8, "Haku", "https://haku.test/new");
+    });
+
+    it("discards an edit on Cancel", async () => {
+      await editHaku();
+      await type(field("Name"), "Haku home");
+      const cancel = [...form()!.querySelectorAll("button")].find((button) => button.textContent === "Cancel")!;
+      await act(async () => cancel.click());
+      expect(form()).toBeNull();
+      expect(commands.updateBookmark).not.toHaveBeenCalled();
+    });
+
+    it("discards a page or folder being added when Escape or a click away closes it", async () => {
+      await addToBar("addLink");
+      await type(field("Name"), "Example");
+      await type(field("Address"), "example.com");
+      await escape(field("Address"));
+      expect(form()).toBeNull();
+
+      await addToBar("addFolder");
+      await type(field("Name"), "Work");
+      await clickAway();
+      expect(form()).toBeNull();
+      expect(commands.addBookmark).not.toHaveBeenCalled();
+      expect(commands.addBookmarkFolder).not.toHaveBeenCalled();
+    });
+
+    it("adds a page to the end of the bar from its own menu", async () => {
+      await addToBar("addLink");
+      await type(field("Name"), "Example");
+      await type(field("Address"), "example.com");
+      await act(async () => form()!.requestSubmit());
+      expect(commands.addBookmark).toHaveBeenCalledExactlyOnceWith(1, null, "Example", "https://example.com");
+      expect(form()).toBeNull();
+    });
   });
 });

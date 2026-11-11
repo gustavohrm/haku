@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
+last_updated: 2026-11-11
 scope: How tabs share a limited number of webviews.
 ---
 
@@ -82,7 +82,7 @@ The **Optimization** section of settings holds four values, and the site menu a 
 | Background memory       | megabytes            | The [budget](tab-optimization.md#the-budget) for kept tabs (`kept_memory_mb`). |
 | Freeze background tabs  | never, smart, always | Whether a background tab still in a slot is frozen.                            |
 | Discard background tabs | never, smart, always | Whether Haku discards a background tab on its own accord.                      |
-| Kept sites              | a list of hosts      | [Don't unload this site](tab-optimization.md#kept-sites), from the site menu.  |
+| Sites kept loaded       | a list of hosts      | [Keep this site loaded](tab-optimization.md#kept-sites), from the site menu.   |
 
 _Discard: always_ makes the first three meaningless, so it disables them, each with a tooltip saying why. The tooltip hangs off a wrapping element, because a disabled control receives no pointer events.
 
@@ -157,13 +157,13 @@ What remains above the idle figure after closing is the GPU process's caches and
 
 Keeping a tab loaded is the user saying it must stay resident and running. It raises the effective capacity, protects the tab from eviction, and exempts it from freezing and discarding; nothing gives its slot back but closing the tab or turning the option off. There is no idle release: a tab the user asked to keep is not dropped for being quiet.
 
-It is set from the **site menu**, which the address field's leading icon opens, alongside a warning that the tab stays in memory whatever the optimization settings say. It is not on the tab itself, so overriding the pool takes a deliberate step. A fixed tab carries a marker in the tab strip.
+It is set from the **site menu**, which the address bar's leading icon opens, as **Keep this tab loaded**, and from the tab's context menu, as **Keep loaded**. Keeping a tab loaded always warns first, from the site menu and the tab menu alike: turning it on says that the tab stays in memory and keeps running whatever the optimization settings say, and takes effect only once that is confirmed, so overriding the pool is a deliberate step wherever it is taken. Turning it off asks nothing ([Interface guidelines § Forms](../guidelines/interface.md#forms)). A fixed tab carries a marker in the tab strip.
 
-The menu hangs over page content, so it registers with `useOverlay`. It is on the slightly translucent `chrome-overlay` surface, with no shadow, because the input mask would cut one off at its edge; its rounded corners are cut into the mask from its own style. Its text starts directly under the lock glyph that opens it. It closes when the chrome loses focus: a click on the page never reaches the chrome.
+The site menu hangs over page content, so it registers with `useOverlay`. It is drawn with the one overlay recipe, `haku-overlay` with its rows as `haku-row` ([Code guidelines § Styling](../guidelines/code.md#styling)), with no shadow, because the input mask would cut one off at its edge; its rounded corners are cut into the mask from its own style. Its text starts directly under the glyph that opens it. It closes when the chrome loses focus: a click on the page never reaches the chrome.
 
-Below it, **Don't unload this site** adds or removes the page's host in [kept sites](tab-optimization.md#kept-sites). It overrides nothing but discarding, so it carries a plain explanation under the switch rather than a warning.
+Below it, **Keep this site loaded** adds or removes the page's host in [kept sites](tab-optimization.md#kept-sites). Each switch says under it, muted, what it reaches: **This tab only** and **Every tab on this site**. Keeping the site costs memory the same way, so turning it on warns the same way: the warning shows in place under the switch with **Keep loaded** and **Cancel**, and a click away or Esc, which closes the menu, keeps nothing.
 
-The warning is a tooltip on an icon beside the option. Its bubble can reach past the menu's rectangle, so its open state is tracked in code rather than left to CSS, and it registers as an overlay of its own while it shows.
+Until 2026-11-11 the tab's warning was a tooltip on an icon beside its switch, which applied at once, the site's option was named **Don't unload this site** with its explanation under it and no warning, and the tab menu's **Keep loaded** applied without one. The maintainer chose the current behaviour on that date: two switches explained two ways read as near-synonyms, and a costly choice should ask wherever it is made.
 
 ## Scroll and form contents
 

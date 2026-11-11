@@ -60,10 +60,12 @@ describe("BookmarksPage", () => {
     [...container.querySelectorAll<HTMLButtonElement>("li > button:first-child")].find((button) =>
       button.textContent?.includes(text),
     )!;
-  const field = (label: string) =>
-    [...container.querySelectorAll("label")]
-      .find((element) => element.textContent?.startsWith(label))!
-      .querySelector("input")!;
+  const field = (name: string) => container.querySelector<HTMLInputElement>(`form input[aria-label="${name}"]`)!;
+  const button = (text: string) =>
+    [...container.querySelectorAll("button")].find((candidate) => candidate.textContent === text)!;
+  const menuItems = () => (openMenu.mock.lastCall![0] as { items: { id: string; onSelect?: () => void }[] }).items;
+  const contextMenu = (target: Element) =>
+    act(async () => target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
   const type = async (input: HTMLInputElement, value: string) => {
     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
@@ -116,7 +118,7 @@ describe("BookmarksPage", () => {
 
   it("adds a page to the open folder, taking a bare host as a web address", async () => {
     await render("haku://bookmarks?folder=3");
-    await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Add page")!);
+    await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Add page…")!);
     await type(field("Name"), " Example ");
     await type(field("Address"), "example.com");
     await act(async () => container.querySelector("form")!.requestSubmit());
@@ -128,25 +130,124 @@ describe("BookmarksPage", () => {
   it("keeps the form when the change is refused", async () => {
     commands.addBookmarkFolder.mockResolvedValueOnce({ status: "error", data: null } as never);
     await render();
-    await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Add folder")!);
+    await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Add folder…")!);
     await act(async () => container.querySelector("form")!.requestSubmit());
 
     expect(commands.addBookmarkFolder).toHaveBeenCalledExactlyOnceWith(1, null, "New folder");
     expect(container.querySelector("form")).not.toBeNull();
   });
 
-  it("edits a link in place from its menu", async () => {
+  it("edits a link in place from its menu, as one line of two fields and Save", async () => {
     await render();
-    await act(async () =>
-      rowButton("Haku").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
-    );
-    const { items } = openMenu.mock.lastCall![0] as { items: { id: string; onSelect?: () => void }[] };
-    await act(async () => items.find((item) => item.id === "edit")!.onSelect!());
+    await contextMenu(rowButton("Haku"));
+    await act(async () => menuItems().find((item) => item.id === "edit")!.onSelect!());
 
+    const form = container.querySelector("form")!;
+    expect(form.closest("li")).not.toBeNull();
+    expect(form.querySelector("label")).toBeNull();
+    expect(form.querySelectorAll("input")).toHaveLength(2);
+    expect([...form.querySelectorAll("button")].map((entry) => entry.textContent)).toEqual(["Save"]);
     expect(field("Name").value).toBe("Haku");
     await type(field("Address"), "haku.test/new");
-    await act(async () => container.querySelector("form")!.requestSubmit());
+    await act(async () => form.requestSubmit());
     expect(commands.updateBookmark).toHaveBeenCalledExactlyOnceWith(8, "Haku", "https://haku.test/new");
+  });
+
+  it("discards an edit in place on Escape", async () => {
+    await render();
+    await contextMenu(rowButton("Haku"));
+    await act(async () => menuItems().find((item) => item.id === "edit")!.onSelect!());
+    await type(field("Name"), "Haku home");
+    await act(async () => field("Name").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(container.querySelector("form")).toBeNull();
+    expect(commands.updateBookmark).not.toHaveBeenCalled();
+  });
+
+  it("opens the add form after the last row, where the new item goes", async () => {
+    await render();
+    await click(button("Add page…"));
+    const items = [...container.querySelectorAll(".stack > ul > li")];
+    expect(items).toHaveLength(3);
+    expect(items.at(-1)!.querySelector("form")).not.toBeNull();
+  });
+
+  it("opens the add form in an empty folder in place of saying it is empty", async () => {
+    await render("haku://bookmarks?folder=4");
+    expect(container.textContent).toContain("This folder is empty.");
+    await click(button("Add folder…"));
+    expect(container.textContent).not.toContain("This folder is empty.");
+    expect(container.querySelector(".stack > ul > li > form")).not.toBeNull();
+  });
+
+  it("keeps adding quiet in the header, with Import and Export in its menu", async () => {
+    await render();
+    expect(button("Add page…").className).not.toContain("edged");
+    expect(button("Add folder…").className).not.toContain("edged");
+    expect(button("Import…")).toBeUndefined();
+
+    await click(container.querySelector('header [aria-label="More actions"]')!);
+    expect(
+      menuItems()
+        .map((item) => item.id)
+        .filter((id) => !id.includes("inspectInterface")),
+    ).toEqual(["import", "export"]);
+  });
+
+  it("removes a link at once from its menu", async () => {
+    await render();
+    await contextMenu(rowButton("Haku"));
+    await act(async () => menuItems().find((item) => item.id === "remove")!.onSelect!());
+    expect(commands.removeBookmark).toHaveBeenCalledExactlyOnceWith(8);
+  });
+
+  it("asks on the row before removing a folder that holds anything", async () => {
+    await render();
+    await contextMenu(rowButton("Docs"));
+    await act(async () => menuItems().find((item) => item.id === "remove")!.onSelect!());
+
+    expect(commands.removeBookmark).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Remove “Docs” and the 2 bookmarks in it? This can't be undone.",
+    );
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    await act(async () =>
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(commands.removeBookmark).not.toHaveBeenCalled();
+
+    await contextMenu(rowButton("Docs"));
+    await act(async () => menuItems().find((item) => item.id === "remove")!.onSelect!());
+    await click(button("Remove"));
+    expect(commands.removeBookmark).toHaveBeenCalledExactlyOnceWith(3);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("asks where the menu was for a folder removed from the folder tree", async () => {
+    await render();
+    const docs = [...container.querySelectorAll("nav [data-drop-folder]")].find((entry) =>
+      entry.textContent?.includes("Docs"),
+    )!;
+    await contextMenu(docs);
+    const remove = menuItems().find((item) => item.id === "remove") as { confirm?: { message: string } };
+    expect(remove.confirm?.message).toBe("Remove “Docs” and the 2 bookmarks in it? This can't be undone.");
+  });
+
+  it("names a folder's chevron Expand or Collapse and its folder, apart from the folder's own button", async () => {
+    await render();
+    const chevrons = () =>
+      [...container.querySelectorAll<HTMLButtonElement>("nav button[aria-expanded]")].map((chevron) => [
+        chevron.getAttribute("aria-label"),
+        chevron.getAttribute("aria-expanded"),
+      ]);
+    // Bookmarks bar, Docs inside it, and Other bookmarks.
+    expect(chevrons()).toEqual([
+      ["Collapse: Bookmarks bar", "true"],
+      ["Expand: Docs", "false"],
+      ["Collapse: Other bookmarks", "true"],
+    ]);
+    await click(container.querySelectorAll("nav button[aria-expanded]")[1]!);
+    expect(chevrons()[1]).toEqual(["Collapse: Docs", "true"]);
   });
 
   it("shows the generic icon for every link in a private window", async () => {

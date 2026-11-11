@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-11-09
+last_updated: 2026-11-11
 scope: Coding conventions for every package and app in the workspace.
 ---
 
@@ -165,6 +165,7 @@ Haku has a second language, Rust, in `tauri/`. `rustfmt` formats it and `clippy`
 - `.btn` and the other component classes are Tailwind utilities themselves. Two utilities setting the same property on one element resolve by Tailwind's sort order, not by intent, so show or hide a component from a wrapper instead of adding `hidden` to it.
 - Size icons with the icon package's own classes (`ic-xs` … `ic-xl`). Its rules are unlayered, so Tailwind size utilities lose to them.
 - Join conditional classes with `cx` from `@shared/class-names`.
+- Draw every menu, popover and panel over the page with `haku-overlay`, and the rows in one with `haku-row`, both defined in `src/styles/index.css`. The recipe leaves the surface's padding and a row's height out: a menu or a panel adds `p-1`, a form `p-2`; menu rows are `min-h-6`, panel rows `min-h-8`. A row keeps its own horizontal padding. A menu's rows are the exception: they share the row's shape but draw their own highlight, which the keyboard moves as well as the pointer, so they do not use `haku-row`, whose hover would compete with it. One recipe is what keeps popovers that do the same job from drifting apart.
 - Prefer soft, flat or bare surfaces to outlined ones. Group with a soft fill one step from the ground (`.soft.edgeless` on a card or field), and separate with spacing. Draw a border, line or divider only where leaving it out is worse: where nothing else separates two things that must be told apart, or over page content, where a menu can cast no shadow and a border is what separates it from an unknown page beneath it ([Chrome layering](../specs/chrome-layering.md)). Outlines on every card, row and field add noise that competes with the content; Haku's look is monochrome and quiet, and edges are the loudest thing in it.
 
 ## Test names

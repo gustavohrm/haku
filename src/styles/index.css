@@ -9,12 +9,28 @@
    themes follow `@codenhub/theme` without a second set of colours. The chrome
    is one quiet plane; the active tab and the address field are raised from it.
    A surface floating over the page, such as a menu or a toast, is the raised
-   one letting a little of the page through: enough to place it over the page,
-   not so much that a busy page competes with its text. */
+   one, opaque: without a blur, a page showing through competes with its text
+   (docs/specs/chrome-layering.md#flat-surfaces-over-the-page). A surface that
+   needs to be translucent says so where it is drawn. */
 @theme {
   --color-chrome: var(--color-foreground);
   --color-chrome-raised: var(--color-surface);
-  --color-chrome-overlay: color-mix(in oklab, var(--color-surface) 88%, transparent);
+  --color-chrome-overlay: var(--color-surface);
+}
+
+/* The one surface every menu, popover and panel over the page is drawn on,
+   and the one row drawn in it. The surface's padding and a row's height are
+   left to the user, so a utility added beside them never competes with the
+   recipe for the same property; a row keeps its own `px-2`, the same
+   everywhere: a menu adds `p-1` and rows of `min-h-6`, a panel `p-1` and rows
+   of `min-h-8`, a form `p-2`. A menu draws its rows' highlight itself, since
+   the keyboard moves it too. docs/guidelines/code.md#styling. */
+@utility haku-overlay {
+  @apply bg-chrome-overlay border-text/10 text-text rounded-(--radius-control) border;
+}
+
+@utility haku-row {
+  @apply hover:bg-text/8 focus-visible:bg-text/8 has-focus-visible:bg-text/8 flex shrink-0 items-center gap-2 rounded-(--radius-small) px-2 text-left outline-none;
 }
 
 /* Inter is bundled rather than taken from the system so the chrome looks and
@@ -176,15 +192,6 @@ dialog[data-toast-instance] .toast-dialog-container {
 */
 [data-toast-instance] {
   --default-font-family: var(--font-default);
-}
-
-/*
-  A toast is a surface over the page, so it lets a little of the page through,
-  as a menu does. The toaster mixes each intent's tint into an opaque ground;
-  this keeps the tint and lets the ground through.
-*/
-[data-haku-feedback] .coden-toast {
-  background-color: color-mix(in oklab, var(--_bg) 88%, transparent);
 }
 
 /*

@@ -27,7 +27,7 @@ import {
   VersionControl,
 } from "./controls";
 import { HistoryEnabledControl, HistoryRetentionControl, HistoryRulesControl } from "./history-controls";
-import { SearchEngineControl, SearchEnginesControl, SearchSuggestionsControl } from "./search-controls";
+import { SearchEnginesControl, SearchSuggestionsControl } from "./search-controls";
 import { SHORTCUT_GROUPS } from "./shortcuts";
 import { type SettingRowDefinition, type SettingSection } from "./types";
 
@@ -211,13 +211,6 @@ export const SECTIONS: SettingSection[] = [
     groups: [
       {
         rows: [
-          {
-            id: "searchEngine",
-            title: "settings.searchEngine",
-            description: "settings.searchEngine.help",
-            keywords: "settings.searchEngine.keywords",
-            Control: SearchEngineControl,
-          },
           {
             id: "searchEngines",
             title: "settings.searchEngines",

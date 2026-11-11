@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-29
+last_updated: 2026-11-11
 scope: Visible tabs, viewport geometry and focus within a browser window; creating, closing and restoring a split.
 ---
 
@@ -207,4 +207,4 @@ Slices 4b and 5 implement the pair-model revision and persistence described abov
 
 Chrome uses pointer capture and a drag threshold for joined units, computes legal gaps from strip geometry and cancels on Escape or order/membership changes. Its native drop handler stays enabled: disabling it for HTML drag/drop did not weigh losing wry's `AllowExternalDrop(false)` on the IPC-holding chrome webview, violating the [security boundary](../guidelines/security.md). Verify that external file, link and text drops cannot navigate chrome, including internal pages. Content webviews retain their existing handler settings.
 
-The existing Keep loaded conflict remains outside these slices: `context-menus.md` and `tabMenu` permit the tab action while `webview-pool.md` says it belongs only in the site menu. No fixed-tab interaction is reversed here. This implementation is not a full conformance audit.
+The Keep loaded conflict these slices left open, `context-menus.md` and `tabMenu` offering the tab action as a one-click checkbox while `webview-pool.md` placed it only in the site menu, was settled by the maintainer on 2026-11-11: the tab menu keeps it, and turning it on always warns first ([Context menus § Interface menus](context-menus.md#interface-menus)). The tab menu also gives Open in split view and Separate tabs a group of their own, between the tab's own items and the Close items. No fixed-tab policy changes here. This implementation is not a full conformance audit.

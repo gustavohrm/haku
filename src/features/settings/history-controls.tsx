@@ -11,9 +11,11 @@ import { filterOf, retentionCutoff, shortens } from "@features/history/filter";
 import { commands } from "@ipc/commands";
 import { describeError, unwrap } from "@ipc/result";
 import { tryUpdateSettings } from "@ipc/store";
+import { cx } from "@shared/class-names";
 import { t, type TranslationKey } from "@shared/i18n";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
+import { guessPattern, moveItem } from "./rule-pattern";
 import { type ControlProps } from "./types";
 
 const SELECT_CLASS = "select soft edgeless";
@@ -121,23 +123,11 @@ function counted(count: number, key: "settings.historyRetention.confirm" | "sett
   return count === 1 ? t(`${key}.one`) : t(`${key}.many`).replace("{count}", count.toLocaleString());
 }
 
-const KINDS: Record<UrlPatternKind, { label: TranslationKey; placeholder: string }> = {
-  site: {
-    label: "settings.historyRules.kind.site",
-    placeholder: "example.com",
-  },
-  page: {
-    label: "settings.historyRules.kind.page",
-    placeholder: "https://example.com/page",
-  },
-  wildcard: {
-    label: "settings.historyRules.kind.wildcard",
-    placeholder: "*://*.example.com/*",
-  },
-  regex: {
-    label: "settings.historyRules.kind.regex",
-    placeholder: "^https://[^/]+/admin",
-  },
+const KINDS: Record<UrlPatternKind, TranslationKey> = {
+  site: "settings.historyRules.kind.site",
+  page: "settings.historyRules.kind.page",
+  wildcard: "settings.historyRules.kind.wildcard",
+  regex: "settings.historyRules.kind.regex",
 };
 
 const ACTIONS: Record<HistoryRuleAction, TranslationKey> = {
@@ -158,23 +148,39 @@ function samePattern(a: UrlPattern, b: UrlPattern): boolean {
   return a.kind === b.kind && a.value === b.value;
 }
 
+/** A rule's place in the list while it is dragged: where it started, and where it would land. */
+interface Drag {
+  from: number;
+  to: number;
+  pointerId: number;
+}
+
 /**
- * The history rules in the order they are checked, each movable and
- * removable, with a form that adds one at the top.
+ * The history rules in the order they are checked, each a line whose action
+ * is changed in place, dragged by its handle to reorder, or moved with the
+ * arrow keys on the handle; then the field that adds one at the top.
  * [History § Rules](../../../docs/specs/history.md#rules).
  */
 export function HistoryRulesControl({ labelId, describedBy, settings, update }: ControlProps) {
   const rules = settings.historyRules;
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const handles = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const move = (index: number, by: -1 | 1) =>
-    void update((current) => {
-      const next = [...current.historyRules];
-      const [rule] = next.splice(index, 1);
-      if (rule) {
-        next.splice(index + by, 0, rule);
-      }
-      return { ...current, historyRules: next };
-    });
+  const move = async (from: number, to: number) => {
+    if (from === to) {
+      return;
+    }
+    await update((current) => ({ ...current, historyRules: moveItem(current.historyRules, from, to) }));
+    handles.current[to]?.focus();
+  };
+
+  const setAction = (rule: HistoryRule, action: HistoryRuleAction) =>
+    void update((current) => ({
+      ...current,
+      historyRules: current.historyRules.map((other) =>
+        samePattern(other.pattern, rule.pattern) ? { ...other, action } : other,
+      ),
+    }));
 
   const remove = (rule: HistoryRule) =>
     void update((current) => ({
@@ -182,55 +188,110 @@ export function HistoryRulesControl({ labelId, describedBy, settings, update }: 
       historyRules: current.historyRules.filter((other) => !samePattern(other.pattern, rule.pattern)),
     }));
 
+  const dropAt = (x: number, y: number): number | null => {
+    const row = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-rule-index]");
+    return row ? Number(row.dataset.ruleIndex) : null;
+  };
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       {rules.length === 0 ? (
         <p className="text-text-secondary text-sm">{t("settings.historyRules.empty")}</p>
       ) : (
         <ol className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
           {rules.map((rule, index) => {
             const id = `history-rule-${index}`;
+            const isTarget = drag !== null && drag.to === index && drag.from !== index;
             return (
-              <li key={`${rule.pattern.kind} ${rule.pattern.value}`} className="flex items-center gap-2">
-                {/* Each button is described by the rule, so it reads as "Remove, Site example.com, Never record". */}
+              <li
+                key={`${rule.pattern.kind} ${rule.pattern.value}`}
+                data-rule-index={index}
+                className={cx(
+                  "group hover:bg-text/5 flex min-h-9 items-center gap-2 rounded-(--radius-control) pr-1",
+                  drag?.from === index && "bg-text/5",
+                  isTarget &&
+                    (drag.to < drag.from
+                      ? "shadow-[inset_0_2px_0_var(--color-text)]"
+                      : "shadow-[inset_0_-2px_0_var(--color-text)]"),
+                )}
+              >
+                <button
+                  ref={(element) => {
+                    handles.current[index] = element;
+                  }}
+                  type="button"
+                  className="btn icon ghost cursor-grab touch-none opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+                  aria-label={t("settings.historyRules.reorder")}
+                  aria-describedby={id}
+                  title={t("settings.historyRules.reorder")}
+                  onKeyDown={(event) => {
+                    const by = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+                    if (by !== 0) {
+                      event.preventDefault();
+                      void move(index, Math.min(Math.max(index + by, 0), rules.length - 1));
+                    }
+                  }}
+                  onPointerDown={(event) => {
+                    // The main button alone drags: a right-button drag must not reorder.
+                    if (event.button !== 0) {
+                      return;
+                    }
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    setDrag({ from: index, to: index, pointerId: event.pointerId });
+                  }}
+                  onPointerMove={(event) => {
+                    if (drag?.pointerId !== event.pointerId) {
+                      return;
+                    }
+                    const to = dropAt(event.clientX, event.clientY);
+                    if (to !== null && to !== drag.to) {
+                      setDrag({ ...drag, to });
+                    }
+                  }}
+                  onPointerUp={() => {
+                    if (drag) {
+                      void move(drag.from, drag.to);
+                    }
+                    setDrag(null);
+                  }}
+                  onPointerCancel={() => setDrag(null)}
+                >
+                  <i className="ic-grip-vertical ic-sm" aria-hidden="true" />
+                </button>
+                {/* Each control is described by the rule, so it reads as "Remove rule, example.com, Site". */}
                 <span id={id} className="flex min-w-0 flex-1 items-baseline gap-2">
-                  <span className="text-text-secondary shrink-0 text-sm">{t(KINDS[rule.pattern.kind].label)}</span>
                   <span className="truncate font-mono text-sm" title={rule.pattern.value}>
                     {rule.pattern.value}
                   </span>
-                  <span className="text-text-secondary shrink-0 text-sm">{t(ACTIONS[rule.action])}</span>
+                  <span className="text-text-secondary shrink-0 text-xs">{t(KINDS[rule.pattern.kind])}</span>
                 </span>
-                <button
-                  type="button"
-                  className="btn icon ghost"
-                  aria-label={t("settings.historyRules.up")}
+                <select
+                  className="select soft edgeless w-40 shrink-0"
+                  aria-label={t("settings.historyRules.action")}
                   aria-describedby={id}
-                  title={t("settings.historyRules.up")}
-                  disabled={index === 0}
-                  onClick={() => move(index, -1)}
+                  value={rule.action}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (isAction(next)) {
+                      setAction(rule, next);
+                    }
+                  }}
                 >
-                  <i className="ic-arrow-up ic-sm" aria-hidden="true" />
-                </button>
+                  {Object.entries(ACTIONS).map(([option, label]) => (
+                    <option key={option} value={option}>
+                      {t(label)}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
-                  className="btn icon ghost"
-                  aria-label={t("settings.historyRules.down")}
-                  aria-describedby={id}
-                  title={t("settings.historyRules.down")}
-                  disabled={index === rules.length - 1}
-                  onClick={() => move(index, 1)}
-                >
-                  <i className="ic-arrow-down ic-sm" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="btn icon ghost"
+                  className="btn icon ghost opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
                   aria-label={t("settings.historyRules.remove")}
                   aria-describedby={id}
                   title={t("settings.historyRules.remove")}
                   onClick={() => remove(rule)}
                 >
-                  <i className="ic-x ic-sm" aria-hidden="true" />
+                  <i className="ic-trash ic-sm" aria-hidden="true" />
                 </button>
               </li>
             );
@@ -249,20 +310,27 @@ interface Offer {
 }
 
 /**
- * Adds a rule at the top, so it decides before every older one. A `never`
- * rule that matches recorded visits first offers to delete them; nothing is
- * deleted without that choice. An invalid pattern is shown under the field.
+ * One field that adds a rule at the top, so it decides before every older
+ * one. The pattern's kind is guessed from what is typed and shown as a tag
+ * that can be changed; the action is chosen beside it. Both appear only once
+ * something is typed. A `never` rule that matches recorded visits first
+ * offers to delete them, in place; nothing is deleted without that choice. An
+ * invalid pattern is shown under the field.
  */
 function AddRuleForm() {
-  const kindId = useId();
   const valueId = useId();
-  const actionId = useId();
   const errorId = useId();
-  const [kind, setKind] = useState<UrlPatternKind>("site");
   const [value, setValue] = useState("");
+  // A kind chosen by hand, which the guess no longer replaces.
+  const [chosenKind, setChosenKind] = useState<UrlPatternKind | null>(null);
   const [action, setAction] = useState<HistoryRuleAction>("never");
   const [error, setError] = useState<string | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
+
+  const guessed = guessPattern(value);
+  const pattern: UrlPattern =
+    chosenKind === null || chosenKind === guessed.kind ? guessed : { kind: chosenKind, value: value.trim() };
+  const typing = value.trim() !== "";
 
   const fail = (failure: HakuError) =>
     setError(failure.kind === "InvalidPattern" ? failure.message : describeError(failure));
@@ -281,6 +349,7 @@ function AddRuleForm() {
       return;
     }
     setValue("");
+    setChosenKind(null);
     if (deleteMatching) {
       try {
         await unwrap(commands.deleteHistory(filterOf({ include: [rule.pattern] })));
@@ -290,18 +359,27 @@ function AddRuleForm() {
     }
   };
 
+  // Counts asked for so far: one that answers after the rule was edited is for a rule no longer shown.
+  const asks = useRef(0);
+  const edited = () => {
+    asks.current += 1;
+    setOffer(null);
+  };
+
   const submit = async () => {
     setError(null);
-    const rule: HistoryRule = {
-      pattern: { kind, value: value.trim() },
-      action,
-    };
+    asks.current += 1;
+    const asked = asks.current;
+    const rule: HistoryRule = { pattern, action };
     if (action !== "never") {
       await save(rule, false);
       return;
     }
     // Counting compiles the pattern, so an invalid one is refused here, before anything is stored.
     const counted = await commands.countHistory(filterOf({ include: [rule.pattern] }));
+    if (asked !== asks.current) {
+      return;
+    }
     if (counted.status === "error") {
       fail(counted.error);
     } else if (counted.data === 0) {
@@ -317,73 +395,87 @@ function AddRuleForm() {
       aria-label={t("settings.historyRules.add")}
       onSubmit={(event) => {
         event.preventDefault();
-        void submit();
+        // Enter in the empty field submits too, with no button to stop it.
+        if (typing) {
+          void submit();
+        }
       }}
     >
-      <div className="flex flex-wrap gap-2">
-        <label htmlFor={kindId} className="sr-only">
-          {t("settings.historyRules.kind")}
-        </label>
-        <select
-          id={kindId}
-          className={SELECT_CLASS}
-          value={kind}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (isKind(next)) {
-              setKind(next);
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="input-group soft edgeless min-w-56 flex-1">
+          <i className="ic-plus ic-sm text-text-secondary shrink-0" aria-hidden="true" />
+          <label htmlFor={valueId} className="sr-only">
+            {t("settings.historyRules.pattern")}
+          </label>
+          <input
+            id={valueId}
+            type="text"
+            className="ipt font-mono"
+            placeholder={t("settings.historyRules.placeholder")}
+            spellCheck={false}
+            autoComplete="off"
+            aria-invalid={error !== null}
+            aria-describedby={error === null ? undefined : errorId}
+            value={value}
+            onChange={(event) => {
+              setValue(event.target.value);
               setError(null);
-            }
-          }}
-        >
-          {Object.entries(KINDS).map(([option, { label }]) => (
-            <option key={option} value={option}>
-              {t(label)}
-            </option>
-          ))}
-        </select>
-        <label htmlFor={valueId} className="sr-only">
-          {t("settings.historyRules.pattern")}
-        </label>
-        <input
-          id={valueId}
-          type="text"
-          className="ipt soft edgeless min-w-40 flex-1 font-mono"
-          placeholder={KINDS[kind].placeholder}
-          spellCheck={false}
-          autoComplete="off"
-          aria-invalid={error !== null}
-          aria-describedby={error === null ? undefined : errorId}
-          value={value}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setError(null);
-            setOffer(null);
-          }}
-        />
-        <label htmlFor={actionId} className="sr-only">
-          {t("settings.historyRules.action")}
-        </label>
-        <select
-          id={actionId}
-          className={SELECT_CLASS}
-          value={action}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (isAction(next)) {
-              setAction(next);
-            }
-          }}
-        >
-          {Object.entries(ACTIONS).map(([option, label]) => (
-            <option key={option} value={option}>
-              {t(label)}
-            </option>
-          ))}
-        </select>
-        <button type="submit" className="btn soft edgeless" disabled={value.trim() === "" || offer !== null}>
-          {t("settings.historyRules.add")}
-        </button>
+              edited();
+              if (event.target.value.trim() === "") {
+                setChosenKind(null);
+              }
+            }}
+          />
+          {typing && (
+            <select
+              className="text-text-secondary shrink-0 cursor-pointer rounded-(--radius-small) border-0 bg-transparent text-xs"
+              aria-label={t("settings.historyRules.kind")}
+              value={pattern.kind}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (isKind(next)) {
+                  setChosenKind(next);
+                  setError(null);
+                  edited();
+                }
+              }}
+            >
+              {Object.entries(KINDS).map(([option, label]) => (
+                <option key={option} value={option}>
+                  {t(label)}
+                </option>
+              ))}
+            </select>
+          )}
+        </span>
+        {typing && (
+          <>
+            <fieldset className="m-0 flex gap-0.5 border-0 p-0" aria-label={t("settings.historyRules.action")}>
+              {Object.entries(ACTIONS).map(([option, label]) => (
+                <label key={option} className={cx("btn sm", option === action ? "soft" : "ghost")}>
+                  <input
+                    type="radio"
+                    className="sr-only"
+                    name={`${valueId}-action`}
+                    value={option}
+                    checked={option === action}
+                    onChange={() => {
+                      if (isAction(option)) {
+                        setAction(option);
+                        // The offer was for the rule as it was: it is asked again for this one.
+                        edited();
+                      }
+                    }}
+                  />
+                  {t(label)}
+                </label>
+              ))}
+            </fieldset>
+            <button type="submit" className="btn" disabled={offer !== null}>
+              {t("settings.historyRules.add")}
+            </button>
+          </>
+        )}
       </div>
       {error !== null && (
         <p id={errorId} role="alert" className="text-destructive text-sm">
@@ -391,19 +483,19 @@ function AddRuleForm() {
         </p>
       )}
       {offer && (
-        <div role="alert" className="flex flex-col gap-2 text-sm">
+        <div role="alert" className="bg-text/5 flex flex-col gap-2 rounded-(--radius-control) p-2 text-sm">
           <p>{counted(offer.count, "settings.historyRules.offer")}</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn destructive" onClick={() => void save(offer.rule, true)}>
-              {offer.count === 1
-                ? t("settings.historyRules.offer.delete.one")
-                : t("settings.historyRules.offer.delete.many").replace("{count}", offer.count.toLocaleString())}
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" className="btn ghost" onClick={() => setOffer(null)}>
+              {t("dialog.cancel")}
             </button>
             <button type="button" className="btn soft edgeless" onClick={() => void save(offer.rule, false)}>
               {t("settings.historyRules.offer.keep")}
             </button>
-            <button type="button" className="btn ghost" onClick={() => setOffer(null)}>
-              {t("dialog.cancel")}
+            <button type="button" className="btn destructive" onClick={() => void save(offer.rule, true)}>
+              {offer.count === 1
+                ? t("settings.historyRules.offer.delete.one")
+                : t("settings.historyRules.offer.delete.many").replace("{count}", offer.count.toLocaleString())}
             </button>
           </div>
         </div>

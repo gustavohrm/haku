@@ -122,7 +122,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
         <i className="ic-blocks ic-sm" aria-hidden="true" />
       </button>
 
-      {/* On the overlay surface, which lets a little of the page through, and
+      {/* On the overlay surface, opaque, and
           without a shadow, which the input mask would cut off at its edge. Its
           rounded corners are cut into the mask from
           its own style. */}
@@ -133,23 +133,20 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
             id={menuId}
             aria-label={t("extensions.menu")}
             tabIndex={-1}
-            className="bg-chrome-overlay border-text/15 text-text fixed z-10 flex w-64 flex-col rounded-(--radius-surface) border p-1 outline-none"
+            className="haku-overlay fixed z-10 flex w-64 flex-col p-1 outline-none"
             style={{ right: menuAt.right, top: menuAt.top }}
           >
-            <h2 className="text-text-secondary px-2 pt-1.5 pb-1 text-xs font-medium">{t("extensions.menu")}</h2>
-
             {enabled.length === 0 && <p className="text-text-secondary px-2 py-1.5">{t("extensions.empty")}</p>}
 
             {enabled.map((extension) => {
               const isPinned = pinnedIds.includes(extension.id);
               return (
-                <div
-                  key={extension.id}
-                  className="group hover:bg-text/8 flex h-8 items-center rounded-(--radius-control) pr-0.5"
-                >
+                // The row is drawn as one, and lights up when either of its
+                // buttons has keyboard focus; the pin draws its own focus too.
+                <div key={extension.id} className="haku-row group has-focus-visible:bg-text/8 min-h-8">
                   <button
                     type="button"
-                    className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px] disabled:opacity-50"
+                    className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left outline-none disabled:opacity-50"
                     title={extension.popup === null ? t("extensions.noPopup") : extension.name}
                     disabled={extension.popup === null || tab === undefined}
                     onClick={() => void openPopup(extension, pinnedRefs.current.get(extension.id) ?? buttonRef.current)}
@@ -162,7 +159,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
                   <button
                     type="button"
                     className={cx(
-                      "hover:bg-text/10 grid size-7 shrink-0 place-items-center rounded-(--radius-control) outline-offset-[-2px]",
+                      "hover:bg-text/10 focus-visible:bg-text/10 -me-1.5 grid size-7 shrink-0 place-items-center rounded-(--radius-small) outline-none",
                       isPinned
                         ? "text-text"
                         : "text-text-secondary opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
@@ -182,7 +179,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
             <hr className="border-text/10 mx-1 my-1" />
             <button
               type="button"
-              className="text-text-secondary hover:bg-text/8 hover:text-text flex h-8 items-center gap-2.5 rounded-(--radius-control) px-2 text-left outline-offset-[-2px]"
+              className="haku-row text-text-secondary hover:text-text focus-visible:text-text min-h-8"
               onClick={() => {
                 setMenuAt(null);
                 void commands.openTab(`${SETTINGS_URL}/extensions`, true, "other");

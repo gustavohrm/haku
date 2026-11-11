@@ -85,34 +85,111 @@ const written = (before: HistoryRule[]) => {
 };
 
 describe("HistoryRulesControl", () => {
-  it("moves a rule and removes one, in the order they are checked", () => {
+  it("reorders a rule from the keyboard and removes one, in the order they are checked", async () => {
     const update = vi.fn<UpdateSettings>(async () => null);
     const rules = [site("a.test"), site("b.test")];
     render(HistoryRulesControl, { historyRules: rules }, update);
 
-    expect(button("Move up")?.disabled).toBe(true);
-    act(() => [...container.querySelectorAll<HTMLButtonElement>("button[aria-label='Move down']")][0]?.click());
+    const handles = container.querySelectorAll<HTMLButtonElement>("button[aria-label^='Drag to reorder']");
+    await act(async () => handles[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    // Up from the top stays where it is, and stores nothing.
+    await act(async () => handles[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
     act(() => [...container.querySelectorAll<HTMLButtonElement>("button[aria-label='Remove rule']")][1]?.click());
 
     const [move, remove] = update.mock.calls.map(([change]) => change as (current: Settings) => Settings);
     const current = { historyRules: rules } as unknown as Settings;
+    expect(update).toHaveBeenCalledTimes(2);
     expect(move?.(current).historyRules).toEqual([site("b.test"), site("a.test")]);
     expect(remove?.(current).historyRules).toEqual([site("a.test")]);
   });
 
-  it("adds a rule at the top, replacing one with the same pattern", async () => {
+  it("changes a rule's action in place", async () => {
+    const update = vi.fn<UpdateSettings>(async () => null);
+    const rules = [site("a.test"), site("b.test")];
+    render(HistoryRulesControl, { historyRules: rules }, update);
+
+    const action = container.querySelectorAll<HTMLSelectElement>("li select")[1]!;
+    action.value = "addressOnly";
+    await act(async () => action.dispatchEvent(new Event("change", { bubbles: true })));
+
+    const change = update.mock.calls[0]![0] as (current: Settings) => Settings;
+    expect(change({ historyRules: rules } as unknown as Settings).historyRules).toEqual([
+      site("a.test"),
+      site("b.test", "addressOnly"),
+    ]);
+  });
+
+  it("shows only the field until something is typed", async () => {
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+    expect(container.querySelector("form select, form fieldset")).toBeNull();
+
+    await type("b.test");
+    expect(container.querySelector<HTMLSelectElement>("form select")?.value).toBe("site");
+    expect(container.querySelector("form fieldset")).not.toBeNull();
+  });
+
+  it("does nothing on Enter in the empty field", async () => {
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+    await submit();
+    expect(countHistory).not.toHaveBeenCalled();
+    expect(stored).not.toHaveBeenCalled();
+    expect(container.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("withdraws the offer to delete when the action is changed, so the rule shown is the one saved", async () => {
+    countHistory.mockResolvedValue({ status: "ok", data: 42 });
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+
+    await type("bank.test");
+    await submit();
+    expect(container.textContent).toContain("42 recorded visits match this rule.");
+
+    await act(async () => container.querySelector<HTMLInputElement>("input[type=radio][value=always]")!.click());
+    expect(container.textContent).not.toContain("42 recorded visits match this rule.");
+    expect(stored).not.toHaveBeenCalled();
+  });
+
+  it("drops a count that answers after the action was changed", async () => {
+    let answer: (result: { status: "ok"; data: number }) => void = () => {};
+    countHistory.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+
+    await type("bank.test");
+    await submit();
+    await act(async () => container.querySelector<HTMLInputElement>("input[type=radio][value=always]")!.click());
+    await act(async () => answer({ status: "ok", data: 42 }));
+
+    expect(container.textContent).not.toContain("42 recorded visits match this rule.");
+    expect(stored).not.toHaveBeenCalled();
+  });
+
+  it("adds a rule at the top with the action chosen, replacing one with the same pattern", async () => {
     stored.mockResolvedValue({ status: "ok", data: {} as Settings });
     render(HistoryRulesControl, { historyRules: [] }, vi.fn());
 
-    container.querySelectorAll("select")[1]!.value = "always";
-    await act(async () =>
-      container.querySelectorAll("select")[1]!.dispatchEvent(new Event("change", { bubbles: true })),
-    );
     await type(" b.test ");
+    await act(async () => container.querySelector<HTMLInputElement>("input[type=radio][value=always]")!.click());
     await submit();
 
     expect(countHistory).not.toHaveBeenCalled();
     expect(written([site("a.test"), site("b.test")])).toEqual([site("b.test", "always"), site("a.test")]);
+  });
+
+  it("guesses a regular expression from its slashes, and takes a kind chosen by hand", async () => {
+    stored.mockResolvedValue({ status: "ok", data: {} as Settings });
+    render(HistoryRulesControl, { historyRules: [] }, vi.fn());
+
+    await type("/^https://admin/");
+    expect(container.querySelector<HTMLSelectElement>("form select")?.value).toBe("regex");
+
+    await type("example.com/a");
+    const kind = container.querySelector<HTMLSelectElement>("form select")!;
+    kind.value = "wildcard";
+    await act(async () => kind.dispatchEvent(new Event("change", { bubbles: true })));
+    await act(async () => container.querySelector<HTMLInputElement>("input[type=radio][value=always]")!.click());
+    await submit();
+
+    expect(written([])).toEqual([{ pattern: { kind: "wildcard", value: "example.com/a" }, action: "always" }]);
   });
 
   it("offers to delete what a never rule matches, and deletes only when asked", async () => {

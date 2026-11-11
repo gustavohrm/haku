@@ -65,8 +65,8 @@ describe("BookmarksButton", () => {
     expect(
       lastMenu()
         .items.map((entry) => entry.id)
-        .slice(0, 5),
-    ).toEqual(["folder:3", "link:8", "separator:other", "other", "manage"]);
+        .slice(0, 6),
+    ).toEqual(["folder:3", "link:8", "separator:other", "other", "separator:manage", "manage"]);
     expect(container.querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
   });
 

@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-10-31
+last_updated: 2026-11-11
 scope: How Chrome extensions are added, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
 ---
 
@@ -51,7 +51,7 @@ Haku does not look for new versions: an update is the user adding the newer file
 
 ## Uninstalling
 
-**Uninstall** in settings, after a confirmation that says the extension's data goes with it, removes the extension from the engine at once, with what it stored, and deletes its folder. A folder that cannot be deleted at once is renamed under a `.` name, which the next start deletes; one that cannot be renamed either is reported, and comes back at the next start. A folder that failed to install can be removed the same way. Its pin and its switch are kept, as for any extension no longer installed ([The toolbar](#the-toolbar)).
+**Uninstall** in settings, after a confirmation on the extension's row that says its data goes with it, removes the extension from the engine at once, with what it stored, and deletes its folder. A folder that cannot be deleted at once is renamed under a `.` name, which the next start deletes; one that cannot be renamed either is reported, and comes back at the next start. A folder that failed to install is uninstalled the same way, which deletes it. Its pin and its switch are kept, as for any extension no longer installed ([The toolbar](#the-toolbar)).
 
 Deleting an extension's folder by hand uninstalls it at the next start, with what it stored.
 
@@ -66,10 +66,10 @@ An extension installed before Haku recorded them is not in the file, so deleting
 The Extensions section has three rows.
 
 - **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, and that adding a newer version of an installed extension updates it and keeps its data. It holds two buttons, **File…** and **Folder…**.
-- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Remove**. With nothing installed and nothing failed to load, the row says how to get an extension: download its `.crx` or release `.zip`, then add it.
+- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**, which asks under the extension's row, saying what goes, with **Cancel**, which takes focus, and **Uninstall**; Esc answers no. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Uninstall…**, which asks on its row the same way. With nothing installed and nothing failed to load, the row says how to get an extension: download its `.crx` or release `.zip`, then add it.
 - **Extensions folder** opens the folder.
 
-Only one add or removal runs at a time. While one runs, the add, update and remove buttons are disabled; an add shows **Adding…**, and uninstalling an extension shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
+Only one add or removal runs at a time. While one runs, the add, update and uninstall buttons are disabled; an add shows **Adding…**, and uninstalling shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
 
 ## Switching on and off
 
@@ -85,9 +85,9 @@ Rejected: one switch for all extensions. Per-extension switches cover that case 
 
 Private content uses the engine's InPrivate profile, where installed extensions do not run. Its window state exposes `private: true`; the interface hides the extension toolbar entirely, including pinned icons and the extensions panel button. Rust rejects `open_extension_popup` for a private target even if called directly; the default-profile popup must never act on private content.
 
-Right of the address field, before the developer tools button, the toolbar has an **Extensions** button, a puzzle piece, and to its left a button for each pinned extension, as in Chrome.
+Right of the address bar, before the developer tools button, the toolbar has an **Extensions** button, a puzzle piece, and to its left a button for each pinned extension, as in Chrome.
 
-The Extensions button opens a menu of every extension switched on, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings at its Extensions section, `haku://settings/extensions`. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address field still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
+The Extensions button opens a panel of every extension switched on, with no heading, since the button says what it lists, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings at its Extensions section, `haku://settings/extensions`. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address bar still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
 
 `pinnedExtensions` in the settings holds the ids pinned, in the order their buttons show, left to right. A new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it, in its place.
 

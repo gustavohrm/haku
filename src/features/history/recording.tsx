@@ -9,7 +9,8 @@ const setPaused = (paused: boolean) => void commands.setHistoryPaused(paused);
 
 /**
  * The recording switch, stored across restarts, and Pause until restart,
- * which every window shows at once and nothing stores.
+ * which every window shows at once and nothing stores. Pause hides while
+ * recording is paused: the banner says so, and resumes it.
  * [History § Recording on, off and paused](../../../docs/specs/history.md#recording-on-off-and-paused).
  */
 export function RecordingControls() {
@@ -30,10 +31,10 @@ export function RecordingControls() {
         disabled={settings === null}
         onChange={(event) => setEnabled(event.target.checked)}
       />
-      {enabled && (
-        <button type="button" className="btn soft edgeless" onClick={() => setPaused(!historyPaused)}>
-          <i className={historyPaused ? "ic-play ic-sm" : "ic-pause ic-sm"} aria-hidden="true" />
-          {historyPaused ? t("history.resume") : t("history.pause")}
+      {enabled && !historyPaused && (
+        <button type="button" className="btn soft edgeless" onClick={() => setPaused(true)}>
+          <i className="ic-pause ic-sm" aria-hidden="true" />
+          {t("history.pause")}
         </button>
       )}
     </div>

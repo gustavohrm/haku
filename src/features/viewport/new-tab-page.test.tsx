@@ -21,7 +21,7 @@ it("explains private data retention on the new-tab page", () => {
 
   state.private = false;
   const ordinary = renderToStaticMarkup(<NewTabPage />);
-  expect(ordinary).toContain("New tab");
+  expect(ordinary).toContain("Type an address or a search in the address bar.");
   for (const privateOnly of [
     "browsing privately",
     "won't keep",
@@ -32,4 +32,12 @@ it("explains private data retention on the new-tab page", () => {
   ]) {
     expect(ordinary).not.toContain(privateOnly);
   }
+});
+
+it("shows only the prompt on an ordinary new-tab page, with no heading repeating the tab's title", () => {
+  state.private = false;
+  const page = document.createElement("div");
+  page.innerHTML = renderToStaticMarkup(<NewTabPage />);
+  expect(page.querySelector("h1, h2")).toBeNull();
+  expect(page.textContent).toBe("Type an address or a search in the address bar.");
 });

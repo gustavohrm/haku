@@ -7,7 +7,9 @@ import { type UpdateSettings } from "./types";
 
 const {
   BarLayoutControl,
+  HistoryPageControl,
   KeptSitesControl,
+  MemoryPageControl,
   SidebarSideControl,
   SitePermissionsControl,
   SiteZoomControl,
@@ -66,6 +68,59 @@ describe("KeptSitesControl", () => {
     expect(typeof change).toBe("function");
     const next = (change as (current: Settings) => Settings)({ keptSites: ["a.test", "b.test", "c.test"] } as Settings);
     expect(next.keptSites).toEqual(["b.test", "c.test"]);
+  });
+});
+
+describe("the lists of sites", () => {
+  it("name each entry's button Remove and show it on the row's hover or focus", () => {
+    const settings = {
+      keptSites: ["a.test"],
+      sitePermissions: [{ origin: "https://a.test", kind: "camera", state: "allow" }],
+      siteZoom: [{ host: "a.test", percent: 125 }],
+    } as Settings;
+    for (const Control of [KeptSitesControl, SitePermissionsControl, SiteZoomControl]) {
+      act(() =>
+        root.render(
+          <Control
+            settings={settings}
+            update={async () => null}
+            id="c"
+            labelId="l"
+            describedBy={undefined}
+            disabled={false}
+          />,
+        ),
+      );
+      const remove = container.querySelector("button")!;
+      expect(remove.getAttribute("aria-label")).toBe("Remove");
+      expect(remove.querySelector("i")?.classList).toContain("ic-trash");
+      expect(remove.classList).toContain("opacity-0");
+      expect(remove.classList).toContain("group-hover:opacity-100");
+      expect(remove.classList).toContain("group-focus-within:opacity-100");
+      expect(remove.closest("li")?.classList).toContain("group");
+    }
+  });
+});
+
+describe("the About section's links", () => {
+  it("open their pages with quiet buttons, as the extensions folder's does", () => {
+    for (const Control of [MemoryPageControl, HistoryPageControl]) {
+      act(() =>
+        root.render(
+          <Control
+            settings={{} as Settings}
+            update={async () => null}
+            id="c"
+            labelId="l"
+            describedBy={undefined}
+            disabled={false}
+          />,
+        ),
+      );
+      const open = container.querySelector("button")!;
+      expect(open.textContent).toBe("Open");
+      expect([...open.classList]).toEqual(["btn", "soft", "edgeless"]);
+    }
   });
 });
 

@@ -161,7 +161,7 @@ describe("toolbar extension popups", () => {
     await act(async () => root.render(<Toolbar tab={tab(7)} />));
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')?.click());
     expect(document.body.textContent).toContain("Keep this tab loaded");
-    expect(document.body.textContent).not.toContain("Don't unload this site");
+    expect(document.body.textContent).not.toContain("Keep this site loaded");
     expect(document.body.textContent).not.toContain("Show history for this site");
     expect(document.body.textContent).not.toContain("Never record this site");
   });
@@ -186,7 +186,7 @@ describe("toolbar extension popups", () => {
       (button) => button.textContent === "Edit history rules",
     );
     await act(async () => edit?.click());
-    expect(openTab).toHaveBeenCalledExactlyOnceWith("haku://settings/browsing#historyEnabled", true, "other");
+    expect(openTab).toHaveBeenCalledExactlyOnceWith("haku://settings/browsing#historyRules", true, "other");
   });
 
   it("opens the site's history from the site menu, and says when history is paused", async () => {

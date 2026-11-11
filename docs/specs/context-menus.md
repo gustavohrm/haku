@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
+last_updated: 2026-11-11
 scope: Right-click menus over pages and over the interface, and the shared menu component they are drawn with.
 ---
 
@@ -21,9 +21,10 @@ Every menu Haku draws uses one component, `features/overlays/menu.tsx`. The site
 
 - **Items**: command, checkbox, radio, separator, submenu; each with an optional icon, a shortcut hint shown as muted text, and a disabled state. A disabled item can show a reason below its label, linked with `aria-describedby`.
 - **Keyboard**: it opens with focus on the menu; Up and Down move through enabled items and wrap, Home and End jump, Right and Left open and close a submenu, Enter and Space choose, Escape closes one level, and typing a letter jumps to the next item starting with it. Roles are `menu`, `menuitem`, `menuitemcheckbox`, `menuitemradio` and `separator`. Choosing a native radio item, such as a spell-check language, closes the menu and hands the choice to WebView2, which keeps which item of the group is checked; the menu does not group radio items itself.
+- **Asking first**: a command or checkbox item can carry a question. Choosing it turns the menu into that question where the menu was, a message with **Cancel** and an action named for what it does, and the item runs only on that action. Escape, Cancel or a click away answers no. Focus starts on **Cancel** when the action destroys something, and on the action otherwise. This is how a destructive or risky item confirms when there is no row to confirm in ([Interface guidelines § Forms](../guidelines/interface.md#forms)).
 - **Dismissal**: `useMenuDismiss`, as the site menu closes now.
-- **Placement**: opens at the pointer, down and to the right; flips left or up when it would leave the window, and then clamps to the window. A submenu opens beside its item and flips the same way.
-- **Over the page**: registered with `useOverlay`, on the slightly translucent `chrome-overlay` surface, no shadow, rounded corners cut from its own style, as [Chrome layering](chrome-layering.md#registering-an-overlay) requires. One consequence: the menu cannot extend past Haku's window, where a native menu can. In a small window a long menu is clamped and scrolls.
+- **Placement**: opens at the pointer, down and to the right; flips left or up when it would leave the window, and then clamps to the window. A submenu opens beside its item, its first item level with it and its edge against the parent's, and flips the same way.
+- **Over the page**: registered with `useOverlay`, on the opaque `chrome-overlay` surface, no shadow, rounded corners cut from its own style, as [Chrome layering](chrome-layering.md#registering-an-overlay) requires. One consequence: the menu cannot extend past Haku's window, where a native menu can. In a small window a long menu is clamped and scrolls.
 
 ## Page menus
 
@@ -111,18 +112,20 @@ Native items follow in their own groups, then extension items in a group of thei
 
 The chrome's own default menu is turned off from the interface: a `contextmenu` listener on the document calls `preventDefault`, which suppresses WebView2's menu, and draws Haku's menu where there is one. No Rust is needed.
 
-| Where                            | Menu                                                                                                                                                                                           |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A tab                            | Reload, Duplicate, Keep loaded (checkbox, `set_tab_fixed`), Open in split view, Separate tabs (paired tabs, including background pairs), then Close, Close other tabs, Close tabs to the right |
-| The tab strip                    | New tab, Reopen closed tab                                                                                                                                                                     |
-| A bookmark on `haku://bookmarks` | Open in new tab, Open in new window, Open in private window (links in ordinary windows), Edit…, Move to (every folder it can go to), Delete ([Bookmarks](bookmarks.md#the-bookmarks-page))     |
-| A bookmarks bar item             | The same as a bookmark on `haku://bookmarks` ([Bookmarks](bookmarks.md#the-bookmarks-bar))                                                                                                     |
-| The bookmarks bar                | Add page…, Add folder…, Show bookmarks bar (a submenu of its three choices), Manage bookmarks                                                                                                  |
-| A text field                     | Cut, Copy, Paste, Select all                                                                                                                                                                   |
-| Anywhere else                    | Nothing                                                                                                                                                                                        |
-| Debug builds only                | **Inspect interface** appended to every interface menu, so developing Haku keeps its DevTools                                                                                                  |
+| Where                            | Menu                                                                                                                                                                                                                              |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A tab                            | Reload, Duplicate, Keep loaded (checkbox, `set_tab_fixed`, warning first when turned on); then Open in split view, Separate tabs (paired tabs, including background pairs); then Close, Close other tabs, Close tabs to the right |
+| The tab strip                    | New tab, Reopen closed tab                                                                                                                                                                                                        |
+| A bookmark on `haku://bookmarks` | Open in new tab, Open in new window, Open in private window (links in ordinary windows), Edit…, Move to (every folder it can go to), Remove ([Bookmarks](bookmarks.md#the-bookmarks-page))                                        |
+| A bookmarks bar item             | The same as a bookmark on `haku://bookmarks` ([Bookmarks](bookmarks.md#the-bookmarks-bar))                                                                                                                                        |
+| The bookmarks bar                | Add page…, Add folder…, Show bookmarks bar (a submenu of its three choices), Manage bookmarks                                                                                                                                     |
+| A text field                     | Cut, Copy, Paste, Select all                                                                                                                                                                                                      |
+| Anywhere else                    | Nothing                                                                                                                                                                                                                           |
+| Debug builds only                | **Inspect interface** appended to every interface menu, so developing Haku keeps its DevTools                                                                                                                                     |
 
 **Open in split view** calls `split_tab` to pair two distinct unpaired tabs, with eligibility and accessible disabled reasons owned by [Split view](split-view.md#ui). **Separate tabs** calls `separate_tabs` for either member of a pair, retaining both tabs. Alt+Shift+N, by default, toggles a split with a new tab or separates the focused pair ([Shortcuts](shortcuts.md)); only Separate tabs has that hint, since Open in split view pairs existing tabs. Haku-owned items show the first chord the keymap binds to their action, and none while it binds none, on a tab menu only when the chord would act on that tab (the focused tab, or for Separate tabs its pair), for reload, duplicate, close tab, new tab, reopen closed tab, page back/forward, page print and save, and page developer tools. The split-view spec owns pair selection, joining and separation behavior.
+
+**Keep loaded** stays in the tab menu, and always warns first (decided by the maintainer on 2026-11-11): turning it on turns the menu into the site menu's warning, with **Keep loaded** as its action, and the tab is kept only on that action. Turning it off runs at once, as [Interface guidelines § Forms](../guidelines/interface.md#forms) asks of a costly choice. This settles the conflict [Split view](split-view.md#findings-and-verification-limits) recorded with the site menu's reason for its deliberate step: the step and the warning go wherever the choice is made, rather than the choice living in one place. A kept tab shows an anchor in the strip, not a pin, which reads as a pinned tab and is what a pinned extension shows.
 
 Duplicate opens the tab's current URL with `open_tab`, without its back history; a true duplicate needs a new command and is left for later. Close other tabs and Close tabs to the right call `close_tab` per tab.
 
