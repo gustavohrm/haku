@@ -60,7 +60,7 @@ export interface Box {
  * Places a span along one axis: at `start` when it fits before `limit`, at
  * `flipped` when it does not, and then clamped inside the window.
  */
-function placeAxis(start: number, flipped: number, size: number, limit: number): number {
+export function placeAxis(start: number, flipped: number, size: number, limit: number): number {
   const position = start + size > limit - MENU_EDGE ? flipped : start;
   const furthest = Math.max(MENU_EDGE, limit - MENU_EDGE - size);
   return Math.min(Math.max(position, MENU_EDGE), furthest);

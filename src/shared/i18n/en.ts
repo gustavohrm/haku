@@ -620,6 +620,7 @@ export const en = {
   "permission.messagePrivate": "Haku forgets this when you close your last private window.",
   "permission.allow": "Allow",
   "permission.block": "Block",
+  "permission.dismiss": "Not now",
   "permission.ask.camera": "use your camera",
   "permission.ask.microphone": "use your microphone",
   "permission.ask.location": "know your location",

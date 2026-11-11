@@ -90,6 +90,8 @@ export function SiteMenu({ tab, url, warnInsecure }: SiteMenuProps) {
         className="btn icon ghost p-xs -mx-1 shrink-0 [--ui-radius:var(--radius-small)]"
         aria-label={t("site.menu")}
         title={t("site.menu")}
+        // A page's permission request is asked at this button: PermissionPopover.
+        data-site-menu=""
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={toggle}

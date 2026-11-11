@@ -8,8 +8,8 @@ import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
 import { isWaiting } from "@features/feedback/page-dialog";
+import { PermissionPopover } from "@features/feedback/permission-popover";
 import { usePageDialog } from "@features/feedback/use-page-dialog";
-import { usePermissionPrompt } from "@features/feedback/use-permission-prompt";
 import { useFullscreenNotice } from "@features/fullscreen/use-fullscreen-notice";
 import { PopupBar } from "@features/popup/popup-bar";
 import { TabStrip } from "@features/tabs/tab-strip";
@@ -24,7 +24,6 @@ export function App() {
   const tab = useActiveTab();
   const settings = useSettings();
   usePageDialog(tab);
-  usePermissionPrompt(tab, isPrivate);
   usePageMenu(tab);
   useCloseConfirmation();
   const fullscreenTab = tabs.find((candidate) => candidate.id === fullscreen);
@@ -138,6 +137,7 @@ export function App() {
 
       <ViewportPanes />
       <ContextMenuHost />
+      <PermissionPopover tab={tab} isPrivate={isPrivate} />
     </div>
   );
 }
