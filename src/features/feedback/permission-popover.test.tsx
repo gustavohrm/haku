@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PermissionPopover } from "./permission-popover";
 
-vi.mock("@ipc/commands", () => ({ commands: { answerPermission: vi.fn() } }));
+vi.mock("@ipc/commands", () => ({
+  commands: { answerPermission: vi.fn(() => Promise.resolve({ status: "ok", data: null })) },
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -95,6 +97,19 @@ describe("PermissionPopover", () => {
     show(tab({ ...camera, id: 8 }));
     press("Block");
     expect(commands.answerPermission).toHaveBeenLastCalledWith(1, 8, "block");
+  });
+
+  it("shows the request again when its answer did not reach Rust", async () => {
+    vi.mocked(commands.answerPermission).mockResolvedValueOnce({
+      status: "error",
+      error: { kind: "Internal", message: "" },
+    } as never);
+    show(tab(camera));
+    await act(async () => press("Allow"));
+    expect(prompt()).not.toBeNull();
+
+    await act(async () => press("Allow"));
+    expect(prompt()).toBeNull();
   });
 
   it("dismisses rather than blocks when closed, or on Escape inside it", () => {

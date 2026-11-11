@@ -41,12 +41,16 @@ export function PermissionPopover({ tab, isPrivate }: PermissionPopoverProps) {
   if (tab === null || shown === null) {
     return null;
   }
-  const answer = (decision: PermissionDecision) => {
+  const answer = async (decision: PermissionDecision) => {
     setAnswered(shown.id);
-    void commands.answerPermission(tab.id, shown.id, decision);
+    const result = await commands.answerPermission(tab.id, shown.id, decision);
+    // An answer that never reached Rust leaves the request waiting: shown again, to answer again.
+    if (result.status !== "ok") {
+      setAnswered((current) => (current === shown.id ? null : current));
+    }
   };
   // Keyed by the request, so a new one is measured and placed afresh.
-  return <Prompt key={shown.id} request={shown} isPrivate={isPrivate} onAnswer={answer} />;
+  return <Prompt key={shown.id} request={shown} isPrivate={isPrivate} onAnswer={(decision) => void answer(decision)} />;
 }
 
 interface PromptProps {
@@ -108,7 +112,8 @@ function Prompt({ request, isPrivate, onAnswer }: PromptProps) {
       aria-labelledby={titleId}
       aria-describedby={messageId}
       onKeyDown={onKeyDown}
-      className="haku-overlay fixed z-10 flex w-80 flex-col gap-2 p-2"
+      // Narrower in a window narrower than it, such as a small popup, so its buttons stay inside.
+      className="haku-overlay fixed z-10 flex w-80 max-w-[calc(100vw-8px)] flex-col gap-2 p-2"
       style={position === null ? { left: 0, top: 0, visibility: "hidden" } : { left: position.x, top: position.y }}
     >
       <div className="flex items-start gap-2">

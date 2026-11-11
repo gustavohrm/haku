@@ -19,9 +19,10 @@
 }
 
 /* The one surface every menu, popover and panel over the page is drawn on,
-   and the one row drawn in it. Padding and row height are left to the user,
-   so a utility added beside them never competes with the recipe for the same
-   property: a menu adds `p-1` and rows of `min-h-6`, a panel `p-1` and rows
+   and the one row drawn in it. The surface's padding and a row's height are
+   left to the user, so a utility added beside them never competes with the
+   recipe for the same property; a row keeps its own `px-2`, the same
+   everywhere: a menu adds `p-1` and rows of `min-h-6`, a panel `p-1` and rows
    of `min-h-8`, a form `p-2`. A menu draws its rows' highlight itself, since
    the keyboard moves it too. docs/guidelines/code.md#styling. */
 @utility haku-overlay {
@@ -29,7 +30,7 @@
 }
 
 @utility haku-row {
-  @apply hover:bg-text/8 focus-visible:bg-text/8 flex shrink-0 items-center gap-2 rounded-(--radius-small) px-2 text-left outline-none;
+  @apply hover:bg-text/8 focus-visible:bg-text/8 has-focus-visible:bg-text/8 flex shrink-0 items-center gap-2 rounded-(--radius-small) px-2 text-left outline-none;
 }
 
 /* Inter is bundled rather than taken from the system so the chrome looks and

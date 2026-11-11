@@ -83,6 +83,10 @@ export function useOverlay(ref: RefObject<HTMLElement | null>, open: boolean): v
     if (element.parentElement) {
       observer.observe(element.parentElement);
     }
+    // An element placed by its own style, such as a prompt that follows its
+    // anchor, moves without resizing or animating.
+    const moved = new MutationObserver(measure);
+    moved.observe(element, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", measure);
     element.addEventListener("transitionrun", restart);
     element.addEventListener("animationstart", restart);
@@ -92,6 +96,7 @@ export function useOverlay(ref: RefObject<HTMLElement | null>, open: boolean): v
     return () => {
       stop();
       observer.disconnect();
+      moved.disconnect();
       window.removeEventListener("resize", measure);
       element.removeEventListener("transitionrun", restart);
       element.removeEventListener("animationstart", restart);

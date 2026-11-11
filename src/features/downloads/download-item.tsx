@@ -27,9 +27,9 @@ const ACTIONS: Record<DownloadAction, { icon: string; label: TranslationKey; run
  * One download: its name, where it stands, and what can be done to it.
  *
  * A finished file opens from its name, the largest target in the row, and
- * **Show in folder** shows on the row's hover or focus. What a running,
- * paused or failed download offers stays in view: it is why the row is being
- * looked at ([Interface guidelines § Lists](../../../docs/guidelines/interface.md#lists)).
+ * its **Show in folder** shows on the row's hover or focus. What a running,
+ * paused or failed download offers stays in view, a failed one's **Show in
+ * folder** included: it is why the row is being looked at ([Interface guidelines § Lists](../../../docs/guidelines/interface.md#lists)).
  *
  * Opening the file, or its folder, is asked of Rust, which only opens a path
  * it recorded for this download. Re-rendered only when its own download
@@ -92,10 +92,10 @@ export const DownloadItem = memo(function DownloadItem({ download }: { download:
             <button
               key={action}
               type="button"
-              // Show in folder is never what the row is about, so it waits for the row's hover or focus.
+              // Beside a name that opens the file, Show in folder is not what the row is about, so it waits for the row's hover or focus.
               className={cx(
                 "btn icon ghost",
-                action === "show" && "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+                action === "show" && opens && "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
               )}
               aria-label={`${t(label)}: ${name}`}
               title={t(label)}
