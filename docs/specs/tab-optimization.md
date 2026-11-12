@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: Which tabs hold a webview, which of those run, how Haku reacts to memory pressure, and what a discarded tab gets back when it reloads.
 ---
 
@@ -275,7 +275,7 @@ Navigating within a live tab shows no cover; that is an ordinary page load.
 
 ## `haku://memory`
 
-An internal page that opens on three figures: the pressure level, the share of system memory free, and how much of the budget background tabs use, with a meter. Below them, one row per slot: its number, the tab's icon and title, a line of facts (its state, its position, and what discarding it would lose, with the signals behind that), and its memory with a meter drawn against the largest row, so the heavy tab is found without reading numbers. A free slot says so. The unattributed processes follow as a second list.
+An internal page that opens on three figures: the pressure level, the headroom (the scarcer of physical and commit memory free, as [Memory pressure](#memory-pressure) defines it), and how much of the budget background tabs use, with a meter. Below them, one row per slot: its number, the tab's icon and title, a line of facts (its state, its position, and what discarding it would lose, with the signals behind that), and its memory with a meter drawn against the largest row, so the heavy tab is found without reading numbers. A free slot says so, and so does a slot holding a tab of another window, since the pool is shared by every window and the page names only its own window's tabs. The unattributed processes follow as a second list.
 
 It exists so the constants below can be tuned against real pages, and so a user can see why a tab was or was not kept. It reads a `memory_report` command and refreshes on the tick's event.
 

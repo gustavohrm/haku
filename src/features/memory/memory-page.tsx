@@ -66,7 +66,7 @@ const PROCESS_LABELS: Record<ProcessKind, TranslationKey> = {
  */
 export function MemoryPage() {
   const report = useMemoryReport();
-  const { tabs } = useBrowserState();
+  const { tabs, private: isPrivate } = useBrowserState();
   const slotsTotal = sumKnown(report?.slots.map((slot) => slot.bytes) ?? []);
   const engineTotal = sumKnown(report?.unattributed.map((process) => process.bytes) ?? []);
   const largest = Math.max(
@@ -87,6 +87,7 @@ export function MemoryPage() {
                 key={slot.slot}
                 slot={slot}
                 tab={tabs.find((candidate) => candidate.id === slot.tab)}
+                isPrivate={isPrivate}
                 share={shareOf(slot.bytes, largest)}
               />
             ))}
@@ -126,7 +127,8 @@ const PRESSURE_DOT: Record<Pressure, string> = {
 
 /** The three figures that answer whether memory is a problem right now. */
 function Summary({ report }: { report: MemoryReport }) {
-  const used = report.budget === 0 ? 0 : report.kept / report.budget;
+  // Kept memory can exceed a budget of nothing, and the meter then shows it full.
+  const used = report.budget === 0 ? (report.kept > 0 ? 1 : 0) : report.kept / report.budget;
   return (
     <dl className="flex flex-wrap gap-x-10 gap-y-5 px-1">
       <Figure label={t("memory.pressure")}>
@@ -190,7 +192,15 @@ function Amount({ bytes, share }: { bytes: number | null; share: number }) {
   );
 }
 
-function SlotRow({ slot, tab, share }: { slot: SlotMemory; tab: Tab | undefined; share: number }) {
+interface SlotRowProps {
+  slot: SlotMemory;
+  /** The slot's tab, when it is one of this window's. */
+  tab: Tab | undefined;
+  isPrivate: boolean;
+  share: number;
+}
+
+function SlotRow({ slot, tab, isPrivate, share }: SlotRowProps) {
   const visit = tab?.history.entries[tab.history.index];
   const facts = [t(stateLabel(tab)), slot.position ? t(POSITION_LABELS[slot.position]) : null, lossLabel(slot)].filter(
     (fact): fact is string => fact !== null,
@@ -202,7 +212,8 @@ function SlotRow({ slot, tab, share }: { slot: SlotMemory; tab: Tab | undefined;
       </span>
       {tab ? (
         <>
-          <Favicon url={visit?.favicon ?? null} />
+          {/* The generic icon in a private window: fetching the site's would send the ordinary profile's cookies. */}
+          <Favicon key={visit?.url ?? ""} url={isPrivate ? null : (visit?.favicon ?? null)} />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate">{tabLabel(tab)}</span>
             <span className="text-text-secondary truncate text-xs" title={facts.join(" · ")}>
@@ -211,7 +222,10 @@ function SlotRow({ slot, tab, share }: { slot: SlotMemory; tab: Tab | undefined;
           </span>
         </>
       ) : (
-        <span className="text-text-secondary min-w-0 flex-1">{t("memory.slot.free")}</span>
+        // The pool is shared by every window, so a slot can hold a tab this one does not list.
+        <span className="text-text-secondary min-w-0 flex-1">
+          {t(slot.tab === null ? "memory.slot.free" : "memory.slot.otherWindow")}
+        </span>
       )}
       <Amount bytes={slot.bytes} share={share} />
     </li>
