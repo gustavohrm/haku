@@ -27,6 +27,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 
 import { DraftInput } from "./draft-input";
+import { EMPTY_WELL, LIST_WELL } from "./rows";
 import { type ControlProps } from "./types";
 
 /*
@@ -472,10 +473,10 @@ function RemoveButton({ describedBy, onRemove }: { describedBy: string; onRemove
 export function KeptSitesControl({ labelId, describedBy, settings, update }: ControlProps) {
   const sites = settings.keptSites;
   if (sites.length === 0) {
-    return <p className="text-text-secondary text-sm">{t("settings.keptSites.empty")}</p>;
+    return <p className={EMPTY_WELL}>{t("settings.keptSites.empty")}</p>;
   }
   return (
-    <ul className="-mx-2 flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+    <ul className={LIST_WELL} aria-labelledby={labelId} aria-describedby={describedBy}>
       {sites.map((site) => (
         <li key={site} className={ENTRY_ROW}>
           {/* The button is described by the site, so it reads as "Remove, example.com". */}
@@ -501,21 +502,23 @@ export function KeptSitesControl({ labelId, describedBy, settings, update }: Con
 export function SitePermissionsControl({ labelId, describedBy, settings, update }: ControlProps) {
   const decisions = settings.sitePermissions.toSorted((a, b) => a.origin.localeCompare(b.origin));
   if (decisions.length === 0) {
-    return <p className="text-text-secondary text-sm">{t("settings.sitePermissions.empty")}</p>;
+    return <p className={EMPTY_WELL}>{t("settings.sitePermissions.empty")}</p>;
   }
   return (
-    <ul className="-mx-2 flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+    <ul className={LIST_WELL} aria-labelledby={labelId} aria-describedby={describedBy}>
       {decisions.map(({ origin, kind, state }) => {
         const id = `site-permission-${origin}-${kind}`;
         const decided = state === "allow" ? "settings.sitePermissions.allowed" : "settings.sitePermissions.blocked";
         return (
           <li key={`${origin} ${kind}`} className={ENTRY_ROW}>
             {/* The button is described by the decision, so it reads as "Remove, example.com, Camera: allowed". */}
-            <span id={id} className="flex min-w-0 flex-1 gap-2">
-              <span className="truncate" title={origin}>
+            <span id={id} className="flex min-w-0 flex-1 items-baseline gap-3">
+              <span className="min-w-0 flex-1 truncate" title={origin}>
                 {origin}
               </span>
-              <span className="text-text-secondary shrink-0">{t(decided).replace("{kind}", permissionName(kind))}</span>
+              <span className="text-text-secondary shrink-0 text-sm">
+                {t(decided).replace("{kind}", permissionName(kind))}
+              </span>
             </span>
             <RemoveButton
               describedBy={id}
@@ -542,20 +545,20 @@ export function SitePermissionsControl({ labelId, describedBy, settings, update 
 export function SiteZoomControl({ labelId, describedBy, settings, update }: ControlProps) {
   const levels = settings.siteZoom.toSorted((a, b) => a.host.localeCompare(b.host));
   if (levels.length === 0) {
-    return <p className="text-text-secondary text-sm">{t("settings.siteZoom.empty")}</p>;
+    return <p className={EMPTY_WELL}>{t("settings.siteZoom.empty")}</p>;
   }
   return (
-    <ul className="-mx-2 flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+    <ul className={LIST_WELL} aria-labelledby={labelId} aria-describedby={describedBy}>
       {levels.map(({ host, percent }) => {
         const id = `site-zoom-${host}`;
         return (
           <li key={host} className={ENTRY_ROW}>
             {/* The button is described by the level, so it reads as "Remove, example.com, 125%". */}
-            <span id={id} className="flex min-w-0 flex-1 gap-2">
-              <span className="truncate" title={host}>
+            <span id={id} className="flex min-w-0 flex-1 items-baseline gap-3">
+              <span className="min-w-0 flex-1 truncate" title={host}>
                 {host}
               </span>
-              <span className="text-text-secondary shrink-0">{`${percent}%`}</span>
+              <span className="text-text-secondary shrink-0 text-sm tabular-nums">{`${percent}%`}</span>
             </span>
             <RemoveButton
               describedBy={id}
@@ -578,7 +581,7 @@ export function HomeUrlControl({ id, describedBy, settings, update }: ControlPro
     <DraftInput
       id={id}
       type="text"
-      className="w-full"
+      className="w-64"
       aria-describedby={describedBy}
       value={settings.homeUrl}
       onCommit={async (next) => (await update({ homeUrl: next }))?.homeUrl ?? null}

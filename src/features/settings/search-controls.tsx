@@ -6,6 +6,7 @@ import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useId, useState } from "react";
 
+import { LIST_WELL } from "./rows";
 import { type ControlProps, type UpdateSettings } from "./types";
 
 /*
@@ -74,7 +75,7 @@ export function SearchEnginesControl({ labelId, describedBy, settings, update }:
 
   return (
     <div className="flex flex-col gap-1">
-      <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+      <ul className={LIST_WELL} aria-labelledby={labelId} aria-describedby={describedBy}>
         {shown.map(row)}
       </ul>
       {hidden.length > 0 && (
@@ -90,7 +91,7 @@ export function SearchEnginesControl({ labelId, describedBy, settings, update }:
             {t("settings.searchEngines.hidden").replace("{count}", String(hidden.length))}
           </button>
           {showHidden && (
-            <ul id={hiddenId} className="flex flex-col" aria-label={t("settings.searchEngines.hiddenList")}>
+            <ul id={hiddenId} className={LIST_WELL} aria-label={t("settings.searchEngines.hiddenList")}>
               {hidden.map(row)}
             </ul>
           )}
@@ -141,11 +142,18 @@ function EngineRow({ listed, isDefault, update, onEdit }: EngineRowProps) {
 
   return (
     <li className="group hover:bg-text/5 flex min-h-9 items-center gap-2 rounded-(--radius-control) px-2">
-      <span id={nameId} className="flex min-w-0 flex-1 items-baseline gap-2">
+      <span id={nameId} className="flex min-w-0 flex-1 items-center gap-2">
         <span className={cx("truncate", hidden && "text-text-secondary")}>{engine.name}</span>
-        {engine.keyword && <span className="text-text-secondary shrink-0 font-mono text-sm">{engine.keyword}</span>}
+        {engine.keyword && (
+          <span className="bg-text/6 text-text-secondary shrink-0 rounded-(--radius-small) px-1.5 py-px font-mono text-xs">
+            {engine.keyword}
+          </span>
+        )}
         {isDefault && (
-          <span className="bg-text/10 shrink-0 rounded-full px-2 text-xs">{t("settings.searchEngines.default")}</span>
+          <span className="text-text-secondary flex shrink-0 items-center gap-1 text-sm">
+            <i className="ic-check ic-sm" aria-hidden="true" />
+            {t("settings.searchEngines.default")}
+          </span>
         )}
       </span>
       <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">

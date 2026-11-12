@@ -128,14 +128,18 @@ describe("ShortcutControl", () => {
     expect(container.querySelector('[aria-label="Reset to the default keys"]')).not.toBeNull();
   });
 
-  it("shows a chord's remove button and Add only on the row's hover or focus, and Reset always", () => {
+  it("shows Add only on the row's hover or focus, a chord's cross on its own, and Reset always", () => {
     render("find", async () => null, { find: ["Ctrl+G"] });
     const onHover = ["opacity-0", "group-hover/setting:opacity-100", "group-focus-within/setting:opacity-100"];
 
     for (const name of onHover) {
-      expect(button("Remove Ctrl+G").classList).toContain(name);
       expect(button("Add a shortcut").classList).toContain(name);
     }
+    // The chord is its own remove button: its keys stay in view, and its cross waits for the pointer.
+    const remove = button("Remove Ctrl+G");
+    expect(remove.classList).not.toContain("opacity-0");
+    expect([...remove.querySelectorAll(".haku-key")].map((key) => key.textContent)).toEqual(["Ctrl", "G"]);
+    expect(remove.querySelector("[aria-hidden]")?.classList).toContain("opacity-0");
     expect(button("Reset to the default keys").classList).not.toContain("opacity-0");
   });
 
@@ -324,7 +328,7 @@ describe("ResetAllControl", () => {
   });
 
   const render = (shortcuts: Settings["shortcuts"]) => {
-    const { Control } = SHORTCUT_GROUPS[0]!.rows[0]!;
+    const { Control } = SHORTCUT_GROUPS.at(-1)!.rows[0]!;
     act(() =>
       root.render(
         <Control

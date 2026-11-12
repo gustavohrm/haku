@@ -169,6 +169,10 @@ export const en = {
   "settings.siteZoom.keywords": "zoom, magnify, text size, scale, percent",
   "settings.siteZoom.empty": "Every site is shown at 100%.",
   "settings.history": "History",
+  "settings.group.search": "Search",
+  "settings.group.newTabs": "New tabs",
+  "settings.group.sites": "Sites",
+  "settings.shortcuts.defaults": "Defaults",
   "settings.historyEnabled": "Record browsing history",
   "settings.historyEnabled.help":
     "When off, Haku records no visits until you turn it back on. What is already recorded stays.",

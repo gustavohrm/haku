@@ -581,6 +581,24 @@ dialog[data-toast-instance] .toast-dialog-container {
   grid-template-columns: minmax(0, calc((100% - 5px) * var(--split-ratio, 0.5))) 5px minmax(0, 1fr);
 }
 
+/* One key of a shortcut, drawn as a keycap: the page's colour with an edge
+   that is heavier underneath. */
+.haku-key {
+  display: inline-grid;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  place-items: center;
+  padding-inline: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--color-text) 16%, transparent);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-small);
+  background: var(--color-background);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
 /* The seam between the two tabs of a pair. The halves sit a gap apart and a
    neck joins them across its middle, each stretched to meet the other, which
    is the ground the link sits on. The gap ends in a round cap either side of
