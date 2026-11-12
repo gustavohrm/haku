@@ -132,7 +132,7 @@ export function SplitDivider({ containerRef, ratio, tabId, revision, assignments
       aria-valuemax={Math.round(max * 100)}
       aria-valuenow={percent}
       aria-disabled={isDisabled || undefined}
-      className="focus-visible:bg-text-secondary w-[5px] cursor-col-resize touch-none outline-offset-[-2px] aria-disabled:cursor-default"
+      className="haku-split-divider focus-visible:bg-text-secondary w-[5px] cursor-col-resize touch-none outline-offset-[-2px] aria-disabled:cursor-default"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           cancel();

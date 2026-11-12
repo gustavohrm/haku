@@ -10,7 +10,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { TabStrip } from "./tab-strip";
 
-vi.mock("@ipc/commands", () => ({ commands: { reorderTab: vi.fn(), selectTab: vi.fn(), closeTab: vi.fn() } }));
+vi.mock("@ipc/commands", () => ({
+  commands: { reorderTab: vi.fn(), selectTab: vi.fn(), closeTab: vi.fn(), separateTabs: vi.fn() },
+}));
 vi.mock("@features/context-menu/store", () => ({ openMenu: vi.fn() }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const tab = (id: number): Tab => ({
@@ -289,4 +291,26 @@ it("labels the column's new-tab row and holds the tabs bar while a menu is open"
   expect(barHoldStore.get().tabs).toBe(held + 1);
   await act(async () => vi.mocked(openMenu).mock.lastCall![0].onClose!(false));
   expect(barHoldStore.get().tabs).toBe(held);
+});
+
+it("separates a pair from the link between its halves, and offers none on a single tab", async () => {
+  const links = host.querySelectorAll<HTMLButtonElement>('button[aria-label="Separate tabs"]');
+  expect(links).toHaveLength(2);
+  await act(async () => links[1]!.click());
+  expect(commands.separateTabs).toHaveBeenCalledExactlyOnceWith(3);
+  expect(commands.selectTab).not.toHaveBeenCalled();
+});
+
+it("draws a dragged unit at the pointer and slides the units it passes", async () => {
+  const units = host.querySelectorAll<HTMLElement>("[data-tab-unit]");
+  const source = member(0);
+  await pointer(source, "pointerdown", 50);
+  await pointer(source, "pointermove", 350);
+  // The first pair is past the second, which gives up its place to it.
+  expect(units[0]!.style.translate).toBe("300px 0");
+  expect(units[1]!.style.translate).toBe("-200px 0");
+  expect(units[2]!.style.translate).toBe("");
+  await pointer(source, "pointermove", 350, { y: 200 });
+  expect(units[0]!.style.translate).toBe("");
+  expect(units[1]!.style.translate).toBe("");
 });

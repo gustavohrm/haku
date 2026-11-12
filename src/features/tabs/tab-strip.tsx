@@ -6,17 +6,23 @@ import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
 import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
 
 import { TabItem } from "./tab-item";
 
 const DRAG_THRESHOLD = 5;
+/** How long a dropped tab's place is held while Rust answers with the new order. */
+const SETTLE_TIMEOUT = 400;
 
 interface TabDrag {
   tab: number;
   from: number;
   size: number;
   gap: number | null;
+  /** How far the dragged unit sits from its place once dropped in the gap. */
+  settle: number;
+  /** Where each unit rested when the drag began, and how far the strip had scrolled. */
+  rests?: { scroll: number; units: { start: number; end: number; size: number }[] };
   pointerId: number;
   target: HTMLElement;
   x: number;
@@ -42,6 +48,11 @@ function along(rect: DOMRect, isVertical: boolean) {
  * The new-tab button follows the last tab instead of sitting at the far end,
  * and whatever space the tabs leave free stays a drag region for the window.
  * A menu opened here holds a floating bar on screen until it closes.
+ *
+ * A dragged tab follows the pointer and the others slide out of its way, so
+ * the strip shows the order a drop would leave. That is drawn with `translate`
+ * straight on the elements: the order itself stays Rust's, and a drop keeps
+ * the picture in place until the new order arrives, so nothing jumps back.
  */
 export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
   const isVertical = layout === "vertical";
@@ -50,8 +61,37 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
   const strip = useRef<HTMLUListElement>(null);
   const suppressClick = useRef(false);
   const indicator = useRef<HTMLLIElement>(null);
+  /** How far each unit is drawn from its place, by its index in the strip. */
+  const offsets = useRef<number[]>([]);
+  const settling = useRef<number | undefined>(undefined);
   const signature = tabs.map((tab) => tab.id).join(",") + JSON.stringify(splits.map((split) => split.tabs));
-  const clearDrag = () => {
+  const place = (next: number[]) => {
+    const list = strip.current;
+    if (!list) {
+      return;
+    }
+    for (const [index, offset] of next.entries()) {
+      const unit = list.children[index] as HTMLElement | undefined;
+      if (unit?.dataset.tabUnit !== undefined) {
+        unit.style.translate = offset === 0 ? "" : isVertical ? `0 ${offset}px` : `${offset}px 0`;
+      }
+    }
+    offsets.current = next;
+  };
+  const clearPicture = () => {
+    window.clearTimeout(settling.current);
+    const list = strip.current;
+    if (!list) {
+      return;
+    }
+    delete list.dataset.reordering;
+    for (const unit of list.children) {
+      delete (unit as HTMLElement).dataset.dragging;
+      (unit as HTMLElement).style.translate = "";
+    }
+    offsets.current = [];
+  };
+  const clearDrag = (keepPicture = false) => {
     const current = drag.current;
     drag.current = null;
     if (current) {
@@ -64,8 +104,12 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
       indicator.current.hidden = true;
       delete indicator.current.dataset.dropGap;
     }
+    if (!keepPicture) {
+      clearPicture();
+    }
   };
-  useEffect(() => clearDrag, [signature]);
+  // Before paint, so a new order is never drawn with the old one's offsets.
+  useLayoutEffect(() => () => clearDrag(), [signature]);
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -91,22 +135,65 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
     const bounds = along(strip.current.getBoundingClientRect(), isVertical);
     if (across < bounds.crossStart || across > bounds.crossEnd) {
       current.gap = null;
+      current.settle = 0;
       indicator.current.hidden = true;
       delete indicator.current.dataset.dropGap;
+      // Dropping here does nothing, and the strip says so by going back.
+      place(offsets.current.map(() => 0));
       return;
     }
+    // Where each unit rests, measured once before any is drawn elsewhere, and
+    // carried along as the column scrolls.
+    const children = strip.current.children;
+    const scroll = isVertical ? strip.current.scrollTop : 0;
+    current.rests ??= {
+      scroll,
+      units: units.map((_, index) => along(children[index]!.getBoundingClientRect(), isVertical)),
+    };
+    const scrolled = scroll - current.rests.scroll;
+    const rests = current.rests.units.map((rect) => ({
+      start: rect.start - scrolled,
+      end: rect.end - scrolled,
+      size: rect.size,
+    }));
     let gap = 0;
+    let slot = units.length;
     let edge = bounds.start;
     for (const [index, unit] of units.entries()) {
-      const rect = along(strip.current.children[index]!.getBoundingClientRect(), isVertical);
+      const rect = rests[index]!;
       if (position < rect.start + rect.size / 2) {
         edge = rect.start;
+        slot = index;
         break;
       }
       gap += unit.length;
       edge = rect.end;
     }
     current.gap = gap;
+    const moved = units.findIndex((unit) => unit[0]!.id === current.tab);
+    const own = rests[moved];
+    if (own) {
+      const to = slot > moved ? slot - 1 : slot;
+      const after = rests[moved + 1];
+      const before = rests[moved - 1];
+      const step = own.size + (after ? after.start - own.end : before ? own.start - before.end : 0);
+      const travel = position - (isVertical ? current.y : current.x);
+      const landing = rests[to]!;
+      current.settle = to > moved ? landing.end - own.end : to < moved ? landing.start - own.start : 0;
+      strip.current.dataset.reordering = "";
+      (children[moved] as HTMLElement).dataset.dragging = "";
+      place(
+        units.map((_, index) =>
+          index === moved
+            ? Math.min(Math.max(travel, bounds.start - own.start), bounds.end - own.end)
+            : index > moved && index <= to
+              ? -step
+              : index < moved && index >= to
+                ? step
+                : 0,
+        ),
+      );
+    }
     indicator.current.hidden = false;
     indicator.current.dataset.dropGap = String(gap);
     // The column scrolls, and the line sits in its scrolled content.
@@ -205,6 +292,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
                   from,
                   size: unit.length,
                   gap: null,
+                  settle: 0,
                   pointerId: event.pointerId,
                   target,
                   x: event.clientX,
@@ -239,13 +327,26 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
                   updateDropTarget(event.clientX, event.clientY);
                 }
                 const gap = current.gap;
-                clearDrag();
+                const to =
+                  !current.started || gap === null
+                    ? current.from
+                    : gap > current.from
+                      ? Math.max(current.from, gap - current.size)
+                      : gap;
+                const moves = to !== current.from;
+                if (moves) {
+                  // The unit slides into the gap and stays there until the new
+                  // order arrives, or until it evidently will not.
+                  const moved = units.findIndex((unit) => unit[0]!.id === current.tab);
+                  delete (strip.current?.children[moved] as HTMLElement | undefined)?.dataset.dragging;
+                  place(offsets.current.map((offset, index) => (index === moved ? current.settle : offset)));
+                  window.clearTimeout(settling.current);
+                  settling.current = window.setTimeout(clearPicture, SETTLE_TIMEOUT);
+                }
+                clearDrag(moves);
                 suppressClick.current = current.started;
-                if (current.started && gap !== null) {
-                  const to = gap > current.from ? Math.max(current.from, gap - current.size) : gap;
-                  if (to !== current.from) {
-                    void commands.reorderTab(current.tab, to);
-                  }
+                if (moves) {
+                  void commands.reorderTab(current.tab, to);
                 }
               }}
               onPointerCancel={(event) => {
@@ -264,14 +365,43 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
                 aria-label={unit.length === 2 ? t("split.membership") : undefined}
               >
                 {unit.map((tab, position) => (
-                  <TabItem
-                    key={tab.id}
-                    tab={tab}
-                    active={tab.id === active}
-                    pairPosition={unit.length === 2 ? position : -1}
-                    layout={layout}
-                    onMenu={(at) => openTabMenu(tab, at)}
-                  />
+                  <Fragment key={tab.id}>
+                    {position === 1 && (
+                      // The link between the halves is the control that undoes
+                      // it. Across the strip it takes its own width in the join;
+                      // down the column it sits on the seam between the two
+                      // icons, where it costs no row.
+                      <li
+                        className={cx(
+                          "relative z-1 flex shrink-0 items-center",
+                          isVertical ? "h-0 ps-2" : "justify-center",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          className="group text-text-secondary hover:bg-text/10 hover:text-text grid size-4 cursor-pointer place-items-center rounded-full outline-offset-1 transition-colors"
+                          aria-label={t("split.separate")}
+                          title={t("split.separate")}
+                          onClick={() => void commands.separateTabs(first.id)}
+                        >
+                          {/* Hidden on wrappers: an icon sets its own display. */}
+                          <span className="contents group-hover:hidden group-focus-visible:hidden">
+                            <i className="ic-link ic-xs" aria-hidden="true" />
+                          </span>
+                          <span className="hidden group-hover:contents group-focus-visible:contents">
+                            <i className="ic-unlink ic-xs" aria-hidden="true" />
+                          </span>
+                        </button>
+                      </li>
+                    )}
+                    <TabItem
+                      tab={tab}
+                      active={tab.id === active}
+                      pairPosition={unit.length === 2 ? position : -1}
+                      layout={layout}
+                      onMenu={(at) => openTabMenu(tab, at)}
+                    />
+                  </Fragment>
                 ))}
               </ul>
             </li>
@@ -281,10 +411,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
           ref={indicator}
           hidden
           aria-hidden="true"
-          className={cx(
-            "bg-accent pointer-events-none absolute",
-            isVertical ? "inset-x-0 top-0 h-0.5" : "inset-y-0 w-0.5",
-          )}
+          className={cx("pointer-events-none absolute", isVertical ? "inset-x-0 top-0 h-0.5" : "inset-y-0 w-0.5")}
         />
       </ul>
       {isVertical ? (
