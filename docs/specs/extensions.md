@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: How Chrome extensions are added, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
 ---
 
@@ -87,7 +87,7 @@ Private content uses the engine's InPrivate profile, where installed extensions 
 
 Right of the address bar, before the developer tools button, the toolbar has an **Extensions** button, a puzzle piece, and to its left a button for each pinned extension, as in Chrome.
 
-The Extensions button opens a panel, below the button and ending at its right edge where there is room, and otherwise above it or starting at its left edge, as from the foot of the column, of every extension switched on, with no heading, since the button says what it lists, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings at its Extensions section, `haku://settings/extensions`. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address bar still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
+The Extensions button opens a panel of every extension switched on, with no heading, since the button says what it lists, each with its icon, its name and a pin toggle, shown on a pinned extension and on hover or focus otherwise, and **Manage extensions** at the bottom, which opens settings at its Extensions section, `haku://settings/extensions`. Clicking an extension opens its popup. One without a popup (`action.default_popup` in its manifest) is listed but cannot be opened. The panel hangs below the button, ending at its right edge. Where either has no room, as in the column, whose button is at the window's bottom left, it opens above the button or starts at its left edge. It is held to the room on the side it opens, and a longer list scrolls. The menu closes as the site menu does: on a click outside it, Escape, or the window losing focus or resizing. Settings keeps the switches and no longer opens popups as tabs; the address bar still accepts `chrome-extension://` addresses, so any extension page can be opened as one.
 
 `pinnedExtensions` in the settings holds the ids pinned, in the order their buttons show, left to right. A new pin goes last, rightmost. A pinned extension that is switched off or no longer installed shows no button, and its pin is kept, so it comes back with it, in its place.
 

@@ -160,7 +160,16 @@ it("opens a panel drawn with the overlay recipe, with no heading repeating its b
 
 it("hangs the panel under its button, and inside the window from the foot of the column", () => {
   // Across the top: under the button, right edges aligned.
-  expect(placePanel({ left: 1150, right: 1182, top: 34, bottom: 62 }, 1280, 800)).toEqual({ top: 68, right: 98 });
+  // Each is held to the room on its side, a gap short of the window's edge, so a long list scrolls.
+  expect(placePanel({ left: 1150, right: 1182, top: 34, bottom: 62 }, 1280, 800)).toEqual({
+    top: 68,
+    right: 98,
+    maxHeight: 726,
+  });
   // At the bottom left: above the button, from its left edge.
-  expect(placePanel({ left: 139, right: 171, top: 760, bottom: 792 }, 1280, 800)).toEqual({ bottom: 46, left: 139 });
+  expect(placePanel({ left: 139, right: 171, top: 760, bottom: 792 }, 1280, 800)).toEqual({
+    bottom: 46,
+    left: 139,
+    maxHeight: 748,
+  });
 });
