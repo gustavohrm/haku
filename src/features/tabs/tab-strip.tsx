@@ -274,7 +274,6 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
               data-tab-unit
               className={cx(
                 "flex touch-none select-none",
-                unit.length === 2 && "bg-text/6 rounded-(--radius-control)",
                 isVertical ? "shrink-0" : "shrink",
                 !isVertical && (unit.length === 2 ? "w-100 min-w-20" : "w-50 min-w-10"),
               )}
@@ -368,18 +367,17 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
                   <Fragment key={tab.id}>
                     {position === 1 && (
                       // The link between the halves is the control that undoes
-                      // it. Across the strip it takes its own width in the join;
-                      // down the column it sits on the seam between the two
-                      // icons, where it costs no row.
+                      // it. It sits on the neck the two tabs are joined by, in
+                      // the middle of the gap between them.
                       <li
-                        className={cx(
-                          "relative z-1 flex shrink-0 items-center",
-                          isVertical ? "h-0 ps-2" : "justify-center",
-                        )}
+                        className="haku-pair-seam"
+                        data-axis={isVertical ? "column" : "row"}
+                        data-first={first.id === active ? "active" : undefined}
+                        data-second={tab.id === active ? "active" : undefined}
                       >
                         <button
                           type="button"
-                          className="group text-text-secondary hover:bg-text/10 hover:text-text grid size-4 cursor-pointer place-items-center rounded-full outline-offset-1 transition-colors"
+                          className="haku-pair-link group"
                           aria-label={t("split.separate")}
                           title={t("split.separate")}
                           onClick={() => void commands.separateTabs(first.id)}

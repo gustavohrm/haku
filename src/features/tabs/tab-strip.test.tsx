@@ -266,8 +266,7 @@ function columnRect(top: number, height: number): DOMRect {
 it("reads drop gaps down the column and stacks pairs", async () => {
   const column = await renderVertical();
   expect(column.className).toContain("flex-col");
-  expect(host.querySelector(".rounded-b-none")?.contains(member(0))).toBe(true);
-  expect(host.querySelector(".rounded-t-none")?.contains(member(1))).toBe(true);
+  expect(host.querySelector(".haku-pair-seam")?.getAttribute("data-axis")).toBe("column");
   const source = member(2);
   await pointer(source, "pointerdown", 100, { y: 150 });
   await pointer(source, "pointermove", 100, { y: 260 });

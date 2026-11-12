@@ -581,6 +581,82 @@ dialog[data-toast-instance] .toast-dialog-container {
   grid-template-columns: minmax(0, calc((100% - 5px) * var(--split-ratio, 0.5))) 5px minmax(0, 1fr);
 }
 
+/* The seam between the two tabs of a pair. The halves sit a gap apart and a
+   neck joins them across its middle, each stretched to meet the other, which
+   is the ground the link sits on. The gap ends in a round cap either side of
+   the neck, cut with a mask, so the two tabs read as one pulled shape. */
+.haku-pair-seam {
+  --pair-gap: 8px;
+  --pair-neck: 1.125rem;
+  --pair-rest: color-mix(in srgb, var(--color-text) 6%, var(--color-chrome));
+  --pair-first: var(--pair-rest);
+  --pair-second: var(--pair-rest);
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: var(--pair-gap);
+}
+
+.haku-pair-seam[data-axis="column"] {
+  width: auto;
+  height: var(--pair-gap);
+}
+
+.haku-pair-seam[data-first="active"] {
+  --pair-first: var(--color-chrome-raised);
+}
+
+.haku-pair-seam[data-second="active"] {
+  --pair-second: var(--color-chrome-raised);
+}
+
+/* A pixel wider than the gap each side, so no hairline shows at a fractional
+   scale; it is the tab's own colour there. */
+.haku-pair-seam::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--pair-gap) + 2px);
+  height: calc(var(--pair-neck) + var(--pair-gap));
+  background: linear-gradient(to right, var(--pair-first) 1px, var(--pair-second) calc(100% - 1px));
+  content: "";
+  mask:
+    radial-gradient(circle at 50% 0, transparent calc(var(--pair-gap) / 2 - 0.5px), #000 calc(var(--pair-gap) / 2)),
+    radial-gradient(circle at 50% 100%, transparent calc(var(--pair-gap) / 2 - 0.5px), #000 calc(var(--pair-gap) / 2));
+  mask-composite: intersect;
+  translate: -50% -50%;
+}
+
+.haku-pair-seam[data-axis="column"]::before {
+  width: calc(var(--pair-neck) + var(--pair-gap));
+  height: calc(var(--pair-gap) + 2px);
+  background: linear-gradient(to bottom, var(--pair-first) 1px, var(--pair-second) calc(100% - 1px));
+  mask:
+    radial-gradient(circle at 0 50%, transparent calc(var(--pair-gap) / 2 - 0.5px), #000 calc(var(--pair-gap) / 2)),
+    radial-gradient(circle at 100% 50%, transparent calc(var(--pair-gap) / 2 - 0.5px), #000 calc(var(--pair-gap) / 2));
+  mask-composite: intersect;
+}
+
+.haku-pair-link {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  outline-offset: -1px;
+  transition: color var(--haku-exit) var(--haku-ease-exit);
+  translate: -50% -50%;
+}
+
+.haku-pair-link:is(:hover, :focus-visible) {
+  color: var(--color-text);
+}
+
 /* The divider is the gap between the panes, and paints nothing at rest. Under
    the pointer it shows a grip, so the gap reads as something to drag. */
 .haku-split-divider {
