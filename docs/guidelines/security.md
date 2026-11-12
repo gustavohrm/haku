@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-11-08
+last_updated: 2026-11-12
 scope: How the boundary between web pages and the application is kept in code, for anyone writing or reviewing a change.
 ---
 
@@ -35,7 +35,7 @@ When the project stores or issues secrets:
 ## Untrusted input
 
 - Every input crossing a trust boundary is validated at that boundary, before any other code sees it, and parsed into a typed value. What does not parse is rejected, not passed along.
-- Every input has a size bound: a body is read with a byte limit before parsing, and every string and collection in a schema has a maximum.
+- Every input has a size bound, such as a request body, an uploaded file, or a file read from disk, and every string and collection in a schema has a maximum. The read itself enforces the bound: the read consumes at most one byte past the limit, and when that byte exists the input is rejected, never truncated and parsed as if it were whole. Checking the size after reading the whole input is too late, because the memory is already used. A size check before the read can reject an input early, but it is not the bound, because another program can grow a file between the check and the read.
 - Files a user can edit by hand, such as settings, sessions, and caches, are untrusted input too. A file that does not parse is set aside and replaced with defaults, and every value read from one is checked as if it came from a request.
 - Do not build URLs, paths, or redirects from values a client controls, such as the `Host` or `X-Forwarded-*` headers. A redirect target comes from an allowlist and is compared exactly.
 - Do not build a query, command, or HTML by concatenating input. Use parameters, argument arrays, and escaping by default.

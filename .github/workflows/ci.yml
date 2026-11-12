@@ -10,9 +10,10 @@ on:
     branches: [main]
 
 # A pull request pushed to again abandons the run it superseded; a merge-queue run or a push to `main` keeps every
-# run, because each is the authoritative check of a commit.
+# run, because each is the authoritative check of a commit. Those runs are grouped by commit, not by branch: a group
+# holds one pending run, and GitHub cancels it when another joins, whatever `cancel-in-progress` says.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
