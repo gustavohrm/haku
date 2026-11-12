@@ -121,7 +121,7 @@ describe("ShortcutControl", () => {
 
   it("shows each chord, and Reset only once the action is changed", () => {
     render("reload", async () => null);
-    expect([...container.querySelectorAll("kbd")].map((kbd) => kbd.textContent)).toEqual(["Ctrl+R", "F5"]);
+    expect([...container.querySelectorAll("kbd")].map((kbd) => kbd.textContent)).toEqual(["Ctrl + R", "F5"]);
     expect(container.querySelector('[aria-label="Reset to the default keys"]')).toBeNull();
 
     render("find", async () => null, { find: ["Ctrl+G"] });
@@ -138,7 +138,7 @@ describe("ShortcutControl", () => {
     // The chord is its own remove button: its keys stay in view, and its cross waits for the pointer.
     const remove = button("Remove Ctrl+G");
     expect(remove.classList).not.toContain("opacity-0");
-    expect([...remove.querySelectorAll(".haku-key")].map((key) => key.textContent)).toEqual(["Ctrl", "G"]);
+    expect(remove.querySelector(".haku-key")?.textContent).toBe("Ctrl + G");
     expect(remove.querySelector("[aria-hidden]")?.classList).toContain("opacity-0");
     expect(button("Reset to the default keys").classList).not.toContain("opacity-0");
   });

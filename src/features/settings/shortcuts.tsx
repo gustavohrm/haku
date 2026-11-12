@@ -4,7 +4,7 @@ import { useKeymap } from "@ipc/hooks";
 import { keymapStore } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t, type TranslationKey } from "@shared/i18n";
-import { Fragment, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { type ControlProps, type SettingGroup, type SettingRowDefinition } from "./types";
 
@@ -166,7 +166,7 @@ const REFUSALS: Record<ChordRefusal, TranslationKey> = {
 const ON_ROW_HOVER = "opacity-0 group-focus-within/setting:opacity-100 group-hover/setting:opacity-100";
 
 /**
- * An action's chords at the row's end, each drawn as its keys, with Add
+ * An action's chords at the row's end, each drawn as one keycap, with Add
  * before them and, once the action differs from its defaults, Reset before
  * that. The actions come first so the keys keep one edge down the page
  * whether or not a row shows any. A chord is its own remove button: under the
@@ -305,13 +305,8 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
                 title={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
                 onClick={() => void update((current) => withoutChord(current, keymapStore.get(), shortcut, chord))}
               >
-                <kbd className="flex gap-0.5 font-sans transition-opacity group-hover/chord:opacity-25 group-focus-visible/chord:opacity-25">
-                  {keysOf(chord).map((key, index) => (
-                    <Fragment key={index}>
-                      {index > 0 && <span className="sr-only">+</span>}
-                      <span className="haku-key">{key}</span>
-                    </Fragment>
-                  ))}
+                <kbd className="haku-key font-sans transition-opacity group-hover/chord:opacity-25 group-focus-visible/chord:opacity-25">
+                  {keysOf(chord).join(" + ")}
                 </kbd>
                 <span
                   className="absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover/chord:opacity-100 group-focus-visible/chord:opacity-100"
