@@ -140,6 +140,12 @@ function isChanged(settings: Settings, keymap: readonly KeyBinding[], shortcut: 
   return chords.length !== defaults.length || chords.some((chord) => !defaults.includes(chord));
 }
 
+/** A chord's keys, as "Ctrl+Shift+T" names them; the last may be the plus key itself. */
+function keysOf(chord: string): string[] {
+  const keys = chord.split("+").filter((key) => key !== "");
+  return chord.endsWith("+") ? [...keys, "+"] : keys;
+}
+
 /** What the recorder shows besides the action's chords. */
 type Recording =
   | { kind: "idle" }
@@ -160,10 +166,13 @@ const REFUSALS: Record<ChordRefusal, TranslationKey> = {
 const ON_ROW_HOVER = "opacity-0 group-focus-within/setting:opacity-100 group-hover/setting:opacity-100";
 
 /**
- * An action's chords, each with a remove button, then Add and, once the
- * action differs from its defaults, Reset. Remove and Add show on the row's
- * hover or focus; Reset stays in view, since it also says the action was
- * changed, and so does Add while it records.
+ * An action's chords at the row's end, each drawn as one keycap, with Add
+ * before them and, once the action differs from its defaults, Reset before
+ * that. The actions come first so the keys keep one edge down the page
+ * whether or not a row shows any. A chord is its own remove button: under the
+ * pointer or focus its keys fade behind a cross. Add shows on the row's hover
+ * or focus; Reset stays in view, since it also says the action was changed,
+ * and so does Add while it records.
  *
  * Add asks Rust for the next chord pressed, since a bound chord never reaches
  * the interface. A refused chord is shown and recording goes on; a chord
@@ -247,31 +256,29 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
         : null;
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-col items-end gap-1.5">
       <div className="flex flex-wrap items-center justify-end gap-1">
-        <ul className="flex flex-wrap items-center gap-1" aria-labelledby={labelId} aria-describedby={describedBy}>
-          {chords.length === 0 && <li className="text-text-secondary px-1 text-sm">{t("settings.shortcuts.none")}</li>}
-          {chords.map((chord) => (
-            <li key={chord} className="card soft edgeless flex items-center gap-1 py-0.5 ps-2 pe-0.5 text-sm">
-              <kbd className="font-sans">{chord}</kbd>
-              <button
-                type="button"
-                className={cx("btn icon ghost p-xs [--ui-radius:var(--radius-small)]", ON_ROW_HOVER)}
-                aria-label={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
-                title={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
-                onClick={() => void update((current) => withoutChord(current, keymapStore.get(), shortcut, chord))}
-              >
-                <i className="ic-x ic-sm" aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ul>
+        {isChanged(settings, keymap, shortcut) && (
+          <button
+            type="button"
+            className="btn icon ghost sm text-text-secondary"
+            aria-label={t("settings.shortcuts.resetLabel")}
+            title={t("settings.shortcuts.resetLabel")}
+            onClick={() => void update((current) => withDefaults(current, keymapStore.get(), shortcut))}
+          >
+            <i className="ic-rotate-ccw ic-sm" aria-hidden="true" />
+          </button>
+        )}
         <button
           type="button"
-          className={cx("btn soft edgeless gap-2", recording.kind !== "waiting" && ON_ROW_HOVER)}
+          className={cx(
+            "btn sm",
+            recording.kind === "waiting" ? "soft edgeless" : cx("icon ghost text-text-secondary", ON_ROW_HOVER),
+          )}
           aria-label={
             recording.kind === "waiting" ? t("settings.shortcuts.recording") : t("settings.shortcuts.addLabel")
           }
+          title={recording.kind === "waiting" ? undefined : t("settings.shortcuts.addLabel")}
           aria-describedby={message ? messageId : undefined}
           aria-pressed={recording.kind === "waiting"}
           onClick={() => recording.kind !== "waiting" && void record()}
@@ -280,23 +287,37 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
           {recording.kind === "waiting" ? (
             t("settings.shortcuts.recording")
           ) : (
-            <>
-              <i className="ic-plus ic-sm" aria-hidden="true" />
-              {t("settings.shortcuts.add")}
-            </>
+            <i className="ic-plus ic-sm" aria-hidden="true" />
           )}
         </button>
-        {isChanged(settings, keymap, shortcut) && (
-          <button
-            type="button"
-            className="btn icon ghost"
-            aria-label={t("settings.shortcuts.resetLabel")}
-            title={t("settings.shortcuts.resetLabel")}
-            onClick={() => void update((current) => withDefaults(current, keymapStore.get(), shortcut))}
-          >
-            <i className="ic-rotate-ccw ic-sm" aria-hidden="true" />
-          </button>
-        )}
+        <ul
+          className="ms-1 flex flex-wrap items-center justify-end gap-2.5"
+          aria-labelledby={labelId}
+          aria-describedby={describedBy}
+        >
+          {chords.length === 0 && <li className="text-text-secondary text-sm">{t("settings.shortcuts.none")}</li>}
+          {chords.map((chord) => (
+            <li key={chord} className="flex">
+              <button
+                type="button"
+                className="group/chord relative flex cursor-pointer rounded-(--radius-small) outline-offset-2"
+                aria-label={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
+                title={t("settings.shortcuts.remove").replace("{chord}", () => chord)}
+                onClick={() => void update((current) => withoutChord(current, keymapStore.get(), shortcut, chord))}
+              >
+                <kbd className="haku-key font-sans transition-opacity group-hover/chord:opacity-25 group-focus-visible/chord:opacity-25">
+                  {keysOf(chord).join(" + ")}
+                </kbd>
+                <span
+                  className="absolute inset-0 grid place-items-center opacity-0 transition-opacity group-hover/chord:opacity-100 group-focus-visible/chord:opacity-100"
+                  aria-hidden="true"
+                >
+                  <i className="ic-x ic-sm" />
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
       {message && (
         <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
@@ -307,7 +328,7 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
             <>
               <button
                 type="button"
-                className="btn soft edgeless"
+                className="btn primary sm"
                 onClick={() => {
                   const { chord } = recording;
                   setRecording({ kind: "idle" });
@@ -316,7 +337,7 @@ function ShortcutControl({ shortcut, labelId, describedBy, settings, update }: C
               >
                 {t("settings.shortcuts.useHere")}
               </button>
-              <button type="button" className="btn ghost" onClick={() => setRecording({ kind: "idle" })}>
+              <button type="button" className="btn ghost sm" onClick={() => setRecording({ kind: "idle" })}>
                 {t("settings.shortcuts.cancel")}
               </button>
             </>
@@ -331,7 +352,7 @@ function shortcutRow(shortcut: Shortcut, title: TranslationKey): SettingRowDefin
   function Control(props: ControlProps) {
     return <ShortcutControl {...props} shortcut={shortcut} />;
   }
-  return { id: `shortcut-${shortcut}`, title, labelsControl: false, Control };
+  return { id: `shortcut-${shortcut}`, title, dense: true, labelsControl: false, Control };
 }
 
 /**
@@ -407,9 +428,19 @@ function ResetAllControl({ id, describedBy, settings, update }: ControlProps) {
   );
 }
 
-/** The Shortcuts section's groups: Reset all, then one row per action, by group. */
+/**
+ * The Shortcuts section's groups: one row per action, by group, then Reset
+ * all, which is last because it is the rarest thing done here.
+ */
 export const SHORTCUT_GROUPS: SettingGroup[] = [
+  ...(Object.keys(GROUP_TITLES) as Group[]).map((group) => ({
+    title: GROUP_TITLES[group],
+    rows: (Object.entries(ACTIONS) as [Shortcut, (typeof ACTIONS)[Shortcut]][])
+      .filter(([, action]) => action.group === group)
+      .map(([shortcut, action]) => shortcutRow(shortcut, action.title)),
+  })),
   {
+    title: "settings.shortcuts.defaults",
     rows: [
       {
         id: "resetShortcuts",
@@ -420,10 +451,4 @@ export const SHORTCUT_GROUPS: SettingGroup[] = [
       },
     ],
   },
-  ...(Object.keys(GROUP_TITLES) as Group[]).map((group) => ({
-    title: GROUP_TITLES[group],
-    rows: (Object.entries(ACTIONS) as [Shortcut, (typeof ACTIONS)[Shortcut]][])
-      .filter(([, action]) => action.group === group)
-      .map(([shortcut, action]) => shortcutRow(shortcut, action.title)),
-  })),
 ];

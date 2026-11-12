@@ -66,22 +66,25 @@ export function HistoryFilters({ filter, onChange }: FiltersProps) {
         <label htmlFor={searchId} className="sr-only">
           {t("history.search")}
         </label>
-        <input
-          id={searchId}
-          type="search"
-          className="ipt soft edgeless min-w-48 flex-1"
-          placeholder={t("history.search")}
-          spellCheck={false}
-          autoComplete="off"
-          value={filter.text}
-          onChange={(event) => onChange({ ...filter, text: event.target.value })}
-        />
+        <span className="input-group soft edgeless unadorned min-w-48 flex-1">
+          <i className="ic-search ic-sm text-text-secondary" aria-hidden="true" />
+          <input
+            id={searchId}
+            type="search"
+            className="ipt"
+            placeholder={t("history.search")}
+            spellCheck={false}
+            autoComplete="off"
+            value={filter.text}
+            onChange={(event) => onChange({ ...filter, text: event.target.value })}
+          />
+        </span>
         <label htmlFor={whenId} className="sr-only">
           {t("history.when")}
         </label>
         <select
           id={whenId}
-          className="select soft edgeless"
+          className="select soft edgeless w-36"
           value={filter.when}
           onChange={(event) => {
             const when = event.target.value;
@@ -98,7 +101,7 @@ export function HistoryFilters({ filter, onChange }: FiltersProps) {
         </select>
         <button
           type="button"
-          className="btn soft edgeless"
+          className={filter.transitions.length > 0 ? "btn soft edgeless" : "btn ghost"}
           aria-haspopup="menu"
           onClick={(event) => {
             const box = event.currentTarget.getBoundingClientRect();
@@ -120,7 +123,7 @@ export function HistoryFilters({ filter, onChange }: FiltersProps) {
         </button>
         <button
           type="button"
-          className="btn soft edgeless"
+          className={adding ? "btn soft edgeless" : "btn ghost"}
           aria-expanded={adding}
           onClick={() => setAdding((open) => !open)}
         >
@@ -159,11 +162,11 @@ export function HistoryFilters({ filter, onChange }: FiltersProps) {
         />
       )}
       {chips.length > 0 && (
-        <ul className="flex flex-wrap gap-2" aria-label={t("history.activeFilters")}>
+        <ul className="flex flex-wrap items-center gap-1.5" aria-label={t("history.activeFilters")}>
           {chips.map((chip) => (
             <li
               key={chip.id}
-              className="bg-text/6 flex max-w-full items-center gap-1 rounded-full py-0.5 pr-1 pl-3 text-sm"
+              className="bg-text/6 flex h-7 max-w-full items-center gap-0.5 rounded-full pr-0.5 pl-3 text-sm"
             >
               {chip.kind === "exclude" && <span className="text-text-secondary">{t("history.chip.not")}</span>}
               <span className="truncate" title={chip.label}>
@@ -171,7 +174,7 @@ export function HistoryFilters({ filter, onChange }: FiltersProps) {
               </span>
               <button
                 type="button"
-                className="btn icon ghost size-6"
+                className="btn icon ghost p-xs rounded-full"
                 aria-label={t("history.chip.remove").replace("{filter}", () => chip.label)}
                 title={t("history.chip.remove").replace("{filter}", () => chip.label)}
                 onClick={() => onChange(chip.remove(filter))}

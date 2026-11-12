@@ -300,7 +300,7 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
       className="haku-overlay fixed z-10 flex flex-col p-2 outline-none"
       style={{ left: anchor.left, top: anchor.top, width: EDITOR_WIDTH }}
     >
-      <form className="flex flex-col gap-1.5" onSubmit={done}>
+      <form className="flex flex-col gap-2" onSubmit={done}>
         <span className="input-group soft edgeless unadorned">
           {/* The generic icon in a private window: fetching the site's would send the ordinary profile's cookies. */}
           <Favicon key={url ?? ""} url={isPrivate ? null : url} small />
@@ -323,7 +323,7 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
               }
             }}
             type="button"
-            className="btn soft edgeless justify-start gap-2"
+            className="btn soft edgeless w-full justify-start gap-2 px-3 font-normal"
             aria-haspopup="menu"
             aria-label={`${t("bookmarks.folder")}: ${folderTitle}`}
             onClick={(event) => chooseFolder(event.currentTarget)}
@@ -358,10 +358,10 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
             />
           </span>
         )}
-        <div className="mt-1.5 flex items-center gap-2">
+        <div className="mt-1 flex items-center gap-2">
           <button
             type="button"
-            className="btn ghost"
+            className="btn ghost text-text-secondary"
             onClick={() => {
               removedRef.current = true;
               onClose();
@@ -370,7 +370,7 @@ function BookmarkEditor({ tree, id, anchor, buttonRef, closeRef, onClose }: Book
           >
             {t("bookmarks.remove")}
           </button>
-          <button type="submit" className="btn ml-auto">
+          <button type="submit" className="btn primary ml-auto">
             {t("bookmarks.done")}
           </button>
         </div>

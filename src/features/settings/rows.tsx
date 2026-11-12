@@ -60,12 +60,17 @@ export function SettingRow({ row, context }: SettingRowProps) {
       // A named group, so a control can show actions on the row's hover or
       // focus without answering to a list's own `group` inside it.
       className={cx(
-        "group/setting flex gap-x-6 gap-y-2 px-4 py-3",
-        row.wide ? "flex-col" : "items-center justify-between",
+        "group/setting flex gap-x-6 gap-y-2",
+        row.dense
+          ? "hover:bg-text/4 focus-within:bg-text/4 mx-1 min-h-9 rounded-(--radius-control) px-3 py-1"
+          : "px-4 py-3",
+        // A control that does not fit beside the title, as in a narrow split
+        // pane, wraps under it rather than running off the page.
+        row.wide ? "flex-col" : "flex-wrap items-center justify-between",
       )}
       data-setting={row.id}
     >
-      <Text>
+      <Text beside={!row.wide}>
         {/* A list has no single control to label, so it is labelled by its title instead. */}
         {row.labelsControl === false ? (
           <span id={titleId} className={cx(reason && "text-text-secondary")}>
@@ -82,7 +87,7 @@ export function SettingRow({ row, context }: SettingRowProps) {
           </span>
         )}
       </Text>
-      <div className={cx("min-w-0", row.wide ? "w-full" : "shrink-0")}>
+      <div className={cx("min-w-0", row.wide ? "w-full" : "max-w-full shrink-0")}>
         <Control
           {...context}
           id={controlId}
@@ -95,6 +100,17 @@ export function SettingRow({ row, context }: SettingRowProps) {
   );
 }
 
-function Text({ children }: { children: ReactNode }) {
-  return <div className="flex max-w-xl min-w-0 flex-col gap-0.5">{children}</div>;
+/**
+ * The well a list of entries sits in, inside a row: the page's colour, so the
+ * list has an edge of its own on the plate and its rows line up with nothing
+ * outside it.
+ */
+export const LIST_WELL = "bg-background flex flex-col rounded-(--radius-control) p-1";
+
+/** What the well says while its list has nothing in it. */
+export const EMPTY_WELL = "bg-background text-text-secondary rounded-(--radius-control) px-3 py-2 text-sm";
+
+/** The title and description; `beside` a control, it keeps 16 rem before the control wraps under it. */
+function Text({ beside, children }: { beside: boolean; children: ReactNode }) {
+  return <div className={cx("flex max-w-xl min-w-0 flex-col gap-0.5", beside && "flex-[1_1_16rem]")}>{children}</div>;
 }

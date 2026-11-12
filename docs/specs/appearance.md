@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
+last_updated: 2026-11-12
 scope: The layout settings of "Appearance is data" — where the tabs, the sidebar and the toolbar go, and whether the bars take space — and how the shell applies them.
 ---
 
@@ -46,7 +46,7 @@ The shell's root carries `data-tabs`, `data-bars`, `data-side` and `data-toolbar
 
 Everything the strip does, the column does, because it is the same component on the other axis:
 
-- Dragging a tab or a pair reorders it, with the drop line between units, never inside a pair. The drop position is read from the units' measured geometry along the column, and a pointer outside the column's width offers no drop.
+- Dragging a tab or a pair reorders it. The dragged unit follows the pointer along the column and the others slide out of its way, so the column shows the order a drop would leave; a dropped unit stays where it was let go until Rust answers with the new order. A gap opens only between units, never inside a pair. Until 2026-11-11 a line marked the drop position while every tab stayed put, which did not weigh that the user had to work out the resulting order from a 2 px line. The drop position is read from the units' measured geometry along the column, and a pointer outside the column's width offers no drop.
 - A split pair is one joined unit, stacked: the left member above the right, with one outer shape. Membership and position are announced as in the strip.
 - Fixed tabs, the favicons a private window leaves out, the waiting-dialog badge, the discarded, frozen, crashed and unloaded markers, middle-click to close, and the tab and strip menus are unchanged.
 - Each tab is a button in tab order, and the keyboard opens its menu as in the strip.
@@ -136,9 +136,9 @@ Rejected: letting the marker float with the toolbar. A hidden marker makes a pri
 
 ## Settings page
 
-Appearance shows **Tabs**, **Sidebar**, **Toolbar** and **Bars** after Theme, each a group of icon buttons as Theme is ([Settings page § Layout](settings-page.md#layout)): `panel-top` and `panel-left` for the tabs, `panel-left` and `panel-right` for the sidebar's side, `panel-top` and `panel-left-dashed` for the toolbar, `app-window` and `panel-top-dashed` for the bars. Sidebar and Toolbar are disabled, still showing what is stored, while the tabs are horizontal. The width has no row: it is set where it shows, by dragging the column's edge.
+Appearance shows **Tabs**, **Sidebar**, **Toolbar** and **Bars** after Theme, each a segmented control as Theme is ([Settings page § Layout](settings-page.md#layout)): `panel-top` and `panel-left` for the tabs, `panel-left` and `panel-right` for the sidebar's side, `panel-top` and `panel-left-dashed` for the toolbar, `app-window` and `panel-top-dashed` for the bars. Sidebar and Toolbar are disabled, still showing what is stored, while the tabs are horizontal. The width has no row: it is set where it shows, by dragging the column's edge.
 
-After Toolbar come **Bookmarks in the sidebar**, as icon buttons (`bookmark` for the button, `panel-top` for a bar above the page), disabled unless the toolbar is in the column, and **Bookmarks bar**, a select of its three choices, disabled while bookmarks are the column's button ([Bookmarks § The bookmarks bar](bookmarks.md#the-bookmarks-bar)).
+After Toolbar come **Bookmarks in the sidebar**, as a segmented control (`bookmark` for the button, `panel-top` for a bar above the page), disabled unless the toolbar is in the column, and **Bookmarks bar**, a select of its three choices, disabled while bookmarks are the column's button ([Bookmarks § The bookmarks bar](bookmarks.md#the-bookmarks-bar)).
 
 ## Verification
 

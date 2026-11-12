@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: How Haku's interface renders above page content, and how clicks still reach the page.
 ---
 
@@ -76,7 +76,7 @@ Until one of these is available, nothing over the live page is blurred.
 
 #### Flat surfaces over the page
 
-Menus, popovers, panels and toasts over the live page are opaque: they use the `chrome-overlay` surface, which is the raised surface with no transparency. A surface that is translucent is an exception and says why where it is drawn, as the address card's frosting over its still backdrop does.
+Menus, popovers, panels and toasts over the live page are opaque: they use the `chrome-overlay` surface, which has no transparency: the ground, `--color-background`, in the light theme and the raised surface in the dark one, so an overlay is always the lightest of the interface's surfaces and its soft fields show against it. An overlay enters with a short fade and a 4 px drop, which the region follows frame by frame as it follows any animated overlay; it is switched off under reduced motion. A surface that is translucent is an exception and says why where it is drawn, as the address card's frosting over its still backdrop does.
 
 Decided by the maintainer on 2026-11-11, reversing the translucent default chosen with transparency on 2026-11-08. That choice weighed translucency as what placed a surface over the page. It did not weigh legibility: without a blur, a busy or high-contrast page shows through as sharp shapes behind the text, and menus and the bookmark editor were hard to read over such pages. The border and rounded corners already place a surface over the page.
 

@@ -4,6 +4,7 @@ import { BarSlot } from "@features/bars/bar-slot";
 import { bookmarksPlace, shellLayout } from "@features/bars/shell-layout";
 import { SidebarResizer } from "@features/bars/sidebar-resizer";
 import { BookmarksBar } from "@features/bookmarks/bookmarks-bar";
+import { childrenOf } from "@features/bookmarks/tree";
 import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
@@ -16,13 +17,14 @@ import { TabStrip } from "@features/tabs/tab-strip";
 import { SidebarActions, SidebarToolbar, Toolbar } from "@features/toolbar/toolbar";
 import { ViewportPanes } from "@features/viewport/viewport-panes";
 import { WindowControls } from "@features/window-controls/window-controls";
-import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
+import { useActiveTab, useBookmarks, useBrowserState, useSettings } from "@ipc/hooks";
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 
 export function App() {
   const { kind, private: isPrivate, tabs, active, fullscreen } = useBrowserState();
   const tab = useActiveTab();
   const settings = useSettings();
+  const tree = useBookmarks();
   usePageDialog(tab);
   usePageMenu(tab);
   useCloseConfirmation();
@@ -46,6 +48,7 @@ export function App() {
     layout,
     kind,
     isNewTab(tab?.history.entries[tab.history.index]?.url ?? ""),
+    tree === null || childrenOf(tree.bar).length === 0,
   );
   // What a floating bar must show unasked: the toolbar names the page whose
   // dialog or permission request is open, and the tabs carry the badge of one

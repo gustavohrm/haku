@@ -156,7 +156,7 @@ describe("HistoryPage", () => {
     await render();
     await click(button("Sites"));
     const site = [...container.querySelectorAll("li > button")].find(
-      (each) => each.querySelector(".font-medium")?.textContent === "a.com",
+      (each) => each.querySelector("span")?.textContent === "a.com",
     );
     await click(site);
     expect(button("Visits")?.getAttribute("aria-pressed")).toBe("true");

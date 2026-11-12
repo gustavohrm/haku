@@ -10,7 +10,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { TabStrip } from "./tab-strip";
 
-vi.mock("@ipc/commands", () => ({ commands: { reorderTab: vi.fn(), selectTab: vi.fn(), closeTab: vi.fn() } }));
+vi.mock("@ipc/commands", () => ({
+  commands: { reorderTab: vi.fn(), selectTab: vi.fn(), closeTab: vi.fn(), separateTabs: vi.fn() },
+}));
 vi.mock("@features/context-menu/store", () => ({ openMenu: vi.fn() }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const tab = (id: number): Tab => ({
@@ -264,8 +266,10 @@ function columnRect(top: number, height: number): DOMRect {
 it("reads drop gaps down the column and stacks pairs", async () => {
   const column = await renderVertical();
   expect(column.className).toContain("flex-col");
-  expect(host.querySelector(".rounded-b-none")?.contains(member(0))).toBe(true);
-  expect(host.querySelector(".rounded-t-none")?.contains(member(1))).toBe(true);
+  const pair = host.querySelector<HTMLElement>("[data-tab-unit]")!;
+  expect(pair.contains(member(0)) && pair.contains(member(1))).toBe(true);
+  expect(pair.querySelector("ul")?.className).toContain("flex-col");
+  expect(pair.querySelector(".haku-pair-seam")?.getAttribute("data-axis")).toBe("column");
   const source = member(2);
   await pointer(source, "pointerdown", 100, { y: 150 });
   await pointer(source, "pointermove", 100, { y: 260 });
@@ -276,6 +280,35 @@ it("reads drop gaps down the column and stacks pairs", async () => {
   expect(host.querySelector<HTMLElement>('[data-drop-gap="0"]')?.style.top).toBe("0px");
   await pointer(source, "pointerup", 100, { y: 10 });
   expect(commands.reorderTab).toHaveBeenCalledExactlyOnceWith(3, 0);
+});
+
+it("keeps the dragged unit under the pointer as the column scrolls", async () => {
+  const column = await renderVertical();
+  const units = host.querySelectorAll<HTMLElement>("[data-tab-unit]");
+  const source = units[2]!.querySelector("[data-tab-drag-handle]")!;
+  await pointer(source, "pointerdown", 100, { y: 250 });
+  await pointer(source, "pointermove", 100, { y: 150 });
+  expect(units[2]!.style.translate).toBe("0 -100px");
+  // Scrolled 40 px down, the unit's place moved 40 px up with the content.
+  Object.defineProperty(column, "scrollTop", { value: 40, configurable: true });
+  await pointer(source, "pointermove", 100, { y: 150 });
+  expect(units[2]!.style.translate).toBe("0 -60px");
+});
+
+it("starts no drag while a dropped unit waits for the new order", async () => {
+  await pointer(member(0), "pointerdown", 50);
+  await pointer(member(0), "pointermove", 450);
+  await pointer(member(0), "pointerup", 450);
+  expect(commands.reorderTab).toHaveBeenCalledExactlyOnceWith(1, 3);
+  const single = () =>
+    host.querySelector(
+      "[data-tab-unit]:has([data-tab-drag-handle]):not(:has(.haku-pair-seam)) [data-tab-drag-handle]",
+    )!;
+  await pointer(single(), "pointerdown", 450);
+  expect(capture).toHaveBeenCalledOnce();
+  await act(async () => browserStore.set({ ...initial, tabs: [3, 4, 5, 1, 2].map(tab) }));
+  await pointer(single(), "pointerdown", 450);
+  expect(capture).toHaveBeenCalledTimes(2);
 });
 
 it("labels the column's new-tab row and holds the tabs bar while a menu is open", async () => {
@@ -289,4 +322,26 @@ it("labels the column's new-tab row and holds the tabs bar while a menu is open"
   expect(barHoldStore.get().tabs).toBe(held + 1);
   await act(async () => vi.mocked(openMenu).mock.lastCall![0].onClose!(false));
   expect(barHoldStore.get().tabs).toBe(held);
+});
+
+it("separates a pair from the link between its halves, and offers none on a single tab", async () => {
+  const links = host.querySelectorAll<HTMLButtonElement>('button[aria-label="Separate tabs"]');
+  expect(links).toHaveLength(2);
+  await act(async () => links[1]!.click());
+  expect(commands.separateTabs).toHaveBeenCalledExactlyOnceWith(3);
+  expect(commands.selectTab).not.toHaveBeenCalled();
+});
+
+it("draws a dragged unit at the pointer and slides the units it passes", async () => {
+  const units = host.querySelectorAll<HTMLElement>("[data-tab-unit]");
+  const source = member(0);
+  await pointer(source, "pointerdown", 50);
+  await pointer(source, "pointermove", 350);
+  // The first pair is past the second, which gives up its place to it.
+  expect(units[0]!.style.translate).toBe("300px 0");
+  expect(units[1]!.style.translate).toBe("-200px 0");
+  expect(units[2]!.style.translate).toBe("");
+  await pointer(source, "pointermove", 350, { y: 200 });
+  expect(units[0]!.style.translate).toBe("");
+  expect(units[1]!.style.translate).toBe("");
 });

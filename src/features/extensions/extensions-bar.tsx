@@ -15,6 +15,42 @@ import { createPortal } from "react-dom";
 import { ExtensionIcon } from "./extension-icon";
 import { movePin, toolbarExtensions } from "./toolbar-extensions";
 
+/** The panel's width, `w-64`, and the room it wants under its button before it opens above it. */
+const PANEL_WIDTH = 256;
+const PANEL_ROOM = 240;
+
+interface PanelPlace {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+  maxHeight: number;
+}
+
+/**
+ * Where the panel hangs from its button: under it with their right edges
+ * aligned, as in the toolbar across the top. In the column the button is at
+ * the window's bottom left, where that would put the panel off the window, so
+ * it opens above the button, or from its left edge, when the usual side has
+ * no room. It is held to the room on the side it opens, a gap short of the
+ * window's edge, and a longer list scrolls.
+ */
+export function placePanel(
+  button: Pick<DOMRect, "left" | "right" | "top" | "bottom">,
+  width: number,
+  height: number,
+): PanelPlace {
+  const opensBelow = height - button.bottom >= PANEL_ROOM || height - button.bottom >= button.top;
+  const vertical = opensBelow
+    ? { top: button.bottom + MENU_GAP, maxHeight: height - button.bottom - 2 * MENU_GAP }
+    : { bottom: height - button.top + MENU_GAP, maxHeight: button.top - 2 * MENU_GAP };
+  const horizontal =
+    button.right >= PANEL_WIDTH + MENU_GAP
+      ? { right: width - button.right }
+      : { left: Math.max(MENU_GAP, button.left) };
+  return { ...vertical, ...horizontal };
+}
+
 /** How far a press moves, in pixels, before it is a drag rather than a click. */
 const DRAG_THRESHOLD = 5;
 
@@ -43,7 +79,7 @@ interface PinDrag {
 export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
   const extensions = useExtensions();
   const settings = useSettings();
-  const [menuAt, setMenuAt] = useState<{ right: number; top: number } | null>(null);
+  const [menuAt, setMenuAt] = useState<PanelPlace | null>(null);
   const open = menuAt !== null;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const pinnedRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -69,7 +105,7 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
     setMenuAt(
       open || !button
         ? null
-        : { right: document.documentElement.clientWidth - button.right, top: button.bottom + MENU_GAP },
+        : placePanel(button, document.documentElement.clientWidth, document.documentElement.clientHeight),
     );
   };
 
@@ -133,8 +169,8 @@ export function ExtensionsBar({ tab }: { tab: TabId | undefined }) {
             id={menuId}
             aria-label={t("extensions.menu")}
             tabIndex={-1}
-            className="haku-overlay fixed z-10 flex w-64 flex-col p-1 outline-none"
-            style={{ right: menuAt.right, top: menuAt.top }}
+            className="haku-overlay fixed z-10 flex w-64 flex-col overflow-y-auto overscroll-contain p-1 outline-none"
+            style={menuAt}
           >
             {enabled.length === 0 && <p className="text-text-secondary px-2 py-1.5">{t("extensions.empty")}</p>}
 

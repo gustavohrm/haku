@@ -222,7 +222,7 @@ describe("ThemeControl", () => {
     renderTheme("dark", async () => null);
     const radios = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")];
 
-    expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual(["Match system", "Light", "Dark"]);
+    expect(radios.map((radio) => radio.labels?.[0]?.textContent)).toEqual(["System", "Light", "Dark"]);
     expect(radios.map((radio) => radio.checked)).toEqual([false, false, true]);
     expect(new Set(radios.map((radio) => radio.name)).size).toBe(1);
   });
@@ -257,7 +257,7 @@ describe.each([
   {
     Control: ToolbarPlacementControl,
     field: "toolbarPlacement",
-    labels: ["Top", "In the sidebar"],
+    labels: ["Top", "Sidebar"],
     values: ["top", "sidebar"],
   },
 ] as const)("$field control", ({ Control, field, labels, values }) => {
@@ -277,7 +277,7 @@ describe.each([
     );
     const radios = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")];
 
-    expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual(labels);
+    expect(radios.map((radio) => radio.labels?.[0]?.textContent)).toEqual(labels);
     expect(radios.map((radio) => radio.checked)).toEqual([true, false]);
     act(() => radios[1]?.click());
     expect(update).toHaveBeenCalledWith({ [field]: values[1] });

@@ -210,6 +210,7 @@ export const SECTIONS: SettingSection[] = [
     title: "settings.browsing",
     groups: [
       {
+        title: "settings.group.search",
         rows: [
           {
             id: "searchEngines",
@@ -227,17 +228,22 @@ export const SECTIONS: SettingSection[] = [
             keywords: "settings.searchSuggestions.keywords",
             Control: SearchSuggestionsControl,
           },
+        ],
+      },
+      {
+        title: "settings.group.newTabs",
+        rows: [
           {
             id: "homeUrl",
             title: "settings.home",
             description: "settings.home.help",
             keywords: "settings.home.keywords",
-            wide: true,
             Control: HomeUrlControl,
           },
         ],
       },
       {
+        title: "settings.group.sites",
         rows: [
           {
             id: "sitePermissions",

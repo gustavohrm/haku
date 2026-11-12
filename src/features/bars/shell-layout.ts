@@ -68,12 +68,16 @@ export function shellLayout(settings: LayoutSettings | null, kind: WindowKind, i
  * Nowhere until settings load, and never in a popup, which shows one page.
  *
  * @param onNewTab - Whether the focused tab is on the new-tab page, for `newTab`.
+ * @param isBarEmpty - Whether the bar has nothing in it, or bookmarks have not
+ *   loaded. On the new-tab page an empty bar offers nothing and is left off;
+ *   asked for always, it shows empty, as the place to add to.
  */
 export function bookmarksPlace(
   settings: Pick<Settings, "bookmarksBar" | "sidebarBookmarks"> | null,
   layout: Pick<ShellLayout, "toolbar">,
   kind: WindowKind,
   onNewTab: boolean,
+  isBarEmpty: boolean,
 ): "bar" | "row" | "button" | null {
   if (settings === null || kind === "popup") {
     return null;
@@ -82,7 +86,7 @@ export function bookmarksPlace(
   if (inColumn && settings.sidebarBookmarks === "button") {
     return "button";
   }
-  const isShown = settings.bookmarksBar === "always" || (settings.bookmarksBar === "newTab" && onNewTab);
+  const isShown = settings.bookmarksBar === "always" || (settings.bookmarksBar === "newTab" && onNewTab && !isBarEmpty);
   if (!isShown) {
     return null;
   }

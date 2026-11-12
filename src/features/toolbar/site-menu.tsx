@@ -247,7 +247,7 @@ function KeepSwitch({ label, help, warning, checked, disabled = false, onChange 
             </button>
             <button
               type="button"
-              className="btn sm"
+              className="btn primary sm"
               onClick={() => {
                 setAsking(false);
                 onChange(true);

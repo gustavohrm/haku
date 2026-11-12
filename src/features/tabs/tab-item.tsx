@@ -58,9 +58,15 @@ export function TabItem({ tab, active, pairPosition = -1, layout = "horizontal",
         }}
         className={cx(
           "group flex h-(--control-height) w-full min-w-0 items-center gap-1 rounded-(--radius-control) pr-1 pl-2 transition-colors",
-          pairPosition === 0 && (isVertical ? "rounded-b-none" : "rounded-r-none"),
-          pairPosition === 1 && (isVertical ? "rounded-t-none" : "rounded-l-none"),
-          active ? "bg-chrome-raised text-text" : "text-text-secondary hover:bg-text/6 hover:text-text",
+          // Room across the strip for the link, which is wider than the gap
+          // between the halves of a pair.
+          !isVertical && pairPosition === 0 && "pr-2",
+          !isVertical && pairPosition === 1 && "pl-3",
+          active
+            ? "bg-chrome-raised text-text"
+            : pairPosition >= 0
+              ? "bg-text/6 text-text-secondary hover:text-text"
+              : "text-text-secondary hover:bg-text/6 hover:text-text",
           discarded && !active && "opacity-70",
         )}
         title={state ? `${title} — ${state}` : title}

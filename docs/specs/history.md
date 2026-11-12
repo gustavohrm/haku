@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: What browsing history records, the rules and switches that stop it, how it is searched, filtered and deleted, and its storage.
 ---
 
@@ -114,7 +114,7 @@ Limits, so a pattern cannot make every visit slow: at most 2,000 characters, and
 
 `haku://history`, drawn by the chrome as today.
 
-- **Header:** the recording switch and pause, **Clear browsing history…** as a quiet button, and **History settings**, which opens `haku://settings/browsing#historyEnabled`, where the rules are kept. Below it, the search field with the filters, then a view toggle, **Visits** or **Sites**, beside the delete actions. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
+- **Header:** the recording switch and pause, **Clear browsing history…** as a quiet button, and **History settings**, which opens `haku://settings/browsing#historyEnabled`, where the rules are kept. Below it, the search field with the filters, then a segmented control, **Visits** or **Sites**, beside the delete actions. The **Reached by** and **Filter by address** buttons are quiet, and take a fill while they apply: once a transition is chosen, or while the address field is open. The chips below the filters still list every filter in effect. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
 - **Filters**, beside the search field:
   - **Text**, matched against title and address.
   - **When:** today, yesterday, last 7 days, last 30 days, or a custom range.

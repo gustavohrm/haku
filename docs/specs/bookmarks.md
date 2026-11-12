@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: Saving pages as bookmarks, organising them in folders, the bookmarks bar, the bookmarks page, and importing and exporting them.
 ---
 
@@ -55,6 +55,8 @@ A row under the toolbar showing the bar root's contents: links as an icon and ti
 | `always` | In every tab                                                |
 | `newTab` | Only while the focused tab is on the new-tab page (default) |
 | `never`  | Never                                                       |
+
+Under `newTab` a bar with nothing in it is not shown: there it is an offer of places to go, and an empty one offers nothing while still taking a row from the page. Under `always` it shows empty, as the place to add to, with its menu. Until 2026-11-12 `newTab` showed the empty bar too, which did not weigh that the default setting then puts an empty strip on the first page a new user sees.
 
 **Toggle bookmarks bar** (Ctrl+Shift+B) switches between `always` and `never`, from `newTab` to `always`. `newTab` is the default because it is Chrome's: the bar appears where the user is choosing where to go, and costs no height on every page otherwise. While bookmarks are the column's **Bookmarks** button there is no bar to toggle, so in an ordinary window it opens that button's menu instead, and changes no setting (chosen by the maintainer on 2026-11-02).
 

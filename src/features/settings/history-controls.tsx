@@ -15,6 +15,7 @@ import { cx } from "@shared/class-names";
 import { t, type TranslationKey } from "@shared/i18n";
 import { useId, useRef, useState } from "react";
 
+import { EMPTY_WELL, LIST_WELL } from "./rows";
 import { guessPattern, moveItem } from "./rule-pattern";
 import { type ControlProps } from "./types";
 
@@ -196,9 +197,9 @@ export function HistoryRulesControl({ labelId, describedBy, settings, update }: 
   return (
     <div className="flex flex-col gap-2">
       {rules.length === 0 ? (
-        <p className="text-text-secondary text-sm">{t("settings.historyRules.empty")}</p>
+        <p className={EMPTY_WELL}>{t("settings.historyRules.empty")}</p>
       ) : (
-        <ol className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+        <ol className={LIST_WELL} aria-labelledby={labelId} aria-describedby={describedBy}>
           {rules.map((rule, index) => {
             const id = `history-rule-${index}`;
             const isTarget = drag !== null && drag.to === index && drag.from !== index;
@@ -220,7 +221,7 @@ export function HistoryRulesControl({ labelId, describedBy, settings, update }: 
                     handles.current[index] = element;
                   }}
                   type="button"
-                  className="btn icon ghost cursor-grab touch-none opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+                  className="btn icon ghost text-text-secondary cursor-grab touch-none opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
                   aria-label={t("settings.historyRules.reorder")}
                   aria-describedby={id}
                   title={t("settings.historyRules.reorder")}
@@ -260,13 +261,19 @@ export function HistoryRulesControl({ labelId, describedBy, settings, update }: 
                 </button>
                 {/* Each control is described by the rule, so it reads as "Remove rule, example.com, Site". */}
                 <span id={id} className="flex min-w-0 flex-1 items-baseline gap-2">
-                  <span className="truncate font-mono text-sm" title={rule.pattern.value}>
+                  <span
+                    className={cx(
+                      "truncate",
+                      (rule.pattern.kind === "regex" || rule.pattern.kind === "wildcard") && "font-mono text-sm",
+                    )}
+                    title={rule.pattern.value}
+                  >
                     {rule.pattern.value}
                   </span>
-                  <span className="text-text-secondary shrink-0 text-xs">{t(KINDS[rule.pattern.kind])}</span>
+                  <span className="text-text-secondary shrink-0 text-sm">{t(KINDS[rule.pattern.kind])}</span>
                 </span>
                 <select
-                  className="select soft edgeless w-40 shrink-0"
+                  className="select soft edgeless w-36 shrink-0"
                   aria-label={t("settings.historyRules.action")}
                   aria-describedby={id}
                   value={rule.action}
@@ -410,7 +417,7 @@ function AddRuleForm() {
           <input
             id={valueId}
             type="text"
-            className="ipt font-mono"
+            className={cx("ipt", (pattern.kind === "regex" || pattern.kind === "wildcard") && "font-mono")}
             placeholder={t("settings.historyRules.placeholder")}
             spellCheck={false}
             autoComplete="off"
@@ -471,7 +478,7 @@ function AddRuleForm() {
                 </label>
               ))}
             </fieldset>
-            <button type="submit" className="btn" disabled={offer !== null}>
+            <button type="submit" className="btn primary" disabled={offer !== null}>
               {t("settings.historyRules.add")}
             </button>
           </>

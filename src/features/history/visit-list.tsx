@@ -67,10 +67,10 @@ export function VisitList({ groups, now, more, loading, loadMore, ...rowProps }:
   }, [more, loadMore]);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       {groups.map((group) => (
         <section key={group.day} aria-label={dayLabel(group.day, now)}>
-          <h2 className="text-text-secondary mb-1 px-3 text-sm font-medium">{dayLabel(group.day, now)}</h2>
+          <h2 className="text-text-secondary mb-1 px-2 text-sm font-medium">{dayLabel(group.day, now)}</h2>
           <ul className="flex flex-col">
             {group.rows.map((row) => (
               <Row key={row.key} row={row} {...rowProps} />
@@ -130,13 +130,13 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Right-click opens the row's menu; its actions button opens the same from the keyboard.
     <li
-      className="group hover:bg-text/6 rounded-(--radius-control)"
+      className="group hover:bg-text/6 rounded-(--radius-control) transition-colors duration-100"
       onContextMenu={(event) => {
         event.preventDefault();
         void showMenu({ x: event.clientX, y: event.clientY });
       }}
     >
-      <div className="flex items-center gap-3 px-3 py-1.5">
+      <div className="flex min-h-9 items-center gap-3 ps-2 pe-1">
         {/* Hidden from a wrapper, which the checkbox's own styles cannot outrank. */}
         <span className={cx("flex", !selecting && reveal)}>
           <input
@@ -160,13 +160,13 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
             }
           }}
         >
-          <span className="truncate font-medium">{name}</span>
+          <span className="truncate">{name}</span>
           {row.host !== "" && <span className="text-text-secondary shrink-0 truncate text-sm">{row.host}</span>}
         </button>
         {row.visits.length > 1 && (
           <button
             type="button"
-            className="btn ghost text-text-secondary text-sm"
+            className="btn ghost p-xs text-text-secondary text-sm"
             aria-expanded={open}
             onClick={() => setOpen((current) => !current)}
           >
@@ -179,7 +179,7 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
         </time>
         <button
           type="button"
-          className={cx("btn icon ghost size-7", reveal)}
+          className={cx("btn icon ghost p-sm", reveal)}
           aria-label={t("history.row.actions").replace("{page}", () => name)}
           title={t("history.row.actions").replace("{page}", () => name)}
           aria-haspopup="menu"
@@ -192,7 +192,7 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
         </button>
       </div>
       {open && (
-        <ul className="text-text-secondary flex flex-col gap-0.5 pb-2 pl-17 text-sm">
+        <ul className="text-text-secondary flex flex-col gap-0.5 pb-2 pl-16 text-sm">
           {row.visits.map((visit) => (
             <li key={visit.id} className="flex gap-3">
               <time className="tabular-nums" dateTime={new Date(visit.visitedAt).toISOString()}>
