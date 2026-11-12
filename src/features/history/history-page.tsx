@@ -6,6 +6,7 @@ import { feedback } from "@features/feedback/feedback";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
 import { commands } from "@ipc/commands";
 import { useBrowserState } from "@ipc/hooks";
+import { cx } from "@shared/class-names";
 import { t } from "@shared/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -134,11 +135,11 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
     <InternalPage
       title={t("history.title")}
       actions={
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           <RecordingControls />
           <button
             type="button"
-            className="btn ghost"
+            className="btn ghost text-text-secondary"
             aria-haspopup="menu"
             onClick={async (event) => {
               const box = event.currentTarget.getBoundingClientRect();
@@ -166,13 +167,16 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
       <RecordingBanner />
       <HistoryFilters filter={filter} onChange={changeFilter} />
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-1">
+        <div className="bg-text/6 flex gap-0.5 rounded-(--radius-control) p-0.5">
           {(["visits", "sites"] as const).map((option) => (
             <button
               key={option}
               type="button"
               aria-pressed={view === option}
-              className={view === option ? "btn soft" : "btn ghost"}
+              className={cx(
+                "h-7 cursor-pointer rounded-(--radius-small) px-3 text-sm transition-colors duration-150",
+                view === option ? "bg-background text-text" : "text-text-secondary hover:text-text",
+              )}
               onClick={() => setView(option)}
             >
               {t(option === "visits" ? "history.view.visits" : "history.view.sites")}
@@ -183,7 +187,7 @@ export function HistoryPage({ tabId, url }: InternalPageProps) {
           {selected.size > 0 && (
             <button
               type="button"
-              className="btn ghost"
+              className="btn ghost text-destructive"
               onClick={() => {
                 const ids = [...selected];
                 setSelected(new Set());

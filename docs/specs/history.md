@@ -114,7 +114,7 @@ Limits, so a pattern cannot make every visit slow: at most 2,000 characters, and
 
 `haku://history`, drawn by the chrome as today.
 
-- **Header:** the recording switch and pause, **Clear browsing history…** as a quiet button, and **History settings**, which opens `haku://settings/browsing#historyEnabled`, where the rules are kept. Below it, the search field with the filters, then a view toggle, **Visits** or **Sites**, beside the delete actions. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
+- **Header:** the recording switch and pause, **Clear browsing history…** as a quiet button, and **History settings**, which opens `haku://settings/browsing#historyEnabled`, where the rules are kept. Below it, the search field with the filters, then a segmented control, **Visits** or **Sites**, beside the delete actions. A filter that is not in use is a quiet button, and takes a fill once it is. While recording is off or paused, a notice above the filters says so and offers to turn it on or resume.
 - **Filters**, beside the search field:
   - **Text**, matched against title and address.
   - **When:** today, yesterday, last 7 days, last 30 days, or a custom range.

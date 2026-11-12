@@ -137,7 +137,7 @@ function Prompt({ request, isPrivate, onAnswer }: PromptProps) {
         <button type="button" className="btn ghost" onClick={() => onAnswer("block")}>
           {t("permission.block")}
         </button>
-        <button type="button" className="btn" onClick={() => onAnswer("allow")}>
+        <button type="button" className="btn primary" onClick={() => onAnswer("allow")}>
           {t("permission.allow")}
         </button>
       </div>

@@ -392,7 +392,7 @@ function EngineEditor({ listed, update, onDone }: EngineEditorProps) {
         <button type="button" className="btn ghost" disabled={saving} onClick={onDone}>
           {t("dialog.cancel")}
         </button>
-        <button type="submit" className="btn" disabled={saving || (!preset && draft.url.trim() === "")}>
+        <button type="submit" className="btn primary" disabled={saving || (!preset && draft.url.trim() === "")}>
           {listed === null ? t("settings.searchEngines.addSubmit") : t("settings.searchEngines.save")}
         </button>
       </div>

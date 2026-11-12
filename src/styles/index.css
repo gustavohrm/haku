@@ -13,9 +13,13 @@
    (docs/specs/chrome-layering.md#flat-surfaces-over-the-page). A surface that
    needs to be translucent says so where it is drawn. */
 @theme {
+  /* The interface is set at 13px, so the step below it is 12px: left at the
+     package size of 14px, secondary text would be larger than what it annotates. */
+  --text-sm: 0.75rem;
+  --text-sm--line-height: calc(1 / 0.75);
   --color-chrome: var(--color-foreground);
   --color-chrome-raised: var(--color-surface);
-  --color-chrome-overlay: var(--color-surface);
+  --color-chrome-overlay: light-dark(var(--color-background), var(--color-surface));
 }
 
 /* The one surface every menu, popover and panel over the page is drawn on,
@@ -26,7 +30,18 @@
    of `min-h-8`, a form `p-2`. A menu draws its rows' highlight itself, since
    the keyboard moves it too. docs/guidelines/code.md#styling. */
 @utility haku-overlay {
-  @apply bg-chrome-overlay border-text/10 text-text rounded-(--radius-control) border;
+  @apply bg-chrome-overlay border-text/15 text-text rounded-(--haku-radius) border;
+
+  /* Opacity and a short slide only: a surface that scaled would be measured
+     small by whatever places it, and by the mask that makes it clickable. */
+  animation: haku-overlay-in var(--haku-enter) var(--haku-ease-enter);
+}
+
+@keyframes haku-overlay-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
 }
 
 @utility haku-row {
@@ -61,12 +76,18 @@
   --haku-exit: 120ms;
   --haku-ease-enter: cubic-bezier(0.2, 0, 0, 1);
   --haku-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
+  /* Everything outside a bar, a page or a surface over one, is a step denser
+     than the package's 40px controls and a step lighter than its semibold
+     labels: beside 28px bars, the package's own sizing reads as a different
+     application. A bar sets its own height below. */
+  --control-height: 2rem;
+  --ui-label-weight: 500;
 }
 
 /*
-  Density. Compact is the default, and it applies to the bars only: internal
-  pages keep the package's own sizing, where form fields have room for their
-  text. Controls from `@codenhub/styles` size themselves from
+  Density. Compact is the default: the bars are the densest, and pages and
+  surfaces over the page take the 32px step set on the root. Controls from `@codenhub/styles` size themselves from
   `--control-height`, so setting it on a bar is what makes its buttons line up
   with the tabs and the address field.
 */
@@ -84,6 +105,14 @@
    window controls. */
 [data-density="compact"] .haku-sidebar {
   --control-height: 2rem;
+}
+
+/* The package pads a field for its own 40px height. At Haku's the same
+   padding leaves less than a line, and a select clips its descenders; the
+   height centres the text by itself. Unlayered, like the rule below. */
+.ipt,
+.select {
+  padding-block: 0;
 }
 
 /* Icon buttons in the bars are squares of the control height, so they line up
@@ -510,7 +539,29 @@ dialog[data-toast-instance] .toast-dialog-container {
   }
 }
 
+/* A list being reordered by dragging: the dragged item follows the pointer,
+   drawn above the rest, and the others slide out of its way. */
+[data-reordering] > * {
+  transition: translate var(--haku-enter) var(--haku-ease-enter);
+}
+
+[data-reordering] > [data-dragging] {
+  z-index: 1;
+  border-radius: var(--radius-control);
+  background: color-mix(in oklab, var(--color-text) 8%, var(--color-chrome));
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .haku-overlay {
+    animation: none;
+  }
+
+  [data-reordering] > *,
+  .haku-split-divider::after {
+    transition: none !important;
+  }
+
   .haku-bar-panel,
   .haku-sidebar-resizer::after {
     transition: none !important;
@@ -528,6 +579,29 @@ dialog[data-toast-instance] .toast-dialog-container {
 
 .haku-split {
   grid-template-columns: minmax(0, calc((100% - 5px) * var(--split-ratio, 0.5))) 5px minmax(0, 1fr);
+}
+
+/* The divider is the gap between the panes, and paints nothing at rest. Under
+   the pointer it shows a grip, so the gap reads as something to drag. */
+.haku-split-divider {
+  position: relative;
+}
+
+.haku-split-divider::after {
+  position: absolute;
+  inset: 50% 1px auto;
+  height: 2.5rem;
+  translate: 0 -50%;
+  border-radius: 999px;
+  background: var(--color-text-secondary);
+  content: "";
+  opacity: 0;
+  transition: opacity var(--haku-exit) var(--haku-ease-exit);
+}
+
+.haku-split-divider:not([aria-disabled="true"]):is(:hover, :active)::after {
+  opacity: 1;
+  transition: opacity var(--haku-enter) var(--haku-ease-enter);
 }
 
 /* The same width as the ring it replaces, so focus moving between panes never

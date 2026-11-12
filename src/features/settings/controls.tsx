@@ -73,12 +73,12 @@ const THEMES: { value: ThemePreference; icon: string; label: TranslationKey }[] 
 ];
 
 /**
- * The theme as a group of icon buttons, one per choice, each named by a tooltip.
+ * The theme as a segmented control: one track, each choice an icon and its name.
  *
  * The buttons are native radios under their icons, so the group is one stop in
  * the tab order and the arrow keys move between choices, as any radio group
- * does. The group itself draws nothing; the choice is a soft plate in the
- * text colour, which reads on either theme where a surface token would not.
+ * does. The choice in effect is a plate raised from the track, in the
+ * page colour, so it reads as the pressed one on either theme.
  */
 export function ThemeControl({ labelId, describedBy, settings, update }: ControlProps) {
   return (
@@ -265,7 +265,7 @@ function IconChoices<T extends string>({
       aria-labelledby={labelId}
       aria-describedby={describedBy}
       disabled={disabled}
-      className="m-0 flex gap-0.5 border-0 p-0 disabled:opacity-50 [&:disabled_label]:pointer-events-none"
+      className="bg-text/6 m-0 flex gap-0.5 rounded-(--radius-control) border-0 p-0.5 disabled:opacity-50 [&:disabled_label]:pointer-events-none"
     >
       {choices.map((choice) => (
         <ThemeOption
@@ -290,30 +290,17 @@ interface ThemeOptionProps {
 }
 
 function ThemeOption({ name, icon, label, checked, onChoose }: ThemeOptionProps) {
-  const bubbleId = useId();
   return (
-    <span className="tooltip flex">
-      <label
-        className={cx(
-          "has-focus-visible:outline-text/30 flex size-8 cursor-pointer items-center justify-center rounded-(--radius-small) transition-colors has-focus-visible:outline-2",
-          checked ? "bg-text/10 text-text" : "text-text-secondary hover:bg-text/6 hover:text-text",
-        )}
-      >
-        <input
-          type="radio"
-          name={name}
-          className="sr-only"
-          aria-label={label}
-          aria-describedby={bubbleId}
-          checked={checked}
-          onChange={onChoose}
-        />
-        <i className={cx(icon, "ic-md")} aria-hidden="true" />
-      </label>
-      <span id={bubbleId} role="tooltip" className="tooltip-bubble edgeless">
-        {label}
-      </span>
-    </span>
+    <label
+      className={cx(
+        "has-focus-visible:outline-text/30 flex h-7 cursor-pointer items-center gap-1.5 rounded-(--radius-small) px-2.5 text-sm transition-colors duration-150 has-focus-visible:outline-2",
+        checked ? "bg-background text-text" : "text-text-secondary hover:text-text",
+      )}
+    >
+      <input type="radio" name={name} className="sr-only" checked={checked} onChange={onChoose} />
+      <i className={cx(icon, "ic-sm")} aria-hidden="true" />
+      {label}
+    </label>
   );
 }
 
@@ -488,7 +475,7 @@ export function KeptSitesControl({ labelId, describedBy, settings, update }: Con
     return <p className="text-text-secondary text-sm">{t("settings.keptSites.empty")}</p>;
   }
   return (
-    <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+    <ul className="-mx-2 flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
       {sites.map((site) => (
         <li key={site} className={ENTRY_ROW}>
           {/* The button is described by the site, so it reads as "Remove, example.com". */}
@@ -517,7 +504,7 @@ export function SitePermissionsControl({ labelId, describedBy, settings, update 
     return <p className="text-text-secondary text-sm">{t("settings.sitePermissions.empty")}</p>;
   }
   return (
-    <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+    <ul className="-mx-2 flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
       {decisions.map(({ origin, kind, state }) => {
         const id = `site-permission-${origin}-${kind}`;
         const decided = state === "allow" ? "settings.sitePermissions.allowed" : "settings.sitePermissions.blocked";
@@ -558,7 +545,7 @@ export function SiteZoomControl({ labelId, describedBy, settings, update }: Cont
     return <p className="text-text-secondary text-sm">{t("settings.siteZoom.empty")}</p>;
   }
   return (
-    <ul className="flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
+    <ul className="-mx-2 flex flex-col" aria-labelledby={labelId} aria-describedby={describedBy}>
       {levels.map(({ host, percent }) => {
         const id = `site-zoom-${host}`;
         return (

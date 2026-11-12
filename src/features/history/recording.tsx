@@ -19,8 +19,8 @@ export function RecordingControls() {
   const switchId = useId();
   const enabled = settings?.historyEnabled ?? true;
   return (
-    <div className="flex items-center gap-3">
-      <label htmlFor={switchId} className="text-sm">
+    <div className="flex items-center gap-1">
+      <label htmlFor={switchId} className="text-text-secondary me-1 text-sm">
         {t("history.recording")}
       </label>
       <input
@@ -32,7 +32,7 @@ export function RecordingControls() {
         onChange={(event) => setEnabled(event.target.checked)}
       />
       {enabled && !historyPaused && (
-        <button type="button" className="btn soft edgeless" onClick={() => setPaused(true)}>
+        <button type="button" className="btn ghost text-text-secondary ms-1" onClick={() => setPaused(true)}>
           <i className="ic-pause ic-sm" aria-hidden="true" />
           {t("history.pause")}
         </button>
@@ -53,12 +53,12 @@ export function RecordingBanner() {
     return null;
   }
   return (
-    <output className="card soft edgeless flex items-center justify-between gap-4 px-4 py-3">
+    <output className="card soft edgeless flex items-center justify-between gap-4 py-2 ps-4 pe-2 [--surface-padding:0]">
       <span className="flex items-center gap-3">
         <i className={off ? "ic-circle-off ic-md" : "ic-pause ic-md"} aria-hidden="true" />
         {off ? t("history.off") : t("history.paused")}
       </span>
-      <button type="button" className="btn soft" onClick={() => (off ? setEnabled(true) : setPaused(false))}>
+      <button type="button" className="btn" onClick={() => (off ? setEnabled(true) : setPaused(false))}>
         {off ? t("history.turnOn") : t("history.resume")}
       </button>
     </output>

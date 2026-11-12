@@ -275,7 +275,7 @@ Navigating within a live tab shows no cover; that is an ordinary page load.
 
 ## `haku://memory`
 
-An internal page listing, per slot: the tab, its state, its position and loss level with the signals behind it, and its memory. Above the list: the pressure level and headroom, the budget and how much of it is used, and the unattributed processes.
+An internal page that opens on three figures: the pressure level, the share of system memory free, and how much of the budget background tabs use, with a meter. Below them, one row per slot: its number, the tab's icon and title, a line of facts (its state, its position, and what discarding it would lose, with the signals behind that), and its memory with a meter drawn against the largest row, so the heavy tab is found without reading numbers. A free slot says so. The unattributed processes follow as a second list.
 
 It exists so the constants below can be tuned against real pages, and so a user can see why a tab was or was not kept. It reads a `memory_report` command and refreshes on the tick's event.
 

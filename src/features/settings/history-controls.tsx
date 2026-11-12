@@ -471,7 +471,7 @@ function AddRuleForm() {
                 </label>
               ))}
             </fieldset>
-            <button type="submit" className="btn" disabled={offer !== null}>
+            <button type="submit" className="btn primary" disabled={offer !== null}>
               {t("settings.historyRules.add")}
             </button>
           </>

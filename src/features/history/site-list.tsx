@@ -51,7 +51,7 @@ function SiteRow({ site, isPrivate, showSite }: { site: HistorySite } & Omit<Sit
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Right-click opens the row's menu; its actions button opens the same from the keyboard.
     <li
-      className="group hover:bg-text/6 flex items-center gap-1 rounded-(--radius-control) pr-1"
+      className="group hover:bg-text/6 flex min-h-9 items-center gap-1 rounded-(--radius-control) pr-1 transition-colors duration-100"
       onContextMenu={(event) => {
         if (!hasHost) {
           return;
@@ -62,12 +62,12 @@ function SiteRow({ site, isPrivate, showSite }: { site: HistorySite } & Omit<Sit
     >
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+        className="flex min-w-0 flex-1 items-center gap-3 self-stretch px-2 text-left"
         disabled={!hasHost}
         onClick={() => showSite(site.host)}
       >
         <Favicon key={site.host} url={isPrivate || !hasHost ? null : `https://${site.host}/`} />
-        <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
         <span className="text-text-secondary shrink-0 text-sm">
           {counted(site.visits, "history.row.visits.one", "history.row.visits.many")}
         </span>
@@ -81,7 +81,7 @@ function SiteRow({ site, isPrivate, showSite }: { site: HistorySite } & Omit<Sit
       {hasHost ? (
         <button
           type="button"
-          className="btn icon ghost size-7 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+          className="btn icon ghost p-sm opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
           aria-label={actions}
           title={actions}
           aria-haspopup="menu"
