@@ -27,7 +27,7 @@ vi.mock("@ipc/hooks", () => ({
   useSettings: () => settings,
 }));
 
-import { ExtensionsBar } from "./extensions-bar";
+import { ExtensionsBar, placePanel } from "./extensions-bar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -156,4 +156,11 @@ it("opens a panel drawn with the overlay recipe, with no heading repeating its b
   for (const row of rows) {
     expect(row.classList).toContain("min-h-8");
   }
+});
+
+it("hangs the panel under its button, and inside the window from the foot of the column", () => {
+  // Across the top: under the button, right edges aligned.
+  expect(placePanel({ left: 1150, right: 1182, top: 34, bottom: 62 }, 1280, 800)).toEqual({ top: 68, right: 98 });
+  // At the bottom left: above the button, from its left edge.
+  expect(placePanel({ left: 139, right: 171, top: 760, bottom: 792 }, 1280, 800)).toEqual({ bottom: 46, left: 139 });
 });
