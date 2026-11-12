@@ -4,6 +4,7 @@ import { BarSlot } from "@features/bars/bar-slot";
 import { bookmarksPlace, shellLayout } from "@features/bars/shell-layout";
 import { SidebarResizer } from "@features/bars/sidebar-resizer";
 import { BookmarksBar } from "@features/bookmarks/bookmarks-bar";
+import { childrenOf } from "@features/bookmarks/tree";
 import { ContextMenuHost } from "@features/context-menu/context-menu-host";
 import { usePageMenu } from "@features/context-menu/use-page-menu";
 import { useCloseConfirmation } from "@features/downloads/use-close-confirmation";
@@ -16,13 +17,14 @@ import { TabStrip } from "@features/tabs/tab-strip";
 import { SidebarActions, SidebarToolbar, Toolbar } from "@features/toolbar/toolbar";
 import { ViewportPanes } from "@features/viewport/viewport-panes";
 import { WindowControls } from "@features/window-controls/window-controls";
-import { useActiveTab, useBrowserState, useSettings } from "@ipc/hooks";
+import { useActiveTab, useBookmarks, useBrowserState, useSettings } from "@ipc/hooks";
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 
 export function App() {
   const { kind, private: isPrivate, tabs, active, fullscreen } = useBrowserState();
   const tab = useActiveTab();
   const settings = useSettings();
+  const tree = useBookmarks();
   usePageDialog(tab);
   usePageMenu(tab);
   useCloseConfirmation();
@@ -41,12 +43,11 @@ export function App() {
 
   const layout = shellLayout(settings, kind, isPrivate);
   const isFloating = layout.bars === "floating";
-  const bookmarks = bookmarksPlace(
-    settings,
-    layout,
-    kind,
-    isNewTab(tab?.history.entries[tab.history.index]?.url ?? ""),
-  );
+  const placed = bookmarksPlace(settings, layout, kind, isNewTab(tab?.history.entries[tab.history.index]?.url ?? ""));
+  // On the new-tab page the bar is an offer of places to go, and an empty one
+  // offers nothing. Asked for always, it shows empty, as the place to add to.
+  const barIsEmpty = tree === null || childrenOf(tree.bar).length === 0;
+  const bookmarks = placed !== "button" && settings?.bookmarksBar === "newTab" && barIsEmpty ? null : placed;
   // What a floating bar must show unasked: the toolbar names the page whose
   // dialog or permission request is open, and the tabs carry the badge of one
   // waiting elsewhere.
