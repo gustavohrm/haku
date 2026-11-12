@@ -43,11 +43,13 @@ export function App() {
 
   const layout = shellLayout(settings, kind, isPrivate);
   const isFloating = layout.bars === "floating";
-  const placed = bookmarksPlace(settings, layout, kind, isNewTab(tab?.history.entries[tab.history.index]?.url ?? ""));
-  // On the new-tab page the bar is an offer of places to go, and an empty one
-  // offers nothing. Asked for always, it shows empty, as the place to add to.
-  const barIsEmpty = tree === null || childrenOf(tree.bar).length === 0;
-  const bookmarks = placed !== "button" && settings?.bookmarksBar === "newTab" && barIsEmpty ? null : placed;
+  const bookmarks = bookmarksPlace(
+    settings,
+    layout,
+    kind,
+    isNewTab(tab?.history.entries[tab.history.index]?.url ?? ""),
+    tree === null || childrenOf(tree.bar).length === 0,
+  );
   // What a floating bar must show unasked: the toolbar names the page whose
   // dialog or permission request is open, and the tabs carry the badge of one
   // waiting elsewhere.

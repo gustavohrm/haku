@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: Saving pages as bookmarks, organising them in folders, the bookmarks bar, the bookmarks page, and importing and exporting them.
 ---
 

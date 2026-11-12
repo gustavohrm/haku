@@ -85,23 +85,30 @@ describe("bookmarksPlace", () => {
   });
 
   it("shows the bar on the new-tab page by default, and nowhere else", () => {
-    expect(bookmarksPlace(shown("newTab"), top, "normal", true)).toBe("bar");
-    expect(bookmarksPlace(shown("newTab"), top, "normal", false)).toBeNull();
+    expect(bookmarksPlace(shown("newTab"), top, "normal", true, false)).toBe("bar");
+    expect(bookmarksPlace(shown("newTab"), top, "normal", false, false)).toBeNull();
+  });
+
+  it("leaves an empty bar off the new-tab page, but shows it empty when asked for always", () => {
+    expect(bookmarksPlace(shown("newTab"), top, "normal", true, true)).toBeNull();
+    expect(bookmarksPlace(shown("newTab", "row"), column, "normal", true, true)).toBeNull();
+    expect(bookmarksPlace(shown("always"), top, "normal", true, true)).toBe("bar");
+    expect(bookmarksPlace(shown("newTab"), column, "normal", true, true)).toBe("button");
   });
 
   it("shows it always, or never, as set", () => {
-    expect(bookmarksPlace(shown("always"), top, "normal", false)).toBe("bar");
-    expect(bookmarksPlace(shown("never"), top, "normal", true)).toBeNull();
+    expect(bookmarksPlace(shown("always"), top, "normal", false, false)).toBe("bar");
+    expect(bookmarksPlace(shown("never"), top, "normal", true, false)).toBeNull();
   });
 
   it("is a button in the column, whatever the bar is set to, unless asked for a row", () => {
-    expect(bookmarksPlace(shown("never"), column, "normal", false)).toBe("button");
-    expect(bookmarksPlace(shown("always", "row"), column, "normal", false)).toBe("row");
-    expect(bookmarksPlace(shown("newTab", "row"), column, "normal", false)).toBeNull();
+    expect(bookmarksPlace(shown("never"), column, "normal", false, false)).toBe("button");
+    expect(bookmarksPlace(shown("always", "row"), column, "normal", false, false)).toBe("row");
+    expect(bookmarksPlace(shown("newTab", "row"), column, "normal", false, false)).toBeNull();
   });
 
   it("shows nothing before settings load or in a popup", () => {
-    expect(bookmarksPlace(null, top, "normal", true)).toBeNull();
-    expect(bookmarksPlace(shown("always"), top, "popup", false)).toBeNull();
+    expect(bookmarksPlace(null, top, "normal", true, false)).toBeNull();
+    expect(bookmarksPlace(shown("always"), top, "popup", false, false)).toBeNull();
   });
 });
