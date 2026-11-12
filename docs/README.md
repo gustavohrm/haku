@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: Index of the project documentation.
 ---
 
@@ -16,17 +16,17 @@ Start with [Architecture](architecture.md).
 
 | Document                          | Contains                                                     |
 | --------------------------------- | ------------------------------------------------------------ |
-| [Architecture](architecture.md)   | What goes where and why. Start here.                         |
+| [Architecture](architecture.md)   | What goes where and why.                                     |
 | [First release](first-release.md) | Release scope and the structural decisions features rest on. |
 
 ## Guidelines
 
-| Document                                     | Contains                                                                                        |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [Code](guidelines/code.md)                   | Naming, design, TypeScript, async and errors, testing practices, and documentation in code.     |
-| [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, layout, and the writing voice. |
-| [Security](guidelines/security.md)           | Secrets, untrusted input, what stays out of logs, and reviewing a change.                       |
-| [Interface](guidelines/interface.md)         | Surfaces, popovers, lists, forms and menus: how the interface is laid out and how flows behave. |
+| Document                                     | Contains                                                                                                        |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [Code](guidelines/code.md)                   | Naming, design, TypeScript, async and errors, testing practices, and documentation in code.                     |
+| [Documentation](guidelines/documentation.md) | Metadata, status and authority, recording decisions, exceptions, document roles, layout, and the writing voice. |
+| [Security](guidelines/security.md)           | Secrets, untrusted input, what stays out of logs, and reviewing a change.                                       |
+| [Interface](guidelines/interface.md)         | Surfaces, popovers, lists, forms and menus: how the interface is laid out and how flows behave.                 |
 
 | Document                     | Contains                                                               |
 | ---------------------------- | ---------------------------------------------------------------------- |
