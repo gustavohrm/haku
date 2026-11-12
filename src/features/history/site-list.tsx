@@ -94,7 +94,9 @@ function SiteRow({ site, isPrivate, showSite }: { site: HistorySite } & Omit<Sit
         </button>
       ) : (
         // Keeps the columns of a row with no menu level with the others.
-        <span className="size-7 shrink-0" aria-hidden="true" />
+        <span className="btn icon ghost p-sm invisible" aria-hidden="true">
+          <i className="ic-ellipsis ic-sm" />
+        </span>
       )}
     </li>
   );

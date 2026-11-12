@@ -38,7 +38,7 @@ export interface SettingRowDefinition {
   keywords?: TranslationKey;
   /** Why the row has no effect in the current state, or `null` while it does. */
   disabledReason?: (settings: Settings) => TranslationKey | null;
-  /** One of many alike, as an action and its keys are: a short row, marked under the pointer. */
+  /** A short row, highlighted under the pointer and on focus, for one of many alike, such as an action and its keys. */
   dense?: true;
   /** The control takes the row's width under the title rather than its right side. */
   wide?: boolean;

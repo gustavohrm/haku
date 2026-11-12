@@ -221,7 +221,7 @@ export function HistoryRulesControl({ labelId, describedBy, settings, update }: 
                     handles.current[index] = element;
                   }}
                   type="button"
-                  className="btn icon ghost text-text-secondary cursor-grab touch-none opacity-40 group-focus-within:opacity-100 group-hover:opacity-100"
+                  className="btn icon ghost text-text-secondary cursor-grab touch-none opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
                   aria-label={t("settings.historyRules.reorder")}
                   aria-describedby={id}
                   title={t("settings.historyRules.reorder")}
@@ -417,7 +417,7 @@ function AddRuleForm() {
           <input
             id={valueId}
             type="text"
-            className="ipt"
+            className={cx("ipt", (pattern.kind === "regex" || pattern.kind === "wildcard") && "font-mono")}
             placeholder={t("settings.historyRules.placeholder")}
             spellCheck={false}
             autoComplete="off"

@@ -64,11 +64,13 @@ export function SettingRow({ row, context }: SettingRowProps) {
         row.dense
           ? "hover:bg-text/4 focus-within:bg-text/4 mx-1 min-h-9 rounded-(--radius-control) px-3 py-1"
           : "px-4 py-3",
-        row.wide ? "flex-col" : "items-center justify-between",
+        // A control that does not fit beside the title, as in a narrow split
+        // pane, wraps under it rather than running off the page.
+        row.wide ? "flex-col" : "flex-wrap items-center justify-between",
       )}
       data-setting={row.id}
     >
-      <Text>
+      <Text beside={!row.wide}>
         {/* A list has no single control to label, so it is labelled by its title instead. */}
         {row.labelsControl === false ? (
           <span id={titleId} className={cx(reason && "text-text-secondary")}>
@@ -85,7 +87,7 @@ export function SettingRow({ row, context }: SettingRowProps) {
           </span>
         )}
       </Text>
-      <div className={cx("min-w-0", row.wide ? "w-full" : "shrink-0")}>
+      <div className={cx("min-w-0", row.wide ? "w-full" : "max-w-full shrink-0")}>
         <Control
           {...context}
           id={controlId}
@@ -108,6 +110,7 @@ export const LIST_WELL = "bg-background flex flex-col rounded-(--radius-control)
 /** What the well says while its list has nothing in it. */
 export const EMPTY_WELL = "bg-background text-text-secondary rounded-(--radius-control) px-3 py-2 text-sm";
 
-function Text({ children }: { children: ReactNode }) {
-  return <div className="flex max-w-xl min-w-0 flex-col gap-0.5">{children}</div>;
+/** The title and description; `beside` a control, it keeps 16 rem before the control wraps under it. */
+function Text({ beside, children }: { beside: boolean; children: ReactNode }) {
+  return <div className={cx("flex max-w-xl min-w-0 flex-col gap-0.5", beside && "flex-[1_1_16rem]")}>{children}</div>;
 }

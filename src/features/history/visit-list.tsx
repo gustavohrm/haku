@@ -192,7 +192,7 @@ function Row({ row, tabId, isPrivate, selected, onSelect, showSite }: RowProps) 
         </button>
       </div>
       {open && (
-        <ul className="text-text-secondary flex flex-col gap-0.5 pb-2 pl-17 text-sm">
+        <ul className="text-text-secondary flex flex-col gap-0.5 pb-2 pl-16 text-sm">
           {row.visits.map((visit) => (
             <li key={visit.id} className="flex gap-3">
               <time className="tabular-nums" dateTime={new Date(visit.visitedAt).toISOString()}>

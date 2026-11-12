@@ -266,7 +266,7 @@ function IconChoices<T extends string>({
       aria-labelledby={labelId}
       aria-describedby={describedBy}
       disabled={disabled}
-      className="bg-text/6 m-0 flex gap-0.5 rounded-(--radius-control) border-0 p-0.5 disabled:opacity-50 [&:disabled_label]:pointer-events-none"
+      className="bg-text/6 m-0 flex max-w-full flex-wrap gap-0.5 rounded-(--radius-control) border-0 p-0.5 disabled:opacity-50 [&:disabled_label]:pointer-events-none"
     >
       {choices.map((choice) => (
         <ThemeOption
@@ -581,7 +581,7 @@ export function HomeUrlControl({ id, describedBy, settings, update }: ControlPro
     <DraftInput
       id={id}
       type="text"
-      className="w-64"
+      className="w-64 max-w-full"
       aria-describedby={describedBy}
       value={settings.homeUrl}
       onCommit={async (next) => (await update({ homeUrl: next }))?.homeUrl ?? null}

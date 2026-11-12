@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-11
+last_updated: 2026-11-12
 scope: The layout, navigation, search and row pattern of `haku://settings`.
 ---
 
@@ -28,7 +28,7 @@ The page has no borders or dividers: groups are soft plates, and spacing separat
 
 - **Sidebar**, 13 rem wide, on the left: the search box, sunk into the page as a soft, borderless field, then one entry per section with an icon. The current section is a soft plate, as the active tab is. Below 48 rem of page width the sidebar collapses into a row of section buttons above the content, so a narrow split-view pane still works.
 - **Content**, at most 42 rem wide: the section's title, then its groups. A group is one plate, `.card.soft.edgeless`, a step up from the page with no border, with an optional heading above it. Rows inside it are separated by spacing, not lines.
-- **Row**: title and description on the left, control on the right, vertically centred. A control too wide for the right, such as the extensions list or a URL field, takes the row's full width under its title instead. A row that has no effect in the current state, as Loaded tabs has none while discarding is Always, is shown disabled with the reason as its description, the way `settings.disabledByDiscard` works today.
+- **Row**: title and description on the left, control on the right, vertically centred. A control too wide for the right, such as the extensions list, takes the row's full width under its title instead. A control on the right that does not fit beside its title, as in a narrow split pane, wraps under it. A row that has no effect in the current state, as Loaded tabs has none while discarding is Always, is shown disabled with the reason as its description, the way `settings.disabledByDiscard` works today.
 - **Controls** are borderless and lightly filled (`.soft.edgeless`): the plate already marks where they belong, and the focus ring still shows. A choice among a few options, as the theme is, is a segmented control: one track holding each option as its icon and its name, the chosen one raised to the page's colour. It is a native radio group underneath, so the arrow keys move between choices. Until 2026-11-11 each option was an icon alone, named by a tooltip. That did not weigh that only the theme's icons are obvious: `panel-left-dashed` against `panel-top-dashed` says nothing until hovered, and a setting read by hovering each choice in turn is slower than one read at a glance.
 
 Pages and overlays set controls 2 rem tall, between the bars' compact density and the package's own 2.5 rem, as [`index.css`](../../src/styles/index.css) specifies. Until 2026-11-11 pages used the package's size, which did not weigh that the interface's text is 13 px: a 40 px control around it reads as a form on a web page, not as part of a desktop application. Secondary text is 12 px, one step under the text it annotates.
@@ -62,7 +62,7 @@ Search is not part of the address. A query is a moment, not a place, and putting
 
 ## Code shape
 
-- `settings/types.ts`: a row is data, `{ id, title, description, keywords, disabledReason, wide, labelsControl, Control }`, grouped into cards and sections. Titles, descriptions and keywords are translation keys, so search reads the same strings the page shows.
+- `settings/types.ts`: a row is data, `{ id, title, description, keywords, disabledReason, dense, wide, labelsControl, Control }`, grouped into cards and sections. Titles, descriptions and keywords are translation keys, so search reads the same strings the page shows.
 - `settings/sections.ts`: every section and row, which both the sidebar and search read, so they cannot disagree about what exists; with `sectionOf` and `searchSettings`. A new setting is a row here, never a new layout.
 - `settings/rows.tsx`: `SettingsGroup` and `SettingRow`, which lay out a row and wire its title and description to the control for assistive technology.
 - `settings/controls.tsx`: each row's control. The logic of the old sections moved here unchanged, including `DraftInput`'s save-on-commit rule.
@@ -74,7 +74,7 @@ Section icons are Lucide's `palette`, `gauge`, `globe`, `puzzle`, `keyboard` and
 
 ## Shortcuts
 
-Each action is a short row, marked under the pointer: its name on the left, and at its right end its chords, each drawn as one keycap that spells its keys, as in "Ctrl + Shift + T". Before the chords come **Add**, a plus, and, once the action differs from its defaults, **Reset**, so the keys keep one edge down the page whether or not a row shows a button. A chord is its own remove button: under the pointer or keyboard focus it fades behind a cross. **Add** shows on the row's hover or focus, so about 35 rows read as actions and keys rather than as a wall of buttons; **Reset** stays in view, since it also says the action was changed, and so does **Add** while it records. Until 2026-11-12 a chord was one chip of text with a remove button after it and **Add** after the chords; that did not weigh that buttons hidden until hover still take their room, which left the keys floating at a different distance from the edge on every row. **Reset all** was the page's first plate, and is now its last, since it is the rarest thing done here.
+Each action is a short row, marked under the pointer: its name on the left, and at its right end its chords, each drawn as one keycap that spells its keys, as in "Ctrl + Shift + T". Before the chords come **Reset**, once the action differs from its defaults, and then **Add**, a plus, so the keys keep one edge down the page whether or not a row shows a button. A chord is its own remove button: under the pointer or keyboard focus it fades behind a cross. **Add** shows on the row's hover or focus, so about 35 rows read as actions and keys rather than as a wall of buttons; **Reset** stays in view, since it also says the action was changed, and so does **Add** while it records. Until 2026-11-12 a chord was one chip of text with a remove button after it and **Add** after the chords; that did not weigh that buttons hidden until hover still take their room, which left the keys floating at a different distance from the edge on every row. **Reset all** was the page's first plate, and is now its last, since it is the rarest thing done here.
 
 A list inside a row, such as the search engines or the site permissions, sits in a well of the page's colour, and says there when it is empty. [Shortcuts § Changing bindings](shortcuts.md#changing-bindings) owns what is stored and which chords are refused.
 
