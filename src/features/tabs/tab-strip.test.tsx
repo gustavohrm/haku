@@ -266,7 +266,10 @@ function columnRect(top: number, height: number): DOMRect {
 it("reads drop gaps down the column and stacks pairs", async () => {
   const column = await renderVertical();
   expect(column.className).toContain("flex-col");
-  expect(host.querySelector(".haku-pair-seam")?.getAttribute("data-axis")).toBe("column");
+  const pair = host.querySelector<HTMLElement>("[data-tab-unit]")!;
+  expect(pair.contains(member(0)) && pair.contains(member(1))).toBe(true);
+  expect(pair.querySelector("ul")?.className).toContain("flex-col");
+  expect(pair.querySelector(".haku-pair-seam")?.getAttribute("data-axis")).toBe("column");
   const source = member(2);
   await pointer(source, "pointerdown", 100, { y: 150 });
   await pointer(source, "pointermove", 100, { y: 260 });
@@ -277,6 +280,35 @@ it("reads drop gaps down the column and stacks pairs", async () => {
   expect(host.querySelector<HTMLElement>('[data-drop-gap="0"]')?.style.top).toBe("0px");
   await pointer(source, "pointerup", 100, { y: 10 });
   expect(commands.reorderTab).toHaveBeenCalledExactlyOnceWith(3, 0);
+});
+
+it("keeps the dragged unit under the pointer as the column scrolls", async () => {
+  const column = await renderVertical();
+  const units = host.querySelectorAll<HTMLElement>("[data-tab-unit]");
+  const source = units[2]!.querySelector("[data-tab-drag-handle]")!;
+  await pointer(source, "pointerdown", 100, { y: 250 });
+  await pointer(source, "pointermove", 100, { y: 150 });
+  expect(units[2]!.style.translate).toBe("0 -100px");
+  // Scrolled 40 px down, the unit's place moved 40 px up with the content.
+  Object.defineProperty(column, "scrollTop", { value: 40, configurable: true });
+  await pointer(source, "pointermove", 100, { y: 150 });
+  expect(units[2]!.style.translate).toBe("0 -60px");
+});
+
+it("starts no drag while a dropped unit waits for the new order", async () => {
+  await pointer(member(0), "pointerdown", 50);
+  await pointer(member(0), "pointermove", 450);
+  await pointer(member(0), "pointerup", 450);
+  expect(commands.reorderTab).toHaveBeenCalledExactlyOnceWith(1, 3);
+  const single = () =>
+    host.querySelector(
+      "[data-tab-unit]:has([data-tab-drag-handle]):not(:has(.haku-pair-seam)) [data-tab-drag-handle]",
+    )!;
+  await pointer(single(), "pointerdown", 450);
+  expect(capture).toHaveBeenCalledOnce();
+  await act(async () => browserStore.set({ ...initial, tabs: [3, 4, 5, 1, 2].map(tab) }));
+  await pointer(single(), "pointerdown", 450);
+  expect(capture).toHaveBeenCalledTimes(2);
 });
 
 it("labels the column's new-tab row and holds the tabs bar while a menu is open", async () => {

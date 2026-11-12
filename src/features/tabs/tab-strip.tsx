@@ -80,6 +80,7 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
   };
   const clearPicture = () => {
     window.clearTimeout(settling.current);
+    settling.current = undefined;
     const list = strip.current;
     if (!list) {
       return;
@@ -177,7 +178,8 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
       const after = rests[moved + 1];
       const before = rests[moved - 1];
       const step = own.size + (after ? after.start - own.end : before ? own.start - before.end : 0);
-      const travel = position - (isVertical ? current.y : current.x);
+      // The unit sits in the column's scrolled content, so a scroll carries it too.
+      const travel = position - (isVertical ? current.y : current.x) + scrolled;
       const landing = rests[to]!;
       current.settle = to > moved ? landing.end - own.end : to < moved ? landing.start - own.start : 0;
       strip.current.dataset.reordering = "";
@@ -275,10 +277,12 @@ export function TabStrip({ layout = "horizontal" }: { layout?: TabLayout }) {
               className={cx(
                 "flex touch-none select-none",
                 isVertical ? "shrink-0" : "shrink",
-                !isVertical && (unit.length === 2 ? "w-100 min-w-20" : "w-50 min-w-10"),
+                !isVertical && (unit.length === 2 ? "w-100 min-w-22" : "w-50 min-w-10"),
               )}
               onPointerDown={(event) => {
-                if (event.button !== 0 || !event.isPrimary || drag.current) {
+                // While a dropped unit waits for the new order, the units are
+                // drawn away from where the old order says they rest.
+                if (event.button !== 0 || !event.isPrimary || drag.current || settling.current !== undefined) {
                   return;
                 }
                 suppressClick.current = false;

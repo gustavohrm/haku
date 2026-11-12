@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-08
+last_updated: 2026-11-12
 scope: The layout settings of "Appearance is data" — where the tabs, the sidebar and the toolbar go, and whether the bars take space — and how the shell applies them.
 ---
 
@@ -46,7 +46,7 @@ The shell's root carries `data-tabs`, `data-bars`, `data-side` and `data-toolbar
 
 Everything the strip does, the column does, because it is the same component on the other axis:
 
-- Dragging a tab or a pair reorders it. The dragged unit follows the pointer along the strip and the others slide out of its way, so the strip shows the order a drop would leave; a dropped unit stays where it was let go until Rust answers with the new order. A gap opens only between units, never inside a pair. Until 2026-11-11 a line marked the drop position while every tab stayed put, which did not weigh that the user had to work out the resulting order from a 2 px line. The drop position is read from the units' measured geometry along the column, and a pointer outside the column's width offers no drop.
+- Dragging a tab or a pair reorders it. The dragged unit follows the pointer along the column and the others slide out of its way, so the column shows the order a drop would leave; a dropped unit stays where it was let go until Rust answers with the new order. A gap opens only between units, never inside a pair. Until 2026-11-11 a line marked the drop position while every tab stayed put, which did not weigh that the user had to work out the resulting order from a 2 px line. The drop position is read from the units' measured geometry along the column, and a pointer outside the column's width offers no drop.
 - A split pair is one joined unit, stacked: the left member above the right, with one outer shape. Membership and position are announced as in the strip.
 - Fixed tabs, the favicons a private window leaves out, the waiting-dialog badge, the discarded, frozen, crashed and unloaded markers, middle-click to close, and the tab and strip menus are unchanged.
 - Each tab is a button in tab order, and the keyboard opens its menu as in the strip.
