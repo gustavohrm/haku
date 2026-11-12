@@ -10,8 +10,6 @@ scope: Index of the project documentation.
 
 Every document in `docs/` is listed here. Adding, moving, or deleting one updates this index in the same change.
 
-Start with [Architecture](architecture.md).
-
 ## Overview
 
 | Document                          | Contains                                                     |
