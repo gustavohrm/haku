@@ -18,16 +18,32 @@ const MANIFEST: &str = "manifest.json";
 /// is refused before it is read or inflated.
 pub const MAX_SIZE: usize = 512 * 1024 * 1024;
 
+/// The largest `manifest.json`, or locale `messages.json`, read. The largest
+/// seen, Bitwarden's Tamil messages, is 438 kB.
+pub const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+
+/// The largest icon read. It is sent to the interface as a data URL each time
+/// the extensions are listed, and a 128-pixel icon is tens of kilobytes.
+pub const MAX_ICON_BYTES: u64 = 1024 * 1024;
+
 /// Reads a picked `.crx` or `.zip`.
 ///
 /// # Errors
 /// Fails when it cannot be read, or is larger than [`MAX_SIZE`].
 pub fn read(path: &Path) -> Result<Vec<u8>> {
-    let length = std::fs::metadata(path)?.len();
-    if usize::try_from(length).map_or(true, |length| length > MAX_SIZE) {
-        return Err(too_large());
+    match super::read_bounded(path, MAX_SIZE as u64) {
+        Err(error) if error.kind() == std::io::ErrorKind::FileTooLarge => Err(too_large()),
+        read => Ok(read?),
     }
-    Ok(std::fs::read(path)?)
+}
+
+/// Reads an extension's `manifest.json`, or a `messages.json`, at `path`.
+///
+/// # Errors
+/// Fails when it cannot be read, is not UTF-8, or is larger than
+/// [`MAX_MANIFEST_BYTES`].
+pub fn read_manifest(path: &Path) -> std::io::Result<String> {
+    super::read_bounded_text(path, MAX_MANIFEST_BYTES)
 }
 
 fn too_large() -> HakuError {
@@ -327,7 +343,7 @@ fn top_folder_removed(files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
 /// Writes `key`, base64-encoded, into the manifest as `key` when it has none.
 /// A manifest that does not parse is left for the engine to refuse.
 fn add_key(manifest: &Path, key: &[u8]) -> Result<()> {
-    let text = std::fs::read_to_string(manifest)?;
+    let text = read_manifest(manifest)?;
     let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) else {
         return Ok(());
     };
@@ -432,6 +448,17 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("haku-package-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&folder);
         folder
+    }
+
+    #[test]
+    fn a_manifest_larger_than_the_limit_is_refused() {
+        let folder = temp_folder("large-manifest");
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join(MANIFEST);
+        let body = format!("{{}}{}", " ".repeat(usize::try_from(MAX_MANIFEST_BYTES).unwrap()));
+        std::fs::write(&path, body).unwrap();
+
+        assert!(read_manifest(&path).is_err());
     }
 
     #[test]

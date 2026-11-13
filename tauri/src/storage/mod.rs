@@ -17,7 +17,7 @@ pub mod settings;
 pub mod sqlite;
 
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -32,6 +32,51 @@ pub use extensions::{InstalledExtension, InstalledExtensions};
 pub use history_db::HistoryDb;
 pub use session::{Session, SessionWindow, WindowBounds};
 pub use settings::Settings;
+
+/// The largest JSON document read. Settings and the session are a few hundred
+/// bytes a tab or setting, so this holds tens of thousands of tabs.
+pub const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Reads the whole of `path`, refusing it when it holds more than `limit`
+/// bytes. The size is checked before the read, to refuse early, and the read
+/// itself stops one byte past `limit`, for a file that grows in between.
+///
+/// # Errors
+/// Fails as opening or reading does, and with [`ErrorKind::FileTooLarge`]
+/// when the file holds more than `limit` bytes.
+pub fn read_bounded(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
+    let file = fs::File::open(path)?;
+    if file.metadata()?.len() > limit {
+        return Err(too_large(limit));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err(too_large(limit));
+    }
+    Ok(bytes)
+}
+
+/// [`read_bounded`] for text, failing with [`ErrorKind::InvalidData`] when it
+/// is not UTF-8, as [`fs::read_to_string`] does.
+///
+/// # Errors
+/// As [`read_bounded`], and when the bytes are not UTF-8.
+pub fn read_bounded_text(path: &Path, limit: u64) -> std::io::Result<String> {
+    String::from_utf8(read_bounded(path, limit)?).map_err(|error| std::io::Error::new(ErrorKind::InvalidData, error))
+}
+
+fn too_large(limit: u64) -> std::io::Error {
+    let size = if limit >= 1024 * 1024 {
+        format!("{} MB", limit / 1024 / 1024)
+    } else {
+        format!("{limit} bytes")
+    };
+    std::io::Error::new(
+        ErrorKind::FileTooLarge,
+        format!("the file is larger than {size}, the most it may be"),
+    )
+}
 
 /// Suffix that moves an unreadable document aside.
 const CORRUPT_SUFFIX: &str = ".corrupt";
@@ -48,7 +93,8 @@ pub fn corrupt_path(path: &Path) -> PathBuf {
 ///
 /// Missing keys keep their default, so a hand-edited file naming one setting
 /// does not reset the rest. A file that exists but cannot be read, or is not
-/// valid for the type, yields the defaults outright: losing a window layout is
+/// valid for the type, or is larger than [`MAX_DOCUMENT_BYTES`], yields the
+/// defaults outright: losing a window layout is
 /// a far better outcome than refusing to start. It is set aside at
 /// [`corrupt_path`] first, so the user's contents survive the next save.
 pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
@@ -57,11 +103,11 @@ pub fn read_json<T: Serialize + DeserializeOwned + Default>(path: &Path) -> T {
         return defaults;
     };
 
-    let raw = match fs::read_to_string(path) {
+    let raw = match read_bounded_text(path, MAX_DOCUMENT_BYTES) {
         Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return defaults,
-        // Not UTF-8, or not readable now: either way the next save would
-        // replace it.
+        Err(error) if error.kind() == ErrorKind::NotFound => return defaults,
+        // Not UTF-8, too large, or not readable now: either way the next save
+        // would replace it.
         Err(_) => {
             set_aside(path);
             return defaults;
@@ -104,13 +150,19 @@ static WRITES: Mutex<()> = Mutex::new(());
 /// saves land one after another.
 ///
 /// # Errors
-/// Returns [`HakuError::Storage`] when the directory cannot be created or any
-/// filesystem step fails.
+/// Returns [`HakuError::Storage`] when the directory cannot be created, any
+/// filesystem step fails, or the document is larger than
+/// [`MAX_DOCUMENT_BYTES`], which leaves the previous one in place.
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let body = serde_json::to_string_pretty(value).map_err(|error| HakuError::Storage(error.to_string()))?;
+    // Refused rather than written, since the next read would set it aside and
+    // lose the previous document with it.
+    if body.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(HakuError::Storage(too_large(MAX_DOCUMENT_BYTES).to_string()));
+    }
 
     // A writer that panicked left nothing half-done that the guard protects.
     let _guard = WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -254,6 +306,44 @@ mod tests {
     }
 
     #[test]
+    fn a_file_larger_than_the_limit_is_moved_aside_with_its_bytes_intact() {
+        let path = temp_dir("too-large").join("value.json");
+        let body = format!(
+            "{{\"value\":1{}}}",
+            " ".repeat(usize::try_from(MAX_DOCUMENT_BYTES).unwrap())
+        );
+        fs::write(&path, &body).unwrap();
+
+        assert_eq!(read_json::<Sample>(&path), Sample::default());
+        assert!(!path.exists());
+        assert_eq!(fs::read(corrupt_path(&path)).unwrap().len(), body.len());
+    }
+
+    #[test]
+    fn a_bounded_read_returns_a_file_exactly_at_the_limit() {
+        let path = temp_dir("bounded-at").join("file");
+        fs::write(&path, b"abcd").unwrap();
+
+        assert_eq!(read_bounded(&path, 4).unwrap(), b"abcd");
+    }
+
+    #[test]
+    fn a_bounded_read_refuses_a_file_one_byte_past_the_limit() {
+        let path = temp_dir("bounded-past").join("file");
+        fs::write(&path, b"abcde").unwrap();
+
+        assert_eq!(read_bounded(&path, 4).unwrap_err().kind(), ErrorKind::FileTooLarge);
+    }
+
+    #[test]
+    fn a_bounded_text_read_refuses_bytes_that_are_not_utf8() {
+        let path = temp_dir("bounded-utf8").join("file");
+        fs::write(&path, [0xff, 0xfe]).unwrap();
+
+        assert_eq!(read_bounded_text(&path, 4).unwrap_err().kind(), ErrorKind::InvalidData);
+    }
+
+    #[test]
     fn a_new_corrupt_file_replaces_an_earlier_one_set_aside() {
         let path = temp_dir("replace-aside").join("broken.json");
         fs::write(corrupt_path(&path), "old").unwrap();
@@ -270,6 +360,22 @@ mod tests {
         write_json(&path, &Sample { value: 42 }).unwrap();
 
         assert_eq!(read_json::<Sample>(&path), Sample { value: 42 });
+    }
+
+    #[test]
+    fn a_document_larger_than_the_limit_is_not_written_over_the_previous_one() {
+        #[derive(serde::Serialize)]
+        struct Text {
+            text: String,
+        }
+        let path = temp_dir("write-too-large").join("value.json");
+        write_json(&path, &Sample { value: 7 }).unwrap();
+        let large = Text {
+            text: "x".repeat(usize::try_from(MAX_DOCUMENT_BYTES).unwrap()),
+        };
+
+        assert!(write_json(&path, &large).is_err());
+        assert_eq!(read_json::<Sample>(&path), Sample { value: 7 });
     }
 
     #[test]

@@ -6,7 +6,6 @@
 //! the database. [Bookmarks § Import and export](../../../docs/specs/bookmarks.md#import-and-export).
 
 use std::fmt::Write as _;
-use std::io::Read;
 use std::path::Path;
 
 use crate::error::{HakuError, Result};
@@ -63,16 +62,10 @@ pub struct BookmarkFile {
 /// [`MAX_BYTES`] or is not a bookmark file, and [`HakuError::Storage`] when it
 /// cannot be read.
 pub fn read(path: &Path) -> Result<BookmarkFile> {
-    let file = std::fs::File::open(path)?;
-    if file.metadata()?.len() > MAX_BYTES {
-        return Err(too_large());
-    }
-    // Bounded again while reading, for a file that grows after its size was read.
-    let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(too_large());
-    }
+    let bytes = match super::read_bounded(path, MAX_BYTES) {
+        Err(error) if error.kind() == std::io::ErrorKind::FileTooLarge => return Err(too_large()),
+        read => read?,
+    };
     parse(&String::from_utf8_lossy(&bytes))
 }
 

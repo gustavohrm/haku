@@ -67,9 +67,9 @@ pub fn run() {
             let first_launch = !paths.settings.exists();
             // The stored document as written, for the one setting it may still
             // hold under its old name.
-            let stored = std::fs::read_to_string(&paths.settings)
+            let stored = storage::read_bounded(&paths.settings, storage::MAX_DOCUMENT_BYTES)
                 .ok()
-                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
                 .unwrap_or_default();
             let mut settings: Settings = storage::read_json::<Settings>(&paths.settings)
                 .migrated(&stored)

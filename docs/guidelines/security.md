@@ -101,7 +101,7 @@ When the project serves web requests:
 ## Persisted files
 
 - Settings, the open-tab session and history are files a user may edit by hand, JSON for the first two and SQLite for history ([Architecture § storage](../architecture.md#storage--what-survives-a-restart)). Read them as untrusted input.
-- `read_json` layers a stored document over the defaults. A file that does not parse is set aside and replaced by the defaults. Nothing else in a file is trusted: `Settings::sanitized` makes a hand-edited value survivable, such as a pool capacity of zero, a stored home page must have a scheme Haku opens, and a search URL must be a web address. A restored tab whose address has any other scheme is left out of the session.
+- `read_json` layers a stored document over the defaults. A file that does not parse, or is larger than 16 MB, is set aside and replaced by the defaults. `write_json` refuses a document larger than that, so a save never leaves a file the next launch would set aside. Every file Haku reads whole, JSON documents, extension files, and picked bookmark and extension files, goes through `storage::read_bounded`, which stops one byte past that file's limit; SQLite reads its own databases a page at a time (decided 2026-11-12). Nothing else in a file is trusted: `Settings::sanitized` makes a hand-edited value survivable, such as a pool capacity of zero, a stored home page must have a scheme Haku opens, and a search URL must be a web address. A restored tab whose address has any other scheme is left out of the session.
 - A draft is never written to the session file. Tabs skip it when serialised.
 
 ## Logging

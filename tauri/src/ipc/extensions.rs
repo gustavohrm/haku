@@ -226,21 +226,28 @@ pub fn add(app: &tauri::AppHandle, window: &tauri::Window, source: ExtensionSour
 fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<AddedExtension> {
     let chrome = webview::chrome(app)?;
     let root = &state.paths.extensions;
-    let manifest = std::fs::read_to_string(staging.join("manifest.json"))?;
-    let messages = default_locale(&manifest)
-        .and_then(|locale| std::fs::read_to_string(staging.join("_locales").join(locale).join("messages.json")).ok());
+    let manifest = package::read_manifest(&staging.join("manifest.json"))?;
+    // Optional, so one missing or unreadable falls back to the manifest's own
+    // name; one too large is refused, as an oversized manifest is.
+    let messages = match default_locale(&manifest)
+        .map(|locale| package::read_manifest(&staging.join("_locales").join(locale).join("messages.json")))
+    {
+        Some(Err(error)) if error.kind() == std::io::ErrorKind::FileTooLarge => return Err(error.into()),
+        read => read.and_then(std::result::Result::ok),
+    };
     let name = display_name(&manifest, messages.as_deref()).unwrap_or_default();
     let key_id = key(&manifest)
         .and_then(|key| package::decode_key(&key))
         .map(|bytes| id_from_key(&bytes));
 
     let installed = read(state)?.installed;
-    let keyed = |extension: &Extension| {
-        std::fs::read_to_string(root.join(&extension.folder).join("manifest.json"))
-            .ok()
-            .and_then(|manifest| key(&manifest))
-            .is_some()
-    };
+    // A manifest too large to read may hold a key, so it counts as keyed: a
+    // keyed extension sharing the name is then not taken for it.
+    let keyed =
+        |extension: &Extension| match package::read_manifest(&root.join(&extension.folder).join("manifest.json")) {
+            Ok(manifest) => key(&manifest).is_some(),
+            Err(error) => error.kind() == std::io::ErrorKind::FileTooLarge,
+        };
     let named = folder_name(&name);
     // Two extensions that both have a key are the same only when the keys
     // match; a shared name is not enough. Of those with the name, in its
@@ -431,9 +438,9 @@ pub fn remove(app: &tauri::AppHandle, folder: &str) -> Result<()> {
 
 /// What the interface lists of the extension installed as `id` from `folder`.
 fn listed(id: String, name: String, folder: &Path) -> Extension {
-    let manifest = std::fs::read_to_string(folder.join("manifest.json")).unwrap_or_default();
+    let manifest = package::read_manifest(&folder.join("manifest.json")).unwrap_or_default();
     let icon = icon_file(&manifest).and_then(|(path, mime)| {
-        std::fs::read(folder.join(path))
+        storage::read_bounded(&folder.join(path), package::MAX_ICON_BYTES)
             .ok()
             .map(|bytes| data_url(mime, &bytes))
     });
