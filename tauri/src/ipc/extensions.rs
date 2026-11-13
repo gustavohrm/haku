@@ -241,12 +241,13 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
         .map(|bytes| id_from_key(&bytes));
 
     let installed = read(state)?.installed;
-    let keyed = |extension: &Extension| {
-        package::read_manifest(&root.join(&extension.folder).join("manifest.json"))
-            .ok()
-            .and_then(|manifest| key(&manifest))
-            .is_some()
-    };
+    // A manifest too large to read may hold a key, so it counts as keyed: a
+    // keyed extension sharing the name is then not taken for it.
+    let keyed =
+        |extension: &Extension| match package::read_manifest(&root.join(&extension.folder).join("manifest.json")) {
+            Ok(manifest) => key(&manifest).is_some(),
+            Err(error) => error.kind() == std::io::ErrorKind::FileTooLarge,
+        };
     let named = folder_name(&name);
     // Two extensions that both have a key are the same only when the keys
     // match; a shared name is not enough. Of those with the name, in its

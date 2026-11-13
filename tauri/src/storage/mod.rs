@@ -150,13 +150,19 @@ static WRITES: Mutex<()> = Mutex::new(());
 /// saves land one after another.
 ///
 /// # Errors
-/// Returns [`HakuError::Storage`] when the directory cannot be created or any
-/// filesystem step fails.
+/// Returns [`HakuError::Storage`] when the directory cannot be created, any
+/// filesystem step fails, or the document is larger than
+/// [`MAX_DOCUMENT_BYTES`], which leaves the previous one in place.
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let body = serde_json::to_string_pretty(value).map_err(|error| HakuError::Storage(error.to_string()))?;
+    // Refused rather than written, since the next read would set it aside and
+    // lose the previous document with it.
+    if body.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(HakuError::Storage(too_large(MAX_DOCUMENT_BYTES).to_string()));
+    }
 
     // A writer that panicked left nothing half-done that the guard protects.
     let _guard = WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -354,6 +360,22 @@ mod tests {
         write_json(&path, &Sample { value: 42 }).unwrap();
 
         assert_eq!(read_json::<Sample>(&path), Sample { value: 42 });
+    }
+
+    #[test]
+    fn a_document_larger_than_the_limit_is_not_written_over_the_previous_one() {
+        #[derive(serde::Serialize)]
+        struct Text {
+            text: String,
+        }
+        let path = temp_dir("write-too-large").join("value.json");
+        write_json(&path, &Sample { value: 7 }).unwrap();
+        let large = Text {
+            text: "x".repeat(usize::try_from(MAX_DOCUMENT_BYTES).unwrap()),
+        };
+
+        assert!(write_json(&path, &large).is_err());
+        assert_eq!(read_json::<Sample>(&path), Sample { value: 7 });
     }
 
     #[test]
