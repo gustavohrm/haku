@@ -226,9 +226,9 @@ pub fn add(app: &tauri::AppHandle, window: &tauri::Window, source: ExtensionSour
 fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<AddedExtension> {
     let chrome = webview::chrome(app)?;
     let root = &state.paths.extensions;
-    let manifest = std::fs::read_to_string(staging.join("manifest.json"))?;
+    let manifest = package::read_manifest(&staging.join("manifest.json"))?;
     let messages = default_locale(&manifest)
-        .and_then(|locale| std::fs::read_to_string(staging.join("_locales").join(locale).join("messages.json")).ok());
+        .and_then(|locale| package::read_manifest(&staging.join("_locales").join(locale).join("messages.json")).ok());
     let name = display_name(&manifest, messages.as_deref()).unwrap_or_default();
     let key_id = key(&manifest)
         .and_then(|key| package::decode_key(&key))
@@ -236,7 +236,7 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
 
     let installed = read(state)?.installed;
     let keyed = |extension: &Extension| {
-        std::fs::read_to_string(root.join(&extension.folder).join("manifest.json"))
+        package::read_manifest(&root.join(&extension.folder).join("manifest.json"))
             .ok()
             .and_then(|manifest| key(&manifest))
             .is_some()
@@ -431,9 +431,9 @@ pub fn remove(app: &tauri::AppHandle, folder: &str) -> Result<()> {
 
 /// What the interface lists of the extension installed as `id` from `folder`.
 fn listed(id: String, name: String, folder: &Path) -> Extension {
-    let manifest = std::fs::read_to_string(folder.join("manifest.json")).unwrap_or_default();
+    let manifest = package::read_manifest(&folder.join("manifest.json")).unwrap_or_default();
     let icon = icon_file(&manifest).and_then(|(path, mime)| {
-        std::fs::read(folder.join(path))
+        storage::read_bounded(&folder.join(path), package::MAX_ICON_BYTES)
             .ok()
             .map(|bytes| data_url(mime, &bytes))
     });
