@@ -42,8 +42,8 @@ pub fn read(path: &Path) -> Result<Vec<u8>> {
 /// # Errors
 /// Fails when it cannot be read, is not UTF-8, or is larger than
 /// [`MAX_MANIFEST_BYTES`].
-pub fn read_manifest(path: &Path) -> Result<String> {
-    Ok(super::read_bounded_text(path, MAX_MANIFEST_BYTES)?)
+pub fn read_manifest(path: &Path) -> std::io::Result<String> {
+    super::read_bounded_text(path, MAX_MANIFEST_BYTES)
 }
 
 fn too_large() -> HakuError {

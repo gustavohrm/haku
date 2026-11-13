@@ -227,8 +227,14 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
     let chrome = webview::chrome(app)?;
     let root = &state.paths.extensions;
     let manifest = package::read_manifest(&staging.join("manifest.json"))?;
-    let messages = default_locale(&manifest)
-        .and_then(|locale| package::read_manifest(&staging.join("_locales").join(locale).join("messages.json")).ok());
+    // Optional, so one missing or unreadable falls back to the manifest's own
+    // name; one too large is refused, as an oversized manifest is.
+    let messages = match default_locale(&manifest)
+        .map(|locale| package::read_manifest(&staging.join("_locales").join(locale).join("messages.json")))
+    {
+        Some(Err(error)) if error.kind() == std::io::ErrorKind::FileTooLarge => return Err(error.into()),
+        read => read.and_then(std::result::Result::ok),
+    };
     let name = display_name(&manifest, messages.as_deref()).unwrap_or_default();
     let key_id = key(&manifest)
         .and_then(|key| package::decode_key(&key))
