@@ -1,6 +1,6 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-12
+last_updated: 2026-11-14
 scope: Continuous integration, the pinned toolchain, and the checks that report on pull requests.
 ---
 
@@ -20,6 +20,8 @@ Local and CI runs resolve the same versions, each declared once:
 | `pnpm-workspace.yaml` `engineStrict` | Makes an install outside `engines` fail         |
 
 CI reads those same files rather than repeating a version: `pnpm/action-setup` takes pnpm from `packageManager`, and `actions/setup-node` takes Node.js from `.nvmrc`. A version is raised in one place, and a machine that cannot satisfy it is told at install time instead of failing later in a way nobody can reproduce.
+
+`.nvmrc` pins a release of the Node.js line in Active LTS: the line with the longest support ahead of it, and the one the Node.js website offers by default, so a new contributor's install meets `engines`. When a new line enters Active LTS each October, `.nvmrc`, `engines`, and `@types/node` move to it together, in one change. Node.js 26 replaced 24 on 2026-11-14.
 
 `engineStrict` is deliberate friction. A patch-level difference rarely matters, and the one time it does, the failure looks like a bug in the change under review rather than a difference in the runtime.
 
