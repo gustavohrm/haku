@@ -104,9 +104,11 @@ pub struct AvailableUpdate {
 /// version. Extensions with no update, or one the store does not know, are
 /// left out, as is an offer that is not the one expected, such as one whose
 /// `hash_sha256` is not one. Nothing, when `answer` is not an update
-/// service's answer at all, as an error page is not.
+/// service's answer at all, as an error page is not, or not all of one, as
+/// when the connection broke off.
 pub fn parse_update_check(answer: &str) -> Option<Vec<AvailableUpdate>> {
-    if !answer.contains("<gupdate") {
+    let start = answer.find("<gupdate")?;
+    if !answer[start..].trim_end().ends_with("</gupdate>") {
         return None;
     }
     let offered = answer
@@ -297,7 +299,19 @@ mod tests {
     fn an_answer_that_is_not_one_is_none() {
         assert_eq!(parse_update_check(""), None);
         assert_eq!(parse_update_check("<html>not found</html>"), None);
-        assert_eq!(parse_update_check("<gupdate></gupdate>"), Some(Vec::new()));
+        assert_eq!(
+            parse_update_check(
+                "<gupdate></gupdate>
+"
+            ),
+            Some(Vec::new())
+        );
+        // Cut off, as when the connection broke.
+        assert_eq!(parse_update_check("<gupdate"), None);
+        assert_eq!(
+            parse_update_check(r#"<gupdate><app appid="x"><updatecheck status="noupdate"/></app>"#),
+            None
+        );
     }
 
     /// The updates offered by an answer made of `apps`.
