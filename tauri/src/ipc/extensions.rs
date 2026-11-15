@@ -657,7 +657,13 @@ pub fn check_updates(app: &tauri::AppHandle) -> ExtensionUpdateCheck {
                 continue;
             }
         };
-        for offered in parse_update_check(&answer) {
+        let Some(offers) = parse_update_check(&answer) else {
+            outcome.error.get_or_insert_with(|| {
+                HakuError::Unsupported(format!("{} did not answer as an update service", store.name()))
+            });
+            continue;
+        };
+        for offered in offers {
             let Some(extension) = from_store.iter().find(|extension| extension.id == offered.id) else {
                 continue;
             };

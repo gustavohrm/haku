@@ -102,10 +102,14 @@ pub struct AvailableUpdate {
 /// The updates an update service's answer offers: for each extension, its
 /// `updatecheck` when its status is `ok`, with where to download it and a
 /// version. Extensions with no update, or one the store does not know, are
-/// left out, as is anything that is not the answer expected, such as a
-/// `hash_sha256` that is not one.
-pub fn parse_update_check(answer: &str) -> Vec<AvailableUpdate> {
-    answer
+/// left out, as is an offer that is not the one expected, such as one whose
+/// `hash_sha256` is not one. Nothing, when `answer` is not an update
+/// service's answer at all, as an error page is not.
+pub fn parse_update_check(answer: &str) -> Option<Vec<AvailableUpdate>> {
+    if !answer.contains("<gupdate") {
+        return None;
+    }
+    let offered = answer
         .split("<app ")
         .skip(1)
         .filter_map(|app| {
@@ -135,7 +139,8 @@ pub fn parse_update_check(answer: &str) -> Vec<AvailableUpdate> {
                 sha256,
             })
         })
-        .collect()
+        .collect();
+    Some(offered)
 }
 
 /// A tag's attributes: what follows its name, up to its end.
@@ -270,7 +275,7 @@ mod tests {
     fn an_update_check_answer_lists_the_updates_offered() {
         let chrome = r#"<?xml version="1.0" encoding="UTF-8"?><gupdate xmlns="http://www.google.com/update2/response" protocol="2.0" server="prod"><daystart elapsed_days="7258" elapsed_seconds="25128"/><app appid="ddkjiahejlhfcafbddmgiahcphecmpfh" cohort="1::" cohortname="" status="ok"><updatecheck _esbAllowlist="true" codebase="https://clients2.googleusercontent.com/crx/blobs/AR/X_2026_1110_1816_0.crx" fp="1.f830" hash_sha256="F830f9b2ac6c40dce7f193717fd286a4c966e8999018d5a3e75998d81751bb8a" protected="0" size="9079498" status="ok" version="2026.1110.1816"/></app><app appid="nngceckbapebfimnlniiiahkandclblb" cohort="1::" cohortname="" status="ok"><updatecheck _esbAllowlist="true" status="noupdate"/></app><app appid="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" status="error-unknownApplication"/></gupdate>"#;
         assert_eq!(
-            parse_update_check(chrome),
+            parse_update_check(chrome).unwrap(),
             vec![AvailableUpdate {
                 id: ID.into(),
                 version: "2026.1110.1816".into(),
@@ -279,7 +284,7 @@ mod tests {
             }]
         );
         let edge = r#"<?xml version="1.0" encoding="utf-8"?><gupdate server="prod" protocol="2.0" xmlns="http://www.google.com/update2/response"><app appid="odfafepnkmbhccpbejgmiehpchacaeak" status="ok"><updatecheck status="ok" codebase="http://msedgeextensions.b.tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/b5f2?P1=1795342650&amp;P2=404" version="2026.1113.76.0" /></app><app appid="ifoakfbpdcdoeenechcleahebpibofpc" status="ok"><updatecheck status="noupdate" /></app></gupdate>"#;
-        let offered = parse_update_check(edge);
+        let offered = parse_update_check(edge).unwrap();
         assert_eq!(offered.len(), 1);
         assert_eq!(
             offered[0].url,
@@ -289,15 +294,25 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_that_is_not_one_offers_nothing() {
-        assert!(parse_update_check("").is_empty());
-        assert!(parse_update_check("<html>not found</html>").is_empty());
+    fn an_answer_that_is_not_one_is_none() {
+        assert_eq!(parse_update_check(""), None);
+        assert_eq!(parse_update_check("<html>not found</html>"), None);
+        assert_eq!(parse_update_check("<gupdate></gupdate>"), Some(Vec::new()));
+    }
+
+    /// The updates offered by an answer made of `apps`.
+    fn offers(apps: &str) -> Vec<AvailableUpdate> {
+        parse_update_check(&format!("<gupdate>{apps}</gupdate>")).unwrap()
+    }
+
+    #[test]
+    fn an_offer_that_is_not_one_is_left_out() {
         // Neither a version nor a download address can be anything.
-        assert!(parse_update_check(
-            r#"<app appid="x"><updatecheck status="ok" codebase="file:///c:/x.crx" version="1.0"/></app>"#
-        )
-        .is_empty());
-        assert!(parse_update_check(
+        assert!(
+            offers(r#"<app appid="x"><updatecheck status="ok" codebase="file:///c:/x.crx" version="1.0"/></app>"#)
+                .is_empty()
+        );
+        assert!(offers(
             r#"<app appid="x"><updatecheck status="ok" codebase="https://x/y.crx" version="1.0-beta"/></app>"#
         )
         .is_empty());
@@ -306,7 +321,7 @@ mod tests {
     #[test]
     fn an_offer_with_a_hash_that_is_not_one_is_left_out() {
         let offer = |hash: &str| {
-            parse_update_check(&format!(
+            offers(&format!(
                 r#"<app appid="x"><updatecheck status="ok" codebase="https://x/y.crx" version="1.0" hash_sha256="{hash}"/></app>"#
             ))
         };
