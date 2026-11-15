@@ -30,7 +30,7 @@ specta-typescript = "0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 # "functions" registers the URL pattern matcher inside SQLite, so history
 # filters and deletes match exactly as history rules do.
-rusqlite = { version = "0.41", features = ["bundled", "functions"] }
+rusqlite = { version = "0.42", features = ["bundled", "functions"] }
 # History rules and filters by regular expression. Linear-time matching, so no
 # pattern can hang recording. Already built as part of Tauri.
 regex = "1"
