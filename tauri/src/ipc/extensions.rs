@@ -701,6 +701,14 @@ fn update_from_store(
     offered: &AvailableUpdate,
 ) -> Result<Updated> {
     let what = format!("the update of {}", installed.name);
+    // Only Edge's download host lacks HTTPS; any other store sending plain
+    // HTTP is not answering as it does.
+    if store != ExtensionStore::Edge && !offered.url.starts_with("https://") {
+        return Err(HakuError::Unsupported(format!(
+            "{} offered {what} over plain HTTP",
+            store.name()
+        )));
+    }
     let bytes = download(store, &offered.url, &what)?;
     if let Some(expected) = &offered.sha256 {
         let actual: String = sha2::Sha256::digest(&bytes)
@@ -729,6 +737,15 @@ fn update_from_store(
         });
         if !unchanged {
             return Ok(Updated::Changed);
+        }
+        // The file decides the version, not the answer that named it.
+        let downloaded = version(&found.manifest);
+        if compare_versions(&downloaded, &installed.version) != Order::Greater {
+            return Err(HakuError::Unsupported(format!(
+                "{what} from {} is version {downloaded}, not newer than {}",
+                store.name(),
+                installed.version
+            )));
         }
         // Without the installed manifest, nothing tells what is new, so the
         // user is asked.

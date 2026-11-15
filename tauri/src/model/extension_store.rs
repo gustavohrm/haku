@@ -102,7 +102,8 @@ pub struct AvailableUpdate {
 /// The updates an update service's answer offers: for each extension, its
 /// `updatecheck` when its status is `ok`, with where to download it and a
 /// version. Extensions with no update, or one the store does not know, are
-/// left out, as is anything that is not the answer expected.
+/// left out, as is anything that is not the answer expected, such as a
+/// `hash_sha256` that is not one.
 pub fn parse_update_check(answer: &str) -> Vec<AvailableUpdate> {
     answer
         .split("<app ")
@@ -118,9 +119,15 @@ pub fn parse_update_check(answer: &str) -> Vec<AvailableUpdate> {
             if !is_version(&version) || !(url.starts_with("https://") || url.starts_with("http://")) {
                 return None;
             }
-            let sha256 = attribute(check, "hash_sha256")
-                .map(|hash| hash.to_ascii_lowercase())
-                .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()));
+            // A hash that is there must be one, or the file could not be
+            // checked against it.
+            let sha256 = match attribute(check, "hash_sha256") {
+                None => None,
+                Some(hash) if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) => {
+                    Some(hash.to_ascii_lowercase())
+                }
+                Some(_) => return None,
+            };
             Some(AvailableUpdate {
                 id,
                 version,
@@ -294,6 +301,19 @@ mod tests {
             r#"<app appid="x"><updatecheck status="ok" codebase="https://x/y.crx" version="1.0-beta"/></app>"#
         )
         .is_empty());
+    }
+
+    #[test]
+    fn an_offer_with_a_hash_that_is_not_one_is_left_out() {
+        let offer = |hash: &str| {
+            parse_update_check(&format!(
+                r#"<app appid="x"><updatecheck status="ok" codebase="https://x/y.crx" version="1.0" hash_sha256="{hash}"/></app>"#
+            ))
+        };
+        assert_eq!(offer(&"A".repeat(64))[0].sha256, Some("a".repeat(64)));
+        assert!(offer("abc").is_empty(), "too short");
+        assert!(offer(&"g".repeat(64)).is_empty(), "not hex");
+        assert!(offer("").is_empty(), "empty");
     }
 
     #[test]
