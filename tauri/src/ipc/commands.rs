@@ -41,9 +41,10 @@ use crate::model::suggest::{
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
     CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
-    ExportedBookmarks, ExtensionSource, ExtensionStore, ExtensionToAdd, Extensions, FindDirection, HistoryRule,
-    ImportedBookmarks, NavigationSource, PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset,
-    Pressure, Profile, Recording, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    ExportedBookmarks, ExtensionSource, ExtensionStore, ExtensionToAdd, ExtensionUpdateCheck, Extensions,
+    FindDirection, HistoryRule, ImportedBookmarks, NavigationSource, PageMenu, PermissionDecision, PermissionRequestId,
+    Placement, Preset, Pressure, Profile, Recording, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind,
+    WindowRequestId,
 };
 use crate::model::{EngineSuggestions, ListedSearchEngine, Suggestions};
 use crate::net;
@@ -3006,6 +3007,18 @@ pub async fn add_extension_from_store(
     tauri::async_runtime::spawn_blocking(move || extensions::add_from_store(&app, store, &id))
         .await
         .map_err(|error| HakuError::Unsupported(format!("adding the extension stopped: {error}")))?
+}
+
+/// Checks the stores for updates of the extensions that came from them, now,
+/// whether automatic checks are on or not, and answers what it did.
+#[tauri::command]
+#[specta::specta]
+pub async fn check_extension_updates(app: tauri::AppHandle, webview: tauri::Webview) -> Result<ExtensionUpdateCheck> {
+    ensure_chrome(&webview)?;
+    // Downloads take up to minutes, too long to hold a runtime worker.
+    tauri::async_runtime::spawn_blocking(move || extensions::check_updates(&app))
+        .await
+        .map_err(|error| HakuError::Unsupported(format!("checking for updates stopped: {error}")))
 }
 
 /// Uninstalls the extension installed from `folder`, with what it stored, and

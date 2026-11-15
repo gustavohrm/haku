@@ -40,6 +40,9 @@ pub struct Extensions {
     pub failed: Vec<FailedExtension>,
     /// The first other failure while installing the folder, if any.
     pub error: Option<HakuError>,
+    /// Updates found in the stores that ask for new access, waiting for the
+    /// user to review them.
+    pub updates: Vec<crate::model::ExtensionUpdate>,
 }
 
 /// A subfolder of the extensions folder that the engine would not install.

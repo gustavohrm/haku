@@ -9,6 +9,7 @@ import {
   CapacityControl,
   DiscardControl,
   ExtensionsControl,
+  ExtensionUpdatesControl,
   ExtensionsFolderControl,
   FreezeControl,
   HistoryPageControl,
@@ -317,6 +318,14 @@ export const SECTIONS: SettingSection[] = [
             wide: true,
             labelsControl: false,
             Control: ExtensionsControl,
+          },
+          {
+            id: "extensionUpdates",
+            title: "settings.extensions.updates",
+            description: "settings.extensions.updates.help",
+            keywords: "settings.extensions.updates.keywords",
+            labelsControl: false,
+            Control: ExtensionUpdatesControl,
           },
           {
             id: "extensionsFolder",

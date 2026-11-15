@@ -1,12 +1,12 @@
 ---
 status: IMPLEMENTED
 last_updated: 2026-11-15
-scope: How Chrome extensions are added, from disk, the Chrome Web Store or Microsoft Edge Add-ons, shown with what they may do, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
+scope: How Chrome extensions are added, from disk, the Chrome Web Store or Microsoft Edge Add-ons, shown with what they may do, updated by hand or from their store, uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
 ---
 
 # Extensions
 
-[First release § Extensions](../first-release.md#extensions) settles the approach: Chrome extensions through WebView2's own extension support, added from disk, from the Chrome Web Store or from Microsoft Edge Add-ons, each shown with what it may do before it is installed. This covers the second tier, Chrome extensions. User scripts and styles are not built.
+[First release § Extensions](../first-release.md#extensions) settles the approach: Chrome extensions through WebView2's own extension support, added from disk, from the Chrome Web Store or from Microsoft Edge Add-ons, kept up to date from the store they came from, each shown with what it may do before it is installed. This covers the second tier, Chrome extensions. User scripts and styles are not built.
 
 ## Installing
 
@@ -97,7 +97,26 @@ Extensions placed in the folder by hand are installed at the next start without 
 
 Rejected: the system's own message box, which needed no new command. It cannot be laid out to list sites, and the interface guidelines keep a question where it was started.
 
-Haku does not look for new versions: an update is the user adding the newer file. The stores' update services would find them, at the cost of Haku contacting the stores on a schedule, which [First release § Extensions](../first-release.md#extensions) has not decided.
+An update found by a check of the stores is asked about only when it asks for access its installed version did not ([Updates from the stores](#updates-from-the-stores)).
+
+## Updates from the stores
+
+An extension is kept up to date from the store it came from: its manifest's `update_url`, which each store writes into the extensions it serves, is exactly one of the two update services above. Any other extension, from a file or folder without one of them, or naming another service, is not checked, and is updated by adding its newer file. A `.crx` picked from disk that came from a store is checked like one added from it, since its update is verified as any store download is.
+
+Haku checks at startup, once the extensions are installed, and every 24 hours while it runs, when **Check for updates automatically** is on, as it is by default (decided 2026-11-15). `checkExtensionUpdates` in the settings holds it. **Check now** in settings checks at once, whether it is on or not. A check sends each store that has extensions to check one request, `response=updatecheck`, with the ids and installed versions of its own extensions and the engine's version, and no cookie or other state. A store is never told about an extension from another store, and a store with nothing to check is not asked. Rejected: checking only when asked, which leaves extensions without their security fixes until the user remembers to; and Chrome's own five hours, which tells the stores more often than updates come.
+
+The answer says, for each extension, whether a newer version exists, where to download it and, when the store gives one, its SHA-256. A version that is not newer than the one installed, compared number by number, is ignored, so a store cannot downgrade one. The file is downloaded from where the answer says, at most 512 MB within two minutes, refused when its SHA-256 differs from the one given, and checked as a download from the store is ([From the stores](#from-the-stores)): signed by the store and by the extension's own key, whose id must be the installed one's.
+
+What happens next follows what it may do ([Before installing](#before-installing)):
+
+- When it asks for nothing its installed version did not, nothing marked **New in this version**, it is installed at once as an update, as one confirmed from settings is, without a question: the user agreed to that access already.
+- Otherwise it is not installed. The installed version keeps running, and settings lists the update as waiting, on the extension's row, with **Review update**. That downloads it again and asks about it as any update is, under the row, with what is new marked. The list of waiting updates lasts until the extension is updated or removed, or Haku quits; the next check finds them again.
+
+Rejected: installing every update without a question, which lets a store version reach sites or data the user never agreed to; and asking about every update, which trains the user to agree without reading.
+
+A check that runs on its own reports nothing when it fails, as when offline: the next one tries again. **Check now** says what it found, as a toast: the extensions updated, those waiting for review, that all are up to date, or the failure. Only one check runs at a time, and its installs are serialized with every other change ([Adding and updating](#adding-and-updating)). A question waiting in settings or the toolbar is refused when a check updated its extension meanwhile, as for any change from another window.
+
+Private windows have no part in it: a check runs for the default profile, where extensions do.
 
 ## Uninstalling
 
@@ -113,13 +132,14 @@ An extension installed before Haku recorded them is not in the file, so deleting
 
 ## Settings
 
-The Extensions section has three rows.
+The Extensions section has four rows.
 
 - **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, that adding a newer version of an installed extension updates it and keeps its data, that the access worth knowing about is listed before anything is installed, and that extensions are added at the user's own risk. It holds two buttons, **File…** and **Folder…**, and the question about a new extension ([Before installing](#before-installing)).
-- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**, which asks under the extension's row, saying what goes, with **Cancel**, which takes focus, and **Uninstall**; Esc answers no. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Uninstall…**, which asks on its row the same way. With nothing installed and nothing failed to load, the row says how to get an extension: **Add to Haku** on its page in the Chrome Web Store or Microsoft Edge Add-ons, or download its `.crx` or release `.zip`, then add it.
+- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies and **Update to _version_ waiting** when an update waits for review, then **Review update** when one waits, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**, which asks under the extension's row, saying what goes, with **Cancel**, which takes focus, and **Uninstall**; Esc answers no. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Uninstall…**, which asks on its row the same way. With nothing installed and nothing failed to load, the row says how to get an extension: **Add to Haku** on its page in the Chrome Web Store or Microsoft Edge Add-ons, or download its `.crx` or release `.zip`, then add it.
+- **Extension updates** has **Check for updates automatically**, a switch for `checkExtensionUpdates`, and **Check now**, which shows **Checking…** while it runs ([Updates from the stores](#updates-from-the-stores)). Its description says which extensions are checked: those that came from a store.
 - **Extensions folder** opens the folder.
 
-Only one add or removal runs at a time. While one runs, the add, update and uninstall buttons are disabled; an add shows **Adding…**, and uninstalling shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
+Only one add, removal or check of the stores runs at a time. While one runs, the add, update, review, check and uninstall buttons are disabled; an add shows **Adding…**, and uninstalling shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
 
 ## Switching on and off
 

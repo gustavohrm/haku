@@ -17,6 +17,9 @@ import { ExtensionIcon } from "@features/extensions/extension-icon";
 import {
   ADDING,
   addExtension,
+  CHECKING,
+  checkForUpdates,
+  reviewUpdate,
   uninstallExtension,
   useExtensionChange,
   useExtensionToAdd,
@@ -856,10 +859,12 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
             const isOn = !disabled.includes(extension.id);
             const isRemoving = change === extension.folder;
             const nameId = `${ids}-name-${index}`;
+            const waiting = extensions.updates.find((update) => update.folder === extension.folder);
             const details = [
               isRemoving ? t("settings.extensions.removing") : extension.version || t("settings.extensions.noVersion"),
               !isOn && t("settings.extensions.off"),
               isOn && pinned.includes(extension.id) && t("settings.extensions.pinned"),
+              waiting && t("settings.extensions.updateWaiting").replace("{version}", waiting.version),
             ].filter(Boolean);
             return (
               <li key={extension.folder} className="flex flex-col" aria-busy={isRemoving}>
@@ -873,6 +878,17 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
                     </span>
                     <span className="text-text-secondary truncate text-sm tabular-nums">{details.join(" · ")}</span>
                   </span>
+                  {waiting && (
+                    <button
+                      type="button"
+                      className="btn soft edgeless shrink-0"
+                      aria-describedby={nameId}
+                      disabled={change !== null}
+                      onClick={() => void reviewUpdate(waiting)}
+                    >
+                      {t("settings.extensions.reviewUpdate")}
+                    </button>
+                  )}
                   <input
                     type="checkbox"
                     className="switch"
@@ -946,6 +962,45 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * Whether extensions from a store are checked for updates on their own, and
+ * **Check now**, which checks at once either way.
+ * [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).
+ */
+export function ExtensionUpdatesControl({ labelId, describedBy, settings, update }: ControlProps) {
+  const change = useExtensionChange();
+  const switchId = useId();
+  return (
+    <fieldset
+      className="m-0 flex flex-wrap items-center gap-x-4 gap-y-2 border-0 p-0"
+      aria-labelledby={labelId}
+      aria-describedby={describedBy}
+    >
+      <span className="flex items-center gap-2">
+        <input
+          id={switchId}
+          type="checkbox"
+          className="switch"
+          checked={settings.checkExtensionUpdates}
+          onChange={(event) => void update({ checkExtensionUpdates: event.target.checked })}
+        />
+        <label htmlFor={switchId} className="text-sm">
+          {t("settings.extensions.updates.auto")}
+        </label>
+      </span>
+      <button
+        type="button"
+        className="btn soft edgeless gap-2"
+        disabled={change !== null}
+        onClick={() => void checkForUpdates()}
+      >
+        <i className="ic-refresh-cw ic-sm" aria-hidden="true" />
+        {change === CHECKING ? t("settings.extensions.updates.checking") : t("settings.extensions.updates.check")}
+      </button>
+    </fieldset>
   );
 }
 

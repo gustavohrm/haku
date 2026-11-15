@@ -7,19 +7,23 @@
 //! `extensions.json`. All of it waits on the engine, so none of it may run on
 //! the UI thread.
 
+use std::cmp::Ordering as Order;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use sha2::Digest;
 use tauri::Manager;
 use tauri_specta::Event;
 
 use crate::error::{HakuError, Result};
+use crate::model::extension_store::is_version;
 use crate::model::{
-    data_url, default_locale, display_name, extension_access, folder_name, icon_file, id_from_key, is_extension_id,
-    key, options_url, popup_url, version, AddedExtension, Extension, ExtensionSource, ExtensionStore, ExtensionToAdd,
-    Extensions, FailedExtension,
+    compare_versions, data_url, default_locale, display_name, extension_access, folder_name, icon_file, id_from_key,
+    is_extension_id, key, options_url, parse_update_check, popup_url, version, AddedExtension, AvailableUpdate,
+    Extension, ExtensionSource, ExtensionStore, ExtensionToAdd, ExtensionUpdate, ExtensionUpdateCheck, Extensions,
+    FailedExtension,
 };
 use crate::net;
 use crate::platform;
@@ -39,6 +43,18 @@ const FOLDER_RETRY: Duration = Duration::from_millis(100);
 /// megabytes; Bitwarden's, among the larger, is about 30.
 const STORE_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// The longest a store's update service is waited on for its answer, and the
+/// most of it read. It is a few hundred bytes for each extension asked about.
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+const UPDATE_CHECK_LIMIT: u64 = 1024 * 1024;
+
+/// How often the stores are checked for updates while Haku runs.
+/// [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).
+const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Held while the stores are checked, so only one check runs at a time.
+static CHECKING: Mutex<()> = Mutex::new(());
+
 /// The engine version the store is told when the engine's own cannot be
 /// read: the runtime [Extensions § Measured compatibility](../../../docs/specs/extensions.md#measured-compatibility)
 /// was measured on.
@@ -50,9 +66,10 @@ const FALLBACK_ENGINE_VERSION: &str = "155.0.4283.62";
 /// next start.
 static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
 
-/// The extension waiting: its token, its staging folder, and the folder of
-/// the installed extension the user was told it updates.
-type Pending = (u32, PathBuf, Option<String>);
+/// The extension waiting: its token, its staging folder, and the folder and
+/// version of the installed extension the user was told it updates.
+type Pending = (u32, PathBuf, Option<Replaced>);
+type Replaced = (String, String);
 static NEXT_TOKEN: AtomicU32 = AtomicU32::new(1);
 
 pub(crate) fn lock(state: &AppState) -> MutexGuard<'_, ()> {
@@ -174,6 +191,7 @@ fn install_all(app: &tauri::AppHandle, state: &AppState) -> Result<Extensions> {
         installed,
         failed,
         error: problems.into_iter().next(),
+        updates: Vec::new(),
     })
 }
 
@@ -293,7 +311,10 @@ fn stage(app: &tauri::AppHandle, fill: impl FnOnce(&Path) -> Result<()>) -> Resu
     match fill(&staging).and_then(|()| ask(&state, &staging)) {
         Ok(mut asked) => {
             asked.token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
-            let replaces = asked.replaces.as_ref().map(|previous| previous.folder.clone());
+            let replaces = asked
+                .replaces
+                .as_ref()
+                .map(|previous| (previous.folder.clone(), previous.version.clone()));
             *PENDING.lock().unwrap_or_else(PoisonError::into_inner) = Some((asked.token, staging, replaces));
             Ok(asked)
         }
@@ -341,8 +362,10 @@ pub fn confirm(app: &tauri::AppHandle, token: u32, install: bool) -> Result<Opti
             return Ok(None);
         }
         // The user agreed to add it, or to update one extension; what is
-        // installed may have changed since, as from another window.
-        let now = inspect(&state, &staging).map(|found| found.previous.map(|previous| previous.folder));
+        // installed may have changed since, as from another window or by a
+        // check of the stores.
+        let now =
+            inspect(&state, &staging).map(|found| found.previous.map(|previous| (previous.folder, previous.version)));
         if now.as_ref().ok() != Some(&replaces) {
             discard(Some(staging));
             now?;
@@ -361,7 +384,7 @@ pub fn confirm(app: &tauri::AppHandle, token: u32, install: bool) -> Result<Opti
 
 /// Takes the folder of the extension waiting, when it is `token`'s, or
 /// whichever it is when no token is given.
-fn take_pending(token: Option<u32>) -> Option<(PathBuf, Option<String>)> {
+fn take_pending(token: Option<u32>) -> Option<(PathBuf, Option<Replaced>)> {
     let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
     if token.is_some_and(|token| pending.as_ref().is_some_and(|(waiting, ..)| *waiting != token)) {
         return None;
@@ -551,6 +574,8 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
             .installed
             .retain(|entry| entry.folder != folder && entry.id != id && Some(&entry.id) != replaced_id.as_ref());
         extensions.failed.retain(|failed| failed.folder != folder);
+        // An update waiting for review is answered by any version installed.
+        extensions.updates.retain(|waiting| waiting.folder != folder);
         extensions.installed.push(extension.clone());
         extensions.installed.sort_by(|a, b| a.folder.cmp(&b.folder));
         if let Some(error) = problems.into_iter().next() {
@@ -561,6 +586,176 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
         extension,
         replaced: previous.map(|previous| previous.version),
     })
+}
+
+/// Checks the stores for updates at startup and then every
+/// [`UPDATE_INTERVAL`], while `checkExtensionUpdates` is on. Never returns,
+/// so it needs a thread of its own. A check that fails reports nothing: the
+/// next one tries again.
+pub fn check_on_schedule(app: &tauri::AppHandle) {
+    loop {
+        let on = app
+            .state::<AppState>()
+            .settings
+            .read()
+            .is_ok_and(|settings| settings.check_extension_updates);
+        if on {
+            let _ = check_updates(app);
+        }
+        std::thread::sleep(UPDATE_INTERVAL);
+    }
+}
+
+/// Asks each store for newer versions of the installed extensions that came
+/// from it, telling it only of those, and installs each one found that asks
+/// for no access its installed version did not. One that does is kept in
+/// [`Extensions::updates`] for the user to review. Blocks.
+/// [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).
+///
+/// A failure stops only the store or the extension it is about; the first is
+/// answered in [`ExtensionUpdateCheck::error`].
+pub fn check_updates(app: &tauri::AppHandle) -> ExtensionUpdateCheck {
+    let _checking = CHECKING.lock().unwrap_or_else(PoisonError::into_inner);
+    let state = app.state::<AppState>();
+    let mut outcome = ExtensionUpdateCheck::default();
+    let installed = match read(&state) {
+        Ok(extensions) => extensions.installed,
+        Err(error) => {
+            outcome.error = Some(error);
+            return outcome;
+        }
+    };
+    let engine = engine_version();
+    for store in ExtensionStore::ALL {
+        // An id and a version go into the request as they are, so only well
+        // formed ones are asked about.
+        let from_store: Vec<&Extension> = installed
+            .iter()
+            .filter(|extension| is_extension_id(&extension.id) && is_version(&extension.version))
+            .filter(|extension| {
+                package::read_manifest(&state.paths.extensions.join(&extension.folder).join("manifest.json"))
+                    .ok()
+                    .and_then(|manifest| ExtensionStore::of_manifest(&manifest))
+                    == Some(store)
+            })
+            .collect();
+        if from_store.is_empty() {
+            continue;
+        }
+        let url = store.update_check_url(
+            from_store
+                .iter()
+                .map(|extension| (extension.id.as_str(), extension.version.as_str())),
+            &engine,
+        );
+        let answer = match net::fetch_bytes(&url, UPDATE_CHECK_TIMEOUT, UPDATE_CHECK_LIMIT) {
+            Ok(answer) => String::from_utf8_lossy(&answer).into_owned(),
+            Err(error) => {
+                outcome.error.get_or_insert_with(|| {
+                    HakuError::Unsupported(format!("{} could not be asked for updates: {error}", store.name()))
+                });
+                continue;
+            }
+        };
+        for offered in parse_update_check(&answer) {
+            let Some(extension) = from_store.iter().find(|extension| extension.id == offered.id) else {
+                continue;
+            };
+            // A store cannot take an extension back to an older version.
+            if compare_versions(&offered.version, &extension.version) != Order::Greater {
+                continue;
+            }
+            match update_from_store(app, store, extension, &offered) {
+                Ok(Updated::Installed(added)) => outcome.updated.push(added),
+                Ok(Updated::Waiting(waiting)) => outcome.waiting.push(waiting),
+                Ok(Updated::Changed) => {}
+                Err(error) => {
+                    outcome.error.get_or_insert(error);
+                }
+            }
+        }
+    }
+    if !outcome.updated.is_empty() || !outcome.waiting.is_empty() {
+        announce(app);
+    }
+    outcome
+}
+
+/// What became of an update a store offered.
+enum Updated {
+    Installed(AddedExtension),
+    /// It asks for new access, so it waits for review.
+    Waiting(ExtensionUpdate),
+    /// The extension changed while the update downloaded, as when it was
+    /// updated or removed from settings, so the update was not used.
+    Changed,
+}
+
+/// Downloads the update `offered` of `installed` from `store`, checks it as a
+/// store download is, and installs it, unless it asks for access the
+/// installed version did not.
+fn update_from_store(
+    app: &tauri::AppHandle,
+    store: ExtensionStore,
+    installed: &Extension,
+    offered: &AvailableUpdate,
+) -> Result<Updated> {
+    let what = format!("the update of {}", installed.name);
+    let bytes = download(store, &offered.url, &what)?;
+    if let Some(expected) = &offered.sha256 {
+        let actual: String = sha2::Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        if actual != *expected {
+            return Err(HakuError::Unsupported(format!(
+                "{what} from {} is not the file the store named; it may have been changed",
+                store.name()
+            )));
+        }
+    }
+    package::verify_store_crx(&bytes, &installed.id, store)?;
+
+    let state = app.state::<AppState>();
+    let _turn = lock(&state);
+    let root = &state.paths.extensions;
+    let staging = root.join(format!(".updating-{}", now_ms()));
+    let outcome = (|| {
+        package::unpack(&bytes, &staging)?;
+        ensure_manifest_id(&staging, &installed.id, store)?;
+        let found = inspect(&state, &staging)?;
+        let unchanged = found.previous.as_ref().is_some_and(|previous| {
+            previous.id == installed.id && previous.folder == installed.folder && previous.version == installed.version
+        });
+        if !unchanged {
+            return Ok(Updated::Changed);
+        }
+        // Without the installed manifest, nothing tells what is new, so the
+        // user is asked.
+        let new_access = match package::read_manifest(&root.join(&installed.folder).join("manifest.json")) {
+            Ok(before) => extension_access::warnings(&found.manifest, Some(&before))
+                .iter()
+                .any(|warning| warning.new),
+            Err(_) => true,
+        };
+        if new_access {
+            let waiting = ExtensionUpdate {
+                id: installed.id.clone(),
+                folder: installed.folder.clone(),
+                version: version(&found.manifest),
+                store,
+            };
+            update(&state, |extensions| {
+                extensions.updates.retain(|other| other.folder != waiting.folder);
+                extensions.updates.push(waiting.clone());
+            })?;
+            return Ok(Updated::Waiting(waiting));
+        }
+        place(app, &state, &staging).map(Updated::Installed)
+    })();
+    // Gone already when it took the extension's place.
+    discard(Some(staging));
+    outcome
 }
 
 /// Uninstalls the extension in `folder`, with what it stored, and deletes the
@@ -593,6 +788,7 @@ pub fn remove(app: &tauri::AppHandle, folder: &str) -> Result<()> {
         update(&state, |extensions| {
             extensions.installed.retain(|extension| extension.folder != folder);
             extensions.failed.retain(|failed| failed.folder != folder);
+            extensions.updates.retain(|waiting| waiting.folder != folder);
         })?;
 
         // Listed by the state, which is only ever filled from the folder's

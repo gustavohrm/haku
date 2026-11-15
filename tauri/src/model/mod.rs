@@ -38,7 +38,9 @@ pub use extension::{
     FailedExtension, ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
 pub use extension_access::{AccessWarning, ExtensionAccess};
-pub use extension_store::ExtensionStore;
+pub use extension_store::{
+    compare_versions, parse_update_check, AvailableUpdate, ExtensionStore, ExtensionUpdate, ExtensionUpdateCheck,
+};
 pub use find::{check_query, FindDirection, FIND_QUERY_MAX};
 pub use history::{Commit, History, NavigationKind, NavigationSource, Transition, Visit};
 pub use history_rules::{CompiledRules, HistoryRetention, HistoryRule, HistoryRuleAction, HistoryRules, Recording};

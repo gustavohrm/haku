@@ -1,4 +1,4 @@
-import { type Extension, type ExtensionToAdd, type Settings } from "@bindings";
+import { type Extension, type ExtensionToAdd, type ExtensionUpdateCheck, type Settings } from "@bindings";
 import { type MenuRequest } from "@features/context-menu/store";
 import { extensionsStore } from "@ipc/store";
 import { act } from "react";
@@ -7,21 +7,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type UpdateSettings } from "./types";
 
-const { commands, openMenu, success } = vi.hoisted(() => ({
+const { commands, openMenu, success, info, notifyFailure } = vi.hoisted(() => ({
   commands: {
     removeExtension: vi.fn(async () => ({ status: "ok", data: null })),
     addExtension: vi.fn(async (): Promise<unknown> => ({ status: "ok", data: null })),
     confirmExtension: vi.fn(async (): Promise<unknown> => ({ status: "ok", data: null })),
+    addExtensionFromStore: vi.fn(async (): Promise<unknown> => ({ status: "ok", data: null })),
+    checkExtensionUpdates: vi.fn(async (): Promise<unknown> => ({ status: "ok", data: null })),
     openTab: vi.fn(),
   },
   openMenu: vi.fn(),
   success: vi.fn(),
+  info: vi.fn(),
+  notifyFailure: vi.fn(),
 }));
 vi.mock("@ipc/commands", () => ({ commands }));
 vi.mock("@features/context-menu/store", () => ({ openMenu }));
-vi.mock("@features/feedback/feedback", () => ({ feedback: () => ({ success }), reportUnexpected: vi.fn() }));
+vi.mock("@features/feedback/feedback", () => ({
+  feedback: () => ({ success, info }),
+  notifyFailure,
+  reportUnexpected: vi.fn(),
+}));
 
-const { AddExtensionControl, ExtensionsControl } = await import("./controls");
+const { AddExtensionControl, ExtensionUpdatesControl, ExtensionsControl } = await import("./controls");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -49,6 +57,7 @@ describe("ExtensionsControl", () => {
       installed: [EXTENSION],
       failed: [{ folder: "broken", error: { kind: "Unsupported", message: "no manifest" } }],
       error: null,
+      updates: [],
     });
     const settings = { disabledExtensions: [], pinnedExtensions: [] } as unknown as Settings;
     act(() =>
@@ -139,7 +148,7 @@ describe("adding an extension", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    extensionsStore.set({ installed: [EXTENSION], failed: [], error: null });
+    extensionsStore.set({ installed: [EXTENSION], failed: [], error: null, updates: [] });
     act(() =>
       root.render(
         <>
@@ -241,5 +250,114 @@ describe("adding an extension", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(button("File…")?.disabled).toBe(false);
     expect(success).not.toHaveBeenCalled();
+  });
+});
+
+describe("updates from the stores", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const update = vi.fn<UpdateSettings>(async () => null);
+  const props = {
+    settings: { disabledExtensions: [], pinnedExtensions: [], checkExtensionUpdates: true } as unknown as Settings,
+    update,
+    id: "c",
+    labelId: "l",
+    describedBy: undefined,
+    disabled: false,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    extensionsStore.set({
+      installed: [EXTENSION],
+      failed: [],
+      error: null,
+      updates: [{ id: "abc", folder: "reader", version: "2.0", store: "chrome" }],
+    });
+    act(() =>
+      root.render(
+        <>
+          <ExtensionUpdatesControl {...props} />
+          <ExtensionsControl {...props} />
+        </>,
+      ),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    extensionsStore.set(null);
+  });
+
+  const button = (name: string) =>
+    [...container.querySelectorAll("button")].find((element) => element.textContent === name);
+  const check = async (data: ExtensionUpdateCheck) => {
+    commands.checkExtensionUpdates.mockResolvedValueOnce({ status: "ok", data });
+    await act(async () => button("Check now")!.click());
+  };
+
+  it("turns the automatic checks off with the switch", () => {
+    const toggle = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(toggle.checked).toBe(true);
+    act(() => toggle.click());
+    expect(update).toHaveBeenCalledWith({ checkExtensionUpdates: false });
+  });
+
+  it("says when every extension is up to date", async () => {
+    await check({ updated: [], waiting: [], error: null });
+    expect(commands.checkExtensionUpdates).toHaveBeenCalledOnce();
+    expect(success).toHaveBeenCalledWith({ title: "Your extensions are up to date" });
+    expect(button("Check now")?.disabled).toBe(false);
+  });
+
+  it("names each extension it updated and counts those waiting", async () => {
+    await check({
+      updated: [{ extension: { ...EXTENSION, version: "2.0" }, replaced: "1.0" }],
+      waiting: [
+        { id: "def", folder: "notes", version: "3.0", store: "edge" },
+        { id: "ghi", folder: "tabs", version: "1.1", store: "chrome" },
+      ],
+      error: null,
+    });
+    expect(success).toHaveBeenCalledWith({ title: "Reader updated", description: expect.stringContaining("1.0") });
+    expect(info).toHaveBeenCalledWith(expect.objectContaining({ title: "2 extension updates wait for your review" }));
+    expect(success).not.toHaveBeenCalledWith({ title: "Your extensions are up to date" });
+  });
+
+  it("reports a store that failed, and not that all are up to date", async () => {
+    const error = { kind: "Unsupported", message: "offline" } as const;
+    await check({ updated: [], waiting: [], error });
+    expect(notifyFailure).toHaveBeenCalledWith(error);
+    expect(success).not.toHaveBeenCalled();
+  });
+
+  it("shows a waiting update on its row and asks about it there on Review update", async () => {
+    const row = button("Review update")!.closest("li")!;
+    expect(row.textContent).toContain("Update to 2.0 waiting");
+
+    commands.addExtensionFromStore.mockResolvedValueOnce({
+      status: "ok",
+      data: {
+        token: 9,
+        name: "Reader",
+        version: "2.0",
+        icon: null,
+        replaces: EXTENSION,
+        warnings: [{ access: { kind: "downloads" }, new: true }],
+      },
+    });
+    await act(async () => button("Review update")!.click());
+    expect(commands.addExtensionFromStore).toHaveBeenCalledWith("chrome", "abc");
+    const question = container.querySelector('[role="alert"]');
+    expect(question?.closest("li")?.textContent).toContain("Reader");
+    expect(question?.textContent).toContain("Manage your downloads · New in this version");
+    expect(button("Check now")?.disabled).toBe(true);
+
+    await act(async () => button("Cancel")!.click());
+    expect(commands.confirmExtension).toHaveBeenCalledWith(9, false);
   });
 });

@@ -273,6 +273,15 @@ export const en = {
   "settings.extensions.updateFile": "Update from a file…",
   "settings.extensions.updateFolder": "Update from a folder…",
   "settings.extensions.uninstall": "Uninstall…",
+  "settings.extensions.updateWaiting": "Update to {version} waiting",
+  "settings.extensions.reviewUpdate": "Review update",
+  "settings.extensions.updates": "Extension updates",
+  "settings.extensions.updates.help":
+    "Extensions added from the Chrome Web Store or Microsoft Edge Add-ons are checked for updates when Haku starts and every day, by asking the store they came from. An update that asks for more access waits here for you to review it.",
+  "settings.extensions.updates.keywords": "update, upgrade, new version, automatic, store, check",
+  "settings.extensions.updates.auto": "Check for updates automatically",
+  "settings.extensions.updates.check": "Check now",
+  "settings.extensions.updates.checking": "Checking…",
   "settings.extensions.folderTitle": "Extensions folder",
   "settings.extensions.folder.help":
     "Where extensions are kept, one folder each. Changes made there by hand apply when Haku next starts.",
@@ -355,6 +364,11 @@ export const en = {
   "extensions.updated": "{name} updated",
   "extensions.updated.versions": "From {from} to {to}, with its data kept.",
   "extensions.updated.same": "Reinstalled {version}, with its data kept.",
+  "extensions.updates.none": "Your extensions are up to date",
+  "extensions.updates.waiting.one": "An extension update waits for your review",
+  "extensions.updates.waiting.many": "{count} extension updates wait for your review",
+  "extensions.updates.waiting.help":
+    "An update that asks for more access is installed only once you review it, under Installed extensions.",
   "extensions.uninstall.message": "Its data in Haku, such as its settings and sign-ins, is deleted with it.",
   "extensions.uninstall.failedMessage": "The folder {folder} and everything in it is deleted.",
   "extensions.uninstall.confirm": "Uninstall",
