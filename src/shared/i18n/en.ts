@@ -260,7 +260,7 @@ export const en = {
   "settings.extensions.keywords": "add-ons, plugins, uninstall, remove, options, pin, switch off",
   "settings.extensions.empty": "No extensions yet.",
   "settings.extensions.empty.help":
-    "Open an extension's page in the Chrome Web Store and choose Add to Haku in the toolbar, or download it as a .crx file, or as the .zip its developer releases, then add it above.",
+    "Open an extension's page in the Chrome Web Store or Microsoft Edge Add-ons and choose Add to Haku in the toolbar, or download it as a .crx file, or as the .zip its developer releases, then add it above.",
   "settings.extensions.failed": "Could not install",
   "settings.extensions.error": "Something went wrong with extensions:",
   "settings.extensions.actions": "More for {name}",

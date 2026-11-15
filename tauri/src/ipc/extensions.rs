@@ -18,8 +18,8 @@ use tauri_specta::Event;
 use crate::error::{HakuError, Result};
 use crate::model::{
     data_url, default_locale, display_name, extension_access, folder_name, icon_file, id_from_key, is_extension_id,
-    key, options_url, popup_url, store_download_url, version, AddedExtension, Extension, ExtensionSource,
-    ExtensionToAdd, Extensions, FailedExtension,
+    key, options_url, popup_url, version, AddedExtension, Extension, ExtensionSource, ExtensionStore, ExtensionToAdd,
+    Extensions, FailedExtension,
 };
 use crate::net;
 use crate::platform;
@@ -35,8 +35,8 @@ use super::events::ExtensionsChanged;
 const FOLDER_ATTEMPTS: u32 = 10;
 const FOLDER_RETRY: Duration = Duration::from_millis(100);
 
-/// The longest a download from the Chrome Web Store is waited on. Extensions
-/// are a few megabytes; Bitwarden's, among the larger, is about 30.
+/// The longest a download from a store is waited on. Extensions are a few
+/// megabytes; Bitwarden's, among the larger, is about 30.
 const STORE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The engine version the store is told when the engine's own cannot be
@@ -230,34 +230,43 @@ pub fn add(app: &tauri::AppHandle, window: &tauri::Window, source: ExtensionSour
     .map(Some)
 }
 
-/// Downloads extension `id` from the Chrome Web Store, checks it is the one
-/// the store signed, and unpacks it without installing it, answering what it
-/// may do, for the user to confirm with [`confirm`].
+/// Downloads extension `id` from `store`, checks it is the one the store
+/// signed, and unpacks it without installing it, answering what it may do,
+/// for the user to confirm with [`confirm`].
 ///
 /// # Errors
 /// Fails when `id` is not an extension id, the download fails, or it is not
 /// signed by the store and the extension. Nothing is kept then.
-pub fn add_from_store(app: &tauri::AppHandle, id: &str) -> Result<ExtensionToAdd> {
+pub fn add_from_store(app: &tauri::AppHandle, store: ExtensionStore, id: &str) -> Result<ExtensionToAdd> {
     if !is_extension_id(id) {
         return Err(HakuError::Unsupported(format!("not an extension id: {id}")));
     }
-    // Any recent engine is answered with the extension's newest version.
-    let engine = tauri::webview_version().unwrap_or_else(|_| FALLBACK_ENGINE_VERSION.into());
-    let limit = package::MAX_SIZE as u64;
-    let bytes = net::fetch_bytes(&store_download_url(id, &engine), STORE_TIMEOUT, limit)
-        .map_err(|error| HakuError::Unsupported(format!("the Chrome Web Store did not send the extension: {error}")))?;
-    package::verify_store_crx(&bytes, id)?;
+    let bytes = download(store, &store.download_url(id, &engine_version()), "the extension")?;
+    package::verify_store_crx(&bytes, id, store)?;
     stage(app, |staging| {
         package::unpack(&bytes, staging)?;
-        ensure_manifest_id(staging, id)
+        ensure_manifest_id(staging, id, store)
     })
+}
+
+/// The engine's version, which a store needs to choose a build. Any recent
+/// engine is answered with an extension's newest version.
+fn engine_version() -> String {
+    tauri::webview_version().unwrap_or_else(|_| FALLBACK_ENGINE_VERSION.into())
+}
+
+/// Downloads `what` from `url`, as `store` sends it, up to the size a picked
+/// file may have.
+fn download(store: ExtensionStore, url: &str, what: &str) -> Result<Vec<u8>> {
+    net::fetch_bytes(url, STORE_TIMEOUT, package::MAX_SIZE as u64)
+        .map_err(|error| HakuError::Unsupported(format!("{} did not send {what}: {error}", store.name())))
 }
 
 /// Fails unless the manifest unpacked in `staging` has a `key` whose id is
 /// `id`. A manifest `key` is kept over the header's, and decides which
 /// installed extension a download updates, so a store download's must be the
 /// id it was asked for.
-fn ensure_manifest_id(staging: &Path, id: &str) -> Result<()> {
+fn ensure_manifest_id(staging: &Path, id: &str, store: ExtensionStore) -> Result<()> {
     let manifest = package::read_manifest(&staging.join("manifest.json"))?;
     let key_id = key(&manifest)
         .and_then(|key| package::decode_key(&key))
@@ -265,9 +274,10 @@ fn ensure_manifest_id(staging: &Path, id: &str) -> Result<()> {
     if key_id.as_deref() == Some(id) {
         Ok(())
     } else {
-        Err(HakuError::Unsupported(
-            "the download from the Chrome Web Store names another extension in its manifest".into(),
-        ))
+        Err(HakuError::Unsupported(format!(
+            "the download from {} names another extension in its manifest",
+            store.name()
+        )))
     }
 }
 
@@ -723,15 +733,21 @@ mod tests {
         let manifest = |manifest: &str| std::fs::write(staging.join("manifest.json"), manifest).unwrap();
 
         manifest(&format!(r#"{{"name": "A", "key": "{key}"}}"#));
-        assert!(ensure_manifest_id(&staging, &id).is_ok());
+        assert!(ensure_manifest_id(&staging, &id, ExtensionStore::Chrome).is_ok());
         assert!(
-            ensure_manifest_id(&staging, &"a".repeat(32)).is_err(),
+            ensure_manifest_id(&staging, &"a".repeat(32), ExtensionStore::Chrome).is_err(),
             "another extension's key"
         );
         manifest(r#"{"name": "A"}"#);
-        assert!(ensure_manifest_id(&staging, &id).is_err(), "no key");
+        assert!(
+            ensure_manifest_id(&staging, &id, ExtensionStore::Chrome).is_err(),
+            "no key"
+        );
         manifest(r#"{"name": "A", "key": "not base64!"}"#);
-        assert!(ensure_manifest_id(&staging, &id).is_err(), "a key that does not decode");
+        assert!(
+            ensure_manifest_id(&staging, &id, ExtensionStore::Chrome).is_err(),
+            "a key that does not decode"
+        );
 
         std::fs::remove_dir_all(&staging).unwrap();
     }

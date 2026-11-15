@@ -309,12 +309,12 @@ export const commands = {
 	replaced: string | null,
 } | null, HakuError>(__TAURI_INVOKE("confirm_extension", { token, install })),
 	/**
-	 *  Downloads extension `id` from the Chrome Web Store and unpacks it once its
-	 *  signatures hold, answering what it may do, as `add_extension` does. Refused
-	 *  for a private window, where extensions do not run and nothing it does is
-	 *  meant to reach a third party.
+	 *  Downloads extension `id` from `store` and unpacks it once its signatures
+	 *  hold, answering what it may do, as `add_extension` does. Refused for a
+	 *  private window, where extensions do not run and nothing it does is meant
+	 *  to reach a third party.
 	 */
-	addExtensionFromStore: (id: string) => typedError<ExtensionToAdd, HakuError>(__TAURI_INVOKE("add_extension_from_store", { id })),
+	addExtensionFromStore: (store: ExtensionStore, id: string) => typedError<ExtensionToAdd, HakuError>(__TAURI_INVOKE("add_extension_from_store", { store, id })),
 	/**
 	 *  Uninstalls the extension installed from `folder`, with what it stored, and
 	 *  deletes the folder; or deletes a folder that failed to install.
@@ -856,6 +856,13 @@ export type ExtensionSource =
 "file" | 
 /**  An unpacked extension: a folder holding its `manifest.json`. */
 "folder";
+
+/**  A store Haku adds extensions from. */
+export type ExtensionStore = 
+/**  The Chrome Web Store. */
+"chrome" | 
+/**  Microsoft Edge Add-ons. */
+"edge";
 
 /**
  *  An extension `add_extension` has unpacked and not yet installed, for the

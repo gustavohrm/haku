@@ -1,4 +1,4 @@
-import { type ExtensionSource, type ExtensionToAdd } from "@bindings";
+import { type ExtensionSource, type ExtensionStore, type ExtensionToAdd } from "@bindings";
 import { feedback } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { t } from "@shared/i18n";
@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
 
 /**
  * Adding, updating and uninstalling extensions from settings, and adding
- * them from the Chrome Web Store, one at a time.
+ * them from a store, one at a time.
  *
  * Rust serializes the changes anyway; this keeps their buttons disabled while
  * one runs, wherever they are, so a second click does not queue a second
@@ -97,14 +97,15 @@ export async function addExtension(source: ExtensionSource): Promise<void> {
 }
 
 /**
- * Downloads an extension from the Chrome Web Store and checks it, then waits
- * for {@link answerExtension} while the toolbar shows what it may do. Adding
+ * Downloads an extension from a store and checks it, then waits for
+ * {@link answerExtension} while the toolbar shows what it may do. Adding
  * stays busy until then. A failure is reported by the command.
- * [Extensions § From the Chrome Web Store](../../../docs/specs/extensions.md#from-the-chrome-web-store).
+ * [Extensions § From the stores](../../../docs/specs/extensions.md#from-the-stores).
  *
+ * @param store - The store the extension is in.
  * @param id - The extension's id in the store.
  */
-export async function addFromStore(id: string): Promise<void> {
+export async function addFromStore(store: ExtensionStore, id: string): Promise<void> {
   if (busy !== null) {
     return;
   }
@@ -113,7 +114,7 @@ export async function addFromStore(id: string): Promise<void> {
   storeLeft = false;
   let waiting: ExtensionToAdd | null = null;
   try {
-    const result = await commands.addExtensionFromStore(id);
+    const result = await commands.addExtensionFromStore(store, id);
     waiting = result.status === "ok" ? result.data : null;
   } finally {
     storeDownloading = false;
