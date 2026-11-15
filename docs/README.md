@@ -56,7 +56,7 @@ Every document in `docs/` is listed here. Adding, moving, or deleting one update
 | [Chrome layering](specs/chrome-layering.md)      | How the interface renders above page content.                 |
 | [Page observation](specs/page-observation.md)    | How page URLs become tab history; page dialogs.               |
 | [Shortcuts](specs/shortcuts.md)                  | The keymap, rebinding, key handling, reopening closed tabs.   |
-| [Extensions](specs/extensions.md)                | Installing unpacked extensions, the toolbar, popups.          |
+| [Extensions](specs/extensions.md)                | Installing, what an extension may do, the toolbar, popups.    |
 | [Windows and popups](specs/new-windows.md)       | Browser windows, popups, and links that open them.            |
 | [Errors](specs/errors.md)                        | How failures are represented.                                 |
 | [Crash recovery](specs/crash-recovery.md)        | Crashed pages, a crashed interface, a failed engine.          |

@@ -1,12 +1,12 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-12
-scope: How Chrome extensions are added, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
+last_updated: 2026-11-15
+scope: How Chrome extensions are added, from disk or the Chrome Web Store, shown with what they may do, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
 ---
 
 # Extensions
 
-[First release § Extensions](../first-release.md#extensions) settles the approach: no store, unpacked Chrome extensions through WebView2's own extension support, at the user's own risk. This covers the second tier, Chrome extensions. User scripts and styles are not built.
+[First release § Extensions](../first-release.md#extensions) settles the approach: Chrome extensions through WebView2's own extension support, added from disk or from the Chrome Web Store, each shown with what it may do before it is installed. This covers the second tier, Chrome extensions. User scripts and styles are not built.
 
 ## Installing
 
@@ -35,9 +35,9 @@ Settings has **Add extension**, which offers a packed extension, a `.crx` or `.z
 
 Rejected: dropping a file onto settings. A drop onto the chrome webview needs its HTML drop handling, which [`tauri/AGENTS.md`](../../tauri/AGENTS.md) records as a way for a dropped link to navigate the chrome.
 
-The extension is unpacked, or copied, into a staging folder inside `extensions/`, named with a leading `.`. A `.zip` whose files sit in one top folder, as some release archives do, is unpacked from inside it. What it holds must have a `manifest.json`, or nothing is added. A file larger than 512 MB, or one whose files declare more than that in total, is refused before it is unpacked: extensions are a few megabytes, and unpacking happens in memory, so the limit stops a crafted archive from exhausting it. The read itself stops one byte past the limit, for a file that grows after its size is checked. A `manifest.json`, or a `messages.json`, larger than 4 MB is refused; the largest seen is 438 kB (decided 2026-11-12). A `.crx` is a `.zip` with a signed header before it; the header is not verified, since the user picked the file, but the public key it is signed with is written into the manifest as `key` when the manifest has none. That gives the extension the id it has in the Chrome Web Store, whatever its folder, so a later version keeps what it stored.
+The extension is unpacked, or copied, into a staging folder inside `extensions/`, named with a leading `.`. A `.zip` whose files sit in one top folder, as some release archives do, is unpacked from inside it. What it holds must have a `manifest.json`, or nothing is added. A file larger than 512 MB, or one whose files declare more than that in total, is refused before it is unpacked: extensions are a few megabytes, and unpacking happens in memory, so the limit stops a crafted archive from exhausting it. The read itself stops one byte past the limit, for a file that grows after its size is checked. A `manifest.json`, or a `messages.json`, larger than 4 MB is refused; the largest seen is 438 kB (decided 2026-11-12). A `.crx` is a `.zip` with a signed header before it; the header of a file the user picked is not verified, since they chose it, while a download from the store is ([From the Chrome Web Store](#from-the-chrome-web-store)), but the public key it is signed with is written into the manifest as `key` when the manifest has none. That gives the extension the id it has in the Chrome Web Store, whatever its folder, so a later version keeps what it stored.
 
-The staging folder then becomes `extensions/<name>`, where `<name>` is the extension's name in lower case, with every run of other characters than letters and digits made one `-`. A name the manifest takes from its locale messages, `__MSG_…__`, is read from its `default_locale`.
+Nothing is installed yet: settings asks first, as [Before installing](#before-installing) describes, and a **Cancel** deletes the staging folder. Once the user agrees, the staging folder becomes `extensions/<name>`, where `<name>` is the extension's name in lower case, with every run of other characters than letters and digits made one `-`. A name the manifest takes from its locale messages, `__MSG_…__`, is read from its `default_locale`.
 
 An extension is an **update** of one already installed when its id, known before installing only from a `key`, matches, or else when its folder name does, numbered or not, and at most one of the two has a `key`: the same name is taken to be the same extension, preferring one that has no `key` either. Two extensions that both have a `key` are the same only when their keys are, so one never replaces another of the same name; a new extension whose folder name is taken gets the first free one with a number after it, such as `dark-reader-2`.
 
@@ -45,7 +45,41 @@ For an update, the installed one is switched off, its folder is set aside under 
 
 An update whose id changes, which happens when its `key` gives another id than the installed one's, including when a key is added or removed, uninstalls the old id, with what it stored, since nothing else would. Its switch and its pin, kept by id, do not follow it.
 
-The command answers with the extension and, for an update, the version it replaced, and settings says which happened. Every change from settings is serialized with the others and with installing at startup.
+`confirm_extension` answers with the extension and, for an update, the version it replaced, and settings says which happened. Every change from settings is serialized with the others and with installing at startup.
+
+## From the Chrome Web Store
+
+While the tab shows an extension's page in the Chrome Web Store, the toolbar has **Add to Haku**, drawn by the chrome. The page is one under `https://chromewebstore.google.com/detail/`, by the extension's name and id or by its id alone, or under the store's old address, `https://chrome.google.com/webstore/detail/`; the id, 32 letters from `a` to `p`, is read from the address. A private window has no button, and `add_extension_from_store` refuses one too: an extension added there would outlast it. The store's own **Add to Chrome** does nothing in Haku, since the store offers it only to Chrome.
+
+`add_extension_from_store` takes only the id. Rust checks it, then downloads the extension from the store's update service, `https://clients2.google.com/service/update2/crx`, asking for the CRX3 format and giving the engine's version, which the service needs to choose a build; it redirects to Google's download host. The request is made only when the user asks, carries no cookie and no other state, and tells Google the id and the engine's version. It waits at most two minutes and reads at most the 512 MB a picked file may have.
+
+The download is installed only when its signatures check out:
+
+- It is a CRX3 file, and every signature in its header verifies, over the header's signed data and the archive, against the key it comes with.
+- One of them is by the store's publisher key, the ECDSA P-256 key whose SHA-256 Chromium records as `kPublisherKeyHash`. That is what says the file came from the store, unchanged.
+- One of them is by the extension's own key, whose id is the one asked for, as the header's id says too.
+
+A download that fails any of these is refused with why, and nothing is unpacked. One that passes is unpacked as a picked `.crx` is, with its key written into the manifest. A manifest that already has a `key` keeps it, and that key decides which installed extension the download updates, so one whose id is not the one asked for is refused too. It is then asked about as any extension is ([Before installing](#before-installing)). The question hangs under the button, as a menu would. Closing it any way but **Add**, such as Esc, a click elsewhere or the tab leaving the page, answers no; so does leaving the page while the download runs, once it arrives.
+
+Measured 2026-11-15 on uBlock Origin Lite: its download carried three signatures, two RSA and the store's ECDSA one, and all three verified. The ignored test `a_real_store_download_is_accepted` repeats the check on any download, named by `HAKU_STORE_CRX` and `HAKU_STORE_ID`.
+
+Rejected: a button drawn into the store's page by an injected script. The chrome would have to trust what the page says, which [Security § Page metadata comes from Rust](../guidelines/security.md#page-metadata-comes-from-rust) rules out, and a page could imitate it.
+
+## Before installing
+
+`add_extension` and `add_extension_from_store` answer with the extension unpacked, not installed: its name, version and icon, the installed extension it would update, and what its manifest lets it do. Settings, or the toolbar for the store, shows that, and `confirm_extension` installs it or deletes it. Nothing reaches the engine before the user agrees, so an extension cannot run until they have seen what it asks for.
+
+What it may do is read from the manifest: its `permissions`, its `host_permissions`, the host patterns Manifest V2 lists among its permissions, and the pages its content scripts match. Each permission that gives access worth knowing about becomes one sentence, following the permissions Chrome warns about, such as "Read your browsing history" for `tabs` or `webNavigation`. A permission that gives none, such as `storage` or `activeTab`, says nothing. One more is said than Chrome warns about: `browsingData`, which can delete the browsing history, cookies and cache, so it can wipe the profile. Sites come first: every site, when a pattern matches any host, `<all_urls>` included, or `proxy`, which sees all traffic; otherwise the hosts named, the first three by name and the rest counted. `file` and other schemes that reach no site are left out. An extension asking for nothing listed says so. `optional_permissions` are left out, since the extension asks for them while it runs. The sentences are Haku's own (decided 2026-11-15).
+
+For an update, an access the installed version did not ask for is marked **New in this version**, and a list of sites is marked when it names a host the installed version did not reach: `mail.example.com` is reached by `*.example.com`, while `*.example.com` is not by `example.com`. The scheme is not compared, as the sentence names sites, not schemes. The whole list is still shown, since the user is choosing the file again.
+
+The question is asked in place, as the [interface guidelines](../guidelines/interface.md) require: from settings, under the extension's row for an update, under **Add an extension** otherwise, or there too while a search hides the installed list; from the store, under **Add to Haku**. It says **Add** or **Update**, with **Cancel**, which takes focus; Esc answers no. Adding stays busy until it is answered, so the add, update and uninstall buttons stay disabled.
+
+Only the extension asked about last can be confirmed. `add_extension` and `add_extension_from_store` name it with a `token`, and a `confirm_extension` with any other token fails and installs nothing. Asking about another extension deletes the one waiting. The answer installs what the user was asked about: when the installed extension it would update has changed by then, as from another window, it is refused and nothing is installed. One left unanswered when Haku quits is in a `.` folder, which the next start deletes.
+
+Extensions placed in the folder by hand are installed at the next start without a question: the user put them there.
+
+Rejected: the system's own message box, which needed no new command. It cannot be laid out to list sites, and the interface guidelines keep a question where it was started.
 
 Haku does not look for new versions: an update is the user adding the newer file. The Web Store's update service would find them, at the cost of Haku contacting Google on a schedule, which [First release § Extensions](../first-release.md#extensions) has not decided.
 
@@ -65,8 +99,8 @@ An extension installed before Haku recorded them is not in the file, so deleting
 
 The Extensions section has three rows.
 
-- **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, and that adding a newer version of an installed extension updates it and keeps its data. It holds two buttons, **File…** and **Folder…**.
-- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**, which asks under the extension's row, saying what goes, with **Cancel**, which takes focus, and **Uninstall**; Esc answers no. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Uninstall…**, which asks on its row the same way. With nothing installed and nothing failed to load, the row says how to get an extension: download its `.crx` or release `.zip`, then add it.
+- **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, that adding a newer version of an installed extension updates it and keeps its data, that the access worth knowing about is listed before anything is installed, and that extensions are added at the user's own risk. It holds two buttons, **File…** and **Folder…**, and the question about a new extension ([Before installing](#before-installing)).
+- **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**, which asks under the extension's row, saying what goes, with **Cancel**, which takes focus, and **Uninstall**; Esc answers no. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Uninstall…**, which asks on its row the same way. With nothing installed and nothing failed to load, the row says how to get an extension: **Add to Haku** on its page in the Chrome Web Store, or download its `.crx` or release `.zip`, then add it.
 - **Extensions folder** opens the folder.
 
 Only one add or removal runs at a time. While one runs, the add, update and uninstall buttons are disabled; an add shows **Adding…**, and uninstalling shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.

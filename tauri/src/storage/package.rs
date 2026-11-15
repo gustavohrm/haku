@@ -194,6 +194,118 @@ fn crx3_key(header: &[u8]) -> Option<Vec<u8>> {
         .map(<[u8]>::to_vec)
 }
 
+/// The SHA-256 of the Chrome Web Store's own signing key, an ECDSA P-256 key.
+/// Chromium's `kPublisherKeyHash` in `components/crx_file/crx_verifier.cc`;
+/// the store's download of uBlock Origin Lite on 2026-11-15 was signed with
+/// it.
+const STORE_KEY_SHA256: [u8; 32] = [
+    0x61, 0xf7, 0xf2, 0xa6, 0xbf, 0xcf, 0x74, 0xcd, 0x0b, 0xc1, 0xfe, 0x24, 0x97, 0xcc, 0x9b, 0x04, 0x25, 0x4c, 0x65,
+    0x8f, 0x79, 0xf2, 0x14, 0x53, 0x92, 0x86, 0x7e, 0xa8, 0x36, 0x63, 0x67, 0xcf,
+];
+
+/// Checks that `bytes`, downloaded from the Chrome Web Store, is a CRX3 file
+/// of the extension `id`, signed by the store and by the extension's own key,
+/// as Chromium checks one: every signature in its header must hold.
+///
+/// # Errors
+/// Fails when it is not a CRX3 file, a signature does not hold, the store or
+/// the extension did not sign it, or it is another extension.
+pub fn verify_store_crx(bytes: &[u8], id: &str) -> Result<()> {
+    verify_crx3(bytes, id, &STORE_KEY_SHA256)
+}
+
+fn verify_crx3(bytes: &[u8], id: &str, store_key_sha256: &[u8; 32]) -> Result<()> {
+    let refused = |why: &str| HakuError::Unsupported(format!("the download from the Chrome Web Store {why}"));
+    if !bytes.starts_with(b"Cr24") || u32_at(bytes, 4) != Some(3) {
+        return Err(refused("is not a CRX3 file"));
+    }
+    let cut_short = || refused("has a damaged header");
+    let header_len = u32_at(bytes, 8).ok_or_else(cut_short)?;
+    let header = bytes.get(12..12 + header_len).ok_or_else(cut_short)?;
+    let archive = bytes.get(12 + header_len..).ok_or_else(cut_short)?;
+    let fields = protobuf_fields(header).ok_or_else(cut_short)?;
+    let signed = fields
+        .iter()
+        .find(|(number, _)| *number == 10000)
+        .map(|(_, signed)| *signed)
+        .ok_or_else(cut_short)?;
+    let crx_id = field(signed, 1).ok_or_else(cut_short)?;
+
+    // What each proof signs, as Chromium's verifier reads it: a context with
+    // its terminating NUL, the signed header data's length and the data, then
+    // the archive.
+    let signed_len = u32::try_from(signed.len()).map_err(|_| cut_short())?;
+    let message = [
+        b"CRX3 SignedData\0".as_slice(),
+        &signed_len.to_le_bytes(),
+        signed,
+        archive,
+    ]
+    .concat();
+
+    let mut developer = None;
+    let mut by_store = false;
+    // CrxFileHeader: sha256_with_rsa = 2, sha256_with_ecdsa = 3, each an
+    // AsymmetricKeyProof with public_key = 1 and signature = 2.
+    for (number, proof) in fields.iter().filter(|(number, _)| *number == 2 || *number == 3) {
+        let key = field(proof, 1).ok_or_else(cut_short)?;
+        let signature = field(proof, 2).ok_or_else(cut_short)?;
+        let algorithm: &dyn ring::signature::VerificationAlgorithm = if *number == 2 {
+            &ring::signature::RSA_PKCS1_2048_8192_SHA256
+        } else {
+            &ring::signature::ECDSA_P256_SHA256_ASN1
+        };
+        let raw = subject_public_key(key).ok_or_else(|| refused("names a key it cannot read"))?;
+        ring::signature::UnparsedPublicKey::new(algorithm, raw)
+            .verify(&message, signature)
+            .map_err(|_| refused("has a signature that does not match it; it may have been changed"))?;
+        let digest = sha2::Sha256::digest(key);
+        if digest.starts_with(crx_id) {
+            developer = Some(key);
+        }
+        by_store |= digest.as_slice() == store_key_sha256;
+    }
+    if !by_store {
+        return Err(refused("is not signed by the store"));
+    }
+    match developer {
+        Some(key) if crate::model::id_from_key(key) == id => Ok(()),
+        Some(_) => Err(refused("is another extension than the one asked for")),
+        None => Err(refused("is not signed by the extension's own key")),
+    }
+}
+
+/// The key inside a DER `SubjectPublicKeyInfo`: an RSA key as PKCS #1, or an
+/// elliptic-curve point, the forms `ring` verifies with.
+fn subject_public_key(info: &[u8]) -> Option<&[u8]> {
+    // A tag, a length in short or long form, and that many bytes.
+    fn element(bytes: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+        let (&tag, rest) = bytes.split_first()?;
+        let (&first, mut rest) = rest.split_first()?;
+        let len = if first < 0x80 {
+            usize::from(first)
+        } else {
+            let octets = usize::from(first & 0x7f);
+            if octets == 0 || octets > 4 {
+                return None;
+            }
+            let (len, after) = rest.split_at_checked(octets)?;
+            rest = after;
+            len.iter().fold(0, |len, &byte| len << 8 | usize::from(byte))
+        };
+        let (content, after) = rest.split_at_checked(len)?;
+        Some((tag, content, after))
+    }
+    // SEQUENCE { algorithm SEQUENCE, subjectPublicKey BIT STRING }
+    let (0x30, info, _) = element(info)? else { return None };
+    let (0x30, _, rest) = element(info)? else { return None };
+    let (0x03, bits, _) = element(rest)? else { return None };
+    match bits.split_first()? {
+        (0, key) => Some(key),
+        _ => None,
+    }
+}
+
 fn field(message: &[u8], number: u64) -> Option<&[u8]> {
     protobuf_fields(message)?
         .into_iter()
@@ -548,6 +660,102 @@ mod tests {
         let manifest = std::fs::read_to_string(folder.join("manifest.json")).unwrap();
         assert_eq!(crate::model::key(&manifest).as_deref(), Some("AAAA"));
         std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    /// A P-256 key pair, and its public key as a `SubjectPublicKeyInfo`.
+    fn p256_key() -> (ring::signature::EcdsaKeyPair, Vec<u8>) {
+        use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_ASN1_SIGNING};
+        let random = ring::rand::SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &random).unwrap();
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &random).unwrap();
+        // SEQUENCE { SEQUENCE { id-ecPublicKey, prime256v1 }, BIT STRING }
+        let info = [
+            &[
+                0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86,
+                0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+            ][..],
+            pair.public_key().as_ref(),
+        ]
+        .concat();
+        (pair, info)
+    }
+
+    /// A CRX3 file of `archive` signed by `signers`, naming `developer`'s id.
+    fn signed_crx3(signers: &[&(ring::signature::EcdsaKeyPair, Vec<u8>)], developer: &[u8], archive: &[u8]) -> Vec<u8> {
+        let signed = protobuf(1, &sha2::Sha256::digest(developer)[..16]);
+        let message = [
+            b"CRX3 SignedData\0".as_slice(),
+            &(signed.len() as u32).to_le_bytes(),
+            &signed,
+            archive,
+        ]
+        .concat();
+        let random = ring::rand::SystemRandom::new();
+        let mut header = Vec::new();
+        for (pair, info) in signers {
+            let signature = pair.sign(&random, &message).unwrap();
+            header.extend(protobuf(
+                3,
+                &[protobuf(1, info), protobuf(2, signature.as_ref())].concat(),
+            ));
+        }
+        header.extend(protobuf(10000, &signed));
+        let mut crx = b"Cr24".to_vec();
+        crx.extend(3u32.to_le_bytes());
+        crx.extend((header.len() as u32).to_le_bytes());
+        crx.extend(header);
+        crx.extend(archive);
+        crx
+    }
+
+    fn sha256(bytes: &[u8]) -> [u8; 32] {
+        sha2::Sha256::digest(bytes).into()
+    }
+
+    #[test]
+    fn a_store_download_signed_by_the_store_and_the_extension_is_accepted() {
+        let (store, extension) = (p256_key(), p256_key());
+        let archive = zip(&[("manifest.json", b"{}")]);
+        let crx = signed_crx3(&[&extension, &store], &extension.1, &archive);
+        let id = crate::model::id_from_key(&extension.1);
+
+        assert!(verify_crx3(&crx, &id, &sha256(&store.1)).is_ok());
+        let other = crate::model::id_from_key(&store.1);
+        assert!(verify_crx3(&crx, &other, &sha256(&store.1)).is_err(), "another id");
+    }
+
+    #[test]
+    fn a_store_download_missing_a_signer_is_refused() {
+        let (store, extension) = (p256_key(), p256_key());
+        let archive = zip(&[("manifest.json", b"{}")]);
+        let id = crate::model::id_from_key(&extension.1);
+
+        let unsigned_by_store = signed_crx3(&[&extension], &extension.1, &archive);
+        assert!(verify_crx3(&unsigned_by_store, &id, &sha256(&store.1)).is_err());
+        let unsigned_by_extension = signed_crx3(&[&store], &extension.1, &archive);
+        assert!(verify_crx3(&unsigned_by_extension, &id, &sha256(&store.1)).is_err());
+    }
+
+    #[test]
+    fn a_changed_store_download_is_refused() {
+        let (store, extension) = (p256_key(), p256_key());
+        let id = crate::model::id_from_key(&extension.1);
+        let mut crx = signed_crx3(&[&extension, &store], &extension.1, &zip(&[("manifest.json", b"{}")]));
+        let last = crx.len() - 1;
+        crx[last] ^= 1;
+        assert!(verify_crx3(&crx, &id, &sha256(&store.1)).is_err());
+        // A zip, or a CRX2, has no store signature at all.
+        assert!(verify_crx3(&zip(&[("manifest.json", b"{}")]), &id, &sha256(&store.1)).is_err());
+    }
+
+    /// Checks a real store download: `HAKU_STORE_CRX` names the file and
+    /// `HAKU_STORE_ID` the extension's id.
+    #[test]
+    #[ignore = "needs a file downloaded from the Chrome Web Store"]
+    fn a_real_store_download_is_accepted() {
+        let path = std::env::var("HAKU_STORE_CRX").unwrap();
+        let id = std::env::var("HAKU_STORE_ID").unwrap();
+        verify_store_crx(&std::fs::read(path).unwrap(), &id).unwrap();
     }
 
     #[test]

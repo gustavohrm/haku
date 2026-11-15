@@ -8,7 +8,8 @@
 //! the UI thread.
 
 use std::path::{Path, PathBuf};
-use std::sync::{MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use tauri::Manager;
@@ -16,9 +17,11 @@ use tauri_specta::Event;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    data_url, default_locale, display_name, folder_name, icon_file, id_from_key, key, options_url, popup_url, version,
-    AddedExtension, Extension, ExtensionSource, Extensions, FailedExtension,
+    data_url, default_locale, display_name, extension_access, folder_name, icon_file, id_from_key, is_extension_id,
+    key, options_url, popup_url, store_download_url, version, AddedExtension, Extension, ExtensionSource,
+    ExtensionToAdd, Extensions, FailedExtension,
 };
+use crate::net;
 use crate::platform;
 use crate::state::{now_ms, AppState};
 use crate::storage::{self, package, InstalledExtension, InstalledExtensions};
@@ -31,6 +34,26 @@ use super::events::ExtensionsChanged;
 /// after an extension is switched off or removed.
 const FOLDER_ATTEMPTS: u32 = 10;
 const FOLDER_RETRY: Duration = Duration::from_millis(100);
+
+/// The longest a download from the Chrome Web Store is waited on. Extensions
+/// are a few megabytes; Bitwarden's, among the larger, is about 30.
+const STORE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// The engine version the store is told when the engine's own cannot be
+/// read: the runtime [Extensions § Measured compatibility](../../../docs/specs/extensions.md#measured-compatibility)
+/// was measured on.
+const FALLBACK_ENGINE_VERSION: &str = "155.0.4283.62";
+
+/// The extension unpacked by [`add`] and waiting for the user's answer, and
+/// the token that names it. One at a time: asking about another discards it.
+/// Its folder starts with `.`, so one left when Haku quits is deleted at the
+/// next start.
+static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
+
+/// The extension waiting: its token, its staging folder, and the folder of
+/// the installed extension the user was told it updates.
+type Pending = (u32, PathBuf, Option<String>);
+static NEXT_TOKEN: AtomicU32 = AtomicU32::new(1);
 
 pub(crate) fn lock(state: &AppState) -> MutexGuard<'_, ()> {
     // The guard protects no data of its own, only the order of changes.
@@ -190,41 +213,170 @@ fn set_aside_from(name: &str) -> Option<&str> {
     (time.bytes().all(|b| b.is_ascii_digit()) && !folder.is_empty() && !folder.starts_with('.')).then_some(folder)
 }
 
-/// Asks the user for an extension, then adds it, or updates the one already
-/// installed that it is a version of. Answers nothing when the picker was
-/// cancelled.
+/// Asks the user for an extension and unpacks it without installing it,
+/// answering what it may do, for the user to confirm with [`confirm`].
+/// Answers nothing when the picker was cancelled.
 ///
 /// # Errors
-/// Fails when what was picked is not an extension, the engine refuses it, or
-/// the folder of the version it replaces is in use. Nothing is changed then.
-pub fn add(app: &tauri::AppHandle, window: &tauri::Window, source: ExtensionSource) -> Result<Option<AddedExtension>> {
+/// Fails when what was picked is not an extension. Nothing is kept then.
+pub fn add(app: &tauri::AppHandle, window: &tauri::Window, source: ExtensionSource) -> Result<Option<ExtensionToAdd>> {
     let Some(picked) = platform::pick_extension(window, source)? else {
         return Ok(None);
     };
+    stage(app, |staging| match source {
+        ExtensionSource::File => package::read(&picked).and_then(|bytes| package::unpack(&bytes, staging)),
+        ExtensionSource::Folder => package::copy_folder(&picked, staging),
+    })
+    .map(Some)
+}
+
+/// Downloads extension `id` from the Chrome Web Store, checks it is the one
+/// the store signed, and unpacks it without installing it, answering what it
+/// may do, for the user to confirm with [`confirm`].
+///
+/// # Errors
+/// Fails when `id` is not an extension id, the download fails, or it is not
+/// signed by the store and the extension. Nothing is kept then.
+pub fn add_from_store(app: &tauri::AppHandle, id: &str) -> Result<ExtensionToAdd> {
+    if !is_extension_id(id) {
+        return Err(HakuError::Unsupported(format!("not an extension id: {id}")));
+    }
+    // Any recent engine is answered with the extension's newest version.
+    let engine = tauri::webview_version().unwrap_or_else(|_| FALLBACK_ENGINE_VERSION.into());
+    let limit = package::MAX_SIZE as u64;
+    let bytes = net::fetch_bytes(&store_download_url(id, &engine), STORE_TIMEOUT, limit)
+        .map_err(|error| HakuError::Unsupported(format!("the Chrome Web Store did not send the extension: {error}")))?;
+    package::verify_store_crx(&bytes, id)?;
+    stage(app, |staging| {
+        package::unpack(&bytes, staging)?;
+        ensure_manifest_id(staging, id)
+    })
+}
+
+/// Fails unless the manifest unpacked in `staging` has a `key` whose id is
+/// `id`. A manifest `key` is kept over the header's, and decides which
+/// installed extension a download updates, so a store download's must be the
+/// id it was asked for.
+fn ensure_manifest_id(staging: &Path, id: &str) -> Result<()> {
+    let manifest = package::read_manifest(&staging.join("manifest.json"))?;
+    let key_id = key(&manifest)
+        .and_then(|key| package::decode_key(&key))
+        .map(|bytes| id_from_key(&bytes));
+    if key_id.as_deref() == Some(id) {
+        Ok(())
+    } else {
+        Err(HakuError::Unsupported(
+            "the download from the Chrome Web Store names another extension in its manifest".into(),
+        ))
+    }
+}
+
+/// Unpacks an extension into a new staging folder with `fill`, and keeps it
+/// as the one waiting, replacing any other, with what the user is asked.
+fn stage(app: &tauri::AppHandle, fill: impl FnOnce(&Path) -> Result<()>) -> Result<ExtensionToAdd> {
+    let state = app.state::<AppState>();
+    let _turn = lock(&state);
+    discard(take_pending(None).map(|(staging, _)| staging));
+    let root = &state.paths.extensions;
+    std::fs::create_dir_all(root)?;
+    let staging = root.join(format!(".adding-{}", now_ms()));
+    match fill(&staging).and_then(|()| ask(&state, &staging)) {
+        Ok(mut asked) => {
+            asked.token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
+            let replaces = asked.replaces.as_ref().map(|previous| previous.folder.clone());
+            *PENDING.lock().unwrap_or_else(PoisonError::into_inner) = Some((asked.token, staging, replaces));
+            Ok(asked)
+        }
+        Err(error) => {
+            discard(Some(staging));
+            Err(error)
+        }
+    }
+}
+
+/// What the user is asked about the extension unpacked in `staging`, with
+/// no token yet.
+fn ask(state: &AppState, staging: &Path) -> Result<ExtensionToAdd> {
+    let found = inspect(state, staging)?;
+    let installed_manifest = found.previous.as_ref().and_then(|previous| {
+        package::read_manifest(&state.paths.extensions.join(&previous.folder).join("manifest.json")).ok()
+    });
+    Ok(ExtensionToAdd {
+        token: 0,
+        version: version(&found.manifest),
+        icon: icon_of(staging, &found.manifest),
+        warnings: extension_access::warnings(&found.manifest, installed_manifest.as_deref()),
+        name: found.name,
+        replaces: found.previous,
+    })
+}
+
+/// Installs the extension [`add`] answered with `token`, adding it or
+/// updating the one it is a version of, when `install`; otherwise deletes
+/// it. Answers nothing when it was not installed.
+///
+/// # Errors
+/// Fails when `token` is not the extension waiting, as when another was asked
+/// about since, the engine refuses it, or the folder of the version it
+/// replaces is in use. Nothing is changed then.
+pub fn confirm(app: &tauri::AppHandle, token: u32, install: bool) -> Result<Option<AddedExtension>> {
     let state = app.state::<AppState>();
     let added = {
         let _turn = lock(&state);
-        let root = &state.paths.extensions;
-        std::fs::create_dir_all(root)?;
-        let staging = root.join(format!(".adding-{}", now_ms()));
-        let unpacked = match source {
-            ExtensionSource::File => package::read(&picked).and_then(|bytes| package::unpack(&bytes, &staging)),
-            ExtensionSource::Folder => package::copy_folder(&picked, &staging),
-        };
-        let added = unpacked.and_then(|()| place(app, &state, &staging));
+        let (staging, replaces) = take_pending(Some(token)).ok_or_else(|| {
+            HakuError::Unsupported("that extension is no longer waiting to be added; add it again".into())
+        })?;
+        if !install {
+            discard(Some(staging));
+            return Ok(None);
+        }
+        // The user agreed to add it, or to update one extension; what is
+        // installed may have changed since, as from another window.
+        let now = inspect(&state, &staging).map(|found| found.previous.map(|previous| previous.folder));
+        if now.as_ref().ok() != Some(&replaces) {
+            discard(Some(staging));
+            now?;
+            return Err(HakuError::Unsupported(
+                "the installed extensions changed while you were asked; add it again".into(),
+            ));
+        }
+        let added = place(app, &state, &staging);
         // Gone already when it took the extension's place.
-        let _ = std::fs::remove_dir_all(&staging);
+        discard(Some(staging));
         added?
     };
     announce(app);
     Ok(Some(added))
 }
 
-/// Puts the extension unpacked in `staging` in its folder and installs it,
-/// replacing the version installed there, if any, and putting that back if
-/// the engine refuses the new one.
-fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<AddedExtension> {
-    let chrome = webview::chrome(app)?;
+/// Takes the folder of the extension waiting, when it is `token`'s, or
+/// whichever it is when no token is given.
+fn take_pending(token: Option<u32>) -> Option<(PathBuf, Option<String>)> {
+    let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
+    if token.is_some_and(|token| pending.as_ref().is_some_and(|(waiting, ..)| *waiting != token)) {
+        return None;
+    }
+    pending.take().map(|(_, staging, replaces)| (staging, replaces))
+}
+
+fn discard(staging: Option<PathBuf>) {
+    if let Some(staging) = staging {
+        let _ = std::fs::remove_dir_all(staging);
+    }
+}
+
+/// What an extension unpacked in a staging folder is.
+struct Inspected {
+    manifest: String,
+    name: String,
+    /// The folder its name gives, which a new extension takes or is numbered
+    /// from.
+    named: String,
+    /// The installed extension it is a version of, if any.
+    previous: Option<Extension>,
+}
+
+fn inspect(state: &AppState, staging: &Path) -> Result<Inspected> {
     let root = &state.paths.extensions;
     let manifest = package::read_manifest(&staging.join("manifest.json"))?;
     // Optional, so one missing or unreadable falls back to the manifest's own
@@ -269,6 +421,23 @@ fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<Add
                 .map(|(extension, _)| *extension)
         })
         .cloned();
+    Ok(Inspected {
+        manifest,
+        name,
+        named,
+        previous,
+    })
+}
+
+/// Puts the extension unpacked in `staging` in its folder and installs it,
+/// replacing the version installed there, if any, and putting that back if
+/// the engine refuses the new one.
+fn place(app: &tauri::AppHandle, state: &AppState, staging: &Path) -> Result<AddedExtension> {
+    let chrome = webview::chrome(app)?;
+    let root = &state.paths.extensions;
+    // Looked at again: what is installed may have changed while the user was
+    // asked.
+    let Inspected { named, previous, .. } = inspect(state, staging)?;
     let folder = match &previous {
         Some(previous) => previous.folder.clone(),
         // A new extension never takes a folder already there, installed or not.
@@ -439,11 +608,7 @@ pub fn remove(app: &tauri::AppHandle, folder: &str) -> Result<()> {
 /// What the interface lists of the extension installed as `id` from `folder`.
 fn listed(id: String, name: String, folder: &Path) -> Extension {
     let manifest = package::read_manifest(&folder.join("manifest.json")).unwrap_or_default();
-    let icon = icon_file(&manifest).and_then(|(path, mime)| {
-        storage::read_bounded(&folder.join(path), package::MAX_ICON_BYTES)
-            .ok()
-            .map(|bytes| data_url(mime, &bytes))
-    });
+    let icon = icon_of(folder, &manifest);
     Extension {
         popup: popup_url(&id, &manifest),
         options: options_url(&id, &manifest),
@@ -453,6 +618,15 @@ fn listed(id: String, name: String, folder: &Path) -> Extension {
         id,
         name,
     }
+}
+
+/// The toolbar icon `manifest` declares, read from `folder`, as a `data:` URL.
+fn icon_of(folder: &Path, manifest: &str) -> Option<String> {
+    icon_file(manifest).and_then(|(path, mime)| {
+        storage::read_bounded(&folder.join(path), package::MAX_ICON_BYTES)
+            .ok()
+            .map(|bytes| data_url(mime, &bytes))
+    })
 }
 
 /// Whether `folder` is `named`, or `named` with a number after it, as
@@ -541,6 +715,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_store_download_must_name_the_extension_asked_for_in_its_manifest() {
+        let key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE";
+        let id = id_from_key(&package::decode_key(key).unwrap());
+        let staging = std::env::temp_dir().join(format!("haku-store-key-{}", now_ms()));
+        std::fs::create_dir_all(&staging).unwrap();
+        let manifest = |manifest: &str| std::fs::write(staging.join("manifest.json"), manifest).unwrap();
+
+        manifest(&format!(r#"{{"name": "A", "key": "{key}"}}"#));
+        assert!(ensure_manifest_id(&staging, &id).is_ok());
+        assert!(
+            ensure_manifest_id(&staging, &"a".repeat(32)).is_err(),
+            "another extension's key"
+        );
+        manifest(r#"{"name": "A"}"#);
+        assert!(ensure_manifest_id(&staging, &id).is_err(), "no key");
+        manifest(r#"{"name": "A", "key": "not base64!"}"#);
+        assert!(ensure_manifest_id(&staging, &id).is_err(), "a key that does not decode");
+
+        std::fs::remove_dir_all(&staging).unwrap();
+    }
+
+    #[test]
     fn a_version_set_aside_names_the_folder_it_came_from() {
         assert_eq!(
             set_aside_from(&set_aside_name("ublock-origin-lite")),
@@ -550,6 +746,14 @@ mod tests {
         assert_eq!(set_aside_from(".adding-123"), None);
         assert_eq!(set_aside_from(".replaced-12x-a"), None);
         assert_eq!(set_aside_from(".replaced-1-.hidden"), None);
+    }
+
+    #[test]
+    fn only_the_extension_waiting_can_be_answered() {
+        *PENDING.lock().unwrap() = Some((7, PathBuf::from(".adding-7"), None));
+        assert_eq!(take_pending(Some(6)), None);
+        assert_eq!(take_pending(Some(7)), Some((PathBuf::from(".adding-7"), None)));
+        assert_eq!(take_pending(Some(7)), None, "answered once");
     }
 
     #[test]

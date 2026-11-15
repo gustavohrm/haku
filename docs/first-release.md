@@ -1,6 +1,6 @@
 ---
 status: APPROVED
-last_updated: 2026-11-08
+last_updated: 2026-11-15
 scope: What the first release includes, and the structural decisions it rests on.
 ---
 
@@ -156,12 +156,22 @@ Looking like Chrome, Helium, Firefox or Zen is a **preset**: a named bundle of t
 
 ### Extensions
 
-**Implemented**, the second tier only: [Extensions](specs/extensions.md) covers installing, uninstalling, switching, the toolbar and popups. The first tier, user scripts and styles, is not built.
+**Implemented**, the second tier only: [Extensions](specs/extensions.md) covers installing, uninstalling, switching, the toolbar and popups, installing from the Chrome Web Store, and what an extension may do is shown before it is installed. The first tier, user scripts and styles, is not built.
 
-There is no store. Extensions are installed from disk, at the user's own risk, in two tiers:
+Extensions come in two tiers:
 
 1. **User scripts and user styles**, injected by Rust into pages matching a URL pattern. They run as part of the page and gain no channel into the application.
-2. **Unpacked Chrome extensions**, through WebView2's extension support. Chromium sees each pool webview as a tab, not Haku's tabs, so extensions built on tab APIs will misbehave. Content-script and request-filtering extensions are the expected fit. Bitwarden is the motivating case; its in-page autofill and passkeys work, and its popup opens from the toolbar.
+2. **Chrome extensions**, through WebView2's extension support, added from a file or folder, or from the Chrome Web Store. Chromium sees each pool webview as a tab, not Haku's tabs, so extensions built on tab APIs will misbehave. Content-script and request-filtering extensions are the expected fit. Bitwarden is the motivating case; its in-page autofill and passkeys work, and its popup opens from the toolbar.
+
+Before an extension is added or updated in settings or from the store, Haku shows what its manifest lets it do, and installs it only when the user says so. One placed in the extensions folder by hand is installed at the next start without a question, since the user put it there ([Extensions § Before installing](specs/extensions.md#before-installing)).
+
+**The Chrome Web Store** (decided 2026-11-15). A store page gets an **Add to Haku** button drawn by the chrome, not by the page. Rust downloads the extension from the store by its id and installs it through the same question, once its download is verified as signed by the store. That is one request to Google, made only when the user asks for it. Checking installed store extensions for updates is a separate decision, not yet made: it would contact Google on a schedule with the list of installed ids, which [Security](guidelines/security.md) allows only with a way to turn it off.
+
+Rejected: no store, installing from disk only, at the user's own risk. It was recorded without a reason, and it was not safer. Someone who wants a Web Store extension gets its `.crx` from a mirror site instead, and nothing checks that file: the header's signature is not verified ([Extensions § Adding and updating](specs/extensions.md#adding-and-updating)). A store download verified against the store's signature removes that tampering risk, and the question before installing covers every source alike.
+
+Rejected: Firefox extensions and their store, addons.mozilla.org. WebView2 is Chromium. An extension written only for Firefox has a background script that Chromium will not run as a Manifest V3 service worker, uses the `browser` namespace, and may rely on blocking `webRequest`, which Chromium's Manifest V3 removed. None of that can be converted in general. An extension written for both browsers is published in the Chrome Web Store too, so that store covers it.
+
+Not decided: Microsoft Edge Add-ons. Its extensions suit WebView2, which is Edge's engine, but its catalogue is much smaller than the Chrome Web Store's. It would be added in the same way.
 
 ### Passwords and autofill
 
@@ -199,4 +209,3 @@ There is no store. Extensions are installed from disk, at the user's own risk, i
 
 - Password management and autofill.
 - Docked developer tools.
-- An extension store.

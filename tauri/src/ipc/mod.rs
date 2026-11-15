@@ -71,6 +71,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::extensions,
             commands::open_extensions_folder,
             commands::add_extension,
+            commands::confirm_extension,
+            commands::add_extension_from_store,
             commands::remove_extension,
             commands::open_extension_popup,
             commands::downloads,

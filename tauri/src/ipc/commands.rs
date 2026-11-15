@@ -41,9 +41,9 @@ use crate::model::suggest::{
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
     CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
-    ExportedBookmarks, ExtensionSource, Extensions, FindDirection, HistoryRule, ImportedBookmarks, NavigationSource,
-    PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile, Recording, ScreenRect,
-    Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    ExportedBookmarks, ExtensionSource, ExtensionToAdd, Extensions, FindDirection, HistoryRule, ImportedBookmarks,
+    NavigationSource, PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile,
+    Recording, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
 };
 use crate::model::{EngineSuggestions, ListedSearchEngine, Suggestions};
 use crate::net;
@@ -2953,18 +2953,58 @@ pub async fn open_extension_popup(
 }
 
 /// Asks the user for an extension with the system's picker, owned by the
-/// calling window, and adds it, or updates the installed one it is a version
-/// of. Answers nothing when the picker was cancelled. The interface never
-/// names a path: it only says what to pick.
+/// calling window, and unpacks it, answering what it may do. Nothing is
+/// installed until `confirm_extension` answers. Answers nothing when the
+/// picker was cancelled. The interface never names a path: it only says what
+/// to pick.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_extension(
     app: tauri::AppHandle,
     webview: tauri::Webview,
     source: ExtensionSource,
-) -> Result<Option<AddedExtension>> {
+) -> Result<Option<ExtensionToAdd>> {
     ensure_chrome(&webview)?;
     extensions::add(&app, &webview.window(), source)
+}
+
+/// Answers the question `add_extension` asked: installs the extension it
+/// named with `token`, adding it or updating the installed one it is a
+/// version of, or, when `install` is false, deletes it.
+#[tauri::command]
+#[specta::specta]
+pub async fn confirm_extension(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    token: u32,
+    install: bool,
+) -> Result<Option<AddedExtension>> {
+    ensure_chrome(&webview)?;
+    extensions::confirm(&app, token, install)
+}
+
+/// Downloads extension `id` from the Chrome Web Store and unpacks it once its
+/// signatures hold, answering what it may do, as `add_extension` does. Refused
+/// for a private window, where extensions do not run and nothing it does is
+/// meant to reach a third party.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_extension_from_store(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ExtensionToAdd> {
+    let window = ensure_chrome(&webview)?;
+    if is_private(&state, window)? {
+        return Err(HakuError::Unsupported(
+            "extensions are not added from a private window".into(),
+        ));
+    }
+    // The download takes up to minutes, too long to hold a runtime worker.
+    tauri::async_runtime::spawn_blocking(move || extensions::add_from_store(&app, &id))
+        .await
+        .map_err(|error| HakuError::Unsupported(format!("adding the extension stopped: {error}")))?
 }
 
 /// Uninstalls the extension installed from `folder`, with what it stored, and
