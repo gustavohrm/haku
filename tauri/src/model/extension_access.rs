@@ -31,6 +31,16 @@ pub enum ExtensionAccess {
     /// `browsingData`: clearing history, cookies, cache and stored data.
     /// Chrome does not warn about it; Haku does, as it can wipe the profile.
     BrowsingData,
+    /// `favicon`: the icons of the sites visited.
+    Favicons,
+    ReadingList,
+    TabGroups,
+    /// `ttsEngine`: the text spoken with synthesized speech.
+    SpokenText,
+    /// `system.storage`.
+    StorageDevices,
+    /// `accessibilityFeatures.read` and `accessibilityFeatures.modify`.
+    AccessibilitySettings,
     ReadClipboard,
     WriteClipboard,
     /// `declarativeNetRequest`.
@@ -168,6 +178,12 @@ fn warned(permission: &str) -> Option<ExtensionAccess> {
         "bookmarks" => ExtensionAccess::Bookmarks,
         "downloads" => ExtensionAccess::Downloads,
         "browsingData" => ExtensionAccess::BrowsingData,
+        "favicon" => ExtensionAccess::Favicons,
+        "readingList" => ExtensionAccess::ReadingList,
+        "tabGroups" => ExtensionAccess::TabGroups,
+        "ttsEngine" => ExtensionAccess::SpokenText,
+        "system.storage" => ExtensionAccess::StorageDevices,
+        "accessibilityFeatures.read" | "accessibilityFeatures.modify" => ExtensionAccess::AccessibilitySettings,
         "clipboardRead" => ExtensionAccess::ReadClipboard,
         "clipboardWrite" => ExtensionAccess::WriteClipboard,
         "declarativeNetRequest" => ExtensionAccess::BlockContent,
@@ -200,8 +216,13 @@ fn host_of(pattern: &str) -> Option<Host> {
         return None;
     }
     let host = rest.split('/').next()?;
-    // A port does not change which site it is.
-    let host = host.rsplit_once(':').map_or(host, |(host, _)| host);
+    // A port does not change which site it is. An IPv6 address, in brackets,
+    // has colons of its own.
+    let host = if host.starts_with('[') {
+        &host[..=host.find(']')?]
+    } else {
+        host.rsplit_once(':').map_or(host, |(host, _)| host)
+    };
     match host {
         "" => None,
         "*" => Some(Host::Any),
@@ -308,6 +329,38 @@ mod tests {
             access(r#"{"permissions": ["browsingData"]}"#),
             [ExtensionAccess::BrowsingData]
         );
+    }
+
+    #[test]
+    fn the_other_permissions_chrome_warns_about_are_said() {
+        let manifest = r#"{"permissions": ["favicon", "readingList", "tabGroups", "ttsEngine", "system.storage",
+            "accessibilityFeatures.read", "accessibilityFeatures.modify"]}"#;
+        assert_eq!(
+            access(manifest),
+            [
+                ExtensionAccess::Favicons,
+                ExtensionAccess::ReadingList,
+                ExtensionAccess::TabGroups,
+                ExtensionAccess::SpokenText,
+                ExtensionAccess::StorageDevices,
+                ExtensionAccess::AccessibilitySettings,
+            ]
+        );
+    }
+
+    #[test]
+    fn an_ipv6_host_keeps_its_address_without_its_port() {
+        let manifest =
+            r#"{"host_permissions": ["http://[2001:db8::1]/*", "http://[2001:db8::2]:8080/*", "http://[::1"]}"#;
+        assert_eq!(
+            access(manifest),
+            [ExtensionAccess::Sites(vec![
+                "[2001:db8::1]".into(),
+                "[2001:db8::2]".into(),
+            ])]
+        );
+        let before = Some(r#"{"host_permissions": ["http://[2001:db8::1]/*"]}"#);
+        assert!(warnings(r#"{"host_permissions": ["http://[2001:db8::2]/*"]}"#, before)[0].new);
     }
 
     #[test]

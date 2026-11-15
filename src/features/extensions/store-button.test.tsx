@@ -78,6 +78,7 @@ it("answers no when the question is closed with Escape", async () => {
   );
   expect(commands.confirmExtension).toHaveBeenCalledWith(7, false);
   expect(question()).toBeNull();
+  expect(document.activeElement).toBe(button());
 });
 
 it("answers no when the tab leaves the page while it asks", async () => {

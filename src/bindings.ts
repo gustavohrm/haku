@@ -830,7 +830,15 @@ export type ExtensionAccess =
  *  `browsingData`: clearing history, cookies, cache and stored data.
  *  Chrome does not warn about it; Haku does, as it can wipe the profile.
  */
-{ kind: "browsingData" } | { kind: "readClipboard" } | { kind: "writeClipboard" } | 
+{ kind: "browsingData" } | 
+/**  `favicon`: the icons of the sites visited. */
+{ kind: "favicons" } | { kind: "readingList" } | { kind: "tabGroups" } | 
+/**  `ttsEngine`: the text spoken with synthesized speech. */
+{ kind: "spokenText" } | 
+/**  `system.storage`. */
+{ kind: "storageDevices" } | 
+/**  `accessibilityFeatures.read` and `accessibilityFeatures.modify`. */
+{ kind: "accessibilitySettings" } | { kind: "readClipboard" } | { kind: "writeClipboard" } | 
 /**  `declarativeNetRequest`. */
 { kind: "blockContent" } | 
 /**  `tabCapture`, `desktopCapture` or `pageCapture`. */

@@ -54,6 +54,20 @@ export function StoreButton({ id }: { id: string }) {
       panelRef.current?.querySelector("button")?.focus();
     }
   }, [open]);
+  // Answered from inside, the question takes the focused button with it;
+  // focus goes back to Add to Haku once that is enabled again. Focus already
+  // elsewhere, as after a click on the page, stays there.
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (open) {
+      restoreFocus.current = true;
+    } else if (restoreFocus.current && change === null) {
+      restoreFocus.current = false;
+      if (document.activeElement === null || document.activeElement === document.body) {
+        buttonRef.current?.focus();
+      }
+    }
+  }, [open, change]);
 
   // Leaving the store page takes the button, and with it the question, away.
   useEffect(() => leaveStore, []);
