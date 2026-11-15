@@ -249,20 +249,26 @@ pub fn add_from_store(app: &tauri::AppHandle, id: &str) -> Result<ExtensionToAdd
     package::verify_store_crx(&bytes, id)?;
     stage(app, |staging| {
         package::unpack(&bytes, staging)?;
-        // A manifest `key` is kept over the header's, and decides which
-        // installed extension this updates, so it must be the id asked for.
-        let manifest = package::read_manifest(&staging.join("manifest.json"))?;
-        let key_id = key(&manifest)
-            .and_then(|key| package::decode_key(&key))
-            .map(|bytes| id_from_key(&bytes));
-        if key_id.as_deref() == Some(id) {
-            Ok(())
-        } else {
-            Err(HakuError::Unsupported(
-                "the download from the Chrome Web Store names another extension in its manifest".into(),
-            ))
-        }
+        ensure_manifest_id(staging, id)
     })
+}
+
+/// Fails unless the manifest unpacked in `staging` has a `key` whose id is
+/// `id`. A manifest `key` is kept over the header's, and decides which
+/// installed extension a download updates, so a store download's must be the
+/// id it was asked for.
+fn ensure_manifest_id(staging: &Path, id: &str) -> Result<()> {
+    let manifest = package::read_manifest(&staging.join("manifest.json"))?;
+    let key_id = key(&manifest)
+        .and_then(|key| package::decode_key(&key))
+        .map(|bytes| id_from_key(&bytes));
+    if key_id.as_deref() == Some(id) {
+        Ok(())
+    } else {
+        Err(HakuError::Unsupported(
+            "the download from the Chrome Web Store names another extension in its manifest".into(),
+        ))
+    }
 }
 
 /// Unpacks an extension into a new staging folder with `fill`, and keeps it
@@ -707,6 +713,28 @@ fn retrying(mut attempt: impl FnMut() -> std::io::Result<()>) -> std::io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_store_download_must_name_the_extension_asked_for_in_its_manifest() {
+        let key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE";
+        let id = id_from_key(&package::decode_key(key).unwrap());
+        let staging = std::env::temp_dir().join(format!("haku-store-key-{}", now_ms()));
+        std::fs::create_dir_all(&staging).unwrap();
+        let manifest = |manifest: &str| std::fs::write(staging.join("manifest.json"), manifest).unwrap();
+
+        manifest(&format!(r#"{{"name": "A", "key": "{key}"}}"#));
+        assert!(ensure_manifest_id(&staging, &id).is_ok());
+        assert!(
+            ensure_manifest_id(&staging, &"a".repeat(32)).is_err(),
+            "another extension's key"
+        );
+        manifest(r#"{"name": "A"}"#);
+        assert!(ensure_manifest_id(&staging, &id).is_err(), "no key");
+        manifest(r#"{"name": "A", "key": "not base64!"}"#);
+        assert!(ensure_manifest_id(&staging, &id).is_err(), "a key that does not decode");
+
+        std::fs::remove_dir_all(&staging).unwrap();
+    }
 
     #[test]
     fn a_version_set_aside_names_the_folder_it_came_from() {
