@@ -309,12 +309,17 @@ export const commands = {
 	replaced: string | null,
 } | null, HakuError>(__TAURI_INVOKE("confirm_extension", { token, install })),
 	/**
-	 *  Downloads extension `id` from the Chrome Web Store and unpacks it once its
-	 *  signatures hold, answering what it may do, as `add_extension` does. Refused
-	 *  for a private window, where extensions do not run and nothing it does is
-	 *  meant to reach a third party.
+	 *  Downloads extension `id` from `store` and unpacks it once its signatures
+	 *  hold, answering what it may do, as `add_extension` does. Refused for a
+	 *  private window, where extensions do not run and nothing it does is meant
+	 *  to reach a third party.
 	 */
-	addExtensionFromStore: (id: string) => typedError<ExtensionToAdd, HakuError>(__TAURI_INVOKE("add_extension_from_store", { id })),
+	addExtensionFromStore: (store: ExtensionStore, id: string) => typedError<ExtensionToAdd, HakuError>(__TAURI_INVOKE("add_extension_from_store", { store, id })),
+	/**
+	 *  Checks the stores for updates of the extensions that came from them, now,
+	 *  whether automatic checks are on or not, and answers what it did.
+	 */
+	checkExtensionUpdates: () => typedError<ExtensionUpdateCheck, HakuError>(__TAURI_INVOKE("check_extension_updates")),
 	/**
 	 *  Uninstalls the extension installed from `folder`, with what it stored, and
 	 *  deletes the folder; or deletes a folder that failed to install.
@@ -857,6 +862,13 @@ export type ExtensionSource =
 /**  An unpacked extension: a folder holding its `manifest.json`. */
 "folder";
 
+/**  A store Haku adds extensions from. */
+export type ExtensionStore = 
+/**  The Chrome Web Store. */
+"chrome" | 
+/**  Microsoft Edge Add-ons. */
+"edge";
+
 /**
  *  An extension `add_extension` has unpacked and not yet installed, for the
  *  user to see what it may do before `confirm_extension` installs it.
@@ -878,7 +890,34 @@ export type ExtensionToAdd = {
 	warnings: AccessWarning[],
 };
 
-/**  What the extensions folder holds, as last installed. */
+/**
+ *  A newer version of an installed extension that asks for access the
+ *  installed version did not, waiting for the user to review it.
+ */
+export type ExtensionUpdate = {
+	id: string,
+	/**  The folder of the installed extension it updates. */
+	folder: string,
+	/**  The version waiting. */
+	version: string,
+	/**  The store it comes from, which **Review update** downloads it from. */
+	store: ExtensionStore,
+};
+
+/**  What a check of the stores did. */
+export type ExtensionUpdateCheck = {
+	/**  The extensions updated, each with the version it replaced. */
+	updated: AddedExtension[],
+	/**  The updates that ask for new access, waiting for review. */
+	waiting: ExtensionUpdate[],
+	/**  The first failure, if any; the rest of the check went on. */
+	error: HakuError | null,
+};
+
+/**
+ *  What the extensions folder holds, as last installed, and the updates
+ *  found in the stores that wait for review, which only memory holds.
+ */
 export type Extensions = {
 	installed: Extension[],
 	/**
@@ -888,6 +927,11 @@ export type Extensions = {
 	failed: FailedExtension[],
 	/**  The first other failure while installing the folder, if any. */
 	error: HakuError | null,
+	/**
+	 *  Updates found in the stores that ask for new access, waiting for the
+	 *  user to review them.
+	 */
+	updates: ExtensionUpdate[],
 };
 
 /**
@@ -1334,6 +1378,12 @@ export type Settings = {
 	 *  menu.
 	 */
 	pinnedExtensions: string[],
+	/**
+	 *  Whether extensions that came from a store are checked for updates at
+	 *  startup and every day. On until the user turns it off.
+	 *  [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).
+	 */
+	checkExtensionUpdates: boolean,
 	/**
 	 *  What the user allowed or blocked sites to use, by origin and kind.
 	 *  [Permissions](../../../docs/specs/permissions.md).

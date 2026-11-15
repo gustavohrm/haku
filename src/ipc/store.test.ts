@@ -35,6 +35,7 @@ const SETTINGS: Settings = {
   homeUrl: "haku://new-tab",
   disabledExtensions: [],
   pinnedExtensions: [],
+  checkExtensionUpdates: true,
   sitePermissions: [],
   siteZoom: [],
   shortcuts: {},

@@ -41,9 +41,10 @@ use crate::model::suggest::{
 use crate::model::{
     check_query, host_of, is_internal, jpeg_data_url, keymap, AddedExtension, BookmarkId, BookmarkedTab, Bookmarks,
     CompiledRules, ContextMenuRequestId, DialogAnswer, DialogId, Download, DownloadId, DownloadState,
-    ExportedBookmarks, ExtensionSource, ExtensionToAdd, Extensions, FindDirection, HistoryRule, ImportedBookmarks,
-    NavigationSource, PageMenu, PermissionDecision, PermissionRequestId, Placement, Preset, Pressure, Profile,
-    Recording, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind, WindowRequestId,
+    ExportedBookmarks, ExtensionSource, ExtensionStore, ExtensionToAdd, ExtensionUpdateCheck, Extensions,
+    FindDirection, HistoryRule, ImportedBookmarks, NavigationSource, PageMenu, PermissionDecision, PermissionRequestId,
+    Placement, Preset, Pressure, Profile, Recording, ScreenRect, Shortcut, SlotId, TabId, WindowId, WindowKind,
+    WindowRequestId,
 };
 use crate::model::{EngineSuggestions, ListedSearchEngine, Suggestions};
 use crate::net;
@@ -2983,16 +2984,17 @@ pub async fn confirm_extension(
     extensions::confirm(&app, token, install)
 }
 
-/// Downloads extension `id` from the Chrome Web Store and unpacks it once its
-/// signatures hold, answering what it may do, as `add_extension` does. Refused
-/// for a private window, where extensions do not run and nothing it does is
-/// meant to reach a third party.
+/// Downloads extension `id` from `store` and unpacks it once its signatures
+/// hold, answering what it may do, as `add_extension` does. Refused for a
+/// private window, where extensions do not run and nothing it does is meant
+/// to reach a third party.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_extension_from_store(
     app: tauri::AppHandle,
     webview: tauri::Webview,
     state: State<'_, AppState>,
+    store: ExtensionStore,
     id: String,
 ) -> Result<ExtensionToAdd> {
     let window = ensure_chrome(&webview)?;
@@ -3002,9 +3004,21 @@ pub async fn add_extension_from_store(
         ));
     }
     // The download takes up to minutes, too long to hold a runtime worker.
-    tauri::async_runtime::spawn_blocking(move || extensions::add_from_store(&app, &id))
+    tauri::async_runtime::spawn_blocking(move || extensions::add_from_store(&app, store, &id))
         .await
         .map_err(|error| HakuError::Unsupported(format!("adding the extension stopped: {error}")))?
+}
+
+/// Checks the stores for updates of the extensions that came from them, now,
+/// whether automatic checks are on or not, and answers what it did.
+#[tauri::command]
+#[specta::specta]
+pub async fn check_extension_updates(app: tauri::AppHandle, webview: tauri::Webview) -> Result<ExtensionUpdateCheck> {
+    ensure_chrome(&webview)?;
+    // Downloads take up to minutes, too long to hold a runtime worker.
+    tauri::async_runtime::spawn_blocking(move || extensions::check_updates(&app))
+        .await
+        .map_err(|error| HakuError::Unsupported(format!("checking for updates stopped: {error}")))
 }
 
 /// Uninstalls the extension installed from `folder`, with what it stored, and

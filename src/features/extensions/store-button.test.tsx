@@ -41,7 +41,7 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root.render(<StoreButton id={ID} />));
+  await act(async () => root.render(<StoreButton store="chrome" id={ID} />));
 });
 
 afterEach(async () => {
@@ -60,7 +60,7 @@ async function add() {
 
 it("downloads the extension the page is about and asks under the button", async () => {
   await add();
-  expect(commands.addExtensionFromStore).toHaveBeenCalledWith(ID);
+  expect(commands.addExtensionFromStore).toHaveBeenCalledWith("chrome", ID);
   expect(question()?.textContent).toContain("Add Blocker 2.0?");
   expect(button().getAttribute("aria-expanded")).toBe("true");
   expect(document.activeElement?.textContent).toBe("Cancel");
@@ -94,7 +94,7 @@ it("answers no to a download that arrives after the tab left the page", async ()
   await act(async () => root.render(<></>));
   await act(async () => finish({ status: "ok", data: TO_ADD }));
   expect(commands.confirmExtension).toHaveBeenCalledWith(7, false);
-  await act(async () => root.render(<StoreButton id={ID} />));
+  await act(async () => root.render(<StoreButton store="chrome" id={ID} />));
   expect(question()).toBeNull();
   expect(button().disabled).toBe(false);
 });

@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { AddQuestion } from "./add-question";
 import { placePanel } from "./extensions-bar";
 import { ADDING, addFromStore, answerExtension, leaveStore, useExtensionChange, useExtensionToAdd } from "./manage";
+import { type StoreExtension } from "./store";
 
 type PanelPlace = ReturnType<typeof placePanel>;
 
@@ -16,14 +17,15 @@ const PANEL_WIDTH = 320;
 
 /**
  * **Add to Haku**, shown in the toolbar while the tab is on an extension's
- * page in the Chrome Web Store. Rust downloads the extension and checks the
- * store signed it, then the question of what it may do hangs under the
- * button. Closing the question any other way than Add answers no.
- * [Extensions § From the Chrome Web Store](../../../docs/specs/extensions.md#from-the-chrome-web-store).
+ * page in a store. Rust downloads the extension and checks the store signed
+ * it, then the question of what it may do hangs under the button. Closing the
+ * question any other way than Add answers no.
+ * [Extensions § From the stores](../../../docs/specs/extensions.md#from-the-stores).
  *
+ * @param store - The store the page is in.
  * @param id - The extension the page is about.
  */
-export function StoreButton({ id }: { id: string }) {
+export function StoreButton({ store, id }: StoreExtension) {
   const change = useExtensionChange();
   const asked = useExtensionToAdd("store");
   const [place, setPlace] = useState<PanelPlace | null>(null);
@@ -82,7 +84,7 @@ export function StoreButton({ id }: { id: string }) {
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         disabled={change !== null}
-        onClick={() => void addFromStore(id)}
+        onClick={() => void addFromStore(store, id)}
       >
         <i className="ic-circle-plus ic-sm" aria-hidden="true" />
         {adding ? t("extensions.store.adding") : t("extensions.store.add")}

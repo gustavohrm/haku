@@ -1,12 +1,12 @@
-import { type ExtensionSource, type ExtensionToAdd } from "@bindings";
-import { feedback } from "@features/feedback/feedback";
+import { type ExtensionSource, type ExtensionStore, type ExtensionToAdd, type ExtensionUpdate } from "@bindings";
+import { feedback, notifyFailure } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { t } from "@shared/i18n";
 import { useSyncExternalStore } from "react";
 
 /**
- * Adding, updating and uninstalling extensions from settings, and adding
- * them from the Chrome Web Store, one at a time.
+ * Adding, updating and uninstalling extensions from settings, adding them
+ * from a store, and checking the stores for updates, one at a time.
  *
  * Rust serializes the changes anyway; this keeps their buttons disabled while
  * one runs, wherever they are, so a second click does not queue a second
@@ -20,7 +20,10 @@ import { useSyncExternalStore } from "react";
  */
 export const ADDING = ".add";
 
-/** What is changing: {@link ADDING}, or the folder of the extension being removed. */
+/** What is changing while the stores are checked for updates, which can install some. */
+export const CHECKING = ".check";
+
+/** What is changing: {@link ADDING}, {@link CHECKING}, or the folder of the extension being removed. */
 let busy: string | null = null;
 /** Where the question about an extension is asked: in settings, or under the toolbar's **Add to Haku**. */
 export type AskedFrom = "settings" | "store";
@@ -97,14 +100,15 @@ export async function addExtension(source: ExtensionSource): Promise<void> {
 }
 
 /**
- * Downloads an extension from the Chrome Web Store and checks it, then waits
- * for {@link answerExtension} while the toolbar shows what it may do. Adding
+ * Downloads an extension from a store and checks it, then waits for
+ * {@link answerExtension} while the toolbar shows what it may do. Adding
  * stays busy until then. A failure is reported by the command.
- * [Extensions § From the Chrome Web Store](../../../docs/specs/extensions.md#from-the-chrome-web-store).
+ * [Extensions § From the stores](../../../docs/specs/extensions.md#from-the-stores).
  *
+ * @param store - The store the extension is in.
  * @param id - The extension's id in the store.
  */
-export async function addFromStore(id: string): Promise<void> {
+export async function addFromStore(store: ExtensionStore, id: string): Promise<void> {
   if (busy !== null) {
     return;
   }
@@ -113,7 +117,7 @@ export async function addFromStore(id: string): Promise<void> {
   storeLeft = false;
   let waiting: ExtensionToAdd | null = null;
   try {
-    const result = await commands.addExtensionFromStore(id);
+    const result = await commands.addExtensionFromStore(store, id);
     waiting = result.status === "ok" ? result.data : null;
   } finally {
     storeDownloading = false;
@@ -127,6 +131,76 @@ export async function addFromStore(id: string): Promise<void> {
     } else {
       setAsking(waiting, "store");
     }
+  }
+}
+
+/**
+ * Downloads an update that a check of the stores kept for review, then waits for
+ * {@link answerExtension} while settings shows what it may do, under the
+ * extension's row. A failure is reported by the command.
+ * [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).
+ *
+ * @param update - The update waiting.
+ */
+export async function reviewUpdate(update: ExtensionUpdate): Promise<void> {
+  if (busy !== null) {
+    return;
+  }
+  setBusy(ADDING);
+  let waiting: ExtensionToAdd | null = null;
+  try {
+    const result = await commands.addExtensionFromStore(update.store, update.id);
+    waiting = result.status === "ok" ? result.data : null;
+  } finally {
+    if (waiting === null) {
+      setBusy(null);
+    } else {
+      setAsking(waiting, "settings");
+    }
+  }
+}
+
+/**
+ * Checks the stores for updates now, and says what the check did: the
+ * extensions it updated, those waiting for review, that all are up to date,
+ * or what failed.
+ * [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).
+ */
+export async function checkForUpdates(): Promise<void> {
+  if (busy !== null) {
+    return;
+  }
+  setBusy(CHECKING);
+  try {
+    const result = await commands.checkExtensionUpdates();
+    if (result.status === "error") {
+      return;
+    }
+    const { updated, waiting, error } = result.data;
+    for (const { extension, replaced } of updated) {
+      feedback().success({
+        title: t("extensions.updated").replace("{name}", extension.name),
+        description: t("extensions.updated.versions")
+          .replace("{from}", replaced ?? "")
+          .replace("{to}", extension.version),
+      });
+    }
+    if (waiting.length > 0) {
+      feedback().info({
+        title:
+          waiting.length === 1
+            ? t("extensions.updates.waiting.one")
+            : t("extensions.updates.waiting.many").replace("{count}", String(waiting.length)),
+        description: t("extensions.updates.waiting.help"),
+      });
+    }
+    if (error !== null) {
+      notifyFailure(error);
+    } else if (updated.length === 0 && waiting.length === 0) {
+      feedback().success({ title: t("extensions.updates.none") });
+    }
+  } finally {
+    setBusy(null);
   }
 }
 

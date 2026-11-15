@@ -73,6 +73,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             commands::add_extension,
             commands::confirm_extension,
             commands::add_extension_from_store,
+            commands::check_extension_updates,
             commands::remove_extension,
             commands::open_extension_popup,
             commands::downloads,

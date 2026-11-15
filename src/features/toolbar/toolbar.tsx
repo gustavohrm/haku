@@ -5,7 +5,7 @@ import { BookmarksButton } from "@features/bookmarks/bookmarks-button";
 import { isBookmarkable } from "@features/bookmarks/tree";
 import { DownloadsButton } from "@features/downloads/downloads-button";
 import { ExtensionsBar } from "@features/extensions/extensions-bar";
-import { storeExtensionId } from "@features/extensions/store";
+import { storeExtension } from "@features/extensions/store";
 import { StoreButton } from "@features/extensions/store-button";
 import { useOverlay } from "@features/overlays/use-overlay";
 import { SuggestionList } from "@features/search/suggestion-list";
@@ -128,11 +128,11 @@ function NavigationButtons({ tab }: { tab: Tab | null }) {
 function ToolbarActions({ tab }: { tab: Tab | null }) {
   const { private: isPrivate } = useBrowserState();
   // Extensions are not added from a private window, as Rust refuses too.
-  const storeId = tab && !isPrivate ? storeExtensionId(tab.history.entries[tab.history.index]?.url ?? "") : null;
+  const store = tab && !isPrivate ? storeExtension(tab.history.entries[tab.history.index]?.url ?? "") : null;
   return (
     <>
       {isPrivate && <PrivateBadge />}
-      {storeId !== null && <StoreButton key={storeId} id={storeId} />}
+      {store !== null && <StoreButton key={`${store.store}:${store.id}`} {...store} />}
       {!isPrivate && <ExtensionsBar tab={tab?.id} />}
       <DownloadsButton />
       <ToolbarButton

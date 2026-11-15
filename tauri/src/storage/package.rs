@@ -9,7 +9,7 @@ use std::path::Path;
 use sha2::Digest;
 
 use crate::error::{HakuError, Result};
-use crate::model::data_url;
+use crate::model::{data_url, ExtensionStore};
 
 const MANIFEST: &str = "manifest.json";
 
@@ -198,24 +198,42 @@ fn crx3_key(header: &[u8]) -> Option<Vec<u8>> {
 /// Chromium's `kPublisherKeyHash` in `components/crx_file/crx_verifier.cc`;
 /// the store's download of uBlock Origin Lite on 2026-11-15 was signed with
 /// it.
-const STORE_KEY_SHA256: [u8; 32] = [
+const CHROME_KEY_SHA256: [u8; 32] = [
     0x61, 0xf7, 0xf2, 0xa6, 0xbf, 0xcf, 0x74, 0xcd, 0x0b, 0xc1, 0xfe, 0x24, 0x97, 0xcc, 0x9b, 0x04, 0x25, 0x4c, 0x65,
     0x8f, 0x79, 0xf2, 0x14, 0x53, 0x92, 0x86, 0x7e, 0xa8, 0x36, 0x63, 0x67, 0xcf,
 ];
 
-/// Checks that `bytes`, downloaded from the Chrome Web Store, is a CRX3 file
-/// of the extension `id`, signed by the store and by the extension's own key,
+/// The SHA-256 of the two keys Microsoft Edge Add-ons signs with, an RSA key
+/// and an ECDSA P-256 key. Microsoft publishes neither: every download
+/// measured on 2026-11-15, of uBlock Origin, Dark Reader and Bitwarden, was
+/// signed with both.
+const EDGE_KEYS_SHA256: [[u8; 32]; 2] = [
+    [
+        0x82, 0x7f, 0x5e, 0xa0, 0xd8, 0xd8, 0xc4, 0x8b, 0xef, 0xdf, 0x4e, 0xbf, 0xc1, 0xe2, 0xba, 0x1c, 0x35, 0xd9,
+        0x02, 0x4e, 0x44, 0x49, 0x1e, 0x19, 0x30, 0xd0, 0xf2, 0xcd, 0x7d, 0x56, 0xfb, 0x89,
+    ],
+    [
+        0x67, 0x5b, 0xd8, 0xed, 0xdd, 0x38, 0x50, 0x20, 0x17, 0x7c, 0xcf, 0xed, 0xa2, 0x51, 0x03, 0x89, 0x57, 0x99,
+        0xfe, 0x41, 0xec, 0xa5, 0xc9, 0x4e, 0x61, 0xdc, 0x13, 0xdf, 0x35, 0x9d, 0xa1, 0xdc,
+    ],
+];
+
+/// Checks that `bytes`, downloaded from `store`, is a CRX3 file of the
+/// extension `id`, signed by the store's keys and by the extension's own key,
 /// as Chromium checks one: every signature in its header must hold.
 ///
 /// # Errors
 /// Fails when it is not a CRX3 file, a signature does not hold, the store or
 /// the extension did not sign it, or it is another extension.
-pub fn verify_store_crx(bytes: &[u8], id: &str) -> Result<()> {
-    verify_crx3(bytes, id, &STORE_KEY_SHA256)
+pub fn verify_store_crx(bytes: &[u8], id: &str, store: ExtensionStore) -> Result<()> {
+    match store {
+        ExtensionStore::Chrome => verify_crx3(bytes, id, &[CHROME_KEY_SHA256], store.name()),
+        ExtensionStore::Edge => verify_crx3(bytes, id, &EDGE_KEYS_SHA256, store.name()),
+    }
 }
 
-fn verify_crx3(bytes: &[u8], id: &str, store_key_sha256: &[u8; 32]) -> Result<()> {
-    let refused = |why: &str| HakuError::Unsupported(format!("the download from the Chrome Web Store {why}"));
+fn verify_crx3(bytes: &[u8], id: &str, store_keys_sha256: &[[u8; 32]], store: &str) -> Result<()> {
+    let refused = |why: &str| HakuError::Unsupported(format!("the download from {store} {why}"));
     if !bytes.starts_with(b"Cr24") || u32_at(bytes, 4) != Some(3) {
         return Err(refused("is not a CRX3 file"));
     }
@@ -244,7 +262,7 @@ fn verify_crx3(bytes: &[u8], id: &str, store_key_sha256: &[u8; 32]) -> Result<()
     .concat();
 
     let mut developer = None;
-    let mut by_store = false;
+    let mut by_store = vec![false; store_keys_sha256.len()];
     // CrxFileHeader: sha256_with_rsa = 2, sha256_with_ecdsa = 3, each an
     // AsymmetricKeyProof with public_key = 1 and signature = 2.
     for (number, proof) in fields.iter().filter(|(number, _)| *number == 2 || *number == 3) {
@@ -263,9 +281,11 @@ fn verify_crx3(bytes: &[u8], id: &str, store_key_sha256: &[u8; 32]) -> Result<()
         if digest.starts_with(crx_id) {
             developer = Some(key);
         }
-        by_store |= digest.as_slice() == store_key_sha256;
+        for (signed, store_key) in by_store.iter_mut().zip(store_keys_sha256) {
+            *signed |= digest.as_slice() == store_key;
+        }
     }
-    if !by_store {
+    if by_store.contains(&false) {
         return Err(refused("is not signed by the store"));
     }
     match developer {
@@ -719,9 +739,12 @@ mod tests {
         let crx = signed_crx3(&[&extension, &store], &extension.1, &archive);
         let id = crate::model::id_from_key(&extension.1);
 
-        assert!(verify_crx3(&crx, &id, &sha256(&store.1)).is_ok());
+        assert!(verify_crx3(&crx, &id, &[sha256(&store.1)], "the store").is_ok());
         let other = crate::model::id_from_key(&store.1);
-        assert!(verify_crx3(&crx, &other, &sha256(&store.1)).is_err(), "another id");
+        assert!(
+            verify_crx3(&crx, &other, &[sha256(&store.1)], "the store").is_err(),
+            "another id"
+        );
     }
 
     #[test]
@@ -731,9 +754,9 @@ mod tests {
         let id = crate::model::id_from_key(&extension.1);
 
         let unsigned_by_store = signed_crx3(&[&extension], &extension.1, &archive);
-        assert!(verify_crx3(&unsigned_by_store, &id, &sha256(&store.1)).is_err());
+        assert!(verify_crx3(&unsigned_by_store, &id, &[sha256(&store.1)], "the store").is_err());
         let unsigned_by_extension = signed_crx3(&[&store], &extension.1, &archive);
-        assert!(verify_crx3(&unsigned_by_extension, &id, &sha256(&store.1)).is_err());
+        assert!(verify_crx3(&unsigned_by_extension, &id, &[sha256(&store.1)], "the store").is_err());
     }
 
     #[test]
@@ -743,19 +766,37 @@ mod tests {
         let mut crx = signed_crx3(&[&extension, &store], &extension.1, &zip(&[("manifest.json", b"{}")]));
         let last = crx.len() - 1;
         crx[last] ^= 1;
-        assert!(verify_crx3(&crx, &id, &sha256(&store.1)).is_err());
+        assert!(verify_crx3(&crx, &id, &[sha256(&store.1)], "the store").is_err());
         // A zip, or a CRX2, has no store signature at all.
-        assert!(verify_crx3(&zip(&[("manifest.json", b"{}")]), &id, &sha256(&store.1)).is_err());
+        assert!(verify_crx3(&zip(&[("manifest.json", b"{}")]), &id, &[sha256(&store.1)], "the store").is_err());
     }
 
-    /// Checks a real store download: `HAKU_STORE_CRX` names the file and
-    /// `HAKU_STORE_ID` the extension's id.
     #[test]
-    #[ignore = "needs a file downloaded from the Chrome Web Store"]
+    fn a_store_with_two_keys_needs_both() {
+        let (first, second, extension) = (p256_key(), p256_key(), p256_key());
+        let archive = zip(&[("manifest.json", b"{}")]);
+        let id = crate::model::id_from_key(&extension.1);
+        let keys = [sha256(&first.1), sha256(&second.1)];
+
+        let both = signed_crx3(&[&extension, &first, &second], &extension.1, &archive);
+        assert!(verify_crx3(&both, &id, &keys, "the store").is_ok());
+        let one = signed_crx3(&[&extension, &second], &extension.1, &archive);
+        assert!(verify_crx3(&one, &id, &keys, "the store").is_err());
+    }
+
+    /// Checks a real store download: `HAKU_STORE_CRX` names the file,
+    /// `HAKU_STORE_ID` the extension's id, and `HAKU_STORE=edge` one from
+    /// Microsoft Edge Add-ons rather than the Chrome Web Store.
+    #[test]
+    #[ignore = "needs a file downloaded from a store"]
     fn a_real_store_download_is_accepted() {
         let path = std::env::var("HAKU_STORE_CRX").unwrap();
         let id = std::env::var("HAKU_STORE_ID").unwrap();
-        verify_store_crx(&std::fs::read(path).unwrap(), &id).unwrap();
+        let store = match std::env::var("HAKU_STORE").as_deref() {
+            Ok("edge") => ExtensionStore::Edge,
+            _ => ExtensionStore::Chrome,
+        };
+        verify_store_crx(&std::fs::read(path).unwrap(), &id, store).unwrap();
     }
 
     #[test]

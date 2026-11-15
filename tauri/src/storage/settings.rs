@@ -183,6 +183,10 @@ pub struct Settings {
     /// order they appear there. The rest are reached from the extensions
     /// menu.
     pub pinned_extensions: Vec<String>,
+    /// Whether extensions that came from a store are checked for updates at
+    /// startup and every day. On until the user turns it off.
+    /// [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).
+    pub check_extension_updates: bool,
     /// What the user allowed or blocked sites to use, by origin and kind.
     /// [Permissions](../../../docs/specs/permissions.md).
     pub site_permissions: SitePermissions,
@@ -321,6 +325,7 @@ impl Default for Settings {
             home_url: DEFAULT_HOME_URL.into(),
             disabled_extensions: Vec::new(),
             pinned_extensions: Vec::new(),
+            check_extension_updates: true,
             site_permissions: SitePermissions::default(),
             site_zoom: SiteZooms::default(),
             shortcuts: Shortcuts::default(),
