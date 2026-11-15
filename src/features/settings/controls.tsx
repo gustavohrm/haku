@@ -4,6 +4,7 @@ import {
   type BarLayout,
   type BookmarksBar,
   type Extension,
+  type ExtensionToAdd,
   type Policy,
   type Preset,
   type SidebarBookmarks,
@@ -12,8 +13,16 @@ import {
   type ToolbarPlacement,
 } from "@bindings";
 import { openMenu } from "@features/context-menu/store";
+import { describeAccess } from "@features/extensions/access";
 import { ExtensionIcon } from "@features/extensions/extension-icon";
-import { ADDING, addExtension, uninstallExtension, useExtensionChange } from "@features/extensions/manage";
+import {
+  ADDING,
+  addExtension,
+  answerExtension,
+  uninstallExtension,
+  useExtensionChange,
+  useExtensionToAdd,
+} from "@features/extensions/manage";
 import { reportUnexpected } from "@features/feedback/feedback";
 import { permissionName } from "@features/feedback/permission-prompt";
 import { MENU_GAP } from "@features/overlays/use-menu-dismiss";
@@ -597,13 +606,39 @@ export function HomeUrlControl({ id, describedBy, settings, update }: ControlPro
  */
 export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
   const change = useExtensionChange();
-  const adding = change === ADDING;
+  const asked = useExtensionToAdd();
+  const extensions = useExtensions();
+  const adding = change === ADDING && asked === null;
+  // An update is asked about on its extension's row, while that is listed.
+  const askedHere =
+    asked !== null &&
+    (asked.replaces === null ||
+      !extensions?.installed.some((extension) => extension.folder === asked.replaces?.folder));
+  return (
+    <div className="flex flex-col gap-2">
+      <AddButtons labelId={labelId} describedBy={describedBy} disabled={change !== null} adding={adding} />
+      {askedHere && <AddQuestion asked={asked} />}
+    </div>
+  );
+}
+
+function AddButtons({
+  labelId,
+  describedBy,
+  disabled,
+  adding,
+}: {
+  labelId: string;
+  describedBy: string | undefined;
+  disabled: boolean;
+  adding: boolean;
+}) {
   return (
     <fieldset className="m-0 flex gap-2 border-0 p-0" aria-labelledby={labelId} aria-describedby={describedBy}>
       <button
         type="button"
         className="btn soft edgeless gap-2"
-        disabled={change !== null}
+        disabled={disabled}
         onClick={() => void addExtension("file")}
       >
         <i className="ic-file-archive ic-sm" aria-hidden="true" />
@@ -612,13 +647,67 @@ export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
       <button
         type="button"
         className="btn soft edgeless gap-2"
-        disabled={change !== null}
+        disabled={disabled}
         onClick={() => void addExtension("folder")}
       >
         <i className="ic-folder-plus ic-sm" aria-hidden="true" />
         {t("settings.extensions.addFolder")}
       </button>
     </fieldset>
+  );
+}
+
+/**
+ * The question asked before an extension is installed: what it will be able
+ * to do, with what an update adds marked, then Cancel and Add or Update.
+ * Focus moves to Cancel, and Esc answers no.
+ * [Extensions § Before installing](../../../docs/specs/extensions.md#before-installing).
+ */
+function AddQuestion({ asked }: { asked: ExtensionToAdd }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancelRef.current?.focus(), []);
+  const onEscape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      void answerExtension(false);
+    }
+  };
+  const isUpdate = asked.replaces !== null;
+  const named = asked.version === "" ? asked.name : `${asked.name} ${asked.version}`;
+  const title = t(isUpdate ? "extensions.add.titleUpdate" : "extensions.add.title").replace("{extension}", () => named);
+  return (
+    <div role="alert" className="flex flex-col gap-2 pb-2 text-sm">
+      <p className="font-medium">{title}</p>
+      {asked.warnings.length === 0 ? (
+        <p className="text-text-secondary">{t("extensions.add.noAccess")}</p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          <p>{t("extensions.add.access")}</p>
+          <ul className="flex list-disc flex-col gap-1 ps-5">
+            {asked.warnings.map((warning) => (
+              <li key={warning.access.kind}>
+                {describeAccess(warning.access)}
+                {warning.new && <span className="text-text-secondary"> · {t("extensions.add.new")}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <button
+          ref={cancelRef}
+          type="button"
+          className="btn ghost"
+          onClick={() => void answerExtension(false)}
+          onKeyDown={onEscape}
+        >
+          {t("dialog.cancel")}
+        </button>
+        <button type="button" className="btn primary" onClick={() => void answerExtension(true)} onKeyDown={onEscape}>
+          {t(isUpdate ? "extensions.add.confirmUpdate" : "extensions.add.confirm")}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -667,6 +756,7 @@ function UninstallQuestion({
 export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
   const extensions = useExtensions();
   const change = useExtensionChange();
+  const toAdd = useExtensionToAdd();
   const ids = useId();
   // The folder whose row asks whether to uninstall it.
   const [asking, setAsking] = useState<string | null>(null);
@@ -831,6 +921,7 @@ export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
                     <i className="ic-ellipsis ic-sm" aria-hidden="true" />
                   </button>
                 </div>
+                {toAdd?.replaces?.folder === extension.folder && <AddQuestion asked={toAdd} />}
                 {asking === extension.folder && (
                   <UninstallQuestion
                     message={t("extensions.uninstall.message")}

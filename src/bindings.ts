@@ -277,15 +277,37 @@ export const commands = {
 	openExtensionsFolder: () => typedError<null, HakuError>(__TAURI_INVOKE("open_extensions_folder")),
 	/**
 	 *  Asks the user for an extension with the system's picker, owned by the
-	 *  calling window, and adds it, or updates the installed one it is a version
-	 *  of. Answers nothing when the picker was cancelled. The interface never
-	 *  names a path: it only says what to pick.
+	 *  calling window, and unpacks it, answering what it may do. Nothing is
+	 *  installed until `confirm_extension` answers. Answers nothing when the
+	 *  picker was cancelled. The interface never names a path: it only says what
+	 *  to pick.
 	 */
 	addExtension: (source: ExtensionSource) => typedError<{
+	/**
+	 *  Names it to `confirm_extension`. Only the latest one asked about can
+	 *  be installed.
+	 */
+	token: number,
+	name: string,
+	/**  The manifest's `version`, or empty when it declares none. */
+	version: string,
+	/**  Its icon as a `data:` URL, as [`Extension::icon`]. */
+	icon: string | null,
+	/**  The installed extension it updates, if any. */
+	replaces: Extension | null,
+	/**  What it may do, sites first. */
+	warnings: AccessWarning[],
+} | null, HakuError>(__TAURI_INVOKE("add_extension", { source })),
+	/**
+	 *  Answers the question `add_extension` asked: installs the extension it
+	 *  named with `token`, adding it or updating the installed one it is a
+	 *  version of, or, when `install` is false, deletes it.
+	 */
+	confirmExtension: (token: number, install: boolean) => typedError<{
 	extension: Extension,
 	/**  The version it replaced, when it updated one already installed. */
 	replaced: string | null,
-} | null, HakuError>(__TAURI_INVOKE("add_extension", { source })),
+} | null, HakuError>(__TAURI_INVOKE("confirm_extension", { token, install })),
 	/**
 	 *  Uninstalls the extension installed from `folder`, with what it stored, and
 	 *  deletes the folder; or deletes a folder that failed to install.
@@ -413,6 +435,16 @@ export const events = {
 };
 
 /* Types */
+/**  An access warning as shown before an extension is added. */
+export type AccessWarning = {
+	access: ExtensionAccess,
+	/**
+	 *  For an update, whether the installed version did not ask for it, or,
+	 *  for sites, for one of them.
+	 */
+	new: boolean,
+};
+
 /**  An extension added from settings. */
 export type AddedExtension = {
 	extension: Extension,
@@ -764,12 +796,67 @@ export type Extension = {
 	icon: string | null,
 };
 
+/**
+ *  One kind of access an extension asks for that the user is warned of.
+ *  Permissions that give no access worth a warning, such as `storage` or
+ *  `activeTab`, have none.
+ */
+export type ExtensionAccess = 
+/**
+ *  Reading and changing every site, from `<all_urls>`, a pattern for any
+ *  host, or `proxy`, which sees all traffic.
+ */
+{ kind: "allSites" } | 
+/**
+ *  Reading and changing these hosts, as their patterns name them, such as
+ *  `*.example.com`.
+ */
+{ kind: "sites"; hosts: string[] } | 
+/**  `history`. */
+{ kind: "changeHistory" } | 
+/**
+ *  `tabs`, `webNavigation`, `sessions` or `declarativeNetRequestFeedback`,
+ *  which see the addresses visited.
+ */
+{ kind: "readHistory" } | { kind: "topSites" } | { kind: "bookmarks" } | { kind: "downloads" } | { kind: "readClipboard" } | { kind: "writeClipboard" } | 
+/**  `declarativeNetRequest`. */
+{ kind: "blockContent" } | 
+/**  `tabCapture`, `desktopCapture` or `pageCapture`. */
+{ kind: "capture" } | { kind: "location" } | { kind: "notifications" } | 
+/**  `identity.email`. */
+{ kind: "email" } | { kind: "privacy" } | { kind: "contentSettings" } | 
+/**  `management`: other extensions. */
+{ kind: "management" } | 
+/**  `nativeMessaging`: programs installed on the computer. */
+{ kind: "nativeMessaging" } | { kind: "debugger" };
+
 /**  What `add_extension` asks the user to pick. */
 export type ExtensionSource = 
 /**  A packed extension: a `.crx` or `.zip` file. */
 "file" | 
 /**  An unpacked extension: a folder holding its `manifest.json`. */
 "folder";
+
+/**
+ *  An extension `add_extension` has unpacked and not yet installed, for the
+ *  user to see what it may do before `confirm_extension` installs it.
+ */
+export type ExtensionToAdd = {
+	/**
+	 *  Names it to `confirm_extension`. Only the latest one asked about can
+	 *  be installed.
+	 */
+	token: number,
+	name: string,
+	/**  The manifest's `version`, or empty when it declares none. */
+	version: string,
+	/**  Its icon as a `data:` URL, as [`Extension::icon`]. */
+	icon: string | null,
+	/**  The installed extension it updates, if any. */
+	replaces: Extension | null,
+	/**  What it may do, sites first. */
+	warnings: AccessWarning[],
+};
 
 /**  What the extensions folder holds, as last installed. */
 export type Extensions = {

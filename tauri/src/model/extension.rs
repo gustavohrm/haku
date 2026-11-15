@@ -69,6 +69,25 @@ pub struct AddedExtension {
     pub replaced: Option<String>,
 }
 
+/// An extension `add_extension` has unpacked and not yet installed, for the
+/// user to see what it may do before `confirm_extension` installs it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionToAdd {
+    /// Names it to `confirm_extension`. Only the latest one asked about can
+    /// be installed.
+    pub token: u32,
+    pub name: String,
+    /// The manifest's `version`, or empty when it declares none.
+    pub version: String,
+    /// Its icon as a `data:` URL, as [`Extension::icon`].
+    pub icon: Option<String>,
+    /// The installed extension it updates, if any.
+    pub replaces: Option<Extension>,
+    /// What it may do, sites first.
+    pub warnings: Vec<crate::model::AccessWarning>,
+}
+
 /// The manifest's `version`, or empty when it declares none.
 pub fn version(manifest: &str) -> String {
     parse(manifest)

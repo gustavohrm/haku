@@ -1,4 +1,4 @@
-import { type ExtensionSource } from "@bindings";
+import { type ExtensionSource, type ExtensionToAdd } from "@bindings";
 import { feedback } from "@features/feedback/feedback";
 import { commands } from "@ipc/commands";
 import { t } from "@shared/i18n";
@@ -21,13 +21,24 @@ export const ADDING = ".add";
 
 /** What is changing: {@link ADDING}, or the folder of the extension being removed. */
 let busy: string | null = null;
+/** The extension unpacked and waiting for the user to say whether to install it. */
+let asking: ExtensionToAdd | null = null;
 const listeners = new Set<() => void>();
 
-function setBusy(next: string | null) {
-  busy = next;
+function notify() {
   for (const listener of listeners) {
     listener();
   }
+}
+
+function setBusy(next: string | null) {
+  busy = next;
+  notify();
+}
+
+function setAsking(next: ExtensionToAdd | null) {
+  asking = next;
+  notify();
 }
 
 function subscribe(listener: () => void) {
@@ -41,8 +52,17 @@ export function useExtensionChange(): string | null {
 }
 
 /**
- * Asks for an extension and adds it, or updates the installed one it is a
- * version of, and says which happened. A failure is reported by the command.
+ * The extension waiting for the user's answer, which settings asks about on
+ * the row of the extension it updates, or under **Add an extension**.
+ */
+export function useExtensionToAdd(): ExtensionToAdd | null {
+  return useSyncExternalStore(subscribe, () => asking);
+}
+
+/**
+ * Asks for an extension and unpacks it, then waits for {@link answerExtension}
+ * while settings shows what it may do. Adding stays busy until then. A
+ * failure is reported by the command.
  *
  * @param source - Whether to pick a `.crx` or `.zip` file, or a folder.
  */
@@ -51,8 +71,34 @@ export async function addExtension(source: ExtensionSource): Promise<void> {
     return;
   }
   setBusy(ADDING);
+  let waiting: ExtensionToAdd | null = null;
   try {
     const result = await commands.addExtension(source);
+    waiting = result.status === "ok" ? result.data : null;
+  } finally {
+    if (waiting === null) {
+      setBusy(null);
+    } else {
+      setAsking(waiting);
+    }
+  }
+}
+
+/**
+ * Answers the question about the extension waiting: installs it, adding it or
+ * updating the one it is a version of, and says which happened, or deletes
+ * it. A failure is reported by the command.
+ *
+ * @param install - Whether to install it.
+ */
+export async function answerExtension(install: boolean): Promise<void> {
+  const waiting = asking;
+  if (waiting === null) {
+    return;
+  }
+  setAsking(null);
+  try {
+    const result = await commands.confirmExtension(waiting.token, install);
     if (result.status === "error" || result.data === null) {
       return;
     }

@@ -1,12 +1,12 @@
 ---
 status: IMPLEMENTED
-last_updated: 2026-11-12
-scope: How Chrome extensions are added, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
+last_updated: 2026-11-15
+scope: How Chrome extensions are added, shown with what they may do, updated and uninstalled, switched on and off, pinned and ordered, and opened from the toolbar.
 ---
 
 # Extensions
 
-[First release § Extensions](../first-release.md#extensions) settles the approach: no store, unpacked Chrome extensions through WebView2's own extension support, at the user's own risk. This covers the second tier, Chrome extensions. User scripts and styles are not built.
+[First release § Extensions](../first-release.md#extensions) settles the approach: Chrome extensions through WebView2's own extension support, added from disk or, once it is built, from the Chrome Web Store, each shown with what it may do before it is installed. This covers the second tier, Chrome extensions. User scripts and styles are not built.
 
 ## Installing
 
@@ -37,7 +37,7 @@ Rejected: dropping a file onto settings. A drop onto the chrome webview needs it
 
 The extension is unpacked, or copied, into a staging folder inside `extensions/`, named with a leading `.`. A `.zip` whose files sit in one top folder, as some release archives do, is unpacked from inside it. What it holds must have a `manifest.json`, or nothing is added. A file larger than 512 MB, or one whose files declare more than that in total, is refused before it is unpacked: extensions are a few megabytes, and unpacking happens in memory, so the limit stops a crafted archive from exhausting it. The read itself stops one byte past the limit, for a file that grows after its size is checked. A `manifest.json`, or a `messages.json`, larger than 4 MB is refused; the largest seen is 438 kB (decided 2026-11-12). A `.crx` is a `.zip` with a signed header before it; the header is not verified, since the user picked the file, but the public key it is signed with is written into the manifest as `key` when the manifest has none. That gives the extension the id it has in the Chrome Web Store, whatever its folder, so a later version keeps what it stored.
 
-The staging folder then becomes `extensions/<name>`, where `<name>` is the extension's name in lower case, with every run of other characters than letters and digits made one `-`. A name the manifest takes from its locale messages, `__MSG_…__`, is read from its `default_locale`.
+Nothing is installed yet: settings asks first, as [Before installing](#before-installing) describes, and a **Cancel** deletes the staging folder. Once the user agrees, the staging folder becomes `extensions/<name>`, where `<name>` is the extension's name in lower case, with every run of other characters than letters and digits made one `-`. A name the manifest takes from its locale messages, `__MSG_…__`, is read from its `default_locale`.
 
 An extension is an **update** of one already installed when its id, known before installing only from a `key`, matches, or else when its folder name does, numbered or not, and at most one of the two has a `key`: the same name is taken to be the same extension, preferring one that has no `key` either. Two extensions that both have a `key` are the same only when their keys are, so one never replaces another of the same name; a new extension whose folder name is taken gets the first free one with a number after it, such as `dark-reader-2`.
 
@@ -45,7 +45,23 @@ For an update, the installed one is switched off, its folder is set aside under 
 
 An update whose id changes, which happens when its `key` gives another id than the installed one's, including when a key is added or removed, uninstalls the old id, with what it stored, since nothing else would. Its switch and its pin, kept by id, do not follow it.
 
-The command answers with the extension and, for an update, the version it replaced, and settings says which happened. Every change from settings is serialized with the others and with installing at startup.
+`confirm_extension` answers with the extension and, for an update, the version it replaced, and settings says which happened. Every change from settings is serialized with the others and with installing at startup.
+
+## Before installing
+
+`add_extension` answers with the extension unpacked, not installed: its name, version and icon, the installed extension it would update, and what its manifest lets it do. Settings shows that, and `confirm_extension` installs it or deletes it. Nothing reaches the engine before the user agrees, so an extension cannot run until they have seen what it asks for.
+
+What it may do is read from the manifest: its `permissions`, its `host_permissions`, the host patterns Manifest V2 lists among its permissions, and the pages its content scripts match. Each permission that gives access worth knowing about becomes one sentence, following the permissions Chrome warns about, such as "Read your browsing history" for `tabs` or `webNavigation`. A permission that gives none, such as `storage` or `activeTab`, says nothing. Sites come first: every site, when a pattern matches any host, `<all_urls>` included, or `proxy`, which sees all traffic; otherwise the hosts named, the first three by name and the rest counted. `file` and other schemes that reach no site are left out. An extension asking for nothing listed says so. `optional_permissions` are left out, since the extension asks for them while it runs. The sentences are Haku's own (decided 2026-11-15).
+
+For an update, an access the installed version did not ask for is marked **New in this version**, and a list of sites is marked when it names a host the installed version did not reach. The whole list is still shown, since the user is choosing the file again.
+
+The question is asked in place, as the [interface guidelines](../guidelines/interface.md) require: under the extension's row for an update, under **Add an extension** otherwise. It says **Add** or **Update**, with **Cancel**, which takes focus; Esc answers no. Adding stays busy until it is answered, so the add, update and uninstall buttons stay disabled.
+
+Only the extension asked about last can be confirmed. `add_extension` names it with a `token`, and a `confirm_extension` with any other token fails and installs nothing. Asking about another extension deletes the one waiting. One left unanswered when Haku quits is in a `.` folder, which the next start deletes.
+
+Extensions placed in the folder by hand are installed at the next start without a question: the user put them there.
+
+Rejected: the system's own message box, which needed no new command. It cannot be laid out to list sites, and the interface guidelines keep a question where it was started.
 
 Haku does not look for new versions: an update is the user adding the newer file. The Web Store's update service would find them, at the cost of Haku contacting Google on a schedule, which [First release § Extensions](../first-release.md#extensions) has not decided.
 
@@ -65,7 +81,7 @@ An extension installed before Haku recorded them is not in the file, so deleting
 
 The Extensions section has three rows.
 
-- **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, and that adding a newer version of an installed extension updates it and keeps its data. It holds two buttons, **File…** and **Folder…**.
+- **Add an extension** explains that a `.crx` or `.zip` file or an unpacked folder can be added, that adding a newer version of an installed extension updates it and keeps its data, and that what the extension will be able to do is shown before anything is installed. It holds two buttons, **File…** and **Folder…**, and the question about a new extension ([Before installing](#before-installing)).
 - **Installed extensions** lists each extension as its icon, its name, its version with **Off** or **Pinned** when either applies, its switch, and a button for its menu. The menu has **Options**, when the extension has an options page, disabled while it is switched off; **Pin to toolbar** as a checkbox; **Update from a file…** and **Update from a folder…**; and **Uninstall…**, which asks under the extension's row, saying what goes, with **Cancel**, which takes focus, and **Uninstall**; Esc answers no. An update from the menu is an add like any other; it is there so it can be found where the extension is. Each folder that failed to install follows under **Could not install**, as its folder name and the reason, with **Uninstall…**, which asks on its row the same way. With nothing installed and nothing failed to load, the row says how to get an extension: download its `.crx` or release `.zip`, then add it.
 - **Extensions folder** opens the folder.
 

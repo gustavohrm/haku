@@ -3,6 +3,7 @@ pub mod context_menu;
 pub mod dialog;
 pub mod download;
 pub mod extension;
+pub mod extension_access;
 pub mod find;
 pub mod history;
 pub mod history_rules;
@@ -32,9 +33,10 @@ pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
 pub use download::{Download, DownloadFailure, DownloadId, DownloadState, Downloading, Downloads, Settled};
 pub use extension::{
     default_locale, display_name, folder_name, icon_file, id_from_key, key, options_url, popup_origin, popup_size,
-    popup_url, version, AddedExtension, Extension, ExtensionSource, Extensions, FailedExtension, ScreenRect,
-    POPUP_MAX_SIZE, POPUP_MIN_SIZE,
+    popup_url, version, AddedExtension, Extension, ExtensionSource, ExtensionToAdd, Extensions, FailedExtension,
+    ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
+pub use extension_access::{AccessWarning, ExtensionAccess};
 pub use find::{check_query, FindDirection, FIND_QUERY_MAX};
 pub use history::{Commit, History, NavigationKind, NavigationSource, Transition, Visit};
 pub use history_rules::{CompiledRules, HistoryRetention, HistoryRule, HistoryRuleAction, HistoryRules, Recording};
