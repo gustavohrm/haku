@@ -1,5 +1,6 @@
-//! The requests Haku makes itself, rather than a page: today only the search
-//! engine's completions for the address bar.
+//! The requests Haku makes itself, rather than a page: the search engine's
+//! completions for the address bar, and an extension the user adds from the
+//! Chrome Web Store.
 //!
 //! No cookie store and no shared state, so a request carries nothing that
 //! ties it to the user's session with the engine.
@@ -29,6 +30,27 @@ pub fn fetch_text(url: &str, timeout: Duration) -> Option<String> {
     let mut response = agent.get(url).call().ok()?;
     let bytes = response.body_mut().with_config().limit(BODY_LIMIT).read_to_vec().ok()?;
     Some(String::from_utf8(bytes).unwrap_or_else(|error| error.into_bytes().into_iter().map(char::from).collect()))
+}
+
+/// Fetches `url`, following redirects, reading at most `limit` bytes and
+/// waiting at most `timeout` for all of it. Blocks.
+///
+/// # Errors
+/// Fails, with what went wrong, on any failure, including a status other
+/// than success and a body larger than `limit`.
+pub fn fetch_bytes(url: &str, timeout: Duration, limit: u64) -> Result<Vec<u8>, String> {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .user_agent("Haku")
+        .build();
+    let agent = ureq::Agent::new_with_config(config);
+    let mut response = agent.get(url).call().map_err(|error| error.to_string())?;
+    response
+        .body_mut()
+        .with_config()
+        .limit(limit)
+        .read_to_vec()
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

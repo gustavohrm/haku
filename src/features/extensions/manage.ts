@@ -5,7 +5,8 @@ import { t } from "@shared/i18n";
 import { useSyncExternalStore } from "react";
 
 /**
- * Adding, updating and uninstalling extensions from settings, one at a time.
+ * Adding, updating and uninstalling extensions from settings, and adding
+ * them from the Chrome Web Store, one at a time.
  *
  * Rust serializes the changes anyway; this keeps their buttons disabled while
  * one runs, wherever they are, so a second click does not queue a second
@@ -21,8 +22,12 @@ export const ADDING = ".add";
 
 /** What is changing: {@link ADDING}, or the folder of the extension being removed. */
 let busy: string | null = null;
+/** Where the question about an extension is asked: in settings, or under the toolbar's **Add to Haku**. */
+export type AskedFrom = "settings" | "store";
+
 /** The extension unpacked and waiting for the user to say whether to install it. */
 let asking: ExtensionToAdd | null = null;
+let askedFrom: AskedFrom = "settings";
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -36,8 +41,9 @@ function setBusy(next: string | null) {
   notify();
 }
 
-function setAsking(next: ExtensionToAdd | null) {
+function setAsking(next: ExtensionToAdd | null, from: AskedFrom = askedFrom) {
   asking = next;
+  askedFrom = from;
   notify();
 }
 
@@ -52,11 +58,14 @@ export function useExtensionChange(): string | null {
 }
 
 /**
- * The extension waiting for the user's answer, which settings asks about on
- * the row of the extension it updates, or under **Add an extension**.
+ * The extension waiting for the user's answer, when it is asked about from
+ * `from`. Settings asks on the row of the extension it updates, or under
+ * **Add an extension**; the store's under **Add to Haku**.
+ *
+ * @param from - Where the caller asks.
  */
-export function useExtensionToAdd(): ExtensionToAdd | null {
-  return useSyncExternalStore(subscribe, () => asking);
+export function useExtensionToAdd(from: AskedFrom): ExtensionToAdd | null {
+  return useSyncExternalStore(subscribe, () => (askedFrom === from ? asking : null));
 }
 
 /**
@@ -79,7 +88,33 @@ export async function addExtension(source: ExtensionSource): Promise<void> {
     if (waiting === null) {
       setBusy(null);
     } else {
-      setAsking(waiting);
+      setAsking(waiting, "settings");
+    }
+  }
+}
+
+/**
+ * Downloads an extension from the Chrome Web Store and checks it, then waits
+ * for {@link answerExtension} while the toolbar shows what it may do. Adding
+ * stays busy until then. A failure is reported by the command.
+ * [Extensions § From the Chrome Web Store](../../../docs/specs/extensions.md#from-the-chrome-web-store).
+ *
+ * @param id - The extension's id in the store.
+ */
+export async function addFromStore(id: string): Promise<void> {
+  if (busy !== null) {
+    return;
+  }
+  setBusy(ADDING);
+  let waiting: ExtensionToAdd | null = null;
+  try {
+    const result = await commands.addExtensionFromStore(id);
+    waiting = result.status === "ok" ? result.data : null;
+  } finally {
+    if (waiting === null) {
+      setBusy(null);
+    } else {
+      setAsking(waiting, "store");
     }
   }
 }

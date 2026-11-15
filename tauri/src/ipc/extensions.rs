@@ -17,9 +17,11 @@ use tauri_specta::Event;
 
 use crate::error::{HakuError, Result};
 use crate::model::{
-    data_url, default_locale, display_name, extension_access, folder_name, icon_file, id_from_key, key, options_url,
-    popup_url, version, AddedExtension, Extension, ExtensionSource, ExtensionToAdd, Extensions, FailedExtension,
+    data_url, default_locale, display_name, extension_access, folder_name, icon_file, id_from_key, is_extension_id,
+    key, options_url, popup_url, store_download_url, version, AddedExtension, Extension, ExtensionSource,
+    ExtensionToAdd, Extensions, FailedExtension,
 };
+use crate::net;
 use crate::platform;
 use crate::state::{now_ms, AppState};
 use crate::storage::{self, package, InstalledExtension, InstalledExtensions};
@@ -32,6 +34,15 @@ use super::events::ExtensionsChanged;
 /// after an extension is switched off or removed.
 const FOLDER_ATTEMPTS: u32 = 10;
 const FOLDER_RETRY: Duration = Duration::from_millis(100);
+
+/// The longest a download from the Chrome Web Store is waited on. Extensions
+/// are a few megabytes; Bitwarden's, among the larger, is about 30.
+const STORE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// The engine version the store is told when the engine's own cannot be
+/// read: the runtime [Extensions § Measured compatibility](../../../docs/specs/extensions.md#measured-compatibility)
+/// was measured on.
+const FALLBACK_ENGINE_VERSION: &str = "155.0.4283.62";
 
 /// The extension unpacked by [`add`] and waiting for the user's answer, and
 /// the token that names it. One at a time: asking about another discards it.
@@ -208,21 +219,47 @@ pub fn add(app: &tauri::AppHandle, window: &tauri::Window, source: ExtensionSour
     let Some(picked) = platform::pick_extension(window, source)? else {
         return Ok(None);
     };
+    stage(app, |staging| match source {
+        ExtensionSource::File => package::read(&picked).and_then(|bytes| package::unpack(&bytes, staging)),
+        ExtensionSource::Folder => package::copy_folder(&picked, staging),
+    })
+    .map(Some)
+}
+
+/// Downloads extension `id` from the Chrome Web Store, checks it is the one
+/// the store signed, and unpacks it without installing it, answering what it
+/// may do, for the user to confirm with [`confirm`].
+///
+/// # Errors
+/// Fails when `id` is not an extension id, the download fails, or it is not
+/// signed by the store and the extension. Nothing is kept then.
+pub fn add_from_store(app: &tauri::AppHandle, id: &str) -> Result<ExtensionToAdd> {
+    if !is_extension_id(id) {
+        return Err(HakuError::Unsupported(format!("not an extension id: {id}")));
+    }
+    // Any recent engine is answered with the extension's newest version.
+    let engine = tauri::webview_version().unwrap_or_else(|_| FALLBACK_ENGINE_VERSION.into());
+    let limit = package::MAX_SIZE as u64;
+    let bytes = net::fetch_bytes(&store_download_url(id, &engine), STORE_TIMEOUT, limit)
+        .map_err(|error| HakuError::Unsupported(format!("the Chrome Web Store did not send the extension: {error}")))?;
+    package::verify_store_crx(&bytes, id)?;
+    stage(app, |staging| package::unpack(&bytes, staging))
+}
+
+/// Unpacks an extension into a new staging folder with `fill`, and keeps it
+/// as the one waiting, replacing any other, with what the user is asked.
+fn stage(app: &tauri::AppHandle, fill: impl FnOnce(&Path) -> Result<()>) -> Result<ExtensionToAdd> {
     let state = app.state::<AppState>();
     let _turn = lock(&state);
     discard(take_pending(None));
     let root = &state.paths.extensions;
     std::fs::create_dir_all(root)?;
     let staging = root.join(format!(".adding-{}", now_ms()));
-    let unpacked = match source {
-        ExtensionSource::File => package::read(&picked).and_then(|bytes| package::unpack(&bytes, &staging)),
-        ExtensionSource::Folder => package::copy_folder(&picked, &staging),
-    };
-    match unpacked.and_then(|()| ask(&state, &staging)) {
+    match fill(&staging).and_then(|()| ask(&state, &staging)) {
         Ok(mut asked) => {
             asked.token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
             *PENDING.lock().unwrap_or_else(PoisonError::into_inner) = Some((asked.token, staging));
-            Ok(Some(asked))
+            Ok(asked)
         }
         Err(error) => {
             discard(Some(staging));

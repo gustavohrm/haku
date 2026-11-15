@@ -309,6 +309,13 @@ export const commands = {
 	replaced: string | null,
 } | null, HakuError>(__TAURI_INVOKE("confirm_extension", { token, install })),
 	/**
+	 *  Downloads extension `id` from the Chrome Web Store and unpacks it once its
+	 *  signatures hold, answering what it may do, as `add_extension` does. Refused
+	 *  for a private window, where extensions do not run and nothing it does is
+	 *  meant to reach a third party.
+	 */
+	addExtensionFromStore: (id: string) => typedError<ExtensionToAdd, HakuError>(__TAURI_INVOKE("add_extension_from_store", { id })),
+	/**
 	 *  Uninstalls the extension installed from `folder`, with what it stored, and
 	 *  deletes the folder; or deletes a folder that failed to install.
 	 */

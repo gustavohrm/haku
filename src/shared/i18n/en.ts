@@ -260,7 +260,7 @@ export const en = {
   "settings.extensions.keywords": "add-ons, plugins, uninstall, remove, options, pin, switch off",
   "settings.extensions.empty": "No extensions yet.",
   "settings.extensions.empty.help":
-    "Download an extension as a .crx file, or as the .zip its developer releases, then add it above.",
+    "Open an extension's page in the Chrome Web Store and choose Add to Haku in the toolbar, or download it as a .crx file, or as the .zip its developer releases, then add it above.",
   "settings.extensions.failed": "Could not install",
   "settings.extensions.error": "Something went wrong with extensions:",
   "settings.extensions.actions": "More for {name}",
@@ -346,6 +346,8 @@ export const en = {
   "extensions.pin": "Pin to the toolbar",
   "extensions.unpin": "Unpin from the toolbar",
   "extensions.manage": "Manage extensions",
+  "extensions.store.add": "Add to Haku",
+  "extensions.store.adding": "Downloading…",
   "extensions.pinned": "Pinned extensions",
   "extensions.moveLeft": "Move left",
   "extensions.moveRight": "Move right",

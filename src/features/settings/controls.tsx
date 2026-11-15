@@ -4,7 +4,6 @@ import {
   type BarLayout,
   type BookmarksBar,
   type Extension,
-  type ExtensionToAdd,
   type Policy,
   type Preset,
   type SidebarBookmarks,
@@ -13,12 +12,11 @@ import {
   type ToolbarPlacement,
 } from "@bindings";
 import { openMenu } from "@features/context-menu/store";
-import { describeAccess } from "@features/extensions/access";
+import { AddQuestion } from "@features/extensions/add-question";
 import { ExtensionIcon } from "@features/extensions/extension-icon";
 import {
   ADDING,
   addExtension,
-  answerExtension,
   uninstallExtension,
   useExtensionChange,
   useExtensionToAdd,
@@ -606,7 +604,7 @@ export function HomeUrlControl({ id, describedBy, settings, update }: ControlPro
  */
 export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
   const change = useExtensionChange();
-  const asked = useExtensionToAdd();
+  const asked = useExtensionToAdd("settings");
   const extensions = useExtensions();
   const adding = change === ADDING && asked === null;
   // An update is asked about on its extension's row, while that is listed.
@@ -658,60 +656,6 @@ function AddButtons({
 }
 
 /**
- * The question asked before an extension is installed: what it will be able
- * to do, with what an update adds marked, then Cancel and Add or Update.
- * Focus moves to Cancel, and Esc answers no.
- * [Extensions § Before installing](../../../docs/specs/extensions.md#before-installing).
- */
-function AddQuestion({ asked }: { asked: ExtensionToAdd }) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => cancelRef.current?.focus(), []);
-  const onEscape = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      void answerExtension(false);
-    }
-  };
-  const isUpdate = asked.replaces !== null;
-  const named = asked.version === "" ? asked.name : `${asked.name} ${asked.version}`;
-  const title = t(isUpdate ? "extensions.add.titleUpdate" : "extensions.add.title").replace("{extension}", () => named);
-  return (
-    <div role="alert" className="flex flex-col gap-2 pb-2 text-sm">
-      <p className="font-medium">{title}</p>
-      {asked.warnings.length === 0 ? (
-        <p className="text-text-secondary">{t("extensions.add.noAccess")}</p>
-      ) : (
-        <div className="flex flex-col gap-1">
-          <p>{t("extensions.add.access")}</p>
-          <ul className="flex list-disc flex-col gap-1 ps-5">
-            {asked.warnings.map((warning) => (
-              <li key={warning.access.kind}>
-                {describeAccess(warning.access)}
-                {warning.new && <span className="text-text-secondary"> · {t("extensions.add.new")}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <div className="flex justify-end gap-2">
-        <button
-          ref={cancelRef}
-          type="button"
-          className="btn ghost"
-          onClick={() => void answerExtension(false)}
-          onKeyDown={onEscape}
-        >
-          {t("dialog.cancel")}
-        </button>
-        <button type="button" className="btn primary" onClick={() => void answerExtension(true)} onKeyDown={onEscape}>
-          {t(isUpdate ? "extensions.add.confirmUpdate" : "extensions.add.confirm")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
  * The question **Uninstall…** asks on the row it was chosen from, before
  * anything is deleted: what goes, then Cancel and Uninstall. Focus moves to
  * Cancel, and Esc answers no.
@@ -756,7 +700,7 @@ function UninstallQuestion({
 export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
   const extensions = useExtensions();
   const change = useExtensionChange();
-  const toAdd = useExtensionToAdd();
+  const toAdd = useExtensionToAdd("settings");
   const ids = useId();
   // The folder whose row asks whether to uninstall it.
   const [asking, setAsking] = useState<string | null>(null);

@@ -174,6 +174,22 @@ pub fn id_from_key(public_key: &[u8]) -> String {
         .collect()
 }
 
+/// Whether `id` is an extension id: 32 letters from `a` to `p`, as
+/// [`id_from_key`] gives.
+pub fn is_extension_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|byte| (b'a'..=b'p').contains(&byte))
+}
+
+/// Where the Chrome Web Store serves extension `id` as a CRX3 file, for an
+/// engine of `engine_version`: the store answers with the newest version that
+/// engine runs. [Extensions § From the Chrome Web Store](../../../docs/specs/extensions.md#from-the-chrome-web-store).
+pub fn store_download_url(id: &str, engine_version: &str) -> String {
+    format!(
+        "https://clients2.google.com/service/update2/crx?response=redirect&acceptformat=crx3\
+         &prodversion={engine_version}&x=id%3D{id}%26installsource%3Dondemand%26uc"
+    )
+}
+
 fn parse(manifest: &str) -> Option<serde_json::Value> {
     serde_json::from_str(manifest.trim_start_matches('\u{feff}')).ok()
 }
@@ -291,6 +307,24 @@ mod tests {
         assert_eq!(
             popup_url("abc", manifest).as_deref(),
             Some("chrome-extension://abc/popup/index.html")
+        );
+    }
+
+    #[test]
+    fn an_extension_id_is_32_letters_from_a_to_p() {
+        assert!(is_extension_id("ddkjiahejlhfcafbddmgiahcphecmpfh"));
+        assert!(is_extension_id(&id_from_key(b"any key")));
+        assert!(!is_extension_id("ddkjiahejlhfcafbddmgiahcphecmpfz"));
+        assert!(!is_extension_id("ddkjiahejlhfcafbddmgiahcphecmpf"));
+        assert!(!is_extension_id("../../../../../../../etc/passwd/"));
+    }
+
+    #[test]
+    fn the_store_serves_an_extension_for_the_engine_version() {
+        assert_eq!(
+            store_download_url("ddkjiahejlhfcafbddmgiahcphecmpfh", "155.0.4283.62"),
+            "https://clients2.google.com/service/update2/crx?response=redirect&acceptformat=crx3\
+             &prodversion=155.0.4283.62&x=id%3Dddkjiahejlhfcafbddmgiahcphecmpfh%26installsource%3Dondemand%26uc"
         );
     }
 

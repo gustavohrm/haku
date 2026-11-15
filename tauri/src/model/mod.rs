@@ -32,9 +32,9 @@ pub use context_menu::{
 pub use dialog::{DialogAnswer, DialogId, DialogKind, PageDialog};
 pub use download::{Download, DownloadFailure, DownloadId, DownloadState, Downloading, Downloads, Settled};
 pub use extension::{
-    default_locale, display_name, folder_name, icon_file, id_from_key, key, options_url, popup_origin, popup_size,
-    popup_url, version, AddedExtension, Extension, ExtensionSource, ExtensionToAdd, Extensions, FailedExtension,
-    ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
+    default_locale, display_name, folder_name, icon_file, id_from_key, is_extension_id, key, options_url, popup_origin,
+    popup_size, popup_url, store_download_url, version, AddedExtension, Extension, ExtensionSource, ExtensionToAdd,
+    Extensions, FailedExtension, ScreenRect, POPUP_MAX_SIZE, POPUP_MIN_SIZE,
 };
 pub use extension_access::{AccessWarning, ExtensionAccess};
 pub use find::{check_query, FindDirection, FIND_QUERY_MAX};

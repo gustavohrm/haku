@@ -43,6 +43,9 @@ miniz_oxide = "0.9"
 # Chrome derives an extension's id from the SHA-256 of its key. Already built
 # as part of Tauri.
 sha2 = "0.11"
+# Verifies the signatures of an extension downloaded from the Chrome Web
+# Store. Already built as part of `ureq`'s TLS.
+ring = { version = "0.17.14", default-features = false, features = ["alloc"] }
 ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
 
 [target.'cfg(windows)'.dependencies]

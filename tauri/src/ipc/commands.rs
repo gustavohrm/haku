@@ -2983,6 +2983,27 @@ pub async fn confirm_extension(
     extensions::confirm(&app, token, install)
 }
 
+/// Downloads extension `id` from the Chrome Web Store and unpacks it once its
+/// signatures hold, answering what it may do, as `add_extension` does. Refused
+/// for a private window, where extensions do not run and nothing it does is
+/// meant to reach a third party.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_extension_from_store(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ExtensionToAdd> {
+    let window = ensure_chrome(&webview)?;
+    if is_private(&state, window)? {
+        return Err(HakuError::Unsupported(
+            "extensions are not added from a private window".into(),
+        ));
+    }
+    extensions::add_from_store(&app, &id)
+}
+
 /// Uninstalls the extension installed from `folder`, with what it stored, and
 /// deletes the folder; or deletes a folder that failed to install.
 #[tauri::command]
