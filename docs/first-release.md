@@ -173,7 +173,7 @@ Rejected: Firefox extensions and their store, addons.mozilla.org. WebView2 is Ch
 
 **Microsoft Edge Add-ons** (decided 2026-11-15). Added in the same way: **Add to Haku** on its pages, a download verified as signed by Microsoft. Its extensions suit WebView2, which is Edge's engine, and some are published only there. Its download host serves files over plain HTTP only, which the signature check makes safe from tampering, though not from being seen ([Extensions § From the stores](specs/extensions.md#from-the-stores)).
 
-**Updates from the stores** (decided 2026-11-15). An extension that came from either store is checked for updates at startup and every 24 hours, and on demand, from the store it came from, with only that store's ids and versions. The automatic check has a switch in settings, on by default, as [Security](guidelines/security.md) requires of an update check. An update that asks for no new access installs without a question; one that asks for more waits in settings for the user to review it ([Extensions § Updates from the stores](specs/extensions.md#updates-from-the-stores)).
+**Updates from the stores** (decided 2026-11-15). An extension that came from either store is checked for updates at startup and every 24 hours, and on demand, from the store it came from, with only that store's ids and versions. The automatic check is on by default, and has a switch in settings to turn it off, as [Security](guidelines/security.md) requires of an update check. An update that asks for no new access installs without a question; one that asks for more waits in settings for the user to review it ([Extensions § Updates from the stores](specs/extensions.md#updates-from-the-stores)).
 
 ### Passwords and autofill
 

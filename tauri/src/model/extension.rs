@@ -30,7 +30,8 @@ pub struct Extension {
     pub icon: Option<String>,
 }
 
-/// What the extensions folder holds, as last installed.
+/// What the extensions folder holds, as last installed, and the updates
+/// found in the stores that wait for review, which only memory holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Extensions {

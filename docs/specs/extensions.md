@@ -139,7 +139,7 @@ The Extensions section has four rows.
 - **Extension updates** has **Check for updates automatically**, a switch for `checkExtensionUpdates`, and **Check now**, which shows **Checking…** while it runs ([Updates from the stores](#updates-from-the-stores)). Its description says which extensions are checked: those that came from a store.
 - **Extensions folder** opens the folder.
 
-Only one add, removal or check of the stores runs at a time. While one runs, the add, update, review, check and uninstall buttons are disabled; an add shows **Adding…**, and uninstalling shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
+Only one add, removal or check of the stores runs at a time. While one started from settings or the toolbar runs, the add, update, review, check and uninstall buttons are disabled; a check that runs on its own leaves them enabled, since Rust serializes its installs with every other change, and **Check now** waits for it to finish; an add shows **Adding…**, and uninstalling shows **Uninstalling…** in its row. The result is a toast: an extension added, an extension updated from one version to another, or a failure.
 
 ## Switching on and off
 

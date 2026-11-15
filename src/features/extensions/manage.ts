@@ -135,7 +135,7 @@ export async function addFromStore(store: ExtensionStore, id: string): Promise<v
 }
 
 /**
- * Downloads an update a check of the stores kept for review, then waits for
+ * Downloads an update that a check of the stores kept for review, then waits for
  * {@link answerExtension} while settings shows what it may do, under the
  * extension's row. A failure is reported by the command.
  * [Extensions § Updates from the stores](../../../docs/specs/extensions.md#updates-from-the-stores).

@@ -914,7 +914,10 @@ export type ExtensionUpdateCheck = {
 	error: HakuError | null,
 };
 
-/**  What the extensions folder holds, as last installed. */
+/**
+ *  What the extensions folder holds, as last installed, and the updates
+ *  found in the stores that wait for review, which only memory holds.
+ */
 export type Extensions = {
 	installed: Extension[],
 	/**
