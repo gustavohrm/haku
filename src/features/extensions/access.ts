@@ -11,6 +11,7 @@ const SENTENCES: Record<Exclude<ExtensionAccess["kind"], "sites">, TranslationKe
   topSites: "extensions.access.topSites",
   bookmarks: "extensions.access.bookmarks",
   downloads: "extensions.access.downloads",
+  browsingData: "extensions.access.browsingData",
   readClipboard: "extensions.access.readClipboard",
   writeClipboard: "extensions.access.writeClipboard",
   blockContent: "extensions.access.blockContent",
@@ -39,7 +40,7 @@ export function describeAccess(access: ExtensionAccess): string {
   const rest = access.hosts.length - SITES_NAMED;
   const sites =
     rest > 0
-      ? t("extensions.access.sites.more")
+      ? t(rest === 1 ? "extensions.access.sites.more.one" : "extensions.access.sites.more.many")
           .replace("{sites}", () => named)
           .replace("{count}", String(rest))
       : named;

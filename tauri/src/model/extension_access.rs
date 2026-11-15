@@ -28,6 +28,9 @@ pub enum ExtensionAccess {
     TopSites,
     Bookmarks,
     Downloads,
+    /// `browsingData`: clearing history, cookies, cache and stored data.
+    /// Chrome does not warn about it; Haku does, as it can wipe the profile.
+    BrowsingData,
     ReadClipboard,
     WriteClipboard,
     /// `declarativeNetRequest`.
@@ -133,7 +136,9 @@ fn covered(access: &ExtensionAccess, before: &[ExtensionAccess]) -> bool {
         ExtensionAccess::Sites(hosts) => {
             before.contains(&ExtensionAccess::AllSites)
                 || before.iter().any(|old| match old {
-                    ExtensionAccess::Sites(old) => hosts.iter().all(|host| old.contains(host)),
+                    ExtensionAccess::Sites(old) => {
+                        hosts.iter().all(|host| old.iter().any(|old| host_covers(old, host)))
+                    }
                     _ => false,
                 })
         }
@@ -144,6 +149,17 @@ fn covered(access: &ExtensionAccess, before: &[ExtensionAccess]) -> bool {
     }
 }
 
+/// Whether the host pattern `old` reaches every host `new` does: the same
+/// pattern, or `*.` a domain that `new` is, or is under. A bare host does not
+/// reach `*.` itself, which adds its subdomains.
+fn host_covers(old: &str, new: &str) -> bool {
+    old == new
+        || old.strip_prefix("*.").is_some_and(|domain| {
+            let new = new.strip_prefix("*.").unwrap_or(new);
+            new == domain || new.ends_with(&format!(".{domain}"))
+        })
+}
+
 fn warned(permission: &str) -> Option<ExtensionAccess> {
     Some(match permission {
         "history" => ExtensionAccess::ChangeHistory,
@@ -151,6 +167,7 @@ fn warned(permission: &str) -> Option<ExtensionAccess> {
         "topSites" => ExtensionAccess::TopSites,
         "bookmarks" => ExtensionAccess::Bookmarks,
         "downloads" => ExtensionAccess::Downloads,
+        "browsingData" => ExtensionAccess::BrowsingData,
         "clipboardRead" => ExtensionAccess::ReadClipboard,
         "clipboardWrite" => ExtensionAccess::WriteClipboard,
         "declarativeNetRequest" => ExtensionAccess::BlockContent,
@@ -268,6 +285,29 @@ mod tests {
         assert!(warnings(more_sites, Some(installed))[0].new);
         assert!(!warnings(more_sites, Some(r#"{"host_permissions": ["<all_urls>"]}"#))[0].new);
         assert!(!warnings(r#"{"permissions": ["tabs"]}"#, Some(r#"{"permissions": ["history"]}"#))[0].new);
+    }
+
+    #[test]
+    fn a_host_under_a_domain_already_reached_is_not_new() {
+        let before = Some(r#"{"host_permissions": ["*://*.example.com/*"]}"#);
+        let new = |manifest| warnings(manifest, before)[0].new;
+        assert!(!new(r#"{"host_permissions": ["https://mail.example.com/*"]}"#));
+        assert!(!new(r#"{"host_permissions": ["https://example.com/*"]}"#));
+        assert!(!new(r#"{"host_permissions": ["https://*.mail.example.com/*"]}"#));
+        assert!(new(r#"{"host_permissions": ["https://notexample.com/*"]}"#));
+        assert!(new(r#"{"host_permissions": ["https://example.org/*"]}"#));
+        let bare = Some(r#"{"host_permissions": ["https://example.com/*"]}"#);
+        assert!(warnings(r#"{"host_permissions": ["https://*.example.com/*"]}"#, bare)[0].new);
+        let narrower = Some(r#"{"host_permissions": ["https://mail.example.com/*"]}"#);
+        assert!(warnings(r#"{"host_permissions": ["*://*.example.com/*"]}"#, narrower)[0].new);
+    }
+
+    #[test]
+    fn browsing_data_is_warned_about() {
+        assert_eq!(
+            access(r#"{"permissions": ["browsingData"]}"#),
+            [ExtensionAccess::BrowsingData]
+        );
     }
 
     #[test]

@@ -39,15 +39,14 @@ export function placePanel(
   button: Pick<DOMRect, "left" | "right" | "top" | "bottom">,
   width: number,
   height: number,
+  panelWidth = PANEL_WIDTH,
 ): PanelPlace {
   const opensBelow = height - button.bottom >= PANEL_ROOM || height - button.bottom >= button.top;
   const vertical = opensBelow
     ? { top: button.bottom + MENU_GAP, maxHeight: height - button.bottom - 2 * MENU_GAP }
     : { bottom: height - button.top + MENU_GAP, maxHeight: button.top - 2 * MENU_GAP };
   const horizontal =
-    button.right >= PANEL_WIDTH + MENU_GAP
-      ? { right: width - button.right }
-      : { left: Math.max(MENU_GAP, button.left) };
+    button.right >= panelWidth + MENU_GAP ? { right: width - button.right } : { left: Math.max(MENU_GAP, button.left) };
   return { ...vertical, ...horizontal };
 }
 

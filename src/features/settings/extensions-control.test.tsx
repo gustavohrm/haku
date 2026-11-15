@@ -135,6 +135,7 @@ describe("adding an extension", () => {
   beforeEach(() => {
     commands.addExtension.mockClear();
     commands.confirmExtension.mockClear();
+    success.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -181,9 +182,38 @@ describe("adding an extension", () => {
     expect(commands.confirmExtension).not.toHaveBeenCalled();
     expect(button("File…")?.disabled).toBe(true);
 
+    commands.confirmExtension.mockResolvedValueOnce({
+      status: "ok",
+      data: { extension: { ...EXTENSION, name: "Notes", version: "2.1" }, replaced: null },
+    });
     await act(async () => button("Add")!.click());
     expect(commands.confirmExtension).toHaveBeenCalledWith(4, true);
     expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(success).toHaveBeenCalledWith({ title: "Notes added" });
+  });
+
+  it("says which versions an update went between", async () => {
+    await asked({ token: 6, name: "Reader", version: "2.0", icon: null, replaces: EXTENSION, warnings: [] });
+    commands.confirmExtension.mockResolvedValueOnce({
+      status: "ok",
+      data: { extension: { ...EXTENSION, version: "2.0" }, replaced: "1.0" },
+    });
+    await act(async () => button("Update")!.click());
+    expect(success).toHaveBeenCalledWith({ title: "Reader updated", description: expect.stringContaining("1.0") });
+  });
+
+  it("asks about an update under Add an extension while a search hides the installed list", async () => {
+    act(() => root.render(<AddExtensionControl {...props} />));
+    const question = await asked({
+      token: 8,
+      name: "Reader",
+      version: "2.0",
+      icon: null,
+      replaces: EXTENSION,
+      warnings: [],
+    });
+    expect(question?.textContent).toContain("Update to Reader 2.0?");
+    await act(async () => button("Cancel")!.click());
   });
 
   it("asks about an update on its extension's row, marks what it adds, and Esc deletes it", async () => {
@@ -210,5 +240,6 @@ describe("adding an extension", () => {
     expect(commands.confirmExtension).toHaveBeenCalledWith(5, false);
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(button("File…")?.disabled).toBe(false);
+    expect(success).not.toHaveBeenCalled();
   });
 });

@@ -86,6 +86,18 @@ it("answers no when the tab leaves the page while it asks", async () => {
   expect(commands.confirmExtension).toHaveBeenCalledWith(7, false);
 });
 
+it("answers no to a download that arrives after the tab left the page", async () => {
+  let finish: (value: unknown) => void = () => {};
+  commands.addExtensionFromStore.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+  await act(async () => button().click());
+  await act(async () => root.render(<></>));
+  await act(async () => finish({ status: "ok", data: TO_ADD }));
+  expect(commands.confirmExtension).toHaveBeenCalledWith(7, false);
+  await act(async () => root.render(<StoreButton id={ID} />));
+  expect(question()).toBeNull();
+  expect(button().disabled).toBe(false);
+});
+
 it("asks nothing when the download fails", async () => {
   commands.addExtensionFromStore.mockResolvedValue({ status: "error", error: { kind: "network" } });
   await add();

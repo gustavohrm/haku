@@ -8,6 +8,7 @@ describe("storeExtensionId", () => {
   it("reads the id from a detail page, with or without its name", () => {
     expect(storeExtensionId(`https://chromewebstore.google.com/detail/ublock-origin-lite/${ID}`)).toBe(ID);
     expect(storeExtensionId(`https://chromewebstore.google.com/detail/${ID}`)).toBe(ID);
+    expect(storeExtensionId(`https://chromewebstore.google.com/detail/${"a".repeat(32)}/${ID}`)).toBe(ID);
     expect(storeExtensionId(`https://chromewebstore.google.com/detail/name/${ID}?hl=en&pli=1#reviews`)).toBe(ID);
     expect(storeExtensionId(`https://chromewebstore.google.com/detail/name/${ID}/reviews`)).toBe(ID);
     expect(storeExtensionId(`https://chrome.google.com/webstore/detail/name/${ID}`)).toBe(ID);

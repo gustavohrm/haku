@@ -825,7 +825,12 @@ export type ExtensionAccess =
  *  `tabs`, `webNavigation`, `sessions` or `declarativeNetRequestFeedback`,
  *  which see the addresses visited.
  */
-{ kind: "readHistory" } | { kind: "topSites" } | { kind: "bookmarks" } | { kind: "downloads" } | { kind: "readClipboard" } | { kind: "writeClipboard" } | 
+{ kind: "readHistory" } | { kind: "topSites" } | { kind: "bookmarks" } | { kind: "downloads" } | 
+/**
+ *  `browsingData`: clearing history, cookies, cache and stored data.
+ *  Chrome does not warn about it; Haku does, as it can wipe the profile.
+ */
+{ kind: "browsingData" } | { kind: "readClipboard" } | { kind: "writeClipboard" } | 
 /**  `declarativeNetRequest`. */
 { kind: "blockContent" } | 
 /**  `tabCapture`, `desktopCapture` or `pageCapture`. */

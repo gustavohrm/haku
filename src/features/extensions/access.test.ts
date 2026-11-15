@@ -10,6 +10,9 @@ describe("describeAccess", () => {
     expect(describeAccess({ kind: "sites", hosts: ["a.test", "b.test", "c.test", "d.test", "e.test"] })).toBe(
       "Read and change your data on a.test, b.test, c.test and 2 more sites",
     );
+    expect(describeAccess({ kind: "sites", hosts: ["a.test", "b.test", "c.test", "d.test"] })).toBe(
+      "Read and change your data on a.test, b.test, c.test and 1 more site",
+    );
   });
 
   it("says what every other access allows", () => {

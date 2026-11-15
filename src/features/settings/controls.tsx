@@ -31,7 +31,7 @@ import { applySettingsPreset } from "@ipc/store";
 import { cx } from "@shared/class-names";
 import { t, type TranslationKey } from "@shared/i18n";
 import { getVersion } from "@tauri-apps/api/app";
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import { DraftInput } from "./draft-input";
 import { EMPTY_WELL, LIST_WELL } from "./rows";
@@ -607,10 +607,13 @@ export function AddExtensionControl({ labelId, describedBy }: ControlProps) {
   const asked = useExtensionToAdd("settings");
   const extensions = useExtensions();
   const adding = change === ADDING && asked === null;
-  // An update is asked about on its extension's row, while that is listed.
+  const listShown = useInstalledListShown();
+  // An update is asked about on its extension's row, while that is listed
+  // and not hidden by a search.
   const askedHere =
     asked !== null &&
     (asked.replaces === null ||
+      !listShown ||
       !extensions?.installed.some((extension) => extension.folder === asked.replaces?.folder));
   return (
     <div className="flex flex-col gap-2">
@@ -697,7 +700,32 @@ function UninstallQuestion({
   );
 }
 
+/** How many **Installed extensions** lists are drawn: none while a search hides the row. */
+let installedLists = 0;
+const installedListeners = new Set<() => void>();
+
+function countInstalledList(change: number) {
+  installedLists += change;
+  for (const listener of installedListeners) {
+    listener();
+  }
+}
+
+function useInstalledListShown(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      installedListeners.add(listener);
+      return () => installedListeners.delete(listener);
+    },
+    () => installedLists > 0,
+  );
+}
+
 export function ExtensionsControl({ labelId, settings, update }: ControlProps) {
+  useEffect(() => {
+    countInstalledList(1);
+    return () => countInstalledList(-1);
+  }, []);
   const extensions = useExtensions();
   const change = useExtensionChange();
   const toAdd = useExtensionToAdd("settings");

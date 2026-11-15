@@ -163,7 +163,7 @@ Extensions come in two tiers:
 1. **User scripts and user styles**, injected by Rust into pages matching a URL pattern. They run as part of the page and gain no channel into the application.
 2. **Chrome extensions**, through WebView2's extension support, added from a file or folder, or from the Chrome Web Store. Chromium sees each pool webview as a tab, not Haku's tabs, so extensions built on tab APIs will misbehave. Content-script and request-filtering extensions are the expected fit. Bitwarden is the motivating case; its in-page autofill and passkeys work, and its popup opens from the toolbar.
 
-Before any extension is installed or updated, from any source, Haku shows what its manifest lets it do, and installs it only when the user says so ([Extensions § Before installing](specs/extensions.md#before-installing)).
+Before an extension is added or updated in settings or from the store, Haku shows what its manifest lets it do, and installs it only when the user says so. One placed in the extensions folder by hand is installed at the next start without a question, since the user put it there ([Extensions § Before installing](specs/extensions.md#before-installing)).
 
 **The Chrome Web Store** (decided 2026-11-15). A store page gets an **Add to Haku** button drawn by the chrome, not by the page. Rust downloads the extension from the store by its id and installs it through the same question, once its download is verified as signed by the store. That is one request to Google, made only when the user asks for it. Checking installed store extensions for updates is a separate decision, not yet made: it would contact Google on a schedule with the list of installed ids, which [Security](guidelines/security.md) allows only with a way to turn it off.
 

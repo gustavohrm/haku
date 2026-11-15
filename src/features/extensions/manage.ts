@@ -28,6 +28,9 @@ export type AskedFrom = "settings" | "store";
 /** The extension unpacked and waiting for the user to say whether to install it. */
 let asking: ExtensionToAdd | null = null;
 let askedFrom: AskedFrom = "settings";
+/** Whether a store download is running, and whether its button has gone since it started. */
+let storeDownloading = false;
+let storeLeft = false;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -106,16 +109,37 @@ export async function addFromStore(id: string): Promise<void> {
     return;
   }
   setBusy(ADDING);
+  storeDownloading = true;
+  storeLeft = false;
   let waiting: ExtensionToAdd | null = null;
   try {
     const result = await commands.addExtensionFromStore(id);
     waiting = result.status === "ok" ? result.data : null;
   } finally {
+    storeDownloading = false;
+    if (waiting !== null && storeLeft) {
+      // Nothing is left to ask from, so it is answered no.
+      void commands.confirmExtension(waiting.token, false);
+      waiting = null;
+    }
     if (waiting === null) {
       setBusy(null);
     } else {
       setAsking(waiting, "store");
     }
+  }
+}
+
+/**
+ * Called when **Add to Haku** goes, as when the tab leaves the store page:
+ * the question it asks is answered no, and so is one still downloading, once
+ * it arrives.
+ */
+export function leaveStore(): void {
+  if (asking !== null && askedFrom === "store") {
+    void answerExtension(false);
+  } else if (storeDownloading) {
+    storeLeft = true;
   }
 }
 

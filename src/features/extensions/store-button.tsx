@@ -7,9 +7,12 @@ import { createPortal } from "react-dom";
 
 import { AddQuestion } from "./add-question";
 import { placePanel } from "./extensions-bar";
-import { ADDING, addFromStore, answerExtension, useExtensionChange, useExtensionToAdd } from "./manage";
+import { ADDING, addFromStore, answerExtension, leaveStore, useExtensionChange, useExtensionToAdd } from "./manage";
 
 type PanelPlace = ReturnType<typeof placePanel>;
+
+/** The panel's width, `w-80`. */
+const PANEL_WIDTH = 320;
 
 /**
  * **Add to Haku**, shown in the toolbar while the tab is on an extension's
@@ -34,7 +37,7 @@ export function StoreButton({ id }: { id: string }) {
     setPlace(
       asked === null || !button
         ? null
-        : placePanel(button, document.documentElement.clientWidth, document.documentElement.clientHeight),
+        : placePanel(button, document.documentElement.clientWidth, document.documentElement.clientHeight, PANEL_WIDTH),
     );
   }, [asked]);
 
@@ -53,18 +56,7 @@ export function StoreButton({ id }: { id: string }) {
   }, [open]);
 
   // Leaving the store page takes the button, and with it the question, away.
-  const waiting = useRef(false);
-  useEffect(() => {
-    waiting.current = asked !== null;
-  }, [asked]);
-  useEffect(
-    () => () => {
-      if (waiting.current) {
-        void answerExtension(false);
-      }
-    },
-    [],
-  );
+  useEffect(() => leaveStore, []);
 
   const adding = change === ADDING && asked === null;
   return (

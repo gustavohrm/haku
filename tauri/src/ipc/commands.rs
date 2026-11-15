@@ -3001,7 +3001,10 @@ pub async fn add_extension_from_store(
             "extensions are not added from a private window".into(),
         ));
     }
-    extensions::add_from_store(&app, &id)
+    // The download takes up to minutes, too long to hold a runtime worker.
+    tauri::async_runtime::spawn_blocking(move || extensions::add_from_store(&app, &id))
+        .await
+        .map_err(|error| HakuError::Unsupported(format!("adding the extension stopped: {error}")))?
 }
 
 /// Uninstalls the extension installed from `folder`, with what it stored, and

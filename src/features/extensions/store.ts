@@ -36,6 +36,7 @@ export function storeExtensionId(url: string): string | null {
   } else {
     return null;
   }
-  // The id follows the name, or `detail` when there is none.
-  return detail.slice(0, 2).find((segment) => EXTENSION_ID.test(segment)) ?? null;
+  // The id follows the name, or `detail` when there is none; a name can look
+  // like an id, so the place after it is tried first.
+  return [detail[1], detail[0]].find((segment) => segment !== undefined && EXTENSION_ID.test(segment)) ?? null;
 }

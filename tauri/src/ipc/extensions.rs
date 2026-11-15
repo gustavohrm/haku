@@ -48,7 +48,11 @@ const FALLBACK_ENGINE_VERSION: &str = "155.0.4283.62";
 /// the token that names it. One at a time: asking about another discards it.
 /// Its folder starts with `.`, so one left when Haku quits is deleted at the
 /// next start.
-static PENDING: Mutex<Option<(u32, PathBuf)>> = Mutex::new(None);
+static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
+
+/// The extension waiting: its token, its staging folder, and the folder of
+/// the installed extension the user was told it updates.
+type Pending = (u32, PathBuf, Option<String>);
 static NEXT_TOKEN: AtomicU32 = AtomicU32::new(1);
 
 pub(crate) fn lock(state: &AppState) -> MutexGuard<'_, ()> {
@@ -243,7 +247,22 @@ pub fn add_from_store(app: &tauri::AppHandle, id: &str) -> Result<ExtensionToAdd
     let bytes = net::fetch_bytes(&store_download_url(id, &engine), STORE_TIMEOUT, limit)
         .map_err(|error| HakuError::Unsupported(format!("the Chrome Web Store did not send the extension: {error}")))?;
     package::verify_store_crx(&bytes, id)?;
-    stage(app, |staging| package::unpack(&bytes, staging))
+    stage(app, |staging| {
+        package::unpack(&bytes, staging)?;
+        // A manifest `key` is kept over the header's, and decides which
+        // installed extension this updates, so it must be the id asked for.
+        let manifest = package::read_manifest(&staging.join("manifest.json"))?;
+        let key_id = key(&manifest)
+            .and_then(|key| package::decode_key(&key))
+            .map(|bytes| id_from_key(&bytes));
+        if key_id.as_deref() == Some(id) {
+            Ok(())
+        } else {
+            Err(HakuError::Unsupported(
+                "the download from the Chrome Web Store names another extension in its manifest".into(),
+            ))
+        }
+    })
 }
 
 /// Unpacks an extension into a new staging folder with `fill`, and keeps it
@@ -251,14 +270,15 @@ pub fn add_from_store(app: &tauri::AppHandle, id: &str) -> Result<ExtensionToAdd
 fn stage(app: &tauri::AppHandle, fill: impl FnOnce(&Path) -> Result<()>) -> Result<ExtensionToAdd> {
     let state = app.state::<AppState>();
     let _turn = lock(&state);
-    discard(take_pending(None));
+    discard(take_pending(None).map(|(staging, _)| staging));
     let root = &state.paths.extensions;
     std::fs::create_dir_all(root)?;
     let staging = root.join(format!(".adding-{}", now_ms()));
     match fill(&staging).and_then(|()| ask(&state, &staging)) {
         Ok(mut asked) => {
             asked.token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
-            *PENDING.lock().unwrap_or_else(PoisonError::into_inner) = Some((asked.token, staging));
+            let replaces = asked.replaces.as_ref().map(|previous| previous.folder.clone());
+            *PENDING.lock().unwrap_or_else(PoisonError::into_inner) = Some((asked.token, staging, replaces));
             Ok(asked)
         }
         Err(error) => {
@@ -297,12 +317,22 @@ pub fn confirm(app: &tauri::AppHandle, token: u32, install: bool) -> Result<Opti
     let state = app.state::<AppState>();
     let added = {
         let _turn = lock(&state);
-        let staging = take_pending(Some(token)).ok_or_else(|| {
+        let (staging, replaces) = take_pending(Some(token)).ok_or_else(|| {
             HakuError::Unsupported("that extension is no longer waiting to be added; add it again".into())
         })?;
         if !install {
             discard(Some(staging));
             return Ok(None);
+        }
+        // The user agreed to add it, or to update one extension; what is
+        // installed may have changed since, as from another window.
+        let now = inspect(&state, &staging).map(|found| found.previous.map(|previous| previous.folder));
+        if now.as_ref().ok() != Some(&replaces) {
+            discard(Some(staging));
+            now?;
+            return Err(HakuError::Unsupported(
+                "the installed extensions changed while you were asked; add it again".into(),
+            ));
         }
         let added = place(app, &state, &staging);
         // Gone already when it took the extension's place.
@@ -315,12 +345,12 @@ pub fn confirm(app: &tauri::AppHandle, token: u32, install: bool) -> Result<Opti
 
 /// Takes the folder of the extension waiting, when it is `token`'s, or
 /// whichever it is when no token is given.
-fn take_pending(token: Option<u32>) -> Option<PathBuf> {
+fn take_pending(token: Option<u32>) -> Option<(PathBuf, Option<String>)> {
     let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
-    if token.is_some_and(|token| pending.as_ref().is_some_and(|(waiting, _)| *waiting != token)) {
+    if token.is_some_and(|token| pending.as_ref().is_some_and(|(waiting, ..)| *waiting != token)) {
         return None;
     }
-    pending.take().map(|(_, staging)| staging)
+    pending.take().map(|(_, staging, replaces)| (staging, replaces))
 }
 
 fn discard(staging: Option<PathBuf>) {
@@ -692,9 +722,9 @@ mod tests {
 
     #[test]
     fn only_the_extension_waiting_can_be_answered() {
-        *PENDING.lock().unwrap() = Some((7, PathBuf::from(".adding-7")));
+        *PENDING.lock().unwrap() = Some((7, PathBuf::from(".adding-7"), None));
         assert_eq!(take_pending(Some(6)), None);
-        assert_eq!(take_pending(Some(7)), Some(PathBuf::from(".adding-7")));
+        assert_eq!(take_pending(Some(7)), Some((PathBuf::from(".adding-7"), None)));
         assert_eq!(take_pending(Some(7)), None, "answered once");
     }
 
